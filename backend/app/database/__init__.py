@@ -15,6 +15,8 @@ from .guard import (
     safe_guard_payload,
 )
 from .migrations import (
+    ACCOUNT_VERIFICATION_MIGRATION,
+    ACCOUNT_VERIFICATION_SCHEMA_SQL,
     ADMIN_NOTIFICATION_DELIVERY_MIGRATION,
     ADMIN_NOTIFICATION_DELIVERY_SCHEMA_SQL,
     ADMIN_NOTIFICATIONS_MIGRATION,
@@ -26,6 +28,7 @@ from .migrations import (
     MigrationDefinition,
     USER_EARLY_ADDITIVE_COLUMNS,
     add_missing_columns,
+    apply_account_verification_migration,
     apply_admin_notification_delivery_migration,
     apply_admin_notifications_migration,
     ensure_migration_ledger,
@@ -46,6 +49,8 @@ from .schema_groups import (
 )
 
 __all__ = [
+    "ACCOUNT_VERIFICATION_MIGRATION",
+    "ACCOUNT_VERIFICATION_SCHEMA_SQL",
     "DbGuardError",
     "BASE_SCHEMA_SQL",
     "IDENTITY_SCHEMA_SQL",
@@ -68,6 +73,7 @@ __all__ = [
     "IMAGE_SOURCE_ADDITIVE_COLUMNS",
     "USER_EARLY_ADDITIVE_COLUMNS",
     "add_missing_columns",
+    "apply_account_verification_migration",
     "apply_admin_notification_delivery_migration",
     "apply_admin_notifications_migration",
     "collect_sqlite_guard_status",

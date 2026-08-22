@@ -248,6 +248,32 @@
   color: #ff9292;
 }
 
+.auth-verification-warning {
+  padding: 12px;
+  border: 1px solid rgba(255, 184, 77, 0.55);
+  border-radius: 8px;
+  background: rgba(255, 184, 77, 0.09);
+  color: #ffd08a;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.auth-social-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.auth-social-actions > button {
+  width: 100%;
+}
+
+@media (max-width: 420px) {
+  .auth-social-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
 .auth-modal .auth-modal-hint,
 .auth-modal .consent-check,
 .auth-modal .auth-modal-back {

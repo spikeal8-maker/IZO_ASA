@@ -27,6 +27,7 @@ from . import feed_sources
 from . import feed_downloads
 from . import feed_policy
 from .comfyui_results import ComfyUIResult
+from .account_retention import AccountRetentionWorker, cleanup_due_unverified_accounts, enforce_due_unverified_login
 from .telegram_updates import (
     TelegramUpdateRuntime,
     handle_telegram_update_with_runtime,
@@ -77,6 +78,9 @@ __all__ = [
     "feed_downloads",
     "feed_policy",
     "ComfyUIResult",
+    "AccountRetentionWorker",
+    "cleanup_due_unverified_accounts",
+    "enforce_due_unverified_login",
     "TelegramUpdateRuntime",
     "handle_telegram_update_with_runtime",
     "handle_telegram_updates_with_runtime",

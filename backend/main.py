@@ -160,10 +160,12 @@ except ImportError:  # Direct `python backend/main.py` execution.
     )
 
 try:
+    from .app.security.account_verification import complete_social_verification, ensure_social_requirement, generation_block_detail, get_social_verification, upsert_web_email_identity
     from .app.security.bot_login import BotLoginAccessError, BotLoginRateLimits, BotLoginRuntime, bot_login_approval_retry_result, create_bot_login_challenge as security_create_bot_login_challenge, pending_bot_login_challenges_count
     from .app.security.http_requests import AvatarImageError, compress_allowlisted_avatar
     from .app.security.http_middleware import install_http_security_middleware
 except ImportError:  # Direct `python backend/main.py` execution.
+    from app.security.account_verification import complete_social_verification, ensure_social_requirement, generation_block_detail, get_social_verification, upsert_web_email_identity
     from app.security.bot_login import BotLoginAccessError, BotLoginRateLimits, BotLoginRuntime, bot_login_approval_retry_result, create_bot_login_challenge as security_create_bot_login_challenge, pending_bot_login_challenges_count
     from app.security.http_requests import AvatarImageError, compress_allowlisted_avatar
     from app.security.http_middleware import install_http_security_middleware
@@ -314,6 +316,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
 
 try:
     from .app.services import (
+        AccountRetentionWorker, cleanup_due_unverified_accounts, enforce_due_unverified_login,
         ComfyUIResult,
         MaxUpdateRuntime,
         TelegramUpdateRuntime,
@@ -362,6 +365,7 @@ try:
     )
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.services import (
+        AccountRetentionWorker, cleanup_due_unverified_accounts, enforce_due_unverified_login,
         ComfyUIResult,
         MaxUpdateRuntime,
         TelegramUpdateRuntime,
@@ -497,10 +501,11 @@ except ImportError:  # Direct `python backend/main.py` execution.
 
 try:
     from .app.database import (
+        ACCOUNT_VERIFICATION_MIGRATION,
         ADMIN_NOTIFICATION_DELIVERY_MIGRATION, ADMIN_NOTIFICATIONS_MIGRATION,
         DbGuardError,
         LEGACY_BASELINE_MIGRATION,
-        apply_admin_notification_delivery_migration, apply_admin_notifications_migration,
+        apply_account_verification_migration, apply_admin_notification_delivery_migration, apply_admin_notifications_migration,
         backfill_identity_core,
         collect_sqlite_guard_status,
         database_size_mb,
@@ -521,10 +526,11 @@ try:
 
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.database import (
+        ACCOUNT_VERIFICATION_MIGRATION,
         ADMIN_NOTIFICATION_DELIVERY_MIGRATION, ADMIN_NOTIFICATIONS_MIGRATION,
         DbGuardError,
         LEGACY_BASELINE_MIGRATION,
-        apply_admin_notification_delivery_migration, apply_admin_notifications_migration,
+        apply_account_verification_migration, apply_admin_notification_delivery_migration, apply_admin_notifications_migration,
         backfill_identity_core,
         collect_sqlite_guard_status,
         database_size_mb,
@@ -1851,7 +1857,7 @@ def init_db() -> None:
     with db() as conn:
         ensure_migration_ledger(
             conn,
-            supported_version=ADMIN_NOTIFICATION_DELIVERY_MIGRATION.version,
+            supported_version=ACCOUNT_VERIFICATION_MIGRATION.version,
         )
         prepare_core_schema_group(conn)
         ensure_outbox_schema(conn)
@@ -1875,6 +1881,7 @@ def init_db() -> None:
         finalize_legacy_schema_baseline(conn, applied_at=now)
         apply_admin_notifications_migration(conn, applied_at=now)
         apply_admin_notification_delivery_migration(conn, applied_at=now)
+        apply_account_verification_migration(conn, applied_at=now)
 
 PROVIDER_CODE_PREFIX = {"web_email": "WEB", "telegram": "TG", "max": "MAX"}
 
@@ -2565,6 +2572,9 @@ def approve_bot_login_challenge(
                 record_login_attempt(conn, provider, False, identifier=provider_user_id, internal_user_id=target_internal_user_id, failure_reason="identity_conflict", platform=f"{provider}_link")
                 return False
             internal_user_id = target_internal_user_id
+            complete_social_verification(conn, internal_user_id, provider=provider,
+                                         provider_user_id=provider_user_id, now=now,
+                                         initialize_intro_tariff=_initialize_intro_tariff_if_new)
             if linked:
                 grant_auth_link_reward(conn, internal_user_id, provider, now)
             platform = f"{provider}_link"
@@ -2808,67 +2818,8 @@ def enforce_email_otp_rate_limits(
         raise HTTPException(exc.status_code, exc.message) from exc
 
 
-def email_otp_upsert_identity(conn: sqlite3.Connection, email_norm: str, now: str) -> tuple[str, str]:
-    """Resolve/create the canonical identity for a verified email (provider='web_email').
-
-    provider_user_id is the normalized email. We do NOT link by the legacy
-    users.email column (it is client-supplied and unverified, so linking could
-    hijack a Telegram/MAX account) — repeated logins reuse via the auth_identities
-    lookup instead. Never changes an existing users.id; never auto-merges with
-    Telegram/MAX identities.
-    """
-    existing = conn.execute(
-        "SELECT id, internal_user_id, legacy_user_id FROM auth_identities WHERE provider = 'web_email' AND provider_user_id = ?",
-        (email_norm,),
-    ).fetchone()
-    if existing:
-        conn.execute(
-            "UPDATE auth_identities SET provider_email = ?, verified_at = ?, last_login_at = ? WHERE id = ?",
-            (email_norm, now, now, existing["id"]),
-        )
-        if existing["legacy_user_id"]:
-            conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now, existing["legacy_user_id"]))
-        return existing["internal_user_id"], existing["legacy_user_id"]
-
-    legacy_user_id = f"web_{uuid.uuid4().hex}"
-    internal_user_id = uuid.uuid4().hex
-    user_columns = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
-    has_email_col = "email" in user_columns
-    avatar_url, avatar_preset = random_avatar_choice()
-    if has_email_col:
-        conn.execute(
-            """
-            INSERT OR IGNORE INTO users
-                (id, email, language, role, plan, gallery_enabled, avatar_url, avatar_preset, created_at, last_login_at, internal_user_id)
-            VALUES (?, ?, 'ru', 'user', 'mini', 1, ?, ?, ?, ?, ?)
-            """,
-            (legacy_user_id, email_norm, avatar_url, avatar_preset, now, now, internal_user_id),
-        )
-    else:
-        conn.execute(
-            """
-            INSERT OR IGNORE INTO users
-                (id, language, role, avatar_url, avatar_preset, created_at, last_login_at, internal_user_id)
-            VALUES (?, 'ru', 'user', ?, ?, ?, ?, ?)
-            """,
-            (legacy_user_id, avatar_url, avatar_preset, now, now, internal_user_id),
-        )
-    row = conn.execute("SELECT id, internal_user_id FROM users WHERE id = ?", (legacy_user_id,)).fetchone()
-    if row and row["internal_user_id"]:
-        internal_user_id = row["internal_user_id"]
-
-    conn.execute(
-        """
-        INSERT OR IGNORE INTO auth_identities
-            (id, internal_user_id, legacy_user_id, provider, provider_user_id, provider_email,
-             raw_profile_json, verified_at, linked_at, last_login_at)
-        VALUES (?, ?, ?, 'web_email', ?, ?, ?, ?, ?, ?)
-        """,
-        (uuid.uuid4().hex, internal_user_id, legacy_user_id, email_norm, email_norm,
-         json.dumps({"email": email_norm}, ensure_ascii=False), now, now, now),
-    )
-    _initialize_intro_tariff_if_new(conn, legacy_user_id, now)
-    return internal_user_id, legacy_user_id
+def email_otp_upsert_identity(conn: sqlite3.Connection, email_norm: str, now: str, *, verified: bool = True, initialize_intro: bool = True) -> tuple[str, str]:
+    return upsert_web_email_identity(conn, email_norm, now, verified=verified, initialize_intro=initialize_intro, random_avatar_choice=random_avatar_choice, initialize_intro_tariff=_initialize_intro_tariff_if_new)
 
 
 def _user_is_banned(conn: sqlite3.Connection, internal_user_id: str | None, legacy_user_id: str | None) -> bool:
@@ -3637,6 +3588,12 @@ def require_trusted_user(request: Request) -> dict[str, Any]:
     trusted = resolve_trusted_user(request)
     expire_paid_plan_if_needed(trusted["internal_user_id"])
     return trusted
+
+
+def require_generation_social_verification(trusted: dict[str, Any]) -> None:
+    with db() as conn:  # Resource-consuming routes share the same social-proof gate.
+        detail = generation_block_detail(conn, trusted["internal_user_id"], now=datetime.now(timezone.utc).isoformat())
+    if detail: raise HTTPException(403, detail=detail)
 
 
 def require_trusted_admin(request: Request) -> dict[str, Any]:
@@ -5914,6 +5871,7 @@ def send_transactional_email(destination: str, subject: str, html: str) -> str:
 ADMIN_NOTIFICATION_DELIVERY_WORKER = AdminNotificationDeliveryWorker()
 send_admin_telegram_notification, send_admin_email_notification = build_admin_delivery_transports(telegram_api=telegram_api, send_transactional_email=send_transactional_email, html_escape=html_escape)
 SOCIAL_DELIVERY_WORKER = SocialDeliveryWorker()
+ACCOUNT_RETENTION_WORKER = AccountRetentionWorker()
 send_social_telegram_publication = build_telegram_social_sender(telegram_api=request_telegram_bot_api, telegram_image_api=send_telegram_photo_url, telegram_video_api=send_telegram_video_url, settings_getter=lambda: _saved_setting("social_syndication"), token_getter=lambda: OPENROUTER_SECRET_STORE.get("social_telegram_access_token"), public_site_url_getter=lambda: os.getenv("PUBLIC_SITE_URL", ""))
 async def send_social_max_api(*, token: str, target_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     return await request_max_api(token=token, base_url=MAX_API_BASE_URL, verify=MAX_HTTP_VERIFY,
@@ -7778,6 +7736,8 @@ async def startup() -> None:
         send_vk=send_social_vk_publication, send_vk_story=send_social_vk_story, delete_social=delete_social_publication,
     )
     enforce_db_guard_after_migrations()
+    if is_production_like_env():
+        ACCOUNT_RETENTION_WORKER.start_with_cleanup(connect=db, record_security_event=record_security_event)
     generation_recovery_report = reconcile_stale_generation_state()
     if generation_recovery_report["checked"]:
         print(f"generation startup reconciliation: {generation_recovery_report}")
@@ -7826,6 +7786,7 @@ async def startup() -> None:
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
+    await ACCOUNT_RETENTION_WORKER.stop()
     await ADMIN_NOTIFICATION_DELIVERY_WORKER.stop()
     await SOCIAL_DELIVERY_WORKER.stop()
     await stop_feed_video_publication_worker()
@@ -8124,6 +8085,7 @@ async def transcribe_audio(
 async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
     req = normalize_generation_request(req)
     trusted = require_trusted_user(request)
+    require_generation_social_verification(trusted)
     user_id = trusted["legacy_user_id"]
     internal_user_id = trusted["internal_user_id"]
     session_id = trusted.get("session_id")
@@ -9903,9 +9865,10 @@ async def auth_password_register_v2(req: PasswordRegisterV2Request, request: Req
     """Browser email+password registration. Creates/attaches a web_email identity +
     Argon2id password, and records consents. If email verification is available,
     no trusted session is issued until verify-code-v2 succeeds. If email
-    verification is unavailable, registration falls back to issuing a trusted
-    cookie session after password+consent validation. Never stores/logs the raw
-    password. Generic 409 if an account already has a password."""
+    verification is unavailable in production, registration issues a limited
+    session and requires a verified MAX or Telegram bot identity before any
+    generation allowance is enabled. Never stores/logs the raw password.
+    Generic 409 if an account already has a password."""
     platform = "web"
     email_norm = normalize_email(req.email)
     if not email_norm:
@@ -9917,8 +9880,15 @@ async def auth_password_register_v2(req: PasswordRegisterV2Request, request: Req
     if not (req.accepted_terms and req.accepted_privacy and req.accepted_personal_data):
         raise HTTPException(400, "Необходимо принять условия.")
 
+    requires_email_verification = email_otp_available()
+    social_options = {"telegram": bot_login_available("telegram"), "max": bot_login_available("max")}
+    social_fallback_enabled = is_production_like_env() and not requires_email_verification
+    if social_fallback_enabled and not any(social_options.values()):
+        raise HTTPException(503, "Регистрация временно недоступна: подтверждение через MAX и Telegram не настроено.")
+
     password_hash = hash_password_argon2(req.password)  # CPU work outside the txn
     now = datetime.now(timezone.utc).isoformat()
+    verification: dict[str, Any] | None = None
 
     with db() as conn:
         existing = conn.execute(
@@ -9948,7 +9918,17 @@ async def auth_password_register_v2(req: PasswordRegisterV2Request, request: Req
             internal_user_id = iuid
             legacy_user_id = conn.execute("SELECT id FROM users WHERE internal_user_id = ?", (iuid,)).fetchone()["id"]
         else:
-            internal_user_id, legacy_user_id = email_otp_upsert_identity(conn, email_norm, now)
+            trusted_immediately = not requires_email_verification and not social_fallback_enabled
+            internal_user_id, legacy_user_id = email_otp_upsert_identity(
+                conn,
+                email_norm,
+                now,
+                verified=trusted_immediately,
+                initialize_intro=trusted_immediately,
+            )
+        verification = ensure_social_requirement(
+            conn, internal_user_id, enabled=social_fallback_enabled, now=now,
+        )
         conn.execute(
             """
             INSERT INTO auth_passwords
@@ -9974,7 +9954,7 @@ async def auth_password_register_v2(req: PasswordRegisterV2Request, request: Req
     # the user confirms the email via request-code-v2 / verify-code-v2 (which then creates
     # the trusted session). Without a usable email channel we keep the legacy behavior
     # (immediate session) so non-email environments are not locked out.
-    if email_otp_available():
+    if requires_email_verification:
         try:
             record_event_log("password_register_pending_verification", internal_user_id=internal_user_id,
                               legacy_user_id=legacy_user_id, platform=platform, properties={"provider": "web_email"})
@@ -9990,7 +9970,9 @@ async def auth_password_register_v2(req: PasswordRegisterV2Request, request: Req
                           session_id=session["session_id"], platform=platform, properties={"provider": "web_email"})
     except Exception as exc:  # pragma: no cover - defensive
         print(f"password-register: event log error: {type(exc).__name__}")
-    return {"ok": True, "requires_email_verification": False, "internal_user_id": internal_user_id, "legacy_user_id": legacy_user_id, "profile_completed": False}
+    return {"ok": True, "requires_email_verification": False,
+            "internal_user_id": internal_user_id, "legacy_user_id": legacy_user_id,
+            "profile_completed": False, **(verification or {}), "social_verification_options": social_options}
 
 
 @app.post("/api/auth/password/login-v2")
@@ -10051,6 +10033,7 @@ async def auth_password_login_v2(req: PasswordLoginV2Request, request: Request, 
     if not valid or internal_user_id is None or stored_hash is _DUMMY_PASSWORD_HASH or user_missing:
         fail_invalid()
 
+    now = datetime.now(timezone.utc).isoformat()
     with db() as conn:
         if user_banned or _user_is_banned(conn, internal_user_id, legacy_user_id):
             record_security_event(conn, "password_login_banned", severity="critical", internal_user_id=internal_user_id, request=request)
@@ -10066,6 +10049,13 @@ async def auth_password_login_v2(req: PasswordLoginV2Request, request: Request, 
                     "email": email_norm,
                 },
             )
+    social_verification, retention_outcome = enforce_due_unverified_login(
+        db, internal_user_id, now=now, record_security_event=record_security_event,
+    )
+    if retention_outcome == "deleted":
+        return JSONResponse(status_code=410, content={"ok": False, "detail": "account_deleted_unverified_social"})
+
+    with db() as conn:
         record_login_attempt(conn, "web_email", True, identifier=email_norm, internal_user_id=internal_user_id, platform=platform, request=request)
 
     session = create_auth_session(internal_user_id, legacy_user_id, provider="web_email", platform=platform, request=request)
@@ -10075,7 +10065,14 @@ async def auth_password_login_v2(req: PasswordLoginV2Request, request: Request, 
                           session_id=session["session_id"], platform=platform, properties={"provider": "web_email"})
     except Exception as exc:  # pragma: no cover - defensive
         print(f"password-login: event log error: {type(exc).__name__}")
-    return {"ok": True, "internal_user_id": internal_user_id, "legacy_user_id": legacy_user_id, "profile_completed": False}
+    return {
+        "ok": True,
+        "internal_user_id": internal_user_id,
+        "legacy_user_id": legacy_user_id,
+        "profile_completed": False,
+        **(social_verification or {}),
+        "social_verification_options": {"telegram": bot_login_available("telegram"), "max": bot_login_available("max")},
+    }
 
 
 install_password_change_route(app, PasswordChangeRuntime(
@@ -10116,6 +10113,7 @@ async def me_v2(request: Request) -> dict[str, Any]:
         daily_tokens_remaining = max(0, daily_tokens_limit - daily_tokens_used)
         monthly_tokens_grant = int(gallery_quota.get("monthly_tokens", 0) or 0)
         pending_plan = safe_json_load(_row_get(urow, "pending_plan_json")) or None
+        social_verification = get_social_verification(conn, iuid, now=datetime.now(timezone.utc).isoformat())
 
     primary_identity = identities[0] if identities else None
     # Fall back to a provider avatar URL when the user has no local avatar yet.
@@ -10188,6 +10186,7 @@ async def me_v2(request: Request) -> dict[str, Any]:
             "video_used": video_state.active,
             "video_free": video_state.free,
             "password_configured": password_configured,
+            "social_verification": social_verification,
         },
         "session": {
             "session_id": user["session_id"],
@@ -16212,6 +16211,7 @@ async def _generate_local_ltx_video(
 @app.post("/api/video/generate")
 async def generate_video(req: VideoGenerateRequest, request: Request) -> dict[str, Any]:
     trusted = require_trusted_user(request)
+    require_generation_social_verification(trusted)
     user_id = trusted["legacy_user_id"]
     with db() as conn:
         user = conn.execute("SELECT plan, role FROM users WHERE id = ?", (user_id,)).fetchone()

@@ -6,6 +6,27 @@
 Фактический аудит: [agent-compliance-audit-20260719.md](agent-compliance-audit-20260719.md)
 Предыдущий план: `engineering-transformation-master-plan-20260717.md` — исторический checkpoint, не текущая очередь.
 
+## Пакет `AUTH-SOCIAL-PROOF-20260822`
+
+Статус: **CODE COMPLETE; QUICK AND FOCUSED TESTS GREEN; NOT DEPLOYED**.
+
+- когда production не может доставить email-код, новая парольная регистрация
+  создаёт ограниченный аккаунт без стартовых токенов и требует реальную
+  подтверждённую identity MAX или Telegram до генерации изображений и видео;
+- подтверждение выполняется существующим подписанным bot-login challenge и
+  привязывает provider identity к той же internal account; повторная доставка
+  события идемпотентна;
+- сразу после регистрации интерфейс предлагает MAX/Telegram, через 24 часа
+  повторяет просьбу при следующем входе, а через 30 дней неподтверждённый аккаунт
+  блокируется и анонимизируется bounded worker; финансовые и audit-записи
+  сохраняются, администратор и demo account защищены;
+- если оба бота недоступны, production-регистрация закрывается с `503`, чтобы не
+  создавать аккаунт, который невозможно подтвердить;
+- acceptance: migration v4 idempotency, image/video denial before proof, both
+  providers, conflict/idempotency, 24-hour reminder, 30-day retention, focused
+  auth/worker suite 5x, frontend lint/build, generated maps, Quick, Full on exact
+  clean SHA, SQLite Backup API snapshot, deploy and one real provider flow.
+
 ## Пакет `PROD-RELIABILITY-20260728`
 
 Статус: **IMPLEMENTATION IN PROGRESS; FOCUSED TESTS GREEN; NOT DEPLOYED**.

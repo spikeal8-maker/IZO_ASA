@@ -58,6 +58,13 @@ ADMIN_NOTIFICATION_DELIVERY_MIGRATION = MigrationDefinition(
 )
 
 
+ACCOUNT_VERIFICATION_MIGRATION = MigrationDefinition(
+    version=4,
+    name="social_account_verification",
+    checksum="sha256:257bf268a45473725f865bea35ab1ad03a9911c7fdcb9bd1fd586a4ff675289f",
+)
+
+
 ADMIN_NOTIFICATIONS_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS admin_notifications (
     id TEXT PRIMARY KEY,
@@ -116,6 +123,25 @@ CREATE INDEX IF NOT EXISTS idx_admin_notification_delivery_pending
 """
 
 
+ACCOUNT_VERIFICATION_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS account_verifications (
+    internal_user_id TEXT PRIMARY KEY,
+    verification_kind TEXT NOT NULL CHECK (verification_kind = 'social'),
+    status TEXT NOT NULL CHECK (status IN ('pending', 'verified', 'deleted')),
+    required_at TEXT NOT NULL,
+    remind_after_at TEXT NOT NULL,
+    delete_after_at TEXT NOT NULL,
+    verified_at TEXT,
+    verified_provider TEXT CHECK (verified_provider IN ('max', 'telegram')),
+    provider_user_id TEXT,
+    deleted_at TEXT,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_account_verifications_pending_delete
+    ON account_verifications(status, delete_after_at);
+"""
+
+
 def apply_admin_notifications_migration(
     conn: sqlite3.Connection,
     *,
@@ -142,6 +168,20 @@ def apply_admin_notification_delivery_migration(
     return record_applied_migration(
         conn,
         ADMIN_NOTIFICATION_DELIVERY_MIGRATION,
+        applied_at=applied_at,
+    )
+
+
+def apply_account_verification_migration(
+    conn: sqlite3.Connection,
+    *,
+    applied_at: str,
+) -> bool:
+    """Apply the additive deferred social-verification state exactly once."""
+    conn.executescript(ACCOUNT_VERIFICATION_SCHEMA_SQL)
+    return record_applied_migration(
+        conn,
+        ACCOUNT_VERIFICATION_MIGRATION,
         applied_at=applied_at,
     )
 
