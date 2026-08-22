@@ -43,9 +43,16 @@ ok(adminApp.includes('aria-label="Разделы админки"'), 'admin navig
 ok(!adminApp.includes('className="admin-topline"'), 'legacy admin top line must be removed')
 ok(!adminApp.includes('admin-grid admin-grid-compact'), 'duplicated dashboard KPI grid must be removed')
 ok(adminApp.includes('AdminGenerationChart'), 'dashboard must render the combined generation chart')
+ok(adminApp.includes('AdminTimeSeriesChart'), 'dashboard must render reusable time-series charts')
 for (const label of ['Всего', 'Базовая модель', 'Платные изображения', 'Видео']) {
   ok(adminApp.includes(`label: '${label}'`), `combined generation chart missing ${label}`)
 }
+for (const title of ['Активность пользователей', 'Оплаты', 'Энергопотребление']) {
+  ok(adminApp.includes(`title="${title}"`), `dashboard missing ${title} chart`)
+}
+ok(adminApp.includes('aria-pressed={!disabled.has(item.key)}'), 'dashboard chart legends must toggle individual series')
+ok(adminAnalytics.includes('active_minutes'), 'CRM activity chart must expose heartbeat minutes')
+ok(adminAnalytics.includes("aria-pressed={visible(key)}"), 'CRM chart legends must toggle individual series')
 
 // New UI must expose Admin instead of Help for admins.
 ok(topbar.includes("'admin'"), 'TopBarV3 must support admin section')

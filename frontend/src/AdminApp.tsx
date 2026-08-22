@@ -124,16 +124,25 @@ type DashboardChartSeries = {
   label: string
   color: string
   values: SeriesPoint[]
+  summary?: string
 }
 
-function AdminGenerationChart({ series, range }: { series: DashboardChartSeries[]; range: DashboardRange }) {
+function AdminTimeSeriesChart({ title, description, series, range, emptyText }: {
+  title: string
+  description: string
+  series: DashboardChartSeries[]
+  range: DashboardRange
+  emptyText?: string
+}) {
+  const [disabled, setDisabled] = useState<Set<string>>(() => new Set())
   const primary = series[0]?.values.length ? series[0].values : [{ date: '', value: 0 }]
   const dates = primary.map((point) => point.date)
   const normalized = series.map((item) => {
     const byDate = new Map(item.values.map((point) => [point.date, Number(point.value) || 0]))
     return { ...item, values: dates.map((date) => ({ date, value: byDate.get(date) || 0 })) }
   })
-  const max = Math.max(1, ...normalized.flatMap((item) => item.values.map((point) => point.value)))
+  const visible = normalized.filter((item) => !disabled.has(item.key))
+  const max = Math.max(1, ...visible.flatMap((item) => item.values.map((point) => point.value)))
   const width = 1120
   const height = 300
   const padLeft = 46
@@ -146,41 +155,53 @@ function AdminGenerationChart({ series, range }: { series: DashboardChartSeries[
   const pointY = (value: number) => padTop + plotHeight - (value / max) * plotHeight
   const tickStep = dates.length <= 12 ? 3 : dates.length <= 24 ? 6 : range === 7 ? 2 : range === 30 ? 10 : 30
   const dateTicks = dates.map((date, index) => ({ date, index })).filter(({ index }) => index === 0 || index === dates.length - 1 || index % tickStep === 0)
-  const valueTicks = Array.from(new Set([max, Math.round(max * 0.75), Math.round(max * 0.5), Math.round(max * 0.25), 0])).sort((a, b) => b - a)
+  const valueTicks = Array.from(new Set([max, max * 0.75, max * 0.5, max * 0.25, 0].map((value) => max < 10 ? Math.round(value * 10) / 10 : Math.round(value)))).sort((a, b) => b - a)
   const rangeLabel = dates[0] ? `${shortChartDate(dates[0])} — ${shortChartDate(dates.at(-1) || dates[0])}` : `${range} ${HOURLY_DASHBOARD_RANGES.has(range) ? 'ч' : 'дней'}`
+  const toggle = (key: string) => setDisabled((current) => {
+    const next = new Set(current)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    return next
+  })
   return (
     <article className="admin-generation-chart">
       <header>
         <div>
-          <h3>Генерации</h3>
-          <p>Все типы генераций в одном графике · {rangeLabel}</p>
+          <h3>{title}</h3>
+          <p>{description} · {rangeLabel}</p>
         </div>
         <div className="admin-generation-legend">
           {normalized.map((item) => (
-            <span key={item.key} style={{ '--chart-color': item.color } as CSSProperties}>
-              <i />{item.label}<b>{item.values.reduce((sum, point) => sum + point.value, 0).toLocaleString('ru-RU')}</b>
-            </span>
+            <button type="button" key={item.key} aria-pressed={!disabled.has(item.key)} className={disabled.has(item.key) ? 'disabled' : ''} style={{ '--chart-color': item.color } as CSSProperties} onClick={() => toggle(item.key)}>
+              <i />{item.label}<b>{item.summary ?? item.values.reduce((sum, point) => sum + point.value, 0).toLocaleString('ru-RU')}</b>
+            </button>
           ))}
         </div>
       </header>
-      <div className="admin-generation-plot" tabIndex={0} aria-label="Прокручиваемый график генераций">
-        <svg viewBox={`0 0 ${width} ${height}`} aria-label="Генерации по типам">
+      <div className="admin-generation-plot" tabIndex={0} aria-label={`Прокручиваемый график: ${title}`}>
+        {!series.length && <div className="admin-chart-empty">{emptyText || 'Данных за выбранный период пока нет.'}</div>}
+        {!!series.length &&
+        <svg viewBox={`0 0 ${width} ${height}`} aria-label={title}>
           {valueTicks.map((value) => {
             const y = pointY(value)
             return <g key={`y-${value}-${y}`}><line className="grid horizontal" x1={padLeft} x2={width - padRight} y1={y} y2={y} /><text className="axis value" x={8} y={y + 5}>{value.toLocaleString('ru-RU')}</text></g>
           })}
           {dateTicks.map(({ date, index }) => <g key={`${date}-${index}`}><line className="grid vertical" x1={pointX(index)} x2={pointX(index)} y1={padTop} y2={padTop + plotHeight} /><text className="axis date" x={pointX(index)} y={height - 10}>{shortChartDate(date)}</text></g>)}
-          {normalized.map((item) => {
+          {visible.map((item) => {
             const points = item.values.map((point, index) => `${pointX(index).toFixed(1)},${pointY(point.value).toFixed(1)}`).join(' ')
             return <g key={item.key} className={`series series-${item.key}`}>
               <polyline points={points} style={{ stroke: item.color }} />
               {item.values.map((point, index) => <circle key={`${item.key}-${point.date}-${index}`} cx={pointX(index)} cy={pointY(point.value)} r={point.value > 0 ? 3.5 : 1.8} style={{ fill: item.color }}><title>{item.label} · {shortChartDate(point.date)}: {point.value.toLocaleString('ru-RU')}</title></circle>)}
             </g>
           })}
-        </svg>
+        </svg>}
       </div>
     </article>
   )
+}
+
+function AdminGenerationChart({ series, range }: { series: DashboardChartSeries[]; range: DashboardRange }) {
+  return <AdminTimeSeriesChart title="Генерации" description="Все типы генераций" series={series} range={range} />
 }
 
 function AdminAccessPage({ status, onOpenAuth }: { status: 'loading' | 'denied'; onOpenAuth: () => void }) {
@@ -224,6 +245,22 @@ function AdminDashboard({ summary }: { summary: AnyRec | null }) {
     { key: 'paid', label: 'Платные изображения', color: '#b889ff', values: sliceSeries('paid_images') },
     { key: 'video', label: 'Видео', color: '#45d9ec', values: sliceSeries('videos') },
   ]
+  const activitySeries: DashboardChartSeries[] = [
+    { key: 'online', label: 'Активные', color: '#ecff2f', values: sliceSeries('active_users') },
+    { key: 'logins', label: 'Входы', color: '#ffbf54', values: sliceSeries('logins') },
+    { key: 'new', label: 'Новые', color: '#72ff69', values: sliceSeries('registrations') },
+  ]
+  const paymentSummary = (summary?.paymentSummary || {}) as AnyRec
+  const paymentSeries: DashboardChartSeries[] = [
+    { key: 'paid', label: 'Успешные', color: '#72ff69', values: sliceSeries('payments_paid') },
+    { key: 'failed', label: 'Не завершены', color: '#ff6b6b', values: sliceSeries('payments_failed') },
+  ]
+  const power = (summary?.power || {}) as AnyRec
+  const powerValues = sliceSeries('power_watts')
+  const powerSeries: DashboardChartSeries[] = powerValues.length ? [{
+    key: 'power', label: 'Средняя мощность', color: '#45d9ec', values: powerValues,
+    summary: `${Number(power.current_watts || 0).toLocaleString('ru-RU', { maximumFractionDigits: 1 })} Вт`,
+  }] : []
   return (
     <div className="admin-section admin-dashboard-v2">
       <div className="admin-dashboard-toolbar">
@@ -238,7 +275,12 @@ function AdminDashboard({ summary }: { summary: AnyRec | null }) {
           [90, '90 дней'],
         ].map(([value, label]) => <button key={value} className={range === value ? 'active' : ''} onClick={() => setRange(value as DashboardRange)}>{label}</button>)}
       </div>
-      <AdminGenerationChart series={generationSeries} range={range} />
+      <div className="admin-dashboard-chart-grid">
+        <AdminGenerationChart series={generationSeries} range={range} />
+        <AdminTimeSeriesChart title="Активность пользователей" description="Пользователи онлайн, входы и регистрации" series={activitySeries} range={range} />
+        <AdminTimeSeriesChart title="Оплаты" description={`${Number(paymentSummary.paid_count || 0).toLocaleString('ru-RU')} успешных · ${Number(paymentSummary.revenue_rub || 0).toLocaleString('ru-RU')} ₽ получено`} series={paymentSeries} range={range} />
+        <AdminTimeSeriesChart title="Энергопотребление" description={power.available ? `${String(power.source || 'PowerPanel')} · ${String(power.model || 'ИБП')} · среднее ${Number(power.average_watts || 0).toLocaleString('ru-RU', { maximumFractionDigits: 1 })} Вт · ${Number(power.energy_kwh || 0).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} кВт·ч` : 'PowerPanel не передал телеметрию'} series={powerSeries} range={range} emptyText="Данные PowerPanel пока недоступны." />
+      </div>
       <p className="admin-dashboard-period-note">Показатель «сегодня» в верхней строке считается по Москве. Периоды 1–24 часа на графике являются скользящими.</p>
     </div>
   )

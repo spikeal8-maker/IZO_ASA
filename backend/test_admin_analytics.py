@@ -364,6 +364,66 @@ def test_user_dossier_separates_actual_cost_from_calibrated_unreconciled_timeout
     assert timed_out["cost_calibration_multiplier"] == pytest.approx(1.4)
 
 
+def test_presence_and_payment_dashboard_series(temp_db):
+    now = main.datetime(2026, 8, 22, 10, 17, tzinfo=main.timezone.utc)
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO users (id,internal_user_id,role,language,created_at,last_login_at) "
+            "VALUES ('web-presence-a','presence-a','user','ru',?,?)",
+            (now.isoformat(), now.isoformat()),
+        )
+        conn.execute(
+            "INSERT INTO users (id,internal_user_id,role,language,created_at,last_login_at) "
+            "VALUES ('web-presence-b','presence-b','user','ru',?,?)",
+            (now.isoformat(), now.isoformat()),
+        )
+        for user_id, internal in (("web-presence-a", "presence-a"), ("web-presence-b", "presence-b")):
+            conn.execute(
+                "INSERT INTO user_presence_samples "
+                "(bucket_at,user_id,internal_user_id,platform,active_seconds,updated_at) VALUES (?,?,?,?,?,?)",
+                ("2026-08-22T10:15:00+00:00", user_id, internal, "web", 60, now.isoformat()),
+            )
+        conn.execute(
+            "INSERT INTO payments (id,invoice_id,internal_user_id,user_id,status,amount,currency,method,provider,reason,created_at,updated_at,paid_at) "
+            "VALUES ('pay-ok','invoice-ok','presence-a','web-presence-a','paid',500,'RUB','bank_card','yookassa','test',?,?,?)",
+            (now.isoformat(), now.isoformat(), now.isoformat()),
+        )
+        conn.execute(
+            "INSERT INTO payments (id,invoice_id,internal_user_id,user_id,status,amount,currency,method,provider,reason,created_at,updated_at) "
+            "VALUES ('pay-failed','invoice-failed','presence-b','web-presence-b','failed',700,'RUB','bank_card','yookassa','test',?,?)",
+            (now.isoformat(), now.isoformat()),
+        )
+        presence = main.admin_analytics.dashboard_presence_timeline(conn, now=now)
+        payments = main.admin_analytics.dashboard_payment_timeline(conn, now=now)
+        summary = main.admin_analytics.dashboard_payment_summary(conn)
+
+    assert presence["active_users_1h"][-1]["value"] == 2
+    assert presence["active_users"][-1]["value"] == 2
+    assert payments["payments_paid_1h"][-1]["value"] == 1
+    assert payments["payments_failed_1h"][-1]["value"] == 1
+    assert summary == {"total_attempts": 2, "paid_count": 1, "failed_count": 1, "revenue_rub": 500}
+
+
+def test_heartbeat_records_bounded_presence_bucket(temp_db):
+    with main.db() as conn:
+        now = main.datetime.now(main.timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO users (id,internal_user_id,role,language,created_at,last_login_at) "
+            "VALUES ('web_heartbeat','heartbeat-iuid','user','ru',?,?)",
+            (now, now),
+        )
+    with TestClient(main.app) as client:
+        assert client.post('/api/app/heartbeat', json={"platform": "web", "userId": "heartbeat", "seconds": 60}).status_code == 200
+        assert client.post('/api/app/heartbeat', json={"platform": "web", "userId": "heartbeat", "seconds": 60}).status_code == 200
+    with main.db() as conn:
+        rows = conn.execute(
+            "SELECT active_seconds,internal_user_id FROM user_presence_samples WHERE user_id='web_heartbeat'"
+        ).fetchall()
+    assert len(rows) == 1
+    assert rows[0]["active_seconds"] == 120
+    assert rows[0]["internal_user_id"] == "heartbeat-iuid"
+
+
 def test_user_detail_analytics_p0_real_data_and_no_secret_leaks(temp_db):
     tok = make_admin()
     long_prompt = "cinematic neon city " * 30

@@ -338,6 +338,8 @@ try:
         video_submission,
         video_download,
         admin_analytics,
+        powerpanel,
+        presence,
         feed_presentation,
         feed_sources,
         feed_downloads,
@@ -384,6 +386,8 @@ except ImportError:  # Direct `python backend/main.py` execution.
         video_submission,
         video_download,
         admin_analytics,
+        powerpanel,
+        presence,
         feed_presentation,
         feed_sources,
         feed_downloads,
@@ -9174,11 +9178,10 @@ async def app_heartbeat(req: HeartbeatRequest) -> dict[str, Any]:
             break
         raw_id = stripped
     user_id = f"{req.platform}_{raw_id}" if raw_id else "demo_user"
-    now = datetime.now(timezone.utc).isoformat()
     with db() as conn:
-        conn.execute(
-            "UPDATE users SET total_time_seconds = total_time_seconds + ?, last_seen_at = ? WHERE id = ?",
-            (req.seconds, now, user_id),
+        presence.record_heartbeat(
+            conn, user_id=user_id, platform=req.platform,
+            seconds=req.seconds, now=datetime.now(timezone.utc),
         )
     return {"ok": True, "userId": user_id}
 
@@ -14189,6 +14192,7 @@ async def admin_summary(request: Request) -> dict[str, Any]:
     now_dt = datetime.now(timezone.utc)
     today_start = now_dt.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     last_24h = (now_dt - timedelta(hours=24)).isoformat()
+    power_telemetry = powerpanel.read_powerpanel_telemetry()
     with db() as conn:
         user_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         job_db_count = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
@@ -14209,6 +14213,7 @@ async def admin_summary(request: Request) -> dict[str, Any]:
         login_errors_rolling = _dashboard_rolling_series(conn, "auth_login_attempts", "created_at", "success = 0")
         generations_rolling = _dashboard_rolling_series(conn, "jobs", "created_at")
         generation_errors_rolling = _dashboard_rolling_series(conn, "jobs", "created_at", "status = 'failed'")
+        payment_summary = admin_analytics.dashboard_payment_summary(conn)
         timeline = {"days": 90, **admin_analytics.dashboard_generation_timeline(conn),
             "active_users": _daily_counts(conn, "users", "last_seen_at", 90, "internal_user_id IS NOT NULL"),
             "registrations": _daily_counts(conn, "users", "created_at", 90, "internal_user_id IS NOT NULL"),
@@ -14246,6 +14251,9 @@ async def admin_summary(request: Request) -> dict[str, Any]:
             "generation_errors_6h": generation_errors_rolling["6h"],
             "generation_errors_12h": generation_errors_rolling["12h"],
             "generation_errors_24h": generation_errors_rolling["24h"],
+            **admin_analytics.dashboard_presence_timeline(conn),
+            **admin_analytics.dashboard_payment_timeline(conn),
+            **dict(power_telemetry.get("timeline") or {}),
         }
     return {
         "users": user_count,
@@ -14260,6 +14268,8 @@ async def admin_summary(request: Request) -> dict[str, Any]:
         "tokensSpentTotal": tokens_spent,
         "activeSessions": active_sessions,
         "finance": finance,
+        "paymentSummary": payment_summary,
+        "power": {key: value for key, value in power_telemetry.items() if key != "timeline"},
         "availableModels": ["local_flux_klein", "server_flux_klein", "openrouter_cloud"],
         "loras": ["lora_arcane", "product_photo"],
         "recentErrors": [item.get("error") for item in failed[-5:]],

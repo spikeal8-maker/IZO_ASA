@@ -222,6 +222,7 @@ function GenerationEvent({ item }: { item: AnyRec }): ReactElement {
 
 function UserActivityChart({ series }: { series: AnyRec }): ReactElement {
   const days = Array.isArray(series.days) ? series.days as AnyRec[] : []
+  const [disabled, setDisabled] = useState<Set<string>>(() => new Set())
   if (!days.length) return <p className="crm-card-note">Для графика пока недостаточно данных.</p>
   const width = 920
   const height = 210
@@ -230,6 +231,7 @@ function UserActivityChart({ series }: { series: AnyRec }): ReactElement {
   const step = width / days.length
   const maxGeneration = Math.max(1, ...days.map((day) => n0(day.local_images) + n0(day.api_images) + n0(day.videos)))
   const maxLogins = Math.max(1, ...days.map((day) => n0(day.logins)))
+  const maxActivity = Math.max(1, ...days.map((day) => n0(day.active_minutes)))
   const barWidth = Math.max(5, Math.min(14, step / 5))
   const barHeight = (value: unknown) => (n0(value) / maxGeneration) * (bottom - top)
   const loginPoints = days.map((day, index) => {
@@ -237,8 +239,24 @@ function UserActivityChart({ series }: { series: AnyRec }): ReactElement {
     const y = bottom - (n0(day.logins) / maxLogins) * (bottom - top)
     return `${x.toFixed(1)},${y.toFixed(1)}`
   }).join(' ')
+  const activityPoints = days.map((day, index) => {
+    const x = index * step + step / 2
+    const y = bottom - (n0(day.active_minutes) / maxActivity) * (bottom - top)
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  }).join(' ')
+  const visible = (key: string) => !disabled.has(key)
+  const toggle = (key: string) => setDisabled((current) => {
+    const next = new Set(current)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    return next
+  })
+  const legends = [
+    ['local', 'Базовая модель'], ['api', 'Платные модели'], ['video', 'Видео'],
+    ['activity', 'Активность, мин.'], ['login', 'Входы'],
+  ]
   return <div className="crm-profile-chart">
-    <div className="crm-chart-legend"><span className="local">Базовая модель</span><span className="api">Платные модели</span><span className="video">Видео</span><span className="login">Входы</span></div>
+    <div className="crm-chart-legend">{legends.map(([key, label]) => <button type="button" key={key} className={`${key} ${visible(key) ? '' : 'disabled'}`} aria-pressed={visible(key)} onClick={() => toggle(key)}>{label}</button>)}</div>
     <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Входы и генерации пользователя за 14 дней">
       <line x1="0" y1={bottom} x2={width} y2={bottom} className="axis" />
       {days.map((day, index) => {
@@ -248,14 +266,16 @@ function UserActivityChart({ series }: { series: AnyRec }): ReactElement {
         const videoHeight = barHeight(day.videos)
         return <g key={S(day.date)}>
           <title>{`${S(day.date)}: базовая ${S(day.local_images)}, платные ${S(day.api_images)}, видео ${S(day.videos)}, входы ${S(day.logins)}`}</title>
-          <rect className="local" x={center - barWidth * 1.7} y={bottom - localHeight} width={barWidth} height={localHeight} rx="2" />
-          <rect className="api" x={center - barWidth / 2} y={bottom - apiHeight} width={barWidth} height={apiHeight} rx="2" />
-          <rect className="video" x={center + barWidth * .7} y={bottom - videoHeight} width={barWidth} height={videoHeight} rx="2" />
+          {visible('local') && <rect className="local" x={center - barWidth * 1.7} y={bottom - localHeight} width={barWidth} height={localHeight} rx="2" />}
+          {visible('api') && <rect className="api" x={center - barWidth / 2} y={bottom - apiHeight} width={barWidth} height={apiHeight} rx="2" />}
+          {visible('video') && <rect className="video" x={center + barWidth * .7} y={bottom - videoHeight} width={barWidth} height={videoHeight} rx="2" />}
           {(index % 2 === 0 || index === days.length - 1) && <text x={center} y="193" textAnchor="middle">{String(day.date || '').slice(5)}</text>}
         </g>
       })}
-      <polyline className="login-line" points={loginPoints} />
-      {days.map((day, index) => <circle key={`login-${S(day.date)}`} className="login-dot" cx={index * step + step / 2} cy={bottom - (n0(day.logins) / maxLogins) * (bottom - top)} r="3" />)}
+      {visible('activity') && <polyline className="activity-line" points={activityPoints} />}
+      {visible('activity') && days.map((day, index) => <circle key={`activity-${S(day.date)}`} className="activity-dot" cx={index * step + step / 2} cy={bottom - (n0(day.active_minutes) / maxActivity) * (bottom - top)} r="3" />)}
+      {visible('login') && <polyline className="login-line" points={loginPoints} />}
+      {visible('login') && days.map((day, index) => <circle key={`login-${S(day.date)}`} className="login-dot" cx={index * step + step / 2} cy={bottom - (n0(day.logins) / maxLogins) * (bottom - top)} r="3" />)}
     </svg>
   </div>
 }
@@ -727,7 +747,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
                 <span><small>Входы / устройства</small><b>{S(data?.access_summary?.successful_logins)} / {Math.max(n0(data?.access_summary?.devices), data?.client_history?.length || 0)}</b></span>
               </section>
               <section className="crm-dossier-section crm-span-2 crm-chart-section">
-                <div className="crm-section-heading"><h3>Активность за 14 дней</h3><span>Москва · входы и генерации</span></div>
+                <div className="crm-section-heading"><h3>Активность и генерации за 14 дней</h3><span>Москва · время онлайн, входы и генерации</span></div>
                 <UserActivityChart series={activitySeries} />
               </section>
               <section className="crm-dossier-section">

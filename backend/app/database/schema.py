@@ -653,6 +653,22 @@ CREATE TABLE IF NOT EXISTS auth_identities (
             CREATE INDEX IF NOT EXISTS idx_event_logs_created ON event_logs(created_at);
             CREATE INDEX IF NOT EXISTS idx_event_logs_platform ON event_logs(platform);
 
+            -- Five-minute presence buckets power the real online/activity charts.
+            -- One row per user and bucket prevents the 60-second heartbeat from
+            -- growing the table without bounds.
+            CREATE TABLE IF NOT EXISTS user_presence_samples (
+                bucket_at TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                internal_user_id TEXT,
+                platform TEXT,
+                active_seconds INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (bucket_at, user_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_presence_bucket ON user_presence_samples(bucket_at);
+            CREATE INDEX IF NOT EXISTS idx_presence_internal_bucket
+                ON user_presence_samples(internal_user_id, bucket_at);
+
             -- Phase 14.4: password auth foundation (schema only; no endpoints yet).
             CREATE TABLE IF NOT EXISTS auth_passwords (
                 id TEXT PRIMARY KEY,
