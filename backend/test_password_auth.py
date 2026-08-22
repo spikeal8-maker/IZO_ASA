@@ -271,11 +271,14 @@ def test_production_without_email_provider_password_register_creates_session(tem
     monkeypatch.setattr(main, "APP_ENV", "production")
     monkeypatch.setattr(main, "EMAIL_PROVIDER", "")
     monkeypatch.setattr(main, "EMAIL_OTP_DEBUG_RETURN_CODE", False)
+    monkeypatch.setattr(main, "bot_login_available", lambda provider: provider in {"telegram", "max"})
     c = TestClient(main.app)
     r = register(c, "prod-no-provider@example.com")
     me = c.get("/api/me-v2")
     assert r.status_code == 200
     assert r.json()["requires_email_verification"] is False
+    assert r.json()["social_verification_pending"] is True
+    assert r.json()["social_verification_blocks_generation"] is True
     assert "onenode_session=" in set_cookies(r)
     assert me.status_code == 200
 

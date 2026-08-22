@@ -174,6 +174,18 @@
       "watchdog": "single task handle, bounded loop, last success/error timestamps exposed to trusted admin"
     },
     {
+      "id": "unverified-account-retention",
+      "call_source": "backend/app/services/account_retention.py",
+      "target": "run",
+      "kind": "worker",
+      "owner": "backend.app.services.account_retention.AccountRetentionWorker",
+      "role": "production-like-current-monolith",
+      "persistence": "SQLite account_verifications deadlines and terminal status",
+      "startup": "main.startup -> bounded startup cleanup -> AccountRetentionWorker.start",
+      "recovery": "startup and hourly bounded scans reclaim every overdue pending row idempotently",
+      "watchdog": "single task handle, bounded batch, exception isolation; cleanup outcomes are security events"
+    },
+    {
       "id": "gallery-storage-optimization",
       "call_source": "backend/main.py",
       "target": "asyncio.to_thread:optimize_existing_gallery_storage",
@@ -351,7 +363,7 @@
     "backend/static/gallery/index.html"
   ],
   "file_limits": [
-    {"path": "backend/main.py", "max_lines": 19624},
+    {"path": "backend/main.py", "max_lines": 19623},
     {"path": "frontend/src/newStudioV3.css", "max_lines": 6400},
     {"path": "frontend/src/newUi.tsx", "max_lines": 3950},
     {"path": "frontend/src/LegacyApp.tsx", "max_lines": 3700},
@@ -402,7 +414,7 @@
     ],
     "schema_compatibility": {
       "min_version": 1,
-      "max_version": 3
+      "max_version": 4
     },
     "manifest_fields": [
       "manifest_version",

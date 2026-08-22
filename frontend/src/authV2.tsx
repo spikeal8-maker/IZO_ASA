@@ -313,7 +313,46 @@ export async function requestEmailCodeV2(email: string): Promise<{ challenge_id:
   return (await res.json()) as { challenge_id: string; debug_code?: string }
 }
 
-export interface PasswordResult { ok: boolean; status: number; requiresEmailVerification?: boolean; email?: string }
+export interface PasswordResult {
+  ok: boolean
+  status: number
+  detail?: string
+  requiresEmailVerification?: boolean
+  shouldPromptSocialVerification?: boolean
+  socialVerificationBlocksGeneration?: boolean
+  socialVerificationDeleteAfterAt?: string
+  socialVerificationOptions?: { telegram: boolean; max: boolean }
+  email?: string
+}
+
+interface PasswordResponsePayload {
+  detail?: string
+  requires_email_verification?: boolean
+  should_prompt_social_verification?: boolean
+  social_verification_blocks_generation?: boolean
+  social_verification_delete_after_at?: string
+  social_verification_options?: { telegram?: boolean; max?: boolean }
+  email?: string
+}
+
+function passwordResultFromPayload(res: Response, data: PasswordResponsePayload): PasswordResult {
+  return {
+    ok: res.ok,
+    status: res.status,
+    detail: data.detail,
+    requiresEmailVerification: !!data.requires_email_verification,
+    shouldPromptSocialVerification: !!data.should_prompt_social_verification,
+    socialVerificationBlocksGeneration: !!data.social_verification_blocks_generation,
+    socialVerificationDeleteAfterAt: data.social_verification_delete_after_at,
+    socialVerificationOptions: data.social_verification_options
+      ? {
+          telegram: !!data.social_verification_options.telegram,
+          max: !!data.social_verification_options.max,
+        }
+      : undefined,
+    email: data.email,
+  }
+}
 
 // Browser email+password. Cookies are set by the backend; no tokens kept in JS.
 export async function passwordLoginV2(email: string, password: string): Promise<PasswordResult> {
@@ -321,18 +360,8 @@ export async function passwordLoginV2(email: string, password: string): Promise<
     method: 'POST',
     body: JSON.stringify({ email, password, platform: detectPlatform() }),
   })
-  let requiresEmailVerification = false
-  let normalizedEmail: string | undefined
-  if (!res.ok) {
-    try {
-      const data = (await res.json()) as { requires_email_verification?: boolean; email?: string }
-      requiresEmailVerification = !!data.requires_email_verification
-      normalizedEmail = data.email
-    } catch {
-      /* no structured error body */
-    }
-  }
-  return { ok: res.ok, status: res.status, requiresEmailVerification, email: normalizedEmail }
+  const data = await res.json().catch(() => ({})) as PasswordResponsePayload
+  return passwordResultFromPayload(res, data)
 }
 
 export async function passwordRegisterV2(
@@ -352,16 +381,8 @@ export async function passwordRegisterV2(
       platform: detectPlatform(),
     }),
   })
-  let requiresEmailVerification = false
-  if (res.ok) {
-    try {
-      const data = (await res.json()) as { requires_email_verification?: boolean }
-      requiresEmailVerification = !!data.requires_email_verification
-    } catch {
-      /* body optional — treat as no verification required */
-    }
-  }
-  return { ok: res.ok, status: res.status, requiresEmailVerification }
+  const data = await res.json().catch(() => ({})) as PasswordResponsePayload
+  return passwordResultFromPayload(res, data)
 }
 
 export async function changePasswordV2(
@@ -472,6 +493,12 @@ export interface MeV2 {
     plan_next_token_grant_at?: string | null; plan_term_months?: number | null
     pending_plan?: { plan?: string; term_months?: number; starts_at?: string } | null
     password_configured?: boolean | null
+    social_verification?: {
+      social_verification_pending?: boolean
+      social_verification_blocks_generation?: boolean
+      should_prompt_social_verification?: boolean
+      social_verification_delete_after_at?: string | null
+    } | null
   } | null
   identities?: Array<{ provider?: string; provider_user_id?: string | null; provider_username?: string | null; provider_email?: string | null; provider_first_name?: string | null; provider_last_name?: string | null; provider_avatar_url?: string | null; verified_at?: string | null }>
   created_at?: string | null
@@ -664,22 +691,26 @@ export async function refreshAuthStateV2(): Promise<MeV2 | null> {
 // Modal login surface opened by the locked generation CTA. Cookie-only auth; no
 // tokens stored in JS. role="dialog", closes on X / overlay / Esc.
 export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => void }): ReactElement | null {
+  const { me: currentMe } = useAuthV2()
   const [tab, setTab] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [passwordRepeat, setPasswordRepeat] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  // Post-registration email verification (OTP) and browser-to-bot login challenge.
-  const [phase, setPhase] = useState<'form' | 'verify' | 'bot'>('form')
+  // Email verification, deferred social reminder, and browser-to-bot challenge.
+  const [phase, setPhase] = useState<'form' | 'verify' | 'social_prompt' | 'bot'>('form')
   const [challengeId, setChallengeId] = useState('')
   const [code, setCode] = useState('')
   const [debugCode, setDebugCode] = useState<string | undefined>(undefined)
   const [resendIn, setResendIn] = useState(0)
   const [botProvider, setBotProvider] = useState<'telegram' | 'max' | ''>('')
+  const [botPurpose, setBotPurpose] = useState<'login' | 'social_verification'>('login')
   const [botDeepLink, setBotDeepLink] = useState('')
   const [botPollMs, setBotPollMs] = useState(2000)
   const [botCopyState, setBotCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const [socialDeleteAfterAt, setSocialDeleteAfterAt] = useState('')
+  const [socialOptions, setSocialOptions] = useState({ telegram: false, max: false })
   const [capabilitiesReload, setCapabilitiesReload] = useState(0)
   const [authCaps, setAuthCaps] = useState<AuthCapabilitiesV2>({
     password_login_available: true,
@@ -691,7 +722,8 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
   })
   const handleClose = useCallback(() => {
     setPhase('form'); setCode(''); setChallengeId(''); setDebugCode(undefined); setResendIn(0); setError('')
-    setBotProvider(''); setBotDeepLink(''); setBotPollMs(2000); setBotCopyState('idle')
+    setBotProvider(''); setBotPurpose('login'); setBotDeepLink(''); setBotPollMs(2000); setBotCopyState('idle')
+    setSocialDeleteAfterAt(''); setSocialOptions({ telegram: false, max: false })
     onClose()
   }, [onClose])
   const finishAuthentication = useCallback(async () => {
@@ -757,6 +789,23 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
     }
   }, [tab, authCaps.password_register_available])
 
+  useEffect(() => {
+    if (!open || phase !== 'form') return
+    const verification = currentMe?.account?.social_verification
+    if (!verification?.social_verification_pending) return
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setSocialDeleteAfterAt(verification.social_verification_delete_after_at || '')
+      setSocialOptions({
+        telegram: authCaps.telegram_bot_login_available,
+        max: authCaps.max_bot_login_available,
+      })
+      setPhase('social_prompt')
+    })
+    return () => { cancelled = true }
+  }, [open, phase, currentMe, authCaps.telegram_bot_login_available, authCaps.max_bot_login_available])
+
   // Resend cooldown countdown (matches backend EMAIL_OTP_REQUEST_COOLDOWN_SECONDS = 60s).
   useEffect(() => {
     if (resendIn <= 0) return
@@ -783,6 +832,10 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
         stopped = true
         window.clearInterval(timer)
         setError('Ссылка входа устарела. Попробуйте снова.')
+      } else if (result.status === 'conflict') {
+        stopped = true
+        window.clearInterval(timer)
+        setError('Этот профиль мессенджера уже связан с другим аккаунтом. Войдите в нужный аккаунт или обратитесь в поддержку.')
       } else if (result.status === 'error') {
         if (await finishAuthentication()) {
           stopped = true
@@ -808,6 +861,9 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
   const showMaxBotLogin = !isMiniApp
   const hasProviderActions = showTelegramBotLogin || showMaxBotLogin || tgAvail || maxAvail
   const maxWebCommand = botProvider === 'max' ? maxBotStartCommand(botDeepLink) : ''
+  const socialDeleteDate = socialDeleteAfterAt
+    ? new Date(socialDeleteAfterAt).toLocaleDateString('ru-RU')
+    : ''
 
   const beginEmailVerification = async (targetEmail: string) => {
     const normalized = targetEmail.trim()
@@ -819,6 +875,15 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
     if (!codeRes) setError('Код не отправлен — нажмите «Отправить код ещё раз».')
   }
 
+  const beginSocialReminder = (result: PasswordResult) => {
+    setSocialDeleteAfterAt(result.socialVerificationDeleteAfterAt || '')
+    setSocialOptions(result.socialVerificationOptions || {
+      telegram: authCaps.telegram_bot_login_available,
+      max: authCaps.max_bot_login_available,
+    })
+    setPhase('social_prompt')
+  }
+
   const onLogin = async () => {
     setError(''); setBusy(true)
     const result = await passwordLoginV2(email.trim(), password)
@@ -827,7 +892,17 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
       await beginEmailVerification(result.email || email)
       return
     }
-    if (!result.ok) { setError('Неверная почта или пароль'); return }
+    if (!result.ok) {
+      if (result.status === 410 && result.detail === 'account_deleted_unverified_social') {
+        setError('Аккаунт удалён: в течение 30 дней не был добавлен MAX или Telegram.'); return
+      }
+      setError('Неверная почта или пароль'); return
+    }
+    if (result.shouldPromptSocialVerification) {
+      await refreshAuthStateV2()
+      beginSocialReminder(result)
+      return
+    }
     if (!(await finishAuthentication())) setError('Не удалось открыть аккаунт. Обновите страницу и попробуйте снова.')
   }
   const onRegister = async () => {
@@ -846,6 +921,11 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
     if (result.requiresEmailVerification) {
       // Account+password created, but NO trusted session yet — confirm email first.
       await beginEmailVerification(email)
+      return
+    }
+    if (result.socialVerificationBlocksGeneration) {
+      await refreshAuthStateV2()
+      beginSocialReminder(result)
       return
     }
     if (!(await finishAuthentication())) setError('Аккаунт создан, но сессия не сохранилась. Войдите ещё раз.')
@@ -875,6 +955,33 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
     setError('')
     if (await loginMaxV2()) { if (!(await finishAuthentication())) setError('Не удалось открыть аккаунт.') }
     else setError('MAX доступен в мини-приложении')
+  }
+  const onSocialLink = async (provider: 'telegram' | 'max') => {
+    setError('')
+    setBotCopyState('idle')
+    let botWindow: Window | null = null
+    try {
+      botWindow = window.open('about:blank', '_blank')
+      if (botWindow) botWindow.opener = null
+    } catch {
+      /* The visible direct link remains available when popups are blocked. */
+    }
+    setBusy(true)
+    const started = await startBotLinkV2(provider)
+    setBusy(false)
+    if (!started.ok) {
+      botWindow?.close()
+      setError(started.reason === 'network_error'
+        ? 'Сеть недоступна. Проверьте соединение и попробуйте снова.'
+        : 'Этот способ подтверждения сейчас недоступен. Можно выбрать другой или напомнить позже.')
+      return
+    }
+    setBotProvider(provider)
+    setBotPurpose('social_verification')
+    setBotDeepLink(started.deep_link)
+    setBotPollMs(started.poll_interval_ms || 2000)
+    setPhase('bot')
+    if (botWindow && !botWindow.closed) botWindow.location.replace(started.deep_link)
   }
   const onBotLogin = async (provider: 'telegram' | 'max') => {
     setError('')
@@ -911,6 +1018,7 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
       return
     }
     setBotProvider(provider)
+    setBotPurpose('login')
     setBotDeepLink(started.deep_link)
     setBotPollMs(started.poll_interval_ms || 2000)
     setPhase('bot')
@@ -954,10 +1062,17 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
         {phase === 'bot' ? (
           <>
             <p className="auth-modal-sub">
-              {botProvider === 'max'
+              {botPurpose === 'social_verification'
+                ? `Добавьте ${botProvider === 'max' ? 'MAX' : 'Telegram'} к текущему аккаунту. После подтверждения это окно закроется автоматически.`
+                : botProvider === 'max'
                 ? 'Подтвердите вход в MAX-боте. В MAX Web сообщение может появиться не сразу; после подтверждения это окно закроется автоматически.'
                 : 'Подтвердите вход в Telegram-боте. После подтверждения это окно закроется автоматически.'}
             </p>
+            {botPurpose === 'social_verification' && (
+              <div className="auth-verification-warning" role="alert">
+                Вход уже выполнен. Привязка отменит удаление аккаунта через 30 дней.
+              </div>
+            )}
             <a className="generate small-action" href={botDeepLink} target="_blank" rel="noreferrer">
               {botProvider === 'max' ? 'Открыть MAX-бота' : 'Открыть Telegram-бота'}
             </a>
@@ -988,8 +1103,35 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
               </div>
             )}
             <button className="secondary" onClick={() => {
-              setPhase('form'); setError(''); setBotProvider(''); setBotDeepLink(''); setBotCopyState('idle')
-            }}>Попробовать снова</button>
+              setPhase(botPurpose === 'social_verification' ? 'social_prompt' : 'form')
+              setError(''); setBotProvider(''); setBotDeepLink(''); setBotCopyState('idle')
+              if (botPurpose !== 'social_verification') setBotPurpose('login')
+            }}>{botPurpose === 'social_verification' ? 'Выбрать другой способ' : 'Попробовать снова'}</button>
+          </>
+        ) : phase === 'social_prompt' ? (
+          <>
+            <div className="auth-verification-warning" role="alert">
+              Подтвердите регистрацию через MAX или Telegram.
+            </div>
+            <p className="auth-modal-sub">
+              Аккаунт создан, но генерация включится только после подтверждения настоящего пользователя.
+              Без привязки мессенджера аккаунт будет удалён
+              {socialDeleteDate ? ` ${socialDeleteDate}` : ' через 30 дней'}.
+            </p>
+            <div className="auth-social-actions">
+              <button className="generate small-action" onClick={() => onSocialLink('max')} disabled={busy || !socialOptions.max}>
+                Добавить MAX
+              </button>
+              <button className="secondary" onClick={() => onSocialLink('telegram')} disabled={busy || !socialOptions.telegram}>
+                Добавить Telegram
+              </button>
+            </div>
+            {!socialOptions.max && !socialOptions.telegram && (
+              <p className="auth-modal-hint">Оба способа сейчас недоступны. Генерация останется заблокирована — попробуйте позже.</p>
+            )}
+            <button className="auth-modal-back" onClick={async () => {
+              if (!(await finishAuthentication())) setError('Не удалось открыть аккаунт. Обновите страницу и попробуйте снова.')
+            }}>Продолжить без генерации</button>
           </>
         ) : phase === 'verify' ? (
           <>
@@ -1017,7 +1159,7 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
             <button className="generate small-action" onClick={onRegister} disabled={!email.trim() || !password || !passwordRepeat || busy}>Создать аккаунт</button>
           </>
         )}
-        {hasProviderActions && (
+        {hasProviderActions && phase === 'form' && (
           <div className="auth-modal-providers">
             {!isMiniApp && authCaps.capabilities_loaded && !authCaps.telegram_bot_login_available && !authCaps.max_bot_login_available && (
               <small className="auth-modal-hint">Вход через ботов временно недоступен. Можно войти по email и паролю.</small>

@@ -1210,7 +1210,10 @@ export default function NewStudio(): ReactElement {
           /* non-JSON */
         }
         if (response.status === 402) setNotice('Закончились токены. Пополните баланс в настройках основной версии.')
-        else if (response.status === 401 || response.status === 403) {
+        else if (response.status === 403 && detail && typeof detail === 'object' && (detail as { code?: unknown }).code === 'social_verification_required') {
+          setNotice(apiErrorText(detail, 'Подтвердите регистрацию через MAX или Telegram, чтобы начать генерацию.'))
+          setAuthOpen(true)
+        } else if (response.status === 401 || response.status === 403) {
           setNotice('Сессия истекла. Войдите снова, чтобы генерировать.')
           setAuthOpen(true)
         } else if (response.status === 429) setNotice(apiErrorText(detail, 'Слишком много запросов подряд. Подождите немного.'))

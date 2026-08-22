@@ -145,7 +145,13 @@ async function apiFetch(path: string, init?: RequestInit) {
   return response
 }
 async function responseError(response: Response, fallback: string) {
-  try { const data = await response.json(); return String(data.detail || data.error || fallback) } catch { return fallback }
+  try {
+    const data = await response.json()
+    const detail = data.detail || data.error
+    if (typeof detail === 'string' && detail.trim()) return detail
+    if (detail && typeof detail === 'object' && typeof detail.message === 'string' && detail.message.trim()) return detail.message
+    return fallback
+  } catch { return fallback }
 }
 function readStorage<T>(key: string, fallback: T): T {
   try { const value = localStorage.getItem(key); return value ? JSON.parse(value) as T : fallback } catch { return fallback }
