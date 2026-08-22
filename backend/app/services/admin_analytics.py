@@ -407,6 +407,8 @@ def _user_activity_series(
             "daily_tokens": 0,
             "refunded_tokens": 0,
             "api_cost_rub": 0.0,
+            "unreconciled_api_cost_rub": 0.0,
+            "unreconciled_api_jobs": 0,
             "revenue_rub": 0,
             "refund_rub": 0,
             "net_revenue_rub": 0,
@@ -424,8 +426,9 @@ def _user_activity_series(
         if key in points:
             points[key]["logins"] += 1
 
+    calibration = _video_cost_calibration(conn)
     for row in conn.execute(
-        "SELECT mode,provider,status,settings_json,created_at FROM jobs WHERE user_id=? AND created_at>=?",
+        "SELECT mode,provider,status,settings_json,created_at,started_at,completed_at FROM jobs WHERE user_id=? AND created_at>=?",
         (user_id, start_iso),
     ):
         key = _local_day(row["created_at"])
@@ -438,9 +441,20 @@ def _user_activity_series(
             points[key]["local_images"] += 1
         else:
             points[key]["api_images"] += 1
-        economics = _generation_economics(_json_object(row["settings_json"]), row["status"])
+        settings = _json_object(row["settings_json"])
+        economics = _generation_economics(
+            settings,
+            row["status"],
+            provider=row["provider"],
+            mode=row["mode"],
+            elapsed_seconds=_elapsed_seconds(row["started_at"] or row["created_at"], row["completed_at"]),
+            cost_multiplier=calibration.get(_video_cost_key(settings, row["mode"]), 1.0),
+        )
         if economics["cost_kind"] == "actual":
             points[key]["api_cost_rub"] += float(economics["actual_cost_rub"] or 0)
+        elif economics["cost_kind"] == "unreconciled_estimate":
+            points[key]["unreconciled_api_cost_rub"] += float(economics["unreconciled_cost_rub"] or 0)
+            points[key]["unreconciled_api_jobs"] += 1
 
     for row in conn.execute(
         "SELECT delta,reason,meta_json,created_at FROM token_ledger WHERE user_id=? AND created_at>=?",
@@ -480,6 +494,7 @@ def _user_activity_series(
 
     for point in points.values():
         point["api_cost_rub"] = round(float(point["api_cost_rub"]), 2)
+        point["unreconciled_api_cost_rub"] = round(float(point["unreconciled_api_cost_rub"]), 2)
         point["net_revenue_rub"] = int(point["revenue_rub"]) - int(point["refund_rub"])
     values = list(points.values())
     return {
@@ -487,17 +502,58 @@ def _user_activity_series(
         "days": values,
         "totals": {
             name: round(sum(float(point[name]) for point in values), 2)
-            if name == "api_cost_rub" else sum(int(point[name]) for point in values)
+            if name in {"api_cost_rub", "unreconciled_api_cost_rub"} else sum(int(point[name]) for point in values)
             for name in (
                 "logins", "local_images", "api_images", "videos", "main_tokens",
                 "daily_tokens", "refunded_tokens", "api_cost_rub", "revenue_rub",
-                "refund_rub", "net_revenue_rub",
+                "refund_rub", "net_revenue_rub", "unreconciled_api_cost_rub", "unreconciled_api_jobs",
             )
         },
     }
 
 
-def _generation_economics(settings: dict[str, Any], status: Any) -> dict[str, Any]:
+def _video_cost_key(settings: dict[str, Any], mode: Any) -> tuple[str, str, str, bool]:
+    return (
+        str(settings.get("openrouterModel") or settings.get("model") or ""),
+        str(mode or ""),
+        str(settings.get("resolution") or "").lower(),
+        bool(settings.get("generateAudio")),
+    )
+
+
+def _video_cost_calibration(conn: sqlite3.Connection) -> dict[tuple[str, str, str, bool], float]:
+    totals: dict[tuple[str, str, str, bool], list[float]] = {}
+    for row in conn.execute(
+        "SELECT mode,settings_json FROM jobs WHERE provider='openrouter' AND status='completed' "
+        "AND mode IN ('text_to_video','image_to_video','first_last_frame','reference_to_video')"
+    ):
+        settings = _json_object(row["settings_json"])
+        billing = settings.get("openrouterBilling") if isinstance(settings.get("openrouterBilling"), dict) else {}
+        actual = _number(billing.get("actualCostUsd"))
+        if actual is None:
+            actual = _number(settings.get("openrouterCostUsd"))
+        estimated = _number(billing.get("estimatedCostUsd"))
+        if actual is None or estimated is None or actual <= 0 or estimated <= 0:
+            continue
+        bucket = totals.setdefault(_video_cost_key(settings, row["mode"]), [0.0, 0.0])
+        bucket[0] += actual
+        bucket[1] += estimated
+    return {
+        key: max(1.0, values[0] / values[1])
+        for key, values in totals.items()
+        if values[1] > 0
+    }
+
+
+def _generation_economics(
+    settings: dict[str, Any],
+    status: Any,
+    *,
+    provider: Any = None,
+    mode: Any = None,
+    elapsed_seconds: float | None = None,
+    cost_multiplier: float = 1.0,
+) -> dict[str, Any]:
     billing = settings.get("openrouterBilling") if isinstance(settings.get("openrouterBilling"), dict) else {}
     actual_usd = _number(billing.get("actualCostUsd"))
     if actual_usd is None:
@@ -505,14 +561,36 @@ def _generation_economics(settings: dict[str, Any], status: Any) -> dict[str, An
     actual_rub = _number(billing.get("actualCostRub"))
     estimated_usd = _number(billing.get("estimatedCostUsd"))
     estimated_rub = _number(billing.get("estimatedCostRub"))
+    effective_rate = _number(billing.get("effectiveUsdRub"))
+    if actual_rub is None and actual_usd is not None and effective_rate is not None:
+        actual_rub = actual_usd * effective_rate
+    if estimated_rub is None and estimated_usd is not None and effective_rate is not None:
+        estimated_rub = estimated_usd * effective_rate
     completed = str(status or "") == "completed"
     has_actual = completed and actual_usd is not None
+    explicit_unknown = bool(billing.get("providerCostUncertain")) or str(settings.get("openrouterSubmissionState") or "") == "provider_response_timeout"
+    historical_timeout = (
+        str(status or "") == "failed"
+        and str(provider or "") == "openrouter"
+        and str(mode or "") in VIDEO_JOB_MODES
+        and "openrouterSubmitError" in settings
+        and not settings.get("openrouterJobId")
+        and elapsed_seconds is not None
+        and 25 <= float(elapsed_seconds) <= 45
+    )
+    unreconciled = not has_actual and estimated_usd is not None and (explicit_unknown or historical_timeout)
+    multiplier = max(1.0, float(cost_multiplier or 1.0)) if unreconciled else 1.0
+    unreconciled_usd = estimated_usd * multiplier if unreconciled and estimated_usd is not None else None
+    unreconciled_rub = estimated_rub * multiplier if unreconciled and estimated_rub is not None else None
     return {
         "actual_cost_usd": round(actual_usd, 6) if has_actual else None,
         "actual_cost_rub": round(actual_rub, 2) if has_actual and actual_rub is not None else None,
         "estimated_cost_usd": round(estimated_usd, 6) if estimated_usd is not None else None,
         "estimated_cost_rub": round(estimated_rub, 2) if estimated_rub is not None else None,
-        "cost_kind": "actual" if has_actual else ("estimated" if estimated_usd is not None else "unpriced"),
+        "unreconciled_cost_usd": round(unreconciled_usd, 6) if unreconciled_usd is not None else None,
+        "unreconciled_cost_rub": round(unreconciled_rub, 2) if unreconciled_rub is not None else None,
+        "cost_calibration_multiplier": round(multiplier, 4) if unreconciled else None,
+        "cost_kind": "actual" if has_actual else "unreconciled_estimate" if unreconciled else ("estimated" if estimated_usd is not None else "unpriced"),
     }
 
 
@@ -551,14 +629,28 @@ def _finance_projection(conn: sqlite3.Connection, internal_user_id: str, user_id
             daily_debited += max(0, int(metadata.get("daily_part") or 0))
 
     actual_usd = actual_rub = 0.0
-    actual_jobs = local_jobs = 0
+    unreconciled_usd = unreconciled_rub = 0.0
+    actual_jobs = unreconciled_jobs = local_jobs = 0
     local_seconds = 0.0
-    for row in conn.execute("SELECT provider,status,settings_json,created_at,started_at,completed_at FROM jobs WHERE user_id=?", (user_id,)):
-        economics = _generation_economics(_json_object(row["settings_json"]), row["status"])
+    calibration = _video_cost_calibration(conn)
+    for row in conn.execute("SELECT mode,provider,status,settings_json,created_at,started_at,completed_at FROM jobs WHERE user_id=?", (user_id,)):
+        settings = _json_object(row["settings_json"])
+        economics = _generation_economics(
+            settings,
+            row["status"],
+            provider=row["provider"],
+            mode=row["mode"],
+            elapsed_seconds=_elapsed_seconds(row["started_at"] or row["created_at"], row["completed_at"]),
+            cost_multiplier=calibration.get(_video_cost_key(settings, row["mode"]), 1.0),
+        )
         if economics["cost_kind"] == "actual":
             actual_jobs += 1
             actual_usd += float(economics["actual_cost_usd"] or 0)
             actual_rub += float(economics["actual_cost_rub"] or 0)
+        elif economics["cost_kind"] == "unreconciled_estimate":
+            unreconciled_jobs += 1
+            unreconciled_usd += float(economics["unreconciled_cost_usd"] or 0)
+            unreconciled_rub += float(economics["unreconciled_cost_rub"] or 0)
         if str(row["provider"] or "") == "comfyui" and str(row["status"] or "") == "completed":
             duration = _elapsed_seconds(row["started_at"] or row["created_at"], row["completed_at"])
             if duration is not None:
@@ -591,6 +683,11 @@ def _finance_projection(conn: sqlite3.Connection, internal_user_id: str, user_id
             "actual_api_cost_usd": round(actual_usd, 6),
             "actual_api_cost_rub": round(actual_rub, 2),
             "actual_api_jobs": actual_jobs,
+            "unreconciled_api_cost_usd": round(unreconciled_usd, 6),
+            "unreconciled_api_cost_rub": round(unreconciled_rub, 2),
+            "unreconciled_api_jobs": unreconciled_jobs,
+            "potential_api_cost_usd": round(actual_usd + unreconciled_usd, 6),
+            "potential_api_cost_rub": round(actual_rub + unreconciled_rub, 2),
             "local_completed_jobs": local_jobs,
             "local_compute_seconds": round(local_seconds, 3),
             "local_cost_configured": False,
@@ -602,6 +699,10 @@ def _finance_projection(conn: sqlite3.Connection, internal_user_id: str, user_id
             "net_received_rub": int(paid["amount"] or 0) - int(returned["amount"] or 0),
             "margin_before_local_cost_rub": round(
                 int(paid["amount"] or 0) - int(returned["amount"] or 0) - actual_rub,
+                2,
+            ),
+            "potential_margin_after_unreconciled_rub": round(
+                int(paid["amount"] or 0) - int(returned["amount"] or 0) - actual_rub - unreconciled_rub,
                 2,
             ),
         },
@@ -659,12 +760,13 @@ def user_dossier_enrichment(
     for item in client_history:
         item["sources"] = sorted(item["sources"])
     job_tokens = _token_job_map(conn, user_id)
+    calibration = _video_cost_calibration(conn)
     models: dict[tuple[str, str], dict[str, Any]] = {}
-    for row in conn.execute("SELECT id,provider,status,settings_json,created_at,started_at,completed_at FROM jobs WHERE user_id=?", (user_id,)):
+    for row in conn.execute("SELECT id,mode,provider,status,settings_json,created_at,started_at,completed_at FROM jobs WHERE user_id=?", (user_id,)):
         settings = _json_object(row["settings_json"])
         provider = str(row["provider"] or "—")
         model = str(settings.get("modelProfile") or settings.get("openrouterModel") or settings.get("model") or provider)
-        item = models.setdefault((provider, model), {"provider": provider, "model": model, "total": 0, "completed": 0, "failed": 0, "last_used_at": None, "main_tokens": 0, "daily_tokens": 0, "refunded_tokens": 0, "actual_cost_usd": 0.0, "actual_cost_rub": 0.0, "actual_cost_jobs": 0, "elapsed_seconds": 0.0})
+        item = models.setdefault((provider, model), {"provider": provider, "model": model, "total": 0, "completed": 0, "failed": 0, "last_used_at": None, "main_tokens": 0, "daily_tokens": 0, "refunded_tokens": 0, "actual_cost_usd": 0.0, "actual_cost_rub": 0.0, "actual_cost_jobs": 0, "unreconciled_cost_usd": 0.0, "unreconciled_cost_rub": 0.0, "unreconciled_cost_jobs": 0, "elapsed_seconds": 0.0})
         item["total"] += 1
         if row["status"] == "completed": item["completed"] += 1
         if row["status"] == "failed": item["failed"] += 1
@@ -673,17 +775,30 @@ def user_dossier_enrichment(
         item["main_tokens"] += int(tokens.get("main", 0))
         item["daily_tokens"] += int(tokens.get("daily", 0))
         item["refunded_tokens"] += int(tokens.get("refunded", 0))
-        economics = _generation_economics(settings, row["status"])
+        economics = _generation_economics(
+            settings,
+            row["status"],
+            provider=row["provider"],
+            mode=row["mode"],
+            elapsed_seconds=_elapsed_seconds(row["started_at"] or row["created_at"], row["completed_at"]),
+            cost_multiplier=calibration.get(_video_cost_key(settings, row["mode"]), 1.0),
+        )
         if economics["cost_kind"] == "actual":
             item["actual_cost_jobs"] += 1
             item["actual_cost_usd"] += float(economics["actual_cost_usd"] or 0)
             item["actual_cost_rub"] += float(economics["actual_cost_rub"] or 0)
+        elif economics["cost_kind"] == "unreconciled_estimate":
+            item["unreconciled_cost_jobs"] += 1
+            item["unreconciled_cost_usd"] += float(economics["unreconciled_cost_usd"] or 0)
+            item["unreconciled_cost_rub"] += float(economics["unreconciled_cost_rub"] or 0)
         elapsed = _elapsed_seconds(row["started_at"] or row["created_at"], row["completed_at"])
         if elapsed is not None:
             item["elapsed_seconds"] += elapsed
     for item in models.values():
         item["actual_cost_usd"] = round(float(item["actual_cost_usd"]), 6)
         item["actual_cost_rub"] = round(float(item["actual_cost_rub"]), 2)
+        item["unreconciled_cost_usd"] = round(float(item["unreconciled_cost_usd"]), 6)
+        item["unreconciled_cost_rub"] = round(float(item["unreconciled_cost_rub"]), 2)
         item["elapsed_seconds"] = round(float(item["elapsed_seconds"]), 3)
         item["net_tokens"] = max(0, int(item["main_tokens"]) + int(item["daily_tokens"]) - int(item["refunded_tokens"]))
         item["provider_kind"] = "local" if item["provider"] == "comfyui" else "api"
@@ -759,6 +874,7 @@ def user_history_page(conn: sqlite3.Connection, internal_user_id: str, section: 
         total = _scalar(conn, "SELECT COUNT(*) FROM jobs WHERE user_id=?", (user_id,))
         rows = conn.execute("SELECT id,mode,provider,status,prompt_original,error_message,settings_json,created_at,started_at,completed_at FROM jobs WHERE user_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?", (user_id, limit, offset)).fetchall()
         job_tokens = _token_job_map(conn, user_id)
+        calibration = _video_cost_calibration(conn)
         image_by_job: dict[str, sqlite3.Row] = {}
         for media_row in conn.execute(
             "SELECT id,job_id,width,height FROM images WHERE user_id=? AND job_id IS NOT NULL "
@@ -780,7 +896,8 @@ def user_history_page(conn: sqlite3.Connection, internal_user_id: str, section: 
             preview = video_by_job.get(str(r["id"])) or image_by_job.get(str(r["id"]))
             preview_type = "video" if str(r["id"]) in video_by_job else ("image" if preview else None)
             preview_id = preview["id"] if preview else None
-            items.append({"id": _short(r["id"]), "job_id": r["id"], "mode": r["mode"], "provider": r["provider"], "provider_kind": "local" if r["provider"] == "comfyui" else "api", "status": r["status"], "model": settings.get("modelProfile") or settings.get("openrouterModel") or settings.get("model") or r["provider"], "prompt": _text(r["prompt_original"], 3000), "error": _text(r["error_message"], 600), "created_at": r["created_at"], "started_at": r["started_at"], "completed_at": r["completed_at"], "elapsed_seconds": _elapsed_seconds(r["started_at"] or r["created_at"], r["completed_at"]), "tokens": {**tokens, "net": max(0, int(tokens["main"]) + int(tokens["daily"]) - int(tokens["refunded"]))}, "preview_type": preview_type, "preview_url": f"/api/admin/media/{preview_type}/{preview_id}" + ("?variant=thumb" if preview_type == "image" else "") if preview_type and preview_id else None, "preview_width": preview["width"] if preview else None, "preview_height": preview["height"] if preview else None, **_generation_economics(settings, r["status"]), "settings": {key: settings[key] for key in ("aspectRatio", "resolution", "quality", "duration", "steps", "seed") if settings.get(key) is not None}})
+            elapsed = _elapsed_seconds(r["started_at"] or r["created_at"], r["completed_at"])
+            items.append({"id": _short(r["id"]), "job_id": r["id"], "mode": r["mode"], "provider": r["provider"], "provider_kind": "local" if r["provider"] == "comfyui" else "api", "status": r["status"], "model": settings.get("modelProfile") or settings.get("openrouterModel") or settings.get("model") or r["provider"], "prompt": _text(r["prompt_original"], 3000), "error": _text(r["error_message"], 600), "created_at": r["created_at"], "started_at": r["started_at"], "completed_at": r["completed_at"], "elapsed_seconds": elapsed, "tokens": {**tokens, "net": max(0, int(tokens["main"]) + int(tokens["daily"]) - int(tokens["refunded"]))}, "preview_type": preview_type, "preview_url": f"/api/admin/media/{preview_type}/{preview_id}" + ("?variant=thumb" if preview_type == "image" else "") if preview_type and preview_id else None, "preview_width": preview["width"] if preview else None, "preview_height": preview["height"] if preview else None, **_generation_economics(settings, r["status"], provider=r["provider"], mode=r["mode"], elapsed_seconds=elapsed, cost_multiplier=calibration.get(_video_cost_key(settings, r["mode"]), 1.0)), "settings": {key: settings[key] for key in ("aspectRatio", "resolution", "quality", "duration", "steps", "seed") if settings.get(key) is not None}})
     elif section == "finance":
         items = []
         for r in conn.execute("SELECT id,invoice_code,status,currency,total_amount,tokens_total,reason,created_at,issued_at,paid_at,cancelled_at,refunded_at FROM invoices WHERE internal_user_id=?", (internal_user_id,)):

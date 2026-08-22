@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+import httpx
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -279,6 +280,96 @@ def test_video_generate_persists_external_job_and_server_price(video_api: TestCl
     assert row["status"] == "queued"
     assert "external-video-1" in row["settings_json"]
     assert user["token_balance"] == response.json()["tokenBalance"]
+
+
+def test_video_submit_uses_configured_provider_timeout(video_api: TestClient, monkeypatch):
+    captured = {}
+
+    async def submit(**kwargs):
+        captured.update(kwargs)
+        return {"id": "external-timeout-policy", "status": "pending"}
+
+    monkeypatch.setattr(main, "submit_openrouter_video", submit)
+    response = video_api.post("/api/video/generate", json=payload(prompt="timeout policy"))
+
+    assert response.status_code == 200
+    assert captured["timeout_seconds"] == main.OPENROUTER_TIMEOUT_SECONDS
+
+
+def test_video_timeout_is_refunded_marked_uncertain_and_duplicate_is_blocked(video_api: TestClient, monkeypatch):
+    calls = 0
+
+    async def timeout(**_kwargs):
+        nonlocal calls
+        calls += 1
+        raise httpx.ReadTimeout("provider response timeout")
+
+    monkeypatch.setattr(main, "submit_openrouter_video", timeout)
+    request_payload = payload(prompt="one expensive request only")
+
+    first = video_api.post("/api/video/generate", json=request_payload)
+    second = video_api.post("/api/video/generate", json=request_payload)
+
+    assert first.status_code == 504
+    assert "двойного списания" in first.json()["detail"]
+    assert second.status_code == 409
+    assert calls == 1
+    with main.db() as conn:
+        user = conn.execute("SELECT token_balance FROM users WHERE id='video-user'").fetchone()
+        row = conn.execute("SELECT status,settings_json FROM jobs ORDER BY created_at DESC LIMIT 1").fetchone()
+    settings = json.loads(row["settings_json"])
+    assert user["token_balance"] == 500
+    assert row["status"] == "failed"
+    assert settings["openrouterSubmissionState"] == "provider_response_timeout"
+    assert settings["openrouterBilling"]["providerCostUncertain"] is True
+
+
+def test_video_estimate_accepts_cents_per_second_and_minimum_generation_fee():
+    model = {
+        **MODEL,
+        "pricingSkus": {
+            "cents_per_second_output": 1.0,
+            "minimum_cents_per_generation": 20.0,
+        },
+    }
+
+    estimate = main._openrouter_video_billing_from_exchange(
+        model,
+        main.VideoGenerateRequest(**payload(duration=4)),
+        rate=80.0,
+        economy={"tokenRub": 5.0, "minMarginPercent": 40.0},
+        pricing_history=[],
+    )
+
+    assert estimate["pricingKey"] == "cents_per_second_output"
+    assert estimate["catalogEstimatedCostUsd"] == pytest.approx(0.04)
+    assert estimate["estimatedCostUsd"] == pytest.approx(0.20)
+    assert estimate["minimumCostUsd"] == pytest.approx(0.20)
+
+
+def test_video_catalog_quote_uses_actual_history_as_safety_floor():
+    history = [{
+        "modelId": MODEL["id"],
+        "mode": "text_to_video",
+        "duration": 4,
+        "resolution": "720p",
+        "aspectRatio": "16:9",
+        "generateAudio": False,
+        "actualCostUsd": 0.40,
+    }]
+
+    estimate = main._openrouter_video_billing_from_exchange(
+        MODEL,
+        main.VideoGenerateRequest(**payload()),
+        rate=80.0,
+        economy={"tokenRub": 5.0, "minMarginPercent": 40.0},
+        pricing_history=history,
+    )
+
+    assert estimate["catalogEstimatedCostUsd"] == pytest.approx(0.40)
+    assert estimate["historyFloorCostUsd"] == pytest.approx(0.50)
+    assert estimate["estimatedCostUsd"] == pytest.approx(0.50)
+    assert estimate["calibrationApplied"] is True
 
 
 def test_video_generate_refunds_and_returns_public_provider_error(

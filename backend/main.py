@@ -325,7 +325,7 @@ try:
         generation_recovery,
         generation_results,
         generation_worker,
-        generation_queue, openrouter_availability,
+        generation_queue, openrouter_availability, openrouter_image_economics,
         gallery_policy,
         gallery_eviction,
         gallery_query,
@@ -335,6 +335,7 @@ try:
         video_storage,
         video_pricing,
         video_presentation,
+        video_submission,
         video_download,
         admin_analytics,
         feed_presentation,
@@ -370,7 +371,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         generation_recovery,
         generation_results,
         generation_worker,
-        generation_queue, openrouter_availability,
+        generation_queue, openrouter_availability, openrouter_image_economics,
         gallery_policy,
         gallery_eviction,
         gallery_query,
@@ -380,6 +381,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         video_storage,
         video_pricing,
         video_presentation,
+        video_submission,
         video_download,
         admin_analytics,
         feed_presentation,
@@ -8183,7 +8185,7 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
             raise HTTPException(400, "Выбранная модель не поддерживает этот режим генерации.")
         if requested_resolution_id not in supported_resolution_ids_from_capability(capability):
             raise HTTPException(422, "Выбранное разрешение не поддерживается этой моделью.")
-        openrouter_billing = await estimate_openrouter_billing(req)
+        openrouter_billing = await estimate_openrouter_billing(req, capability)
         token_cost = int(openrouter_billing["chargedTokens"])
     else:
         token_cost = estimate_token_cost(req)
@@ -15429,7 +15431,6 @@ OPENROUTER_PRICE_CATALOG: dict[str, OpenRouterPriceModel] = {
     "google/gemini-3-pro-image": OpenRouterPriceModel(id="google/gemini-3-pro-image", name="Nano Banana Pro", provider="Google Vertex", pricing_type="token_estimate", usd=0.00012, min_tokens=4),
     "google/gemini-3-pro-image-preview": OpenRouterPriceModel(id="google/gemini-3-pro-image-preview", name="Nano Banana Pro Preview", provider="Google Vertex", pricing_type="token_estimate", usd=0.00012, min_tokens=4, source="market_estimate_2026-07-10"),
     "google/gemini-2.5-flash-image": OpenRouterPriceModel(id="google/gemini-2.5-flash-image", name="Gemini 2.5 Flash Image", provider="Google", pricing_type="token_estimate", usd=0.00006, min_tokens=2, source="market_estimate_2026-07-10"),
-    "google/gemini-2.5-flash-image-preview": OpenRouterPriceModel(id="google/gemini-2.5-flash-image-preview", name="Gemini 2.5 Flash Image Preview", provider="Google", pricing_type="token_estimate", usd=0.00006, min_tokens=2, source="market_estimate_2026-07-10"),
     "microsoft/mai-image-2.5": OpenRouterPriceModel(id="microsoft/mai-image-2.5", name="MAI-Image-2.5", provider="Microsoft", pricing_type="token_estimate", usd=0.00006, min_tokens=2, source="market_estimate_2026-07-10"),
     "x-ai/grok-imagine-image-quality": OpenRouterPriceModel(id="x-ai/grok-imagine-image-quality", name="Grok Imagine Image Quality", provider="xAI", pricing_type="image", usd=0.07, min_tokens=3, source="market_estimate_2026-07-10"),
     "recraft/recraft-v4.1": OpenRouterPriceModel(id="recraft/recraft-v4.1", name="Recraft V4.1", provider="Recraft", pricing_type="image", usd=0.035, min_tokens=1),
@@ -15447,12 +15448,10 @@ OPENROUTER_PRICE_CATALOG: dict[str, OpenRouterPriceModel] = {
     "sourceful/riverflow-v2-pro": OpenRouterPriceModel(id="sourceful/riverflow-v2-pro", name="Riverflow V2 Pro", provider="Sourceful", pricing_type="image", usd=0.13, min_tokens=3, source="market_estimate_2026-07-10"),
     "sourceful/riverflow-v2.5-fast": OpenRouterPriceModel(id="sourceful/riverflow-v2.5-fast", name="Riverflow V2.5 Fast", provider="Sourceful", pricing_type="image", usd=0.019, min_tokens=1),
     "sourceful/riverflow-v2.5-pro": OpenRouterPriceModel(id="sourceful/riverflow-v2.5-pro", name="Riverflow V2.5 Pro", provider="Sourceful", pricing_type="image", usd=0.13, min_tokens=3),
-    "sourceful/riverflow-v2-fast-preview": OpenRouterPriceModel(id="sourceful/riverflow-v2-fast-preview", name="Riverflow V2 Fast Preview", provider="Sourceful", pricing_type="image", usd=0.04, min_tokens=1, source="market_estimate_2026-07-10"),
-    "sourceful/riverflow-v2-standard-preview": OpenRouterPriceModel(id="sourceful/riverflow-v2-standard-preview", name="Riverflow V2 Standard Preview", provider="Sourceful", pricing_type="image", usd=0.08, min_tokens=2, source="market_estimate_2026-07-10"),
-    "sourceful/riverflow-v2-max-preview": OpenRouterPriceModel(id="sourceful/riverflow-v2-max-preview", name="Riverflow V2 Max Preview", provider="Sourceful", pricing_type="image", usd=0.13, min_tokens=3, source="market_estimate_2026-07-10"),
     "bytedance-seed/seedream-4.5": OpenRouterPriceModel(id="bytedance-seed/seedream-4.5", name="Seedream 4.5", provider="ByteDance Seed", pricing_type="image", usd=0.04, min_tokens=1),
-    "openrouter/auto": OpenRouterPriceModel(id="openrouter/auto", name="Auto Router", provider="OpenRouter", pricing_type="image", usd=0.15, min_tokens=4, source="market_estimate_2026-07-10"),
 }
+for _new_price_spec in openrouter_image_economics.NEW_IMAGE_PRICE_SPECS:
+    OPENROUTER_PRICE_CATALOG[str(_new_price_spec["id"])] = OpenRouterPriceModel(**_new_price_spec)
 
 
 def openrouter_economy_settings() -> dict[str, float]:
@@ -15593,7 +15592,10 @@ def public_openrouter_pricing(exchange: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def estimate_openrouter_billing(req: GenerateRequest) -> dict[str, Any]:
+async def estimate_openrouter_billing(
+    req: GenerateRequest,
+    capability: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     model_id = resolve_openrouter_model(req)
     model = OPENROUTER_PRICE_CATALOG.get(model_id)
     if model is None:
@@ -15605,8 +15607,19 @@ async def estimate_openrouter_billing(req: GenerateRequest) -> dict[str, Any]:
     economy = openrouter_economy_settings()
     effective_rate = float(rate) * (1 + OPENROUTER_USD_FEE_RATE)
     megapixels = openrouter_requested_megapixels(req)
-    request_plan = openrouter_image_request_plan(model_id, req.width, req.height)
-    estimated_usd = openrouter_estimated_usd(model, megapixels)
+    request_plan = openrouter_image_request_plan(model_id, req.width, req.height, capability)
+    input_image_count = (
+        1 if req.mode == "image_to_image" and req.inputImage1
+        else len([item for item in req.inputImages if item.image]) if req.mode == "edit"
+        else 0
+    )
+    live_estimate = openrouter_image_economics.estimate_live_image_cost(
+        (capability or {}).get("pricing") or [],
+        megapixels=megapixels,
+        resolution=request_plan.get("resolution"),
+        input_image_count=input_image_count,
+    )
+    estimated_usd = live_estimate.cost_usd if live_estimate is not None else openrouter_estimated_usd(model, megapixels)
     estimated_rub = estimated_usd * effective_rate
     tokens = openrouter_tokens_for_cost(estimated_rub, model.min_tokens, economy)
     revenue_rub = tokens * float(economy["tokenRub"])
@@ -15619,7 +15632,9 @@ async def estimate_openrouter_billing(req: GenerateRequest) -> dict[str, Any]:
         "modelName": model.name,
         "modelProvider": model.provider,
         "pricingType": model.pricing_type,
-        "pricingSource": model.source,
+        "pricingSource": "openrouter_live_endpoint" if live_estimate is not None else model.source,
+        "pricingKeys": list(live_estimate.source_keys) if live_estimate is not None else [],
+        "inputImageCount": input_image_count,
         "megapixels": round(megapixels, 6),
         "requestSize": request_plan.get("size"),
         "requestSizeStrategy": request_plan.get("strategy"),
@@ -15817,11 +15832,12 @@ def _openrouter_video_billing_from_exchange(
     economy: dict[str, float],
     pricing_history: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    resolved_history = pricing_history if pricing_history is not None else video_pricing.load_actual_pricing_samples(db, safe_json_load)
     pricing_rate = video_pricing.resolve_video_rate(
         model,
         model_id=str(model.get("id") or req.model), mode=req.mode, resolution=req.resolution,
         aspect_ratio=req.aspectRatio, generate_audio=req.generateAudio,
-        samples=pricing_history if pricing_history is not None else video_pricing.load_actual_pricing_samples(db, safe_json_load),
+        samples=resolved_history,
     )
     rate_usd, unit = pricing_rate.usd_rate, pricing_rate.unit
     billed_units = float(req.duration)
@@ -15832,17 +15848,37 @@ def _openrouter_video_billing_from_exchange(
         billed_units = (size[0] * size[1] * req.duration * 24) / 1024
     input_count = (1 if req.firstFrame else 0) + (1 if req.lastFrame else 0) + len(req.references)
     image_fee = float((model.get("pricingSkus") or {}).get("cents_per_image_input") or 0) / 100 * input_count
-    cost_usd = rate_usd * billed_units + image_fee
+    catalog_cost_usd = rate_usd * billed_units + image_fee
+    history_floor = video_pricing.estimate_fallback_video_rate(
+        model_id=str(model.get("id") or req.model),
+        mode=req.mode,
+        resolution=req.resolution,
+        aspect_ratio=req.aspectRatio,
+        generate_audio=req.generateAudio,
+        samples=resolved_history,
+    )
+    history_floor_cost_usd = (
+        history_floor.usd_per_second * float(req.duration)
+        if history_floor.source == "model_history"
+        else 0.0
+    )
+    minimum_cost_usd = float((model.get("pricingSkus") or {}).get("minimum_cents_per_generation") or 0) / 100
+    cost_usd = max(catalog_cost_usd, history_floor_cost_usd, minimum_cost_usd)
+    calibration_applied = history_floor_cost_usd > catalog_cost_usd
     effective_rate = float(rate) * (1 + OPENROUTER_USD_FEE_RATE)
     cost_rub = cost_usd * effective_rate
     tokens = openrouter_tokens_for_cost(cost_rub, 1, economy)
     revenue = tokens * float(economy["tokenRub"])
     return {
         "billingStatus": "estimated", "modelId": model["id"], "pricingKey": pricing_rate.source_key,
-        "pricingSource": pricing_rate.source,
+        "pricingSource": "catalog_with_actual_history_floor" if calibration_applied else pricing_rate.source,
         "pricingFallback": pricing_rate.fallback,
-        "pricingSampleCount": pricing_rate.sample_count,
+        "pricingSampleCount": history_floor.sample_count if calibration_applied else pricing_rate.sample_count,
         "unit": unit, "rateUsd": rate_usd, "billedUnits": round(billed_units, 4),
+        "catalogEstimatedCostUsd": round(catalog_cost_usd, 6),
+        "historyFloorCostUsd": round(history_floor_cost_usd, 6) if history_floor_cost_usd else None,
+        "minimumCostUsd": round(minimum_cost_usd, 6) if minimum_cost_usd else None,
+        "calibrationApplied": calibration_applied,
         "estimatedCostUsd": round(cost_usd, 6), "estimatedCostRub": round(cost_rub, 4),
         "effectiveUsdRub": round(effective_rate, 6), "exchangeRate": float(rate),
         "tokenRub": economy["tokenRub"], "minMarginPercent": economy["minMarginPercent"],
@@ -16205,16 +16241,29 @@ async def generate_video(req: VideoGenerateRequest, request: Request) -> dict[st
     if req.references:
         body["input_references"] = [{"type": "image_url", "image_url": {"url": openrouter_reference_value(value)}} for value in req.references]
     job_id = f"video_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"; now = datetime.now(timezone.utc).isoformat()
+    submission_fingerprint = video_submission.request_fingerprint(req)
     try:
         with db() as conn:
             conn.execute("BEGIN IMMEDIATE")
+            duplicate = video_submission.blocking_duplicate(conn, user_id, submission_fingerprint)
+            if duplicate is not None:
+                raise video_submission.DuplicateVideoSubmission(
+                    "Такая же видеозаявка уже отправлена. Дождитесь её результата; повторная платная отправка заблокирована."
+                )
             locked_user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
             _video_storage_reservation(conn, locked_user, user_id)
             charge = charge_generation_tokens(conn, user_id, int(billing["chargedTokens"]), job_id, req, billing)
-            conn.execute("INSERT INTO jobs (id,user_id,mode,provider,status,progress,prompt_original,settings_json,created_at) VALUES (?,?,?,?,?,?,?,?,?)", (job_id, user_id, req.mode, "openrouter", "submitting", 5, req.prompt.strip(), json.dumps({"openrouterModel": req.model, "duration": req.duration, "resolution": req.resolution, "aspectRatio": req.aspectRatio, "generateAudio": req.generateAudio, "tokenCost": billing["chargedTokens"], "openrouterBilling": billing}, ensure_ascii=False), now))
+            conn.execute("INSERT INTO jobs (id,user_id,mode,provider,status,progress,prompt_original,settings_json,created_at) VALUES (?,?,?,?,?,?,?,?,?)", (job_id, user_id, req.mode, "openrouter", "submitting", 5, req.prompt.strip(), json.dumps({"openrouterModel": req.model, "duration": req.duration, "resolution": req.resolution, "aspectRatio": req.aspectRatio, "generateAudio": req.generateAudio, "tokenCost": billing["chargedTokens"], "openrouterBilling": billing, "submissionFingerprint": submission_fingerprint}, ensure_ascii=False), now))
         persist_video_sources(job_id, user_id, req, now)
-        submitted = await submit_openrouter_video(base_url=OPENROUTER_BASE_URL, headers=openrouter_headers(), payload=body)
+        submitted = await submit_openrouter_video(
+            base_url=OPENROUTER_BASE_URL,
+            headers=openrouter_headers(),
+            payload=body,
+            timeout_seconds=OPENROUTER_TIMEOUT_SECONDS,
+        )
     except Exception as exc:
+        if isinstance(exc, video_submission.DuplicateVideoSubmission):
+            raise HTTPException(409, str(exc)) from exc
         if isinstance(exc, OpenRouterVideoRequestError):
             OPENROUTER_AVAILABILITY.record(exc.status_code)
         with db() as conn:
@@ -16544,66 +16593,7 @@ async def gallery_video_delete(video_id: str, request: Request) -> dict[str, Any
 
 
 def openrouter_video_usage_stats() -> dict[str, Any]:
-    """Summarize completed OpenRouter video jobs without inventing missing costs."""
-    with db() as conn:
-        rows = conn.execute(
-            "SELECT mode, settings_json FROM jobs "
-            "WHERE provider = 'openrouter' AND status = 'completed' "
-            "AND mode IN ('text_to_video', 'image_to_video', 'first_last_frame', 'reference_to_video') "
-            "ORDER BY completed_at DESC LIMIT 500"
-        ).fetchall()
-    models: dict[str, dict[str, Any]] = {}
-    modes: dict[str, dict[str, Any]] = {}
-    total_count = 0
-    total_priced = 0
-    total_cost_usd = 0.0
-    for row in rows:
-        settings = safe_json_load(row["settings_json"]) or {}
-        if not isinstance(settings, dict):
-            settings = {}
-        mode = str(row["mode"] or "unknown")
-        model = str(settings.get("openrouterModel") or settings.get("modelProfile") or "unknown")
-        try:
-            cost_usd: float | None = float(settings.get("openrouterCostUsd"))
-        except (TypeError, ValueError):
-            cost_usd = None
-        total_count += 1
-        mode_bucket = modes.setdefault(mode, {"count": 0, "priced": 0, "costUsd": 0.0})
-        model_bucket = models.setdefault(model, {"count": 0, "priced": 0, "costUsd": 0.0})
-        mode_bucket["count"] += 1
-        model_bucket["count"] += 1
-        if cost_usd is not None:
-            total_priced += 1
-            total_cost_usd += cost_usd
-            mode_bucket["priced"] += 1
-            mode_bucket["costUsd"] += cost_usd
-            model_bucket["priced"] += 1
-            model_bucket["costUsd"] += cost_usd
-
-    def rows_for(source: dict[str, dict[str, Any]], key_name: str) -> list[dict[str, Any]]:
-        result = []
-        for key, item in source.items():
-            count = int(item["count"] or 0)
-            priced = int(item["priced"] or 0)
-            cost = float(item["costUsd"] or 0)
-            result.append({
-                key_name: key,
-                "count": count,
-                "priced": priced,
-                "costUsd": round(cost, 6),
-                "avgCostUsd": round(cost / priced, 6) if priced else None,
-            })
-        result.sort(key=lambda item: int(item["count"]), reverse=True)
-        return result
-
-    return {
-        "count": total_count,
-        "priced": total_priced,
-        "costUsd": round(total_cost_usd, 6),
-        "avgCostUsd": round(total_cost_usd / total_priced, 6) if total_priced else None,
-        "models": rows_for(models, "model"),
-        "modes": rows_for(modes, "mode"),
-    }
+    return video_pricing.openrouter_video_usage_stats(db, safe_json_load)
 
 
 OPENROUTER_ADMIN_MODES = {

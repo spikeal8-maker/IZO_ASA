@@ -228,7 +228,7 @@ def test_openrouter_generation_uses_main_balance_only(temp_db, monkeypatch):
             }, ensure_ascii=False),),
         )
 
-    async def fake_billing(_req):
+    async def fake_billing(_req, _capability=None):
         return {"chargedTokens": 3, "modelName": "FLUX.2 Pro", "estimatedCostRub": 3.5}
 
     async def flux_pro_capabilities(*_args, **_kwargs):

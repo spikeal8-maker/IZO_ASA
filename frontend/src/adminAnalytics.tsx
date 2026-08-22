@@ -203,6 +203,8 @@ function GenerationEvent({ item }: { item: AnyRec }): ReactElement {
   const tokens = (item.tokens || {}) as AnyRec
   const cost = item.cost_kind === 'actual'
     ? `Фактическая цена API: ${moneyExact(item.actual_cost_rub)} / ${moneyExact(item.actual_cost_usd, 'USD')}`
+    : item.cost_kind === 'unreconciled_estimate'
+      ? `Не сверено с OpenRouter: вероятный расход ${moneyExact(item.unreconciled_cost_rub)} / ${moneyExact(item.unreconciled_cost_usd, 'USD')} — пользовательские токены возвращены`
     : item.cost_kind === 'estimated'
       ? `Расчётная цена до запуска: ${moneyExact(item.estimated_cost_rub)} / ${moneyExact(item.estimated_cost_usd, 'USD')} — не списание`
       : item.provider_kind === 'local' ? 'Локальная себестоимость: тариф мощности пока не настроен' : 'Цена провайдера не записана'
@@ -717,6 +719,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
               <section className="crm-overview-kpis crm-span-2" aria-label="Дашборд пользователя">
                 <span className="revenue"><small>Принёс платформе</small><b>{moneyExact(cashEconomics.net_received_rub)}</b></span>
                 <span className="cost"><small>Расход OpenRouter</small><b>{moneyExact(generationEconomics.actual_api_cost_rub)}</b></span>
+                {n0(generationEconomics.unreconciled_api_jobs) > 0 && <span className="cost"><small>Не сверено с OpenRouter</small><b>{moneyExact(generationEconomics.unreconciled_api_cost_rub)}</b><em>{S(generationEconomics.unreconciled_api_jobs)} заявок после тайм-аута</em></span>}
                 <span><small>Маржа до локальных расходов</small><b>{moneyExact(cashEconomics.margin_before_local_cost_rub)}</b></span>
                 <span><small>Генерации</small><b>{S(totalJobs.total)}</b><em>{S(totalJobs.completed)} готово · {S(totalJobs.failed)} ошибок</em></span>
                 <span><small>Изображения / видео</small><b>{S(totalJobs.images)} / {S(totalJobs.videos)}</b></span>
@@ -762,7 +765,9 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
                 <span className="revenue"><small>Оплачено пользователем</small><b>{moneyExact(cashEconomics.paid_rub)}</b></span>
                 <span><small>Чисто после возвратов</small><b>{moneyExact(cashEconomics.net_received_rub)}</b></span>
                 <span className="cost"><small>Фактический OpenRouter</small><b>{moneyExact(generationEconomics.actual_api_cost_rub)}</b><em>{moneyExact(generationEconomics.actual_api_cost_usd, 'USD')}</em></span>
+                <span className="cost"><small>Вероятные несверенные списания</small><b>{moneyExact(generationEconomics.unreconciled_api_cost_rub)}</b><em>{S(generationEconomics.unreconciled_api_jobs)} заявок · до {moneyExact(generationEconomics.potential_api_cost_rub)} вместе с фактическими</em></span>
                 <span><small>Маржа до локальных расходов</small><b>{moneyExact(cashEconomics.margin_before_local_cost_rub)}</b></span>
+                <span><small>Маржа с учётом риска</small><b>{moneyExact(cashEconomics.potential_margin_after_unreconciled_rub)}</b></span>
               </section>
               <details className="crm-summary-details"><summary>Как посчитаны токены и деньги</summary><div><span>Начислено основных: +{S(tokenEconomics.granted)}</span><span>Списано основных до возвратов: −{S(tokenEconomics.main_debited)}</span><span>Возвращено основных: +{S(tokenEconomics.main_refunded)}</span><span>Возвращено дневных: +{S(tokenEconomics.daily_refunded)}</span><span>Денежные возвраты: {moneyExact(cashEconomics.refunded_rub)}</span></div></details>
               <section className="crm-cost-note"><b>Локальная генерация</b><span>{S(generationEconomics.local_completed_jobs)} завершённых · {durationLabel(generationEconomics.local_compute_seconds)} работы. Денежная себестоимость не показывается, пока в админке не настроена цена электроэнергии и оборудования.</span></section>
@@ -773,8 +778,8 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
             {tab === 'prompts' && <div className="crm-acc crm-generations-view">
               <div className="crm-section-heading"><h3>Генерации</h3><span>{historyLoading ? 'загрузка…' : `${S(history?.total)} запусков`}</span></div>
               {historyError && <p className="crm-err crm-history-error">{historyError}</p>}
-              <section className="crm-generation-kpis"><span><small>Всего</small><b>{S(totalJobs.total)}</b></span><span><small>Готово</small><b>{S(totalJobs.completed)}</b></span><span><small>Ошибки</small><b>{S(totalJobs.failed)}</b></span><span><small>Расход OpenRouter</small><b>{moneyExact(generationEconomics.actual_api_cost_rub)}</b></span><span><small>Локальное время</small><b>{durationLabel(generationEconomics.local_compute_seconds)}</b></span></section>
-              <details className="crm-model-summary"><summary>Использованные модели: {S(data?.model_usage?.length || 0)}</summary><div className="crm-model-table">{(data?.model_usage || []).map((m, n) => <div key={n}><b>{S(m.model)}</b><span>{m.provider_kind === 'local' ? 'Локальная' : `API · ${S(m.provider)}`}</span><span>{S(m.total)} запусков · {S(m.completed)}/{S(m.failed)}</span><span>{S(m.net_tokens)} ток.{n0(m.actual_cost_rub) ? ` · ${moneyExact(m.actual_cost_rub)}` : ''}</span><small>{durationLabel(m.elapsed_seconds)}</small></div>)}</div></details>
+              <section className="crm-generation-kpis"><span><small>Всего</small><b>{S(totalJobs.total)}</b></span><span><small>Готово</small><b>{S(totalJobs.completed)}</b></span><span><small>Ошибки</small><b>{S(totalJobs.failed)}</b></span><span><small>Расход OpenRouter</small><b>{moneyExact(generationEconomics.actual_api_cost_rub)}</b></span><span><small>Не сверено</small><b>{moneyExact(generationEconomics.unreconciled_api_cost_rub)}</b></span><span><small>Локальное время</small><b>{durationLabel(generationEconomics.local_compute_seconds)}</b></span></section>
+              <details className="crm-model-summary"><summary>Использованные модели: {S(data?.model_usage?.length || 0)}</summary><div className="crm-model-table">{(data?.model_usage || []).map((m, n) => <div key={n}><b>{S(m.model)}</b><span>{m.provider_kind === 'local' ? 'Локальная' : `API · ${S(m.provider)}`}</span><span>{S(m.total)} запусков · {S(m.completed)}/{S(m.failed)}</span><span>{S(m.net_tokens)} ток.{n0(m.actual_cost_rub) ? ` · факт ${moneyExact(m.actual_cost_rub)}` : ''}{n0(m.unreconciled_cost_rub) ? ` · не сверено ${moneyExact(m.unreconciled_cost_rub)}` : ''}</span><small>{durationLabel(m.elapsed_seconds)}</small></div>)}</div></details>
               <div className="crm-generation-list">{(history?.items || []).map((g, n) => <GenerationEvent item={g} key={`${S(g.job_id)}-${n}`} />)}</div>{history?.has_more && <button className="secondary crm-load-more" disabled={historyLoading} onClick={() => void loadHistory(true)}>{historyLoading ? 'Загрузка…' : `Показать ещё (${history.items?.length || 0} из ${history.total || 0})`}</button>}
             </div>}
             {tab === 'gallery' && <div className="crm-acc crm-media-view">

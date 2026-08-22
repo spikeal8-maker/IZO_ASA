@@ -10,6 +10,7 @@ from . import generation_results
 from . import generation_worker
 from . import generation_queue
 from . import openrouter_availability
+from . import openrouter_image_economics
 from . import gallery_policy
 from . import gallery_eviction
 from . import gallery_query
@@ -17,6 +18,7 @@ from . import gallery_presentation
 from . import gallery_items
 from . import video_pricing
 from . import video_presentation
+from . import video_submission
 from . import video_download
 from . import admin_analytics
 from . import ltx_video
@@ -58,6 +60,7 @@ __all__ = [
     "generation_worker",
     "generation_queue",
     "openrouter_availability",
+    "openrouter_image_economics",
     "gallery_policy",
     "gallery_eviction",
     "gallery_query",
@@ -65,6 +68,7 @@ __all__ = [
     "gallery_items",
     "video_pricing",
     "video_presentation",
+    "video_submission",
     "video_download",
     "admin_analytics",
     "ltx_video",

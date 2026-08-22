@@ -253,12 +253,21 @@ def resolve_video_rate(
     for key in preferred:
         if isinstance(pricing.get(key), (int, float)):
             return VideoPricingRate(float(pricing[key]), "second", key, "catalog", False, 0)
-    for key in (f"cents_per_video_output_second_{resolution_key}", "cents_per_video_output_second"):
+    for key in (
+        f"cents_per_video_output_second_{resolution_key}",
+        f"cents_per_second_output_{resolution_key}",
+        "cents_per_video_output_second",
+        "cents_per_second_output",
+    ):
         if isinstance(pricing.get(key), (int, float)):
             return VideoPricingRate(float(pricing[key]) / 100, "second", key, "catalog", False, 0)
-    token_key = "video_tokens" if generate_audio or not isinstance(pricing.get("video_tokens_without_audio"), (int, float)) else "video_tokens_without_audio"
-    if isinstance(pricing.get(token_key), (int, float)):
-        return VideoPricingRate(float(pricing[token_key]), "video_token", token_key, "catalog", False, 0)
+    token_keys = []
+    if not generate_audio:
+        token_keys.extend([f"video_tokens_without_audio_{resolution_key}", "video_tokens_without_audio"])
+    token_keys.extend([f"video_tokens_{resolution_key}", "video_tokens"])
+    for token_key in token_keys:
+        if isinstance(pricing.get(token_key), (int, float)):
+            return VideoPricingRate(float(pricing[token_key]), "video_token", token_key, "catalog", False, 0)
     generic = next(((str(key), float(value)) for key, value in pricing.items() if isinstance(value, (int, float)) and "duration" in str(key)), None)
     if generic:
         return VideoPricingRate(generic[1], "second", generic[0], "catalog", False, 0)
@@ -278,3 +287,68 @@ def resolve_video_rate(
         True,
         fallback.sample_count,
     )
+
+
+def openrouter_video_usage_stats(
+    open_db: Callable[[], Any],
+    parse_json: Callable[[Any], Any],
+) -> dict[str, Any]:
+    """Summarize completed OpenRouter video jobs with recorded actual costs."""
+
+    with open_db() as conn:
+        rows = conn.execute(
+            "SELECT mode, settings_json FROM jobs "
+            "WHERE provider = 'openrouter' AND status = 'completed' "
+            "AND mode IN ('text_to_video', 'image_to_video', 'first_last_frame', 'reference_to_video') "
+            "ORDER BY completed_at DESC LIMIT 500"
+        ).fetchall()
+    models: dict[str, dict[str, Any]] = {}
+    modes: dict[str, dict[str, Any]] = {}
+    total_count = total_priced = 0
+    total_cost_usd = 0.0
+    for row in rows:
+        settings = parse_json(row["settings_json"]) or {}
+        if not isinstance(settings, dict):
+            settings = {}
+        mode = str(row["mode"] or "unknown")
+        model = str(settings.get("openrouterModel") or settings.get("modelProfile") or "unknown")
+        try:
+            cost_usd: float | None = float(settings.get("openrouterCostUsd"))
+        except (TypeError, ValueError):
+            cost_usd = None
+        total_count += 1
+        mode_bucket = modes.setdefault(mode, {"count": 0, "priced": 0, "costUsd": 0.0})
+        model_bucket = models.setdefault(model, {"count": 0, "priced": 0, "costUsd": 0.0})
+        mode_bucket["count"] += 1
+        model_bucket["count"] += 1
+        if cost_usd is not None:
+            total_priced += 1
+            total_cost_usd += cost_usd
+            for bucket in (mode_bucket, model_bucket):
+                bucket["priced"] += 1
+                bucket["costUsd"] += cost_usd
+
+    def rows_for(source: dict[str, dict[str, Any]], key_name: str) -> list[dict[str, Any]]:
+        result = []
+        for key, item in source.items():
+            count = int(item["count"] or 0)
+            priced = int(item["priced"] or 0)
+            cost = float(item["costUsd"] or 0)
+            result.append({
+                key_name: key,
+                "count": count,
+                "priced": priced,
+                "costUsd": round(cost, 6),
+                "avgCostUsd": round(cost / priced, 6) if priced else None,
+            })
+        result.sort(key=lambda item: int(item["count"]), reverse=True)
+        return result
+
+    return {
+        "count": total_count,
+        "priced": total_priced,
+        "costUsd": round(total_cost_usd, 6),
+        "avgCostUsd": round(total_cost_usd / total_priced, 6) if total_priced else None,
+        "models": rows_for(models, "model"),
+        "modes": rows_for(modes, "mode"),
+    }

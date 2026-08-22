@@ -300,6 +300,70 @@ def test_user_dossier_access_models_and_paginated_history(temp_db):
         assert forbidden not in detail.text + logins.text + generations.text
 
 
+def test_user_dossier_separates_actual_cost_from_calibrated_unreconciled_timeout(temp_db):
+    tok = make_admin()
+    with TestClient(main.app) as client:
+        register(client, "unreconciled@example.com")
+        with main.db() as conn:
+            identity = conn.execute(
+                "SELECT internal_user_id,legacy_user_id FROM auth_identities WHERE provider_user_id='unreconciled@example.com'"
+            ).fetchone()
+            internal_user_id, user_id = identity["internal_user_id"], identity["legacy_user_id"]
+            completed_settings = {
+                "openrouterModel": "bytedance/seedance-test",
+                "duration": 4,
+                "resolution": "480p",
+                "aspectRatio": "16:9",
+                "generateAudio": False,
+                "openrouterCostUsd": 0.28,
+                "openrouterBilling": {
+                    "estimatedCostUsd": 0.20,
+                    "estimatedCostRub": 20.0,
+                    "actualCostUsd": 0.28,
+                    "actualCostRub": 28.0,
+                    "effectiveUsdRub": 100.0,
+                },
+            }
+            timeout_settings = {
+                "openrouterModel": "bytedance/seedance-test",
+                "duration": 4,
+                "resolution": "480p",
+                "aspectRatio": "16:9",
+                "generateAudio": False,
+                "openrouterSubmitError": "",
+                "openrouterBilling": {
+                    "estimatedCostUsd": 0.20,
+                    "estimatedCostRub": 20.0,
+                    "effectiveUsdRub": 100.0,
+                },
+            }
+            conn.execute(
+                "INSERT INTO jobs (id,user_id,mode,provider,status,progress,prompt_original,settings_json,created_at,completed_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                ("job-calibration", user_id, "reference_to_video", "openrouter", "completed", 100, "calibration", json.dumps(completed_settings), "2026-08-20T09:00:00+00:00", "2026-08-20T09:01:00+00:00"),
+            )
+            conn.execute(
+                "INSERT INTO jobs (id,user_id,mode,provider,status,progress,prompt_original,error_message,settings_json,created_at,completed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                ("job-provider-timeout", user_id, "reference_to_video", "openrouter", "failed", 100, "timeout", "temporary failure", json.dumps(timeout_settings), "2026-08-20T10:00:00+00:00", "2026-08-20T10:00:30+00:00"),
+            )
+
+        detail = client.get(f"/api/admin/users/{internal_user_id}/analytics-v2", headers=bearer(tok))
+        generations = client.get(
+            f"/api/admin/users/{internal_user_id}/history-v2?section=generations",
+            headers=bearer(tok),
+        )
+
+    assert detail.status_code == 200
+    economics = detail.json()["generation_economics"]
+    assert economics["actual_api_cost_usd"] == pytest.approx(0.28)
+    assert economics["unreconciled_api_jobs"] == 1
+    assert economics["unreconciled_api_cost_usd"] == pytest.approx(0.28)
+    assert economics["potential_api_cost_usd"] == pytest.approx(0.56)
+    timed_out = next(item for item in generations.json()["items"] if item["job_id"] == "job-provider-timeout")
+    assert timed_out["cost_kind"] == "unreconciled_estimate"
+    assert timed_out["unreconciled_cost_usd"] == pytest.approx(0.28)
+    assert timed_out["cost_calibration_multiplier"] == pytest.approx(1.4)
+
+
 def test_user_detail_analytics_p0_real_data_and_no_secret_leaks(temp_db):
     tok = make_admin()
     long_prompt = "cinematic neon city " * 30

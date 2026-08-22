@@ -233,6 +233,15 @@ type ApiModeSection = {
 }
 
 const OPENROUTER_IMAGE_MODELS: ApiImageModel[] = [
+  { id: 'bytedance-seed/seedream-5-0-lite', name: 'ByteDance Seed: Seedream 5.0 Lite', provider: 'Seed', input: 'text+image', output: 'image', params: 'resolution, aspect_ratio, n, input_references, seed', pricing: 'output_image: $0.035/image', imageUsd: 0.035 },
+  { id: 'bytedance-seed/seedream-5-0-pro', name: 'ByteDance Seed: Seedream 5.0 Pro', provider: 'Seed', input: 'text+image', output: 'image', params: 'resolution, aspect_ratio, n, input_references, seed', pricing: 'output_image: $0.045/$0.09 image + input_image: $0.003/image', tiered: true },
+  { id: 'x-ai/grok-imagine-image-2.0', name: 'xAI: Grok Imagine Image 2.0', provider: 'xAI', input: 'text+image', output: 'image', params: 'resolution, aspect_ratio, quality, n, input_references', pricing: 'input_image: $0.01/image + output_image: $0.04/$0.06/$0.08 image', tiered: true },
+  { id: 'qwen/qwen-image-3-pro', name: 'Qwen: Qwen Image 3 Pro', provider: 'Alibaba Cloud', input: 'text+image', output: 'image', params: 'resolution, aspect_ratio, n, input_references, seed', pricing: 'input_image: $0.003/image + output_image: $0.04/$0.075 image', tiered: true },
+  { id: 'qwen/qwen-image-3', name: 'Qwen: Qwen Image 3', provider: 'Alibaba Cloud', input: 'text+image', output: 'image', params: 'resolution, aspect_ratio, n, input_references, seed', pricing: 'input_image: $0.003/image + output_image: $0.03/image', imageUsd: 0.03 },
+  { id: 'microsoft/mai-image-2.5-pro', name: 'Microsoft: MAI-Image-2.5 Pro', provider: 'Azure', input: 'text+image', output: 'image', params: 'aspect_ratio, n, input_references', pricing: 'input_text: $0.000005/token + input_image: $0.000008/token + output_image: $0.000108/token', token: true },
+  { id: 'krea/krea-2-large', name: 'Krea: Krea 2 Large', provider: 'Krea', input: 'text+image', output: 'image', params: 'resolution, aspect_ratio, input_references, seed', pricing: 'output_image: $0.0000143712574850299/token', token: true },
+  { id: 'krea/krea-2-medium', name: 'Krea: Krea 2 Medium', provider: 'Krea', input: 'text+image', output: 'image', params: 'resolution, aspect_ratio, input_references, seed', pricing: 'output_image: $0.00000718562874251497/token', token: true },
+  { id: 'krea/krea-2-medium-turbo', name: 'Krea: Krea 2 Medium Turbo', provider: 'Krea', input: 'text+image', output: 'image', params: 'resolution, aspect_ratio, input_references, seed', pricing: 'output_image: $0.00000359281437125749/token', token: true },
   { id: 'google/gemini-3.1-flash-lite-image', name: 'Google: Nano Banana 2 Lite (Gemini 3.1 Flash Lite Image)', provider: 'Google Vertex', input: 'image+text', output: 'image+text', params: 'resolution, aspect_ratio, n, input_references', pricing: 'output_image: $0.00003/token', token: true },
   { id: 'openai/gpt-image-2', name: 'OpenAI: GPT Image 2', provider: 'OpenAI', input: 'text+image', output: 'image', params: 'quality, background, n, input_references, output_compression', pricing: 'output_image: $0.00003/token', token: true },
   { id: 'openai/gpt-image-1-mini', name: 'OpenAI: GPT Image 1 Mini', provider: 'OpenAI', input: 'text+image', output: 'image', params: 'quality, background, n, input_references, output_compression', pricing: 'output_image: $0.000008/token', token: true },
@@ -261,17 +270,12 @@ const OPENROUTER_IMAGE_MODELS: ApiImageModel[] = [
   { id: 'black-forest-labs/flux.2-klein-4b', name: 'Black Forest Labs: FLUX.2 Klein 4B', provider: 'Black Forest Labs', input: 'text+image', output: 'image', params: 'output_format, n, input_references, seed', pricing: 'output_image: $0.014/megapixel', mpUsd: 0.014 },
   { id: 'bytedance-seed/seedream-4.5', name: 'ByteDance Seed: Seedream 4.5', provider: 'Seed', input: 'image+text', output: 'image', params: 'resolution, aspect_ratio, n, input_references, seed', pricing: 'output_image: $0.04/image', imageUsd: 0.04 },
   { id: 'black-forest-labs/flux.2-max', name: 'Black Forest Labs: FLUX.2 Max', provider: 'Black Forest Labs', input: 'text+image', output: 'image', params: 'output_format, n, input_references, seed', pricing: 'output_image: $0.07/megapixel', mpUsd: 0.07 },
-  { id: 'sourceful/riverflow-v2-max-preview', name: 'Sourceful: Riverflow V2 Max Preview', provider: 'Sourceful', input: 'text+image', output: 'image', params: '', pricing: 'оценка: output_image ~$0.13/image', imageUsd: 0.13 },
-  { id: 'sourceful/riverflow-v2-standard-preview', name: 'Sourceful: Riverflow V2 Standard Preview', provider: 'Sourceful', input: 'text+image', output: 'image', params: '', pricing: 'оценка: output_image ~$0.08/image', imageUsd: 0.08 },
-  { id: 'sourceful/riverflow-v2-fast-preview', name: 'Sourceful: Riverflow V2 Fast Preview', provider: 'Sourceful', input: 'text+image', output: 'image', params: '', pricing: 'оценка: output_image ~$0.04/image', imageUsd: 0.04 },
   { id: 'black-forest-labs/flux.2-flex', name: 'Black Forest Labs: FLUX.2 Flex', provider: 'Black Forest Labs', input: 'text+image', output: 'image', params: 'output_format, n, input_references, seed', pricing: 'input_image: $0.06/megapixel + output_image: $0.06/megapixel', mpUsd: 0.12 },
   { id: 'black-forest-labs/flux.2-pro', name: 'Black Forest Labs: FLUX.2 Pro', provider: 'Black Forest Labs', input: 'text+image', output: 'image', params: 'output_format, n, input_references, seed', pricing: 'output_image: $0.03/megapixel', mpUsd: 0.03 },
   { id: 'google/gemini-3-pro-image-preview', name: 'Google: Nano Banana Pro (Gemini 3 Pro Image Preview)', provider: 'Google Vertex', input: 'image+text', output: 'image+text', params: 'resolution, aspect_ratio, n, input_references', pricing: 'оценка: output_image ~$0.00012/token', token: true },
   { id: 'openai/gpt-5-image-mini', name: 'OpenAI: GPT-5 Image Mini', provider: 'OpenAI', input: 'file+image+text', output: 'image+text', params: 'quality, background, n, input_references, output_compression', pricing: 'output_image: $0.000008/token', token: true },
   { id: 'openai/gpt-5-image', name: 'OpenAI: GPT-5 Image', provider: 'OpenAI', input: 'image+text+file', output: 'image+text', params: 'quality, background, n, input_references, output_compression', pricing: 'output_image: $0.00004/token', token: true },
   { id: 'google/gemini-2.5-flash-image', name: 'Google: Nano Banana (Gemini 2.5 Flash Image)', provider: 'Google AI Studio', input: 'image+text', output: 'image+text', params: 'aspect_ratio, n, input_references', pricing: 'оценка: output_image ~$0.00006/token', token: true },
-  { id: 'google/gemini-2.5-flash-image-preview', name: 'Google: Gemini 2.5 Flash Image Preview (Nano Banana)', provider: 'Google', input: 'image+text', output: 'image+text', params: '', pricing: 'оценка: output_image ~$0.00006/token', token: true },
-  { id: 'openrouter/auto', name: 'Auto Router', provider: 'OpenRouter', input: 'text+image+audio+file+video', output: 'text+image', params: '', pricing: 'оценка: fallback до $0.15/image', imageUsd: 0.15 },
 ]
 
 const API_MODE_SECTIONS: ApiModeSection[] = [
@@ -309,6 +313,8 @@ function videoPriceLabel(pricing: Record<string, number>) {
     text_to_video_duration_seconds_1080p: 'текст→видео 1080p/сек',
     image_to_video_duration_seconds_720p: 'кадр→видео 720p/сек',
     image_to_video_duration_seconds_1080p: 'кадр→видео 1080p/сек',
+    cents_per_second_output: 'выходное видео/сек',
+    minimum_cents_per_generation: 'минимум за генерацию',
   }
   const entries = Object.entries(pricing)
   if (!entries.length) return 'цена не опубликована'
@@ -358,7 +364,7 @@ const videoPricingProfiles = (model: OpenRouterVideoModel, mode: OpenRouterVideo
   const entries = Object.entries(model.pricingSkus)
   const modePrefix = mode === 'text_to_video' ? 'text_to_video_duration_seconds' : 'image_to_video_duration_seconds'
   const modeEntries = entries.filter(([key]) => key.startsWith(modePrefix))
-  const genericEntries = entries.filter(([key]) => key === 'duration_seconds' || key.startsWith('duration_seconds_') || key.startsWith('cents_per_video_output_second_'))
+  const genericEntries = entries.filter(([key]) => key === 'duration_seconds' || key.startsWith('duration_seconds_') || key.startsWith('cents_per_video_output_second') || key.startsWith('cents_per_second_output'))
   const audioEntries = entries.filter(([key]) => key.startsWith('duration_seconds_with_audio') || key.startsWith('duration_seconds_without_audio'))
   const selected = [...(modeEntries.length ? modeEntries : genericEntries), ...audioEntries]
   const profiles: VideoPriceProfile[] = []
@@ -379,16 +385,20 @@ const videoPricingProfiles = (model: OpenRouterVideoModel, mode: OpenRouterVideo
     }
   }
 
-  const tokenRate = model.pricingSkus.video_tokens
-  const tokenRateNoAudio = model.pricingSkus.video_tokens_without_audio
-  if (typeof tokenRate === 'number') {
-    const variants = typeof tokenRateNoAudio === 'number' && tokenRateNoAudio !== tokenRate
-      ? [['с аудио', tokenRate] as const, ['без аудио', tokenRateNoAudio] as const]
-      : [[model.generateAudio ? 'с аудио / без аудио' : '', tokenRate] as const]
+  const hasVideoTokenRate = entries.some(([key, value]) => typeof value === 'number' && /^video_tokens(?:_|$)/.test(key) && !key.includes('with_video_input'))
+  if (hasVideoTokenRate) {
     for (const size of model.supportedSizes) {
       const resolution = videoResolutionForSize(size)
       if (resolution && supported.size && !supported.has(resolution.toLowerCase())) continue
       const aspectRatio = videoAspectForSize(size, model.supportedAspectRatios)
+      const resolutionKey = resolution.toLowerCase()
+      const tokenRate = model.pricingSkus[`video_tokens_${resolutionKey}`] ?? model.pricingSkus.video_tokens
+      const tokenRateNoAudio = model.pricingSkus[`video_tokens_without_audio_${resolutionKey}`] ?? model.pricingSkus.video_tokens_without_audio
+      if (typeof tokenRate !== 'number' && typeof tokenRateNoAudio !== 'number') continue
+      const defaultRate = typeof tokenRate === 'number' ? tokenRate : Number(tokenRateNoAudio)
+      const variants = typeof tokenRateNoAudio === 'number' && tokenRateNoAudio !== defaultRate
+        ? [['с аудио', defaultRate] as const, ['без аудио', tokenRateNoAudio] as const]
+        : [[model.generateAudio ? 'с аудио / без аудио' : '', defaultRate] as const]
       for (const [audio, rateUsd] of variants) {
         profiles.push({
           id: `video_tokens:${size}:${audio}`,
@@ -396,7 +406,9 @@ const videoPricingProfiles = (model: OpenRouterVideoModel, mode: OpenRouterVideo
           resolution,
           aspectRatio,
           size,
-          sourceKey: audio === 'без аудио' ? 'video_tokens_without_audio' : 'video_tokens',
+          sourceKey: audio === 'без аудио'
+            ? (typeof model.pricingSkus[`video_tokens_without_audio_${resolutionKey}`] === 'number' ? `video_tokens_without_audio_${resolutionKey}` : 'video_tokens_without_audio')
+            : (typeof model.pricingSkus[`video_tokens_${resolutionKey}`] === 'number' ? `video_tokens_${resolutionKey}` : 'video_tokens'),
           unit: 'video_token',
           rateUsd,
           inputFeeUsd,

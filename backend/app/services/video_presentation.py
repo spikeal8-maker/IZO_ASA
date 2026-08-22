@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+import httpx
+
 from ..integrations.openrouter import OpenRouterVideoRequestError, openrouter_video_public_error
 
 
@@ -61,8 +63,11 @@ def video_submit_failure(error: Exception, settings: Any) -> dict[str, Any]:
 
     provider_rejection = isinstance(error, OpenRouterVideoRequestError)
     route_detail = getattr(error, "detail", None)
+    response_timeout = isinstance(error, httpx.TimeoutException)
     public_error = (
-        openrouter_video_public_error(error)
+        "Ответ видеосервиса задержался. Токены возвращены; повторная отправка этой же заявки временно заблокирована, чтобы не произошло двойного списания."
+        if response_timeout
+        else openrouter_video_public_error(error)
         if provider_rejection
         else str(route_detail)
         if isinstance(route_detail, str) and route_detail.strip()
@@ -70,9 +75,22 @@ def video_submit_failure(error: Exception, settings: Any) -> dict[str, Any]:
     )
     updated_settings = dict(settings) if isinstance(settings, dict) else {}
     updated_settings["openrouterSubmitError"] = str(error)[:1000]
+    updated_settings["openrouterSubmissionState"] = (
+        "provider_response_timeout"
+        if response_timeout
+        else "provider_rejected"
+        if provider_rejection
+        else "transport_failed"
+    )
+    billing = updated_settings.get("openrouterBilling")
+    if response_timeout and isinstance(billing, dict):
+        billing = dict(billing)
+        billing["billingStatus"] = "provider_cost_unknown"
+        billing["providerCostUncertain"] = True
+        updated_settings["openrouterBilling"] = billing
     return {
         "public": public_error,
-        "status": 422 if provider_rejection else int(getattr(error, "status_code", 502) or 502),
+        "status": 504 if response_timeout else 422 if provider_rejection else int(getattr(error, "status_code", 502) or 502),
         "settings": updated_settings,
     }
 
