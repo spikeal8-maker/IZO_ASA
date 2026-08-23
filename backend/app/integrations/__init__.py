@@ -15,7 +15,14 @@ from .comfyui_client import (
     submit_comfyui_workflow,
     upload_comfyui_image,
 )
-from .ollama import fetch_ollama_models_status, ollama_base_url, request_ollama_chat_message
+from .ollama import (
+    ensure_ollama_model_resident,
+    fetch_ollama_models_status,
+    fetch_ollama_residency_status,
+    ollama_base_url,
+    request_ollama_chat_message,
+    unload_ollama_model,
+)
 from .max_tls import build_max_http_verify, normalize_max_tls_trust_store
 from .max_client import (
     MaxBotHealth,
@@ -98,8 +105,11 @@ __all__ = [
     "build_openrouter_image_request_body",
     "build_openrouter_image_request_plan",
     "fetch_ollama_models_status",
+    "fetch_ollama_residency_status",
+    "ensure_ollama_model_resident",
     "ollama_base_url",
     "request_ollama_chat_message",
+    "unload_ollama_model",
     "probe_max_bot",
     "request_max_api",
     "request_max_bot_me",

@@ -491,11 +491,13 @@ type AssistantAdminData = {
   ok?: boolean
   config: AssistantConfig
   ollama: { ok: boolean; baseUrl: string; error?: string; models: Array<{ name?: string; model?: string; size?: number; details?: { parameter_size?: string; quantization_level?: string } }> }
+  ollamaResidency: { ok: boolean; models: Array<{ name?: string; model?: string; size_vram?: number; expires_at?: string }> }
   openrouterConfigured: boolean
   openrouterModels: Array<{ id: string; name: string; inputPerMillionUsd: number; outputPerMillionUsd: number; contextLength: number }>
   openrouterModelsError?: string | null
+  usage: { periodDays: number; totals: { successful: number; failed: number; fallbacks: number; cost_usd: number; cost_rub: number; energy_wh: number; energy_cost_rub: number }; recent: Array<{ createdAt: string; ok: boolean; route?: string; provider?: string; model?: string; mode?: string; latencyMs?: number; fallbackUsed?: boolean; costUsd?: number; costRub?: number; energyWh?: number; energyCostRub?: number }> }
 }
-type AssistantTestResult = { ok?: boolean; provider?: string; model?: string; improvedPrompt?: string; latencyMs?: number; costUsd?: number; detail?: string }
+type AssistantTestResult = { ok?: boolean; provider?: string; model?: string; improvedPrompt?: string; latencyMs?: number; costUsd?: number; costRub?: number; energyWh?: number; detail?: string }
 
 const ASSISTANT_MODE_LABELS: Record<string, string> = {
   text: 'По тексту', i2i: 'По фото', edit: 'Сборка', sketch: 'Эскиз', mask: 'Маска', outpaint: 'Расширение', remove_bg: 'Удалить фон',
@@ -878,6 +880,12 @@ const CSS = `
 .amv2 .ollama-list{display:grid;gap:7px}
 .amv2 .ollama-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:9px;border:1px solid var(--line);border-radius:var(--radius)}
 .amv2 .ollama-row small{color:var(--muted)}
+.amv2 .assistant-economy{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin:0 0 12px}
+.amv2 .assistant-economy>div{padding:10px;border:1px solid var(--line);border-radius:var(--radius);background:rgba(255,255,255,.025);display:grid;gap:3px}
+.amv2 .assistant-economy small{color:var(--muted);font-size:10px;text-transform:uppercase}.amv2 .assistant-economy strong{font-size:13px;color:var(--lime)}
+.amv2 .assistant-history{grid-column:1/-1;display:grid;gap:5px;max-height:210px;overflow:auto}
+.amv2 .assistant-history-row{display:grid;grid-template-columns:150px 90px minmax(120px,1fr) 110px 110px;gap:8px;padding:7px 9px;border-bottom:1px solid var(--line);font-size:11px;align-items:center}
+.amv2 .assistant-history-row .bad{color:#ff7777}.amv2 .assistant-history-row .ok{color:var(--lime)}
 .amv2 th,.amv2 td{padding:10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;font-size:12px}
 .amv2 th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;background:rgba(255,255,255,.025)}
 .amv2 tr.selected td{background:rgba(234,255,16,.055)}
@@ -921,8 +929,8 @@ const CSS = `
 .amv2 .mobile-models{display:none;padding:12px;gap:10px}
 .amv2 .mobile-model{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.035);display:grid;gap:10px}
 @media (max-width:1360px){.amv2 .dashboard,.amv2 .server-layout{grid-template-columns:1fr}.amv2 .metric-grid,.amv2 .lora-grid,.amv2 .status-grid,.amv2 .mode-board{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .api-section-head{grid-template-columns:minmax(220px,1.4fr) repeat(3,minmax(100px,.8fr)) minmax(150px,1fr)}.amv2 .grid-main{grid-template-columns:1fr}.amv2 .side-panel{position:static}}
-@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats,.amv2 .api-section-head,.amv2 .assistant-config{grid-template-columns:1fr}.amv2 .server-command{align-items:stretch;flex-wrap:wrap}.amv2 .server-command .server-title{width:100%}.amv2 .profile-switch{flex:1}.amv2 .lora-columns,.amv2 .config-profiles{grid-template-columns:1fr}.amv2 .lora-row{grid-template-columns:28px 1fr 80px}.amv2 .lora-row>div:nth-child(3),.amv2 .lora-row>div:nth-child(4){grid-column:2 / -1}.amv2 .tab-status{margin-left:0;width:100%;flex-wrap:wrap}.amv2 .page-tabs{flex-wrap:wrap}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .matrix-wrap .api-table.format-table{min-width:1500px}.amv2 .mobile-models{display:grid}}
-@media (max-width:580px){.amv2 .metric-grid,.amv2 .two-col,.amv2 .price-row,.amv2 .lora-grid,.amv2 .advanced-grid,.amv2 .status-grid,.amv2 .mode-board,.amv2 .or-stats,.amv2 .server-overview,.amv2 .assistant-summary{grid-template-columns:1fr}.amv2 .profile-switch{width:100%}.amv2 .server-restart{width:100%}}
+@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats,.amv2 .api-section-head,.amv2 .assistant-config{grid-template-columns:1fr}.amv2 .assistant-economy{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .assistant-history-row{grid-template-columns:1fr 70px}.amv2 .assistant-history-row span:nth-child(n+3){grid-column:1/-1}.amv2 .server-command{align-items:stretch;flex-wrap:wrap}.amv2 .server-command .server-title{width:100%}.amv2 .profile-switch{flex:1}.amv2 .lora-columns,.amv2 .config-profiles{grid-template-columns:1fr}.amv2 .lora-row{grid-template-columns:28px 1fr 80px}.amv2 .lora-row>div:nth-child(3),.amv2 .lora-row>div:nth-child(4){grid-column:2 / -1}.amv2 .tab-status{margin-left:0;width:100%;flex-wrap:wrap}.amv2 .page-tabs{flex-wrap:wrap}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .matrix-wrap .api-table.format-table{min-width:1500px}.amv2 .mobile-models{display:grid}}
+@media (max-width:580px){.amv2 .metric-grid,.amv2 .two-col,.amv2 .price-row,.amv2 .lora-grid,.amv2 .advanced-grid,.amv2 .status-grid,.amv2 .mode-board,.amv2 .or-stats,.amv2 .server-overview,.amv2 .assistant-summary,.amv2 .assistant-economy{grid-template-columns:1fr}.amv2 .profile-switch{width:100%}.amv2 .server-restart{width:100%}}
 @media (max-width:880px){.amv2 .video-catalog-card{width:calc(100vw - 40px);max-width:calc(100vw - 40px)}.amv2 .video-mode-finance-head{grid-template-columns:1fr 1fr}.amv2 .video-mode-finance-head>div:first-child,.amv2 .video-mode-count{grid-column:1 / -1}.amv2 .video-catalog-head{align-items:flex-start;flex-direction:column}.amv2 .video-catalog-meta{width:100%;justify-content:flex-start}.amv2 .video-model-detail{overflow-wrap:anywhere}.amv2 .video-economy-note{display:grid;gap:5px}}
 `
 
@@ -1525,8 +1533,17 @@ export default function AdminModelsV2() {
     {pageTab === 'improve' && assistantData && <>
       <section className="assistant-summary">
         <div><span>Текущий маршрут</span><strong>{assistantData.config.improve.route === 'api' ? 'OpenRouter API' : assistantData.config.improve.route === 'local' ? 'Локальная Ollama' : 'Авто: local → API'}</strong><small>Изменение применяется ко всем вкладкам студии.</small></div>
-        <div><span>Ollama</span><strong>{assistantData.ollama.ok ? 'В сети' : 'Не отвечает'}</strong><small>{assistantData.ollama.baseUrl}</small></div>
+        <div><span>Ollama</span><strong>{assistantData.ollama.ok ? (assistantData.ollamaResidency.models.some((m) => (m.name || m.model) === assistantData.config.improve.localModel) ? 'Модель в памяти' : 'В сети, модель выгружена') : 'Не отвечает'}</strong><small>{assistantData.ollama.baseUrl}</small></div>
         <div><span>OpenRouter</span><strong>{assistantData.openrouterConfigured ? 'Ключ настроен' : 'Нет ключа'}</strong><small>Ключ управляется в существующей вкладке OpenRouter.</small></div>
+      </section>
+      <section className="assistant-economy">
+        <div><small>Успешно · 30 дней</small><strong>{assistantData.usage.totals.successful}</strong></div>
+        <div><small>Ошибки</small><strong>{assistantData.usage.totals.failed}</strong></div>
+        <div><small>Переключения</small><strong>{assistantData.usage.totals.fallbacks}</strong></div>
+        <div><small>OpenRouter</small><strong>{assistantData.usage.totals.cost_rub.toFixed(4)} ₽ · ${assistantData.usage.totals.cost_usd.toFixed(6)}</strong></div>
+        <div><small>Локальная энергия</small><strong>{assistantData.usage.totals.energy_wh.toFixed(4)} Wh</strong></div>
+        <div><small>Стоимость энергии</small><strong>{assistantData.usage.totals.energy_cost_rub.toFixed(4)} ₽</strong></div>
+        <details className="assistant-history"><summary>Последние вызовы и переключения</summary>{assistantData.usage.recent.map((item, index) => <div className="assistant-history-row" key={`${item.createdAt}-${index}`}><span>{new Date(item.createdAt).toLocaleString('ru-RU')}</span><b className={item.ok ? 'ok' : 'bad'}>{item.ok ? 'готово' : 'ошибка'}</b><span>{item.route || '—'} → {item.provider || '—'}{item.fallbackUsed ? ' · резерв' : ''}<br />{item.model || item.mode || '—'}</span><span>{Number(item.costRub || 0).toFixed(4)} ₽<br />${Number(item.costUsd || 0).toFixed(6)}</span><span>{Number(item.energyWh || 0).toFixed(4)} Wh<br />{Number(item.latencyMs || 0)} мс</span></div>)}</details>
       </section>
       <section className="assistant-config">
         <article className="card">
@@ -1556,7 +1573,7 @@ export default function AdminModelsV2() {
           <div className="assistant-test">
             <textarea value={assistantTestPrompt} onChange={(e) => setAssistantTestPrompt(e.target.value)} />
             <div className="actions"><button className="ghost" disabled={assistantBusy} onClick={() => void testPromptAssistant('local')}>Тест Ollama</button><button className="ghost" disabled={assistantBusy} onClick={() => void testPromptAssistant('api')}>Тест OpenRouter</button></div>
-            {assistantTestResult && <div className="assistant-test-result"><strong>{assistantTestResult.detail || assistantTestResult.improvedPrompt}</strong>{assistantTestResult.model && <small>{assistantTestResult.provider} · {assistantTestResult.model} · {assistantTestResult.latencyMs} мс · ${Number(assistantTestResult.costUsd || 0).toFixed(6)}</small>}</div>}
+            {assistantTestResult && <div className="assistant-test-result"><strong>{assistantTestResult.detail || assistantTestResult.improvedPrompt}</strong>{assistantTestResult.model && <small>{assistantTestResult.provider} · {assistantTestResult.model} · {assistantTestResult.latencyMs} мс · {Number(assistantTestResult.costRub || 0).toFixed(4)} ₽ · ${Number(assistantTestResult.costUsd || 0).toFixed(6)}{assistantTestResult.energyWh ? ` · ${assistantTestResult.energyWh.toFixed(4)} Wh` : ''}</small>}</div>}
             <div className="ollama-list">{assistantData.ollama.models.filter((m) => m.name).map((m) => <div className="ollama-row" key={m.name}><div><strong>{m.name}</strong><small>{m.name?.endsWith(':cloud') ? 'Ollama Cloud' : `${m.details?.parameter_size || '—'} · ${m.details?.quantization_level || '—'}`}</small></div><small>{m.name?.endsWith(':cloud') ? 'облако' : m.size ? `${(m.size / 1024 ** 3).toFixed(1)} ГБ` : '—'}</small></div>)}</div>
           </div>
         </aside>

@@ -198,6 +198,18 @@
       "watchdog": "single task handle with isolated sample failures and bounded raw-data retention"
     },
     {
+      "id": "ollama-residency",
+      "call_source": "backend/app/services/assistant_runtime.py",
+      "target": "_run",
+      "kind": "worker",
+      "owner": "backend.app.services.assistant_runtime.OllamaResidencyController",
+      "role": "production-like-current-monolith",
+      "persistence": "Ollama selected model residency on the service-pinned RTX 4070",
+      "startup": "main.startup -> start_ollama_residency_worker",
+      "recovery": "request-time verification plus bounded periodic rewarm after Ollama or backend restart",
+      "watchdog": "single task handle, 30-second healthy check and capped five-minute failure backoff"
+    },
+    {
       "id": "gallery-storage-optimization",
       "call_source": "backend/main.py",
       "target": "asyncio.to_thread:optimize_existing_gallery_storage",
@@ -375,7 +387,7 @@
     "backend/static/gallery/index.html"
   ],
   "file_limits": [
-    {"path": "backend/main.py", "max_lines": 19646},
+    {"path": "backend/main.py", "max_lines": 19750},
     {"path": "frontend/src/newStudioV3.css", "max_lines": 6400},
     {"path": "frontend/src/newUi.tsx", "max_lines": 3950},
     {"path": "frontend/src/LegacyApp.tsx", "max_lines": 3700},

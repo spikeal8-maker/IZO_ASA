@@ -201,6 +201,7 @@ try:
         fetch_flux_klein_config as integration_fetch_flux_klein_config,
         fetch_flux_lora_triggers as integration_fetch_flux_lora_triggers,
         fetch_ollama_models_status,
+        fetch_ollama_residency_status,
         fetch_openrouter_image_model_documents,
         fetch_openrouter_key_details,
         fetch_openrouter_audio_input_models,
@@ -259,6 +260,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         fetch_flux_klein_config as integration_fetch_flux_klein_config,
         fetch_flux_lora_triggers as integration_fetch_flux_lora_triggers,
         fetch_ollama_models_status,
+        fetch_ollama_residency_status,
         fetch_openrouter_image_model_documents,
         fetch_openrouter_key_details,
         fetch_openrouter_audio_input_models,
@@ -341,6 +343,7 @@ try:
         video_submission,
         video_download,
         admin_analytics,
+        assistant_runtime,
         energy_telemetry,
         powerpanel,
         presence,
@@ -391,6 +394,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         video_submission,
         video_download,
         admin_analytics,
+        assistant_runtime,
         energy_telemetry,
         powerpanel,
         presence,
@@ -6327,9 +6331,9 @@ DEFAULT_ASSISTANT_MODELS_CONFIG: dict[str, Any] = {
     },
     "improve": {
         "route": "auto",
-        "localModel": "gemma4:31b-cloud",
+        "localModel": "gemma4:12b",
         "apiModel": "deepseek/deepseek-v4-flash",
-        "localTimeoutSeconds": 10,
+        "localTimeoutSeconds": 30,
         "apiTimeoutSeconds": 10,
         "systemPrompt": (
             "Ты улучшаешь пользовательские промпты для студии генерации изображений и видео. Сохраняй исходный смысл, главные объекты, "
@@ -6342,11 +6346,15 @@ DEFAULT_ASSISTANT_MODELS_CONFIG: dict[str, Any] = {
 }
 
 
-def assistant_models_config() -> dict[str, Any]:
-    with db() as conn:
-        row = conn.execute("SELECT value_json FROM admin_settings WHERE key = 'assistant_models'").fetchone()
-    stored = safe_json_load(row["value_json"]) if row else {}
+def normalize_assistant_models_config(value: Any) -> dict[str, Any]:
+    stored = value if isinstance(value, dict) else {}
     stored = stored if isinstance(stored, dict) else {}
+    def bounded_int(raw: Any, default: int, minimum: int, maximum: int) -> int:
+        try:
+            parsed = int(raw)
+        except (TypeError, ValueError):
+            parsed = default
+        return max(minimum, min(maximum, parsed))
     voice = {**DEFAULT_ASSISTANT_MODELS_CONFIG["voice"], **(stored.get("voice") if isinstance(stored.get("voice"), dict) else {})}
     if voice.get("localModel") == "qwen3-asr:1.7b":
         voice["localModel"] = "gemma4:12b"
@@ -6359,11 +6367,23 @@ def assistant_models_config() -> dict[str, Any]:
         **(improve.get("modePrompts") if isinstance(improve.get("modePrompts"), dict) else {}),
     }
     improve["route"] = improve["route"] if improve.get("route") in {"local", "api", "auto"} else "api"
+    improve["localModel"] = str(improve.get("localModel") or "gemma4:12b").strip()
+    improve["apiModel"] = str(improve.get("apiModel") or PROMPT_IMPROVE_MODEL).strip()
+    improve["localTimeoutSeconds"] = bounded_int(improve.get("localTimeoutSeconds"), 30, 10, 120)
+    improve["apiTimeoutSeconds"] = bounded_int(improve.get("apiTimeoutSeconds"), 10, 3, 30)
     return {"voice": voice, "improve": improve}
+
+
+def assistant_models_config() -> dict[str, Any]:
+    with db() as conn:
+        row = conn.execute("SELECT value_json FROM admin_settings WHERE key = 'assistant_models'").fetchone()
+    return normalize_assistant_models_config(safe_json_load(row["value_json"]) if row else {})
 
 
 async def ollama_models_status() -> dict[str, Any]:
     return await fetch_ollama_models_status()
+
+
 
 
 async def qwen_asr_status(config: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -6546,20 +6566,19 @@ async def improve_prompt_ollama(req: ImprovePromptRequest, config: dict[str, Any
     return _parse_improved_prompt(content), data
 
 
+PromptRouteError = assistant_runtime.PromptRouteError
+
+
+async def ensure_configured_ollama_resident(config: dict[str, Any]) -> dict[str, Any]:
+    return await assistant_runtime.OLLAMA_RESIDENCY.ensure_model(config)
+
+
 async def improve_prompt_routed(req: ImprovePromptRequest, force_provider: str | None = None) -> tuple[str, dict[str, Any], str, str]:
-    config = assistant_models_config()["improve"]
-    route = force_provider or str(config.get("route") or "local")
-    if route == "local":
-        improved, payload = await improve_prompt_ollama(req, config)
-        return improved, payload, "local", str(config.get("localModel") or "gemma4:12b")
-    if route == "auto":
-        try:
-            improved, payload = await improve_prompt_ollama(req, config)
-            return improved, payload, "local", str(config.get("localModel") or "gemma4:12b")
-        except Exception:
-            pass
-    improved, payload = await improve_prompt_openrouter(req, config)
-    return improved, payload, "api", str(config.get("apiModel") or PROMPT_IMPROVE_MODEL)
+    return await assistant_runtime.route_prompt(
+        request=req, config=assistant_models_config()["improve"], force_provider=force_provider,
+        ensure_local=ensure_configured_ollama_resident, call_local=improve_prompt_ollama,
+        call_api=improve_prompt_openrouter, api_default_model=PROMPT_IMPROVE_MODEL,
+    )
 
 
 async def transcribe_audio_openrouter(audio: bytes, audio_format: str, language: str, config: dict[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
@@ -7773,6 +7792,8 @@ async def startup() -> None:
         print(f"feed video publications requeued: {recovered_feed_videos}")
     load_db_state()
     energy_telemetry.POWER_TELEMETRY_WORKER.start(connect=db)
+    if is_production_like_env():
+        assistant_runtime.OLLAMA_RESIDENCY.start(assistant_models_config)
     if storage_maintenance_enabled:
         asyncio.create_task(asyncio.to_thread(optimize_existing_gallery_storage))
     worker_started = generation_queue.start_generation_consumer_once(
@@ -7789,6 +7810,7 @@ async def startup() -> None:
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
+    await assistant_runtime.OLLAMA_RESIDENCY.stop()
     await energy_telemetry.POWER_TELEMETRY_WORKER.stop()
     await ACCOUNT_RETENTION_WORKER.stop()
     await ADMIN_NOTIFICATION_DELIVERY_WORKER.stop()
@@ -7872,6 +7894,19 @@ def ensure_rate_limit(user_id: str) -> None:
         raise HTTPException(429, f"Rate limit exceeded: {daily_limit} generations per day.")
 
 
+def _assistant_money_snapshot(
+    *,
+    provider: str | None,
+    provider_payload: dict[str, Any] | None,
+    routing: dict[str, Any],
+) -> dict[str, Any]:
+    return assistant_runtime.money_snapshot(
+        connect=db, provider=provider, provider_payload=provider_payload, routing=routing,
+        openrouter_cost=_openrouter_generation_cost, usd_rub_snapshot=usd_rub_rate_snapshot,
+        usd_fee_rate=OPENROUTER_USD_FEE_RATE, energy_settings=_saved_setting("energy_economy"),
+    )
+
+
 @app.post("/api/tools/improve-prompt")
 async def improve_prompt(req: ImprovePromptRequest, request: Request) -> dict[str, Any]:
     trusted = require_trusted_user(request)
@@ -7879,17 +7914,34 @@ async def improve_prompt(req: ImprovePromptRequest, request: Request) -> dict[st
     if not original:
         raise HTTPException(400, "Сначала напишите, что нужно изобразить или изменить.")
     started = time.monotonic()
+    requested_route = assistant_models_config()["improve"]["route"]
     try:
         improved, provider_payload, provider, model = await asyncio.wait_for(
             improve_prompt_routed(req.model_copy(update={"prompt": original})),
-            timeout=122,
+            timeout=240,
         )
     except asyncio.TimeoutError as exc:
+        routing = {"requestedRoute": requested_route, "attempts": [], "fallbackUsed": False, "errorType": "TimeoutError"}
+        money = _assistant_money_snapshot(provider=None, provider_payload=None, routing=routing)
+        record_event_log(
+            "prompt_improve_failed", internal_user_id=trusted.get("internal_user_id"), legacy_user_id=trusted.get("legacy_user_id"),
+            session_id=trusted.get("session_id"), platform="web", request=request,
+            properties={"mode": req.mode, "requested_route": requested_route, "latency_ms": round((time.monotonic() - started) * 1000), "routing": routing, **money},
+        )
         raise HTTPException(504, "Улучшение заняло слишком много времени. Исходный текст сохранён.") from exc
-    except (httpx.HTTPError, RuntimeError) as exc:
+    except PromptRouteError as exc:
+        money = _assistant_money_snapshot(provider=None, provider_payload=None, routing=exc.routing)
+        record_event_log(
+            "prompt_improve_failed", internal_user_id=trusted.get("internal_user_id"), legacy_user_id=trusted.get("legacy_user_id"),
+            session_id=trusted.get("session_id"), platform="web", request=request,
+            properties={"mode": req.mode, "requested_route": requested_route, "latency_ms": round((time.monotonic() - started) * 1000), "routing": exc.routing, **money},
+        )
         raise HTTPException(502, str(exc)) from exc
+    except (httpx.HTTPError, RuntimeError) as exc:
+        raise HTTPException(502, "Сервис улучшения промпта временно недоступен. Повторите попытку или обратитесь в поддержку.") from exc
     usage = provider_payload.get("usage") if isinstance(provider_payload.get("usage"), dict) else {}
-    cost = _openrouter_generation_cost(provider_payload) if provider == "api" else 0
+    routing = provider_payload.pop("_izoRouting", {"requestedRoute": requested_route, "attempts": [], "fallbackUsed": False})
+    money = _assistant_money_snapshot(provider=provider, provider_payload=provider_payload, routing=routing)
     record_event_log(
         "prompt_improved",
         internal_user_id=trusted.get("internal_user_id"),
@@ -7904,7 +7956,10 @@ async def improve_prompt(req: ImprovePromptRequest, request: Request) -> dict[st
             "input_chars": len(original),
             "output_chars": len(improved),
             "latency_ms": round((time.monotonic() - started) * 1000),
-            "cost_usd": cost,
+            "requested_route": requested_route,
+            "fallback_used": bool(routing.get("fallbackUsed")),
+            "routing": routing,
+            **money,
         },
     )
     return {
@@ -7913,7 +7968,8 @@ async def improve_prompt(req: ImprovePromptRequest, request: Request) -> dict[st
         "model": model,
         "provider": provider,
         "usage": usage,
-        "costUsd": cost,
+        "costUsd": money["cost_usd"],
+        "costRub": money["total_cost_rub"],
     }
 
 
@@ -14524,6 +14580,15 @@ async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Requ
         settings = normalize_legal_settings(req.settings)
     elif key == "energy_economy":
         settings = energy_telemetry.normalize_energy_settings(req.settings)
+    elif key == "assistant_models":
+        settings = normalize_assistant_models_config(req.settings)
+        try:
+            await assistant_runtime.OLLAMA_RESIDENCY.sync(settings)
+        except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+            raise HTTPException(
+                503,
+                "Настройки не сохранены: выбранная локальная модель не готова. Проверьте Ollama и повторите.",
+            ) from exc
     else:
         settings = req.settings
     now = datetime.now(timezone.utc).isoformat()
@@ -14542,6 +14607,10 @@ async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Requ
         _admin_models_page_cache["ts"] = 0.0
         _admin_models_page_cache["data"] = None
     return {"ok": True, "key": key, "settings": settings}
+
+
+def assistant_usage_report(*, limit: int = 30) -> dict[str, Any]:
+    return assistant_runtime.usage_report(connect=db, parse_json=safe_json_load, limit=limit)
 
 
 @app.get("/api/admin/assistants")
@@ -14564,12 +14633,14 @@ async def admin_assistants(request: Request) -> dict[str, Any]:
         "ok": True,
         "config": config,
         "ollama": await ollama_models_status(),
+        "ollamaResidency": await fetch_ollama_residency_status(),
         "qwen": await qwen_asr_status(config["voice"]),
         "openrouterConfigured": bool(openrouter_api_key()),
         "openrouterModels": text_models,
         "openrouterModelsError": text_models_error,
         "openrouterAudioModels": audio_models,
         "openrouterAudioModelsError": audio_models_error,
+        "usage": assistant_usage_report(),
     }
 
 
@@ -14851,20 +14922,27 @@ async def admin_test_assistant(req: AdminAssistantTestRequest, request: Request)
     }
     try:
         if req.provider == "local":
+            attempt_started = datetime.now(timezone.utc)
+            await ensure_configured_ollama_resident(test_config)
             improved, payload = await improve_prompt_ollama(improve_req, test_config)
-            provider, model = "local", str(test_config.get("localModel") or "gemma4:31b-cloud")
+            provider, model = "local", str(test_config.get("localModel") or "gemma4:12b")
         else:
+            attempt_started = datetime.now(timezone.utc)
             improved, payload = await improve_prompt_openrouter(improve_req, test_config)
             provider, model = "api", str(test_config.get("apiModel") or PROMPT_IMPROVE_MODEL)
     except (httpx.HTTPError, RuntimeError) as exc:
         raise HTTPException(502, str(exc)) from exc
+    routing = {"requestedRoute": provider, "attempts": [assistant_runtime.routing_attempt(provider, attempt_started)], "fallbackUsed": False}
+    money = _assistant_money_snapshot(provider=provider, provider_payload=payload, routing=routing)
     return {
         "ok": True,
         "provider": provider,
         "model": model,
         "improvedPrompt": improved,
         "latencyMs": round((time.monotonic() - started) * 1000),
-        "costUsd": _openrouter_generation_cost(payload) if provider == "api" else 0,
+        "costUsd": money["cost_usd"],
+        "costRub": money["total_cost_rub"],
+        "energyWh": money["energy_wh"],
     }
 
 

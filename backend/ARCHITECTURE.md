@@ -8,7 +8,7 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
 - ASGI object: `backend/main.py::app`.
 - Public launcher starts one Uvicorn process on `127.0.0.1:8000` with
   `--no-proxy-headers`; application code validates forwarded analytics metadata.
-- Startup runs DB preflight, session crypto validation, additive `init_db()`, DB Guard verification, state loading and background workers.
+- Startup runs DB preflight, session crypto validation, additive `init_db()`, DB Guard verification, state loading and background workers, including a production Ollama residency guard that keeps the admin-selected local assistant model warm and rechecks it after service restarts.
 - The live SQLite database and media stay local to this computer.
 - The existing external domain tunnel is outside the optimization scope.
 

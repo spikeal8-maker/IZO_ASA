@@ -6,7 +6,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 ## Summary
 
 - Routes: 239
-- Registered workers: 7
+- Registered workers: 8
 - Registered ephemeral tasks: 4
 - SQLite tables: 60
 - SQLite indexes: 94
@@ -39,6 +39,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | social-telegram-delivery | worker | backend.app.services.social_delivery.SocialDeliveryWorker | SQLite social_delivery_outbox with lease, retry and terminal failed state | expired Telegram processing leases and pending/retry rows are reclaimed after restart | single task handle, bounded loop, last success/error timestamps exposed to trusted admin |
 | unverified-account-retention | worker | backend.app.services.account_retention.AccountRetentionWorker | SQLite account_verifications deadlines and terminal status | startup and hourly bounded scans reclaim every overdue pending row idempotently | single task handle, bounded batch, exception isolation; cleanup outcomes are security events |
 | power-telemetry | worker | backend.app.services.energy_telemetry.PowerTelemetryWorker | SQLite power_samples and generation_energy_usage; CyberPower database is read-only | fresh two-second samples resume after process restart; completed generation summaries are idempotently reconciled | single task handle with isolated sample failures and bounded raw-data retention |
+| ollama-residency | worker | backend.app.services.assistant_runtime.OllamaResidencyController | Ollama selected model residency on the service-pinned RTX 4070 | request-time verification plus bounded periodic rewarm after Ollama or backend restart | single task handle, 30-second healthy check and capped five-minute failure backoff |
 | gallery-storage-optimization | ephemeral | backend.main | SQLite and media files | next startup may retry | missing |
 | runtime-alert | ephemeral | backend.main | external webhook only | none | none |
 
@@ -131,11 +132,11 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Current | Maximum | Remaining |
 |---|---:|---:|---:|
-| `backend/main.py` | 19646 | 19646 | 0 |
+| `backend/main.py` | 19724 | 19750 | 26 |
 | `backend/static/feed/index.html` | 2124 | 2200 | 76 |
 | `backend/test_feed_v2.py` | 2346 | 2600 | 254 |
 | `frontend/src/LegacyApp.tsx` | 3600 | 3700 | 100 |
-| `frontend/src/adminModels.tsx` | 2114 | 2300 | 186 |
+| `frontend/src/adminModels.tsx` | 2131 | 2300 | 169 |
 | `frontend/src/index.css` | 2422 | 2650 | 228 |
 | `frontend/src/newStudioV3.css` | 5966 | 6400 | 434 |
 | `frontend/src/newUi.css` | 3096 | 3400 | 304 |
@@ -145,7 +146,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Functions | Maximum | Classes | Maximum | Routes | Maximum |
 |---|---:|---:|---:|---:|---:|---:|
-| `backend/main.py` | 679 | 725 | 77 | 83 | 189 | 238 |
+| `backend/main.py` | 683 | 725 | 77 | 83 | 189 | 238 |
 
 ## Release identity baseline
 

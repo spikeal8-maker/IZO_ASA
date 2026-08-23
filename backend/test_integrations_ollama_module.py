@@ -10,9 +10,12 @@ import pytest
 
 import main
 from app.integrations.ollama import (
+    ensure_ollama_model_resident,
     fetch_ollama_models_status,
+    fetch_ollama_residency_status,
     ollama_base_url,
     request_ollama_chat_message,
+    unload_ollama_model,
 )
 
 
@@ -180,6 +183,55 @@ def test_chat_message_preserves_invalid_json_error():
                 transport=httpx.MockTransport(handler),
             )
         )
+
+
+def test_residency_status_reads_loaded_models_only():
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/ps"
+        return httpx.Response(200, json={"models": [{"name": "gemma4:12b", "size_vram": 123}]})
+
+    result = asyncio.run(fetch_ollama_residency_status(base_url="http://ollama.test", transport=httpx.MockTransport(handler)))
+    assert result["ok"] is True
+    assert result["models"][0]["name"] == "gemma4:12b"
+
+
+def test_ensure_resident_loads_cold_model_and_verifies_it():
+    paths: list[str] = []
+    checks = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal checks
+        paths.append(request.url.path)
+        if request.url.path == "/api/ps":
+            checks += 1
+            return httpx.Response(200, json={"models": [] if checks == 1 else [{"name": "gemma4:12b", "size_vram": 99}]})
+        body = json.loads(request.content)
+        assert body["model"] == "gemma4:12b"
+        assert body["keep_alive"] == -1
+        return httpx.Response(200, json={"message": {"content": "готово"}})
+
+    result = asyncio.run(ensure_ollama_model_resident(model="gemma4:12b", transport=httpx.MockTransport(handler)))
+    assert result["ok"] is True
+    assert result["sizeVram"] == 99
+    assert paths == ["/api/ps", "/api/chat", "/api/ps"]
+
+
+def test_ensure_resident_does_not_reload_warm_model():
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/ps"
+        return httpx.Response(200, json={"models": [{"name": "gemma4:12b", "size_vram": 99}]})
+
+    result = asyncio.run(ensure_ollama_model_resident(model="gemma4:12b", transport=httpx.MockTransport(handler)))
+    assert result["alreadyResident"] is True
+
+
+def test_unload_model_uses_zero_keep_alive():
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/generate"
+        assert json.loads(request.content) == {"model": "gemma4:12b", "stream": False, "keep_alive": 0}
+        return httpx.Response(200, json={"done": True})
+
+    asyncio.run(unload_ollama_model(model="gemma4:12b", transport=httpx.MockTransport(handler)))
 
 
 def test_prompt_improvement_keeps_body_timeout_and_application_parser(monkeypatch):

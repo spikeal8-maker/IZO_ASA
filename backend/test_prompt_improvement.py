@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -87,6 +88,69 @@ def test_prompt_improvement_provider_error_does_not_echo_or_replace_prompt(promp
         )
     assert response.status_code == 502
     assert "исходный пользовательский текст" not in response.text
+
+
+def test_local_route_never_falls_back_to_openrouter(monkeypatch):
+    monkeypatch.setattr(main, "assistant_models_config", lambda: {"improve": {**main.DEFAULT_ASSISTANT_MODELS_CONFIG["improve"], "route": "local"}})
+    calls: list[str] = []
+
+    async def resident(_config):
+        calls.append("resident")
+
+    async def local(_req, _config):
+        calls.append("local")
+        raise RuntimeError("local failed")
+
+    async def api(_req, _config):
+        calls.append("api")
+        return "unexpected", {}
+
+    monkeypatch.setattr(main, "ensure_configured_ollama_resident", resident)
+    monkeypatch.setattr(main, "improve_prompt_ollama", local)
+    monkeypatch.setattr(main, "improve_prompt_openrouter", api)
+    with pytest.raises(main.PromptRouteError) as failure:
+        asyncio.run(main.improve_prompt_routed(main.ImprovePromptRequest(prompt="дом")))
+    assert calls == ["resident", "local"]
+    assert failure.value.routing["requestedRoute"] == "local"
+
+
+def test_api_route_never_calls_ollama(monkeypatch):
+    config = {**main.DEFAULT_ASSISTANT_MODELS_CONFIG["improve"], "route": "api"}
+    monkeypatch.setattr(main, "assistant_models_config", lambda: {"improve": config})
+
+    async def local(*_args, **_kwargs):
+        raise AssertionError("Ollama must not run")
+
+    async def api(_req, _config):
+        return "API результат", {"usage": {"cost": 0.1}}
+
+    monkeypatch.setattr(main, "improve_prompt_ollama", local)
+    monkeypatch.setattr(main, "improve_prompt_openrouter", api)
+    improved, payload, provider, _model = asyncio.run(main.improve_prompt_routed(main.ImprovePromptRequest(prompt="дом")))
+    assert improved == "API результат"
+    assert provider == "api"
+    assert payload["_izoRouting"]["attempts"][0]["provider"] == "api"
+
+
+def test_auto_route_records_local_failure_and_api_fallback(monkeypatch):
+    config = {**main.DEFAULT_ASSISTANT_MODELS_CONFIG["improve"], "route": "auto"}
+    monkeypatch.setattr(main, "assistant_models_config", lambda: {"improve": config})
+
+    async def resident(_config):
+        raise RuntimeError("cold load failed")
+
+    async def api(_req, _config):
+        return "Резервный результат", {"usage": {"cost": 0.1}}
+
+    monkeypatch.setattr(main, "ensure_configured_ollama_resident", resident)
+    monkeypatch.setattr(main, "improve_prompt_openrouter", api)
+    improved, payload, provider, _model = asyncio.run(main.improve_prompt_routed(main.ImprovePromptRequest(prompt="дом")))
+    routing = payload["_izoRouting"]
+    assert improved == "Резервный результат"
+    assert provider == "api"
+    assert routing["fallbackUsed"] is True
+    assert [attempt["provider"] for attempt in routing["attempts"]] == ["local", "api"]
+    assert routing["attempts"][0]["errorType"] == "RuntimeError"
 
 
 def test_phone_chat_requires_trusted_session():

@@ -173,6 +173,46 @@ def _integrate(rows: list[sqlite3.Row], value: Callable[[sqlite3.Row], float]) -
     return total_watt_seconds / 3600.0
 
 
+def estimate_interval_energy(
+    conn: sqlite3.Connection,
+    *,
+    started_at: datetime,
+    completed_at: datetime,
+    gpu_index: int,
+) -> dict[str, float | int]:
+    """Estimate energy for a short local operation from the two-second samples."""
+
+    started = started_at.astimezone(timezone.utc)
+    completed = completed_at.astimezone(timezone.utc)
+    if completed <= started:
+        return {"sample_count": 0, "energy_wh": 0.0, "incremental_wh": 0.0}
+    rows = conn.execute(
+        "SELECT * FROM power_samples WHERE sampled_at>=? AND sampled_at<=? ORDER BY sampled_at",
+        (started.isoformat(), completed.isoformat()),
+    ).fetchall()
+    if not rows:
+        nearest = conn.execute(
+            "SELECT * FROM power_samples WHERE sampled_at<=? ORDER BY sampled_at DESC LIMIT 1",
+            (completed.isoformat(),),
+        ).fetchone()
+        rows = [nearest] if nearest is not None else []
+    gpu_key = "gpu_4070_watts" if int(gpu_index) == 1 else "gpu_3090_watts"
+    idle_rows = conn.execute(
+        f"SELECT {gpu_key} FROM power_samples WHERE active_local_jobs=0 ORDER BY sampled_at DESC LIMIT 2000"
+    ).fetchall()
+    idle_gpu = _percentile([float(row[0] or 0) for row in idle_rows], 0.2)
+    energy_wh = _integrate(
+        rows,
+        lambda row: float(row[gpu_key] or 0) + float(row["overhead_watts"] or 0),
+    )
+    incremental_wh = _integrate(rows, lambda row: max(0.0, float(row[gpu_key] or 0) - idle_gpu))
+    return {
+        "sample_count": len(rows),
+        "energy_wh": round(energy_wh, 6),
+        "incremental_wh": round(incremental_wh, 6),
+    }
+
+
 def reconcile_generation_energy(conn: sqlite3.Connection, *, limit: int = 40) -> int:
     earliest = conn.execute("SELECT MIN(sampled_at) FROM power_samples").fetchone()[0]
     if not earliest:

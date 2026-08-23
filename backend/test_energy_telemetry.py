@@ -83,3 +83,19 @@ def test_energy_report_uses_actual_ups_hours_for_cost(monkeypatch):
     assert report["totals"]["today_cost_rub"] == 3.0
     assert report["measurement"]["model"] == "UT2200EG"
     assert report["current"]["server_estimated_watts"] == 180
+
+
+def test_short_assistant_interval_gets_gpu_4070_energy_estimate():
+    conn = _database()
+    began = datetime(2026, 8, 23, 10, 0, tzinfo=timezone.utc)
+    for index in range(3):
+        conn.execute(
+            "INSERT INTO power_samples VALUES (?,?,?,?,?,?,?,?,?)",
+            ((began + timedelta(seconds=index * 2)).isoformat(), 300, 250, 180, 10, 80, 20, 0, "test"),
+        )
+    result = energy_telemetry.estimate_interval_energy(
+        conn, started_at=began, completed_at=began + timedelta(seconds=4), gpu_index=1,
+    )
+    assert result["sample_count"] == 3
+    assert result["energy_wh"] > 0
+    assert result["incremental_wh"] == 0
