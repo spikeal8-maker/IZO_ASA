@@ -33,6 +33,8 @@
     lastImageRequest: null,
     chatThreads: {},
     chatRoute: 'auto',
+    chatModels: [],
+    chatModelId: 'local:izo-chat',
     chatImages: [],
     chatFiles: [],
     chatBusy: false,
@@ -1153,11 +1155,13 @@
     renderChatLive(); chatScrollEnd()
     const history = turns.filter((turn) => turn.role === 'user' || turn.status === 'done').slice(-20).map((turn) => ({ role: turn.role, content: turn.content }))
     try {
-      const response = await api('/phone/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: history, route: state.chatRoute, images }) })
+      const response = await api('/phone/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: history, route: state.chatRoute, modelId: state.chatModelId, requestId: crypto.randomUUID(), images }) })
       if (!response.ok) throw new Error(await responseMessage(response, 'Чат временно недоступен.'))
       const result = await response.json(); const reply = String(result.reply || '').trim()
       if (!reply) throw new Error('Чат не вернул ответ.')
-      Object.assign(pending, { content: reply, status: 'done', provider: result.provider || '', model: result.model || '' })
+      const selected = state.chatModels.find((item) => item.id === state.chatModelId)
+      Object.assign(pending, { content: reply, status: 'done', provider: result.provider || '', model: selected?.name || 'ИЗО Чат' })
+      await loadMe()
     } catch (error) {
       Object.assign(pending, { content: error.message || 'Чат временно недоступен. Повторите позже.', status: 'error' })
     } finally {
@@ -1171,7 +1175,14 @@
     const replace = (id) => { const old = document.getElementById(id); const clean = old.cloneNode(true); old.replaceWith(clean); return clean }
     const liveSend = replace('chatSend'); const liveMic = replace('chatMic'); const liveTools = replace('chatTools')
     const liveModel = replace('chatModelButton'); const livePlus = replace('chatPlus'); const liveMenu = replace('chatPlusMenu'); const liveNew = replace('newchat')
-    liveMic.dataset.liveMic = 'chat'; liveMic.title = 'Сказать голосом'; liveModel.querySelector('#chatModelName').textContent = 'ИЗО Чат'
+    const syncChatModelButton = () => {
+      const selected = state.chatModels.find((item) => item.id === state.chatModelId)
+      liveModel.querySelector('#chatModelName').textContent = selected?.name || 'ИЗО Чат'
+      liveModel.classList.toggle('token-kind-daily', (selected?.tokenKind || 'daily') === 'daily')
+      liveModel.classList.toggle('token-kind-main', selected?.tokenKind === 'main')
+      liveModel.title = selected ? `${selected.description || ''} · ${selected.tokenCost} кр.` : 'Выбрать модель чата'
+    }
+    liveMic.dataset.liveMic = 'chat'; liveMic.title = 'Сказать голосом'; syncChatModelButton()
     const imageInput = document.createElement('input'); imageInput.type = 'file'; imageInput.accept = 'image/jpeg,image/png,image/webp'; imageInput.multiple = true; imageInput.hidden = true
     const cameraInput = imageInput.cloneNode(); cameraInput.multiple = false; cameraInput.setAttribute('capture', 'environment')
     const textInput = document.createElement('input'); textInput.type = 'file'; textInput.accept = '.txt,.md,.json,.csv,text/plain,application/json,text/csv'; textInput.multiple = true; textInput.hidden = true
@@ -1213,7 +1224,14 @@
       else if (choice === 1 || choice === 2) { gp.value = chatgp.value; gp.dispatchEvent(new Event('input', { bubbles: true })); go(choice === 2 ? 'vid' : 'img', 0) }
       else { state.chatThreads[chatKey()] = []; renderChatLive(); toast('Диалог очищен') }
     }))
-    liveModel.addEventListener('click', () => realPick('Модель чата', [{ label: 'ИЗО Чат', description: 'Маршрут и модель выбираются сервером автоматически', icon: IC.cube }], 0, () => { state.chatRoute = 'auto' }))
+    liveModel.addEventListener('click', () => {
+      const models = state.chatModels.length ? state.chatModels : [{ id: 'local:izo-chat', name: 'ИЗО Чат', description: 'Быстрая локальная модель ИЗО АСА', tokenCost: 1, tokenKind: 'daily', provider: 'local' }]
+      realPick('Модель чата', models.map((item) => ({ label: item.name, description: item.description, price: `${item.tokenCost} кр.`, tokenKind: item.tokenKind, icon: IC.cube })), Math.max(0, models.findIndex((item) => item.id === state.chatModelId)), (_item, choice) => {
+        state.chatModelId = models[choice].id
+        state.chatRoute = models[choice].provider === 'local' ? 'local' : 'api'
+        syncChatModelButton()
+      })
+    })
     liveNew.addEventListener('click', () => {
       if (TABS.chat[0] !== 'Новый чат') TABS.chat.unshift('Новый чат')
       state.chatThreads['Новый чат'] = []; idx = 0; paint(); chatgp.focus(); toast('Новый диалог готов')
@@ -1245,6 +1263,21 @@
     updateProfile()
   }
 
+  async function loadChatModels() {
+    if (!state.me) { state.chatModels = []; return }
+    try {
+      const response = await api('/phone/chat/models')
+      if (!response.ok) return
+      const result = await response.json()
+      state.chatModels = Array.isArray(result.models) ? result.models : []
+      if (!state.chatModels.some((item) => item.id === state.chatModelId)) state.chatModelId = result.defaultModel || state.chatModels[0]?.id || 'local:izo-chat'
+      const selected = state.chatModels.find((item) => item.id === state.chatModelId)
+      state.chatRoute = selected?.provider === 'api' ? 'api' : 'local'
+      const name = document.getElementById('chatModelName')
+      if (name) name.textContent = selected?.name || 'ИЗО Чат'
+    } catch { state.chatModels = [] }
+  }
+
   async function loadInitial() {
     await Promise.all([
       loadMe(),
@@ -1254,6 +1287,7 @@
     if (state.me) {
       await Promise.all([
         loadGallery(),
+        loadChatModels(),
         api('/model-access').then(async (response) => { if (response.ok) state.modelAccess = await response.json() }).catch(() => undefined),
       ])
     }

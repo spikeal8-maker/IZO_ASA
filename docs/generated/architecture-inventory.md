@@ -5,7 +5,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 ## Summary
 
-- Routes: 239
+- Routes: 240
 - Registered workers: 8
 - Registered ephemeral tasks: 4
 - SQLite tables: 60
@@ -22,7 +22,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | admin | 94 |
 | public/optional/review | 79 |
 | session | 1 |
-| user | 55 |
+| user | 56 |
 | webhook: MAX secret conditional | 1 |
 | webhook: telegram secret required | 1 |
 
@@ -132,11 +132,11 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Current | Maximum | Remaining |
 |---|---:|---:|---:|
-| `backend/main.py` | 19745 | 19750 | 5 |
+| `backend/main.py` | 19750 | 19750 | 0 |
 | `backend/static/feed/index.html` | 2124 | 2200 | 76 |
 | `backend/test_feed_v2.py` | 2346 | 2600 | 254 |
 | `frontend/src/LegacyApp.tsx` | 3600 | 3700 | 100 |
-| `frontend/src/adminModels.tsx` | 2131 | 2300 | 169 |
+| `frontend/src/adminModels.tsx` | 2197 | 2300 | 103 |
 | `frontend/src/index.css` | 2422 | 2650 | 228 |
 | `frontend/src/newStudioV3.css` | 5999 | 6400 | 401 |
 | `frontend/src/newUi.css` | 3097 | 3400 | 303 |

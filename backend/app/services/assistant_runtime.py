@@ -59,6 +59,9 @@ class OllamaResidencyController:
 
     async def sync(self, config: dict[str, Any]) -> dict[str, Any]:
         improve, voice = config["improve"], config["voice"]
+        chat = config.get("chat") if isinstance(config.get("chat"), dict) else {}
+        if chat and chat.get("enabled") is not False and chat.get("localEnabled") is not False:
+            return await self.ensure_model({"localModel": chat.get("localModel")})
         if improve.get("route") in {"local", "auto"}:
             return await self.ensure_model(improve)
         if voice.get("route") in {"local", "auto"}:
@@ -67,7 +70,7 @@ class OllamaResidencyController:
             previous, self._resident_model = self._resident_model, None
             status = await fetch_ollama_residency_status()
             running = {str(row.get("name") or row.get("model") or "") for row in status.get("models") or []}
-            candidates = {previous, str(improve.get("localModel") or ""), str(voice.get("localModel") or "")}
+            candidates = {previous, str(chat.get("localModel") or ""), str(improve.get("localModel") or ""), str(voice.get("localModel") or "")}
             released = 0
             for model in sorted(name for name in candidates if name and name in running):
                 await unload_ollama_model(model=model)

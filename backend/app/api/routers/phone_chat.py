@@ -7,6 +7,7 @@ import json
 import os
 import re
 import time
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -44,6 +45,8 @@ class PhoneChatTurn(BaseModel):
 class PhoneChatRequest(BaseModel):
     messages: list[PhoneChatTurn] = Field(min_length=1, max_length=20)
     route: Literal["auto", "local", "api"] = "auto"
+    modelId: str | None = Field(default=None, max_length=200)
+    requestId: str = Field(default_factory=lambda: uuid.uuid4().hex, min_length=8, max_length=100, pattern=r"^[A-Za-z0-9._:-]+$")
     images: list[str] = Field(default_factory=list, max_length=4)
 
 
@@ -54,6 +57,34 @@ class PhoneChatDependencies:
     openrouter_headers: Callable[[], dict[str, str]]
     record_openrouter_availability: Callable[[int], None]
     record_event: Callable[..., None]
+    openrouter_text_models: Callable[[], Any]
+    charge_tokens: Callable[..., dict[str, Any]]
+    refund_tokens: Callable[..., bool]
+
+
+def _chat_config(deps: PhoneChatDependencies) -> dict[str, Any]:
+    config = deps.assistant_models_config()
+    return config.get("chat") if isinstance(config.get("chat"), dict) else config["improve"]
+
+
+def _resolve_phone_chat_model(req: PhoneChatRequest, config: dict[str, Any]) -> tuple[str, str, str, int, str]:
+    enabled_api = [str(value) for value in config.get("enabledApiModels", []) if str(value).strip()]
+    selected = str(req.modelId or "").strip()
+    if not selected:
+        if req.route == "local":
+            selected = "local:izo-chat"
+        elif req.route == "api":
+            selected = enabled_api[0] if enabled_api else str(config.get("apiModel") or "")
+        else:
+            selected = str(config.get("defaultModel") or "local:izo-chat")
+    if selected == "local:izo-chat":
+        if config.get("enabled") is False or config.get("localEnabled") is False:
+            raise ValueError("Локальная модель чата сейчас отключена.")
+        return selected, "local", str(config.get("localModel") or "gemma4:12b"), int(config.get("localTokenCost") or 1), "daily"
+    if config.get("enabled") is False or selected not in enabled_api:
+        raise ValueError("Эта модель чата сейчас недоступна.")
+    costs = config.get("apiTokenCosts") if isinstance(config.get("apiTokenCosts"), dict) else {}
+    return selected, "api", selected, int(costs.get(selected) or 1), "main"
 
 
 def _phone_chat_image_payloads(images: list[str]) -> list[tuple[str, str]]:
@@ -123,7 +154,7 @@ async def phone_chat_ollama(
     deps: PhoneChatDependencies,
     config: dict[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any], str]:
-    config = config or deps.assistant_models_config()["improve"]
+    config = config or _chat_config(deps)
     images = _phone_chat_image_payloads(req.images)
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": PHONE_CHAT_SYSTEM_PROMPT},
@@ -157,7 +188,7 @@ async def phone_chat_openrouter(
     headers = deps.openrouter_headers()
     if not headers.get("Authorization", "").removeprefix("Bearer ").strip():
         raise RuntimeError("Облачный маршрут чата не настроен.")
-    config = config or deps.assistant_models_config()["improve"]
+    config = config or _chat_config(deps)
     images = _phone_chat_image_payloads(req.images)
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": PHONE_CHAT_SYSTEM_PROMPT},
@@ -208,25 +239,61 @@ async def phone_chat_openrouter(
 async def route_phone_chat(
     req: PhoneChatRequest,
     deps: PhoneChatDependencies,
-) -> tuple[str, dict[str, Any], str, str]:
-    config = deps.assistant_models_config()["improve"]
-    providers = ["local", "api"] if req.route == "auto" else [req.route]
-    last_error: Exception | None = None
+) -> tuple[str, dict[str, Any], str, str, str, int, str]:
+    config = _chat_config(deps)
+    public_model_id, provider, technical_model, token_cost, token_kind = _resolve_phone_chat_model(req, config)
+    selected_config = {
+        **config,
+        "localModel": technical_model if provider == "local" else config.get("localModel"),
+        "apiModel": technical_model if provider == "api" else config.get("apiModel"),
+    }
     async with _phone_chat_semaphore:
-        for provider in providers:
-            try:
-                if provider == "local":
-                    reply, payload, model = await phone_chat_ollama(req, deps, config)
-                else:
-                    reply, payload, model = await phone_chat_openrouter(req, deps, config)
-                return reply, payload, provider, model
-            except (httpx.HTTPError, RuntimeError, ValueError) as exc:
-                last_error = exc
-    raise RuntimeError(str(last_error or "Чат временно недоступен."))
+        if provider == "local":
+            reply, payload, model = await phone_chat_ollama(req, deps, selected_config)
+        else:
+            reply, payload, model = await phone_chat_openrouter(req, deps, selected_config)
+    return reply, payload, provider, model, public_model_id, token_cost, token_kind
 
 
 def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
     router = APIRouter()
+
+    @router.get("/api/phone/chat/models")
+    async def phone_chat_models(request: Request) -> dict[str, Any]:
+        deps.require_trusted_user(request)
+        config = _chat_config(deps)
+        models: list[dict[str, Any]] = []
+        if config.get("enabled") is not False and config.get("localEnabled") is not False:
+            models.append({
+                "id": "local:izo-chat",
+                "name": str(config.get("localLabel") or "ИЗО Чат"),
+                "provider": "local",
+                "tokenCost": int(config.get("localTokenCost") or 1),
+                "tokenKind": "daily",
+                "description": "Быстрая локальная модель ИЗО АСА",
+            })
+        enabled_api = {str(value) for value in config.get("enabledApiModels", [])}
+        costs = config.get("apiTokenCosts") if isinstance(config.get("apiTokenCosts"), dict) else {}
+        try:
+            catalog = await deps.openrouter_text_models()
+        except Exception:
+            catalog = []
+        by_id = {str(item.get("id")): item for item in catalog if isinstance(item, dict) and item.get("id")}
+        for model_id in config.get("enabledApiModels", []):
+            model_id = str(model_id)
+            if model_id not in enabled_api:
+                continue
+            item = by_id.get(model_id, {})
+            models.append({
+                "id": model_id,
+                "name": str(item.get("name") or model_id.rsplit("/", 1)[-1]),
+                "provider": "api",
+                "tokenCost": int(costs.get(model_id) or 1),
+                "tokenKind": "main",
+                "description": "Облачная текстовая модель",
+                "contextLength": int(item.get("contextLength") or 0),
+            })
+        return {"ok": True, "defaultModel": str(config.get("defaultModel") or "local:izo-chat"), "models": models}
 
     @router.post("/api/phone/chat")
     async def phone_chat(req: PhoneChatRequest, request: Request) -> dict[str, Any]:
@@ -237,17 +304,40 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
             _phone_chat_image_payloads(req.images)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
+        config = _chat_config(deps)
+        try:
+            _public_id, selected_provider, selected_model, selected_cost, selected_kind = _resolve_phone_chat_model(req, config)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        user_id = str(trusted.get("legacy_user_id") or "")
+        if not user_id:
+            raise HTTPException(401, "Требуется вход в аккаунт.")
+        charge = deps.charge_tokens(
+            user_id=user_id,
+            token_cost=selected_cost,
+            request_id=req.requestId,
+            provider=selected_provider,
+            model=selected_model,
+        )
         started = time.monotonic()
         try:
-            reply, provider_payload, provider, model = await asyncio.wait_for(
+            routed = await asyncio.wait_for(
                 route_phone_chat(req, deps),
                 timeout=185,
             )
+            if len(routed) == 4:  # Compatibility for older isolated route test doubles.
+                reply, provider_payload, provider, model = routed
+                public_model_id, token_cost, token_kind = _public_id, selected_cost, selected_kind
+            else:
+                reply, provider_payload, provider, model, public_model_id, token_cost, token_kind = routed
         except ValueError as exc:
+            deps.refund_tokens(user_id=user_id, ledger_id=charge["ledger_id"], reason=str(exc))
             raise HTTPException(400, str(exc)) from exc
         except asyncio.TimeoutError as exc:
+            deps.refund_tokens(user_id=user_id, ledger_id=charge["ledger_id"], reason="timeout")
             raise HTTPException(504, "Чат отвечает слишком долго. Повторите запрос.") from exc
         except (httpx.HTTPError, RuntimeError) as exc:
+            deps.refund_tokens(user_id=user_id, ledger_id=charge["ledger_id"], reason=str(exc))
             raise HTTPException(
                 502,
                 "Чат временно недоступен. Повторите позже или обратитесь в поддержку.",
@@ -270,15 +360,23 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
                 "output_chars": len(reply),
                 "latency_ms": round((time.monotonic() - started) * 1000),
                 "cost_usd": cost,
+                "product_token_cost": token_cost,
+                "product_token_kind": token_kind,
             },
         )
         return {
             "ok": True,
             "reply": reply,
-            "model": model,
+            "model": public_model_id,
             "provider": provider,
             "usage": usage,
             "costUsd": cost,
+            "modelId": public_model_id,
+            "chargedTokens": token_cost,
+            "tokenKind": token_kind,
+            "tokenBalance": charge.get("new_balance"),
+            "dailyTokensUsed": charge.get("daily_tokens_used_after"),
+            "dailyTokensLimit": charge.get("daily_tokens_limit"),
         }
 
     return router

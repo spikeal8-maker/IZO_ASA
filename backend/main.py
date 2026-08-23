@@ -367,6 +367,7 @@ try:
         telegram_message_from_update,
         telegram_user_from_update,
     )
+    from .app.services import chat_billing
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.services import (
         AccountRetentionWorker, cleanup_due_unverified_accounts, enforce_due_unverified_login,
@@ -418,6 +419,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         telegram_message_from_update,
         telegram_user_from_update,
     )
+    from app.services import chat_billing
 
 try:
     from .app.services.platform_status import (
@@ -6343,6 +6345,7 @@ DEFAULT_ASSISTANT_MODELS_CONFIG: dict[str, Any] = {
         ),
         "modePrompts": dict(PROMPT_IMPROVE_MODE_RULES),
     },
+    "chat": chat_billing.DEFAULT_CHAT_CONFIG,
 }
 
 
@@ -6371,7 +6374,7 @@ def normalize_assistant_models_config(value: Any) -> dict[str, Any]:
     improve["apiModel"] = str(improve.get("apiModel") or PROMPT_IMPROVE_MODEL).strip()
     improve["localTimeoutSeconds"] = bounded_int(improve.get("localTimeoutSeconds"), 30, 10, 120)
     improve["apiTimeoutSeconds"] = bounded_int(improve.get("apiTimeoutSeconds"), 10, 3, 30)
-    return {"voice": voice, "improve": improve}
+    return {"voice": voice, "improve": improve, "chat": chat_billing.normalize_chat_config(stored.get("chat"))}
 
 
 def assistant_models_config() -> dict[str, Any]:
@@ -17018,7 +17021,9 @@ app.include_router(create_admin_operations_router(AdminOperationsDependencies(
 )))
 app.include_router(create_phone_chat_router(PhoneChatDependencies(
     require_trusted_user, assistant_models_config, openrouter_headers,
-    OPENROUTER_AVAILABILITY.record, record_event_log,
+    OPENROUTER_AVAILABILITY.record, record_event_log, openrouter_text_models,
+    lambda **kwargs: chat_billing.charge_chat_tokens_for_user(connect=db, get_tariffs=get_tariff_config, reconcile_tariff=_reconcile_user_tariff, **kwargs),
+    lambda **kwargs: chat_billing.refund_chat_tokens_for_user(connect=db, **kwargs),
 )))
 
 

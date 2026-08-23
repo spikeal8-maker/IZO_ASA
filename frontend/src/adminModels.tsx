@@ -486,6 +486,7 @@ const fallbackReferenceLimit = (model: ApiImageModel) => {
 type AssistantConfig = {
   voice: { localModel: string; qwenModel: string; qwenBaseUrl: string; apiModel: string; route: string; queueTimeoutSeconds: number; requestTimeoutSeconds: number; minRecordingSeconds: number }
   improve: { route: 'local' | 'api' | 'auto'; localModel: string; apiModel: string; localTimeoutSeconds: number; apiTimeoutSeconds: number; systemPrompt: string; modePrompts: Record<string, string> }
+  chat: { enabled: boolean; localEnabled: boolean; localModel: string; localLabel: string; localTokenCost: number; defaultModel: string; enabledApiModels: string[]; apiTokenCosts: Record<string, number>; localTimeoutSeconds: number; apiTimeoutSeconds: number }
 }
 type AssistantAdminData = {
   ok?: boolean
@@ -937,7 +938,7 @@ const CSS = `
 export default function AdminModelsV2() {
   const [data, setData] = useState<PageData | null>(null)
   const [pageTab, setPageTab] = useState<'config' | 'api' | 'voice' | 'improve' | 'energy'>('api')
-  const [configSection, setConfigSection] = useState<'image' | 'video'>('image')
+  const [configSection, setConfigSection] = useState<'image' | 'video' | 'text'>('image')
   const [configRuntime, setConfigRuntime] = useState({ imageEnabled: true, videoEnabled: true, videoProfile: 'local/ltx-2.3-fast-q3' })
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null)
   const [routes, setRoutes] = useState<Route[]>([])
@@ -945,9 +946,11 @@ export default function AdminModelsV2() {
   const [marginDraft, setMarginDraft] = useState('40')
   const [tokenRubDraft, setTokenRubDraft] = useState('5')
   const [apiSorts, setApiSorts] = useState<Record<string, ApiSortState>>({})
-  const [apiSectionsOpen, setApiSectionsOpen] = useState<Record<string, boolean>>({ text_to_image: true })
+  const [apiSectionsOpen, setApiSectionsOpen] = useState<Record<string, boolean>>({})
   const [apiExpandedRows, setApiExpandedRows] = useState<Record<string, boolean>>({})
-  const [videoCatalogOpen, setVideoCatalogOpen] = useState(true)
+  const [textCatalogOpen, setTextCatalogOpen] = useState(false)
+  const [imageCatalogOpen, setImageCatalogOpen] = useState(false)
+  const [videoCatalogOpen, setVideoCatalogOpen] = useState(false)
   const [videoSectionsOpen, setVideoSectionsOpen] = useState<Record<string, boolean>>({})
   const [videoExpandedRows, setVideoExpandedRows] = useState<Record<string, boolean>>({})
   const [videoConfigBusy, setVideoConfigBusy] = useState(false)
@@ -1051,7 +1054,7 @@ export default function AdminModelsV2() {
   }, [])
 
   useEffect(() => {
-    if (pageTab === 'improve' && !assistantData) queueMicrotask(() => { void loadAssistants() })
+    if ((pageTab === 'improve' || pageTab === 'api' || pageTab === 'config') && !assistantData) queueMicrotask(() => { void loadAssistants() })
   }, [assistantData, loadAssistants, pageTab])
 
   const updateAssistantConfig = (next: AssistantConfig) => setAssistantData((current) => current ? { ...current, config: next } : current)
@@ -1584,7 +1587,29 @@ export default function AdminModelsV2() {
     <div className="page-tabs" aria-label="Разделы Config UI" style={{ marginBottom: 12 }}>
       <button className={configSection === 'image' ? 'active' : ''} onClick={() => setConfigSection('image')}>Изображения</button>
       <button className={configSection === 'video' ? 'active' : ''} onClick={() => setConfigSection('video')}>Видео</button>
+      <button className={configSection === 'text' ? 'active' : ''} onClick={() => setConfigSection('text')}>Текст</button>
     </div>
+
+    {configSection === 'text' && <section className="server-layout">
+      <article className="card">
+        <div className="card-head"><div><h2 className="card-title">Локальная текстовая модель</h2><p className="card-note">Пользователь видит название «ИЗО Чат», техническая модель работает через Ollama на RTX 4070.</p></div></div>
+        {!assistantData ? <p className="hint">Загружаем состояние Ollama…</p> : <div className="assistant-form">
+          <div className="assistant-summary">
+            <div><span>Ollama</span><strong>{assistantData.ollama.ok ? 'работает' : 'не отвечает'}</strong><small>{assistantData.ollama.baseUrl}</small></div>
+            <div><span>Модель в памяти</span><strong>{assistantData.ollamaResidency.models.some((m) => (m.name || m.model) === assistantData.config.chat.localModel) ? 'да' : 'нет'}</strong><small>{assistantData.config.chat.localModel}</small></div>
+            <div><span>Тариф</span><strong>{assistantData.config.chat.localTokenCost} дневн. ток.</strong><small>При исчерпании дневных списывается основной баланс.</small></div>
+          </div>
+          <div className="two-col">
+            <div className="field"><label>Название для пользователя</label><input value={assistantData.config.chat.localLabel} onChange={(e) => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, localLabel: e.target.value } })} /></div>
+            <div className="field"><label>Техническая модель Ollama</label><select value={assistantData.config.chat.localModel} onChange={(e) => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, localModel: e.target.value } })}>{assistantData.ollama.models.filter((m) => m.name && !(m.name || '').endsWith(':cloud')).map((m) => <option key={m.name} value={m.name}>{m.name}</option>)}</select></div>
+            <div className="field"><label>Цена ответа, дневных токенов</label><input type="number" min="1" max="1000" value={assistantData.config.chat.localTokenCost} onChange={(e) => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, localTokenCost: Number(e.target.value) } })} /></div>
+            <div className="field"><label>Таймаут, секунд</label><input type="number" min="10" max="180" value={assistantData.config.chat.localTimeoutSeconds} onChange={(e) => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, localTimeoutSeconds: Number(e.target.value) } })} /></div>
+          </div>
+          <label className="resolution-plan"><input type="checkbox" checked={assistantData.config.chat.enabled && assistantData.config.chat.localEnabled} onChange={(e) => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, enabled: e.target.checked, localEnabled: e.target.checked } })} /><span>Доступна пользователям в чате</span></label>
+          <button className="primary" disabled={assistantBusy} onClick={() => void saveAssistantConfig()}>{assistantBusy ? 'Сохраняю…' : 'Сохранить текстовую модель'}</button>
+        </div>}
+      </article>
+    </section>}
 
     {configSection === 'video' && <section className="server-layout">
       <article className="card">
@@ -1793,6 +1818,40 @@ export default function AdminModelsV2() {
       {data.openrouter.capabilityError ? <p className="hint" style={{ color: 'var(--yellow)' }}>Каталог возможностей OpenRouter не загрузился: {data.openrouter.capabilityError}</p> : null}
 
       <article className="card video-catalog-card">
+        <button className="video-catalog-head" onClick={() => setTextCatalogOpen((open) => !open)} aria-expanded={textCatalogOpen}>
+          <div className="video-catalog-title"><span aria-hidden="true">▶</span><div><h2 className="card-title">Текстовые модели OpenRouter</h2><p className="card-note">Выбор моделей для чата, цена за 1 млн токенов и экономика ответа.</p></div></div>
+          <div className="video-catalog-meta"><span className="state ok">{assistantData?.openrouterModels.length || 0} моделей</span><span className="mini">{textCatalogOpen ? 'Свернуть' : 'Раскрыть'}</span></div>
+        </button>
+        {textCatalogOpen && <div className="matrix-wrap">
+          {!assistantData ? <p className="hint">Загружаем текстовый каталог…</p> : <>
+            <table className="api-table"><thead><tr><th>Вкл.</th><th>Модель</th><th>Вход / 1M</th><th>Выход / 1M</th><th>Контекст</th><th>Токены проекта</th><th>Пример: 1000 + 500</th><th>По умолчанию</th></tr></thead>
+              <tbody>{assistantData.openrouterModels.filter((model) => !query || `${model.id} ${model.name}`.toLowerCase().includes(query.toLowerCase())).map((model) => {
+                const enabled = assistantData.config.chat.enabledApiModels.includes(model.id)
+                const productTokens = Number(assistantData.config.chat.apiTokenCosts[model.id] || 1)
+                const sampleUsd = model.inputPerMillionUsd / 1000 + model.outputPerMillionUsd / 2000
+                const sampleRub = usdRubEffective === null ? null : sampleUsd * usdRubEffective
+                const revenue = productTokens * tokenRub
+                const profit = sampleRub === null ? null : revenue - sampleRub
+                return <tr key={model.id}>
+                  <td><input type="checkbox" checked={enabled} onChange={(e) => {
+                    const enabledApiModels = e.target.checked ? [...new Set([...assistantData.config.chat.enabledApiModels, model.id])] : assistantData.config.chat.enabledApiModels.filter((id) => id !== model.id)
+                    const defaultModel = !e.target.checked && assistantData.config.chat.defaultModel === model.id ? 'local:izo-chat' : assistantData.config.chat.defaultModel
+                    updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, enabledApiModels, defaultModel, apiTokenCosts: { ...assistantData.config.chat.apiTokenCosts, [model.id]: productTokens } } })
+                  }} /></td>
+                  <td><strong>{model.name}</strong><small className="model-id">{model.id}</small></td>
+                  <td>${model.inputPerMillionUsd.toFixed(4)}</td><td>${model.outputPerMillionUsd.toFixed(4)}</td><td>{model.contextLength.toLocaleString('ru-RU')}</td>
+                  <td><input style={{ width: 76 }} type="number" min="1" max="1000" disabled={!enabled} value={productTokens} onChange={(e) => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, apiTokenCosts: { ...assistantData.config.chat.apiTokenCosts, [model.id]: Number(e.target.value) } } })} /> <span className="state">осн.</span></td>
+                  <td><strong>${sampleUsd.toFixed(6)}</strong><small>{sampleRub === null ? 'курс не загружен' : `${sampleRub.toFixed(4)} ₽ · выручка ${revenue.toFixed(2)} ₽ · прибыль ${profit?.toFixed(4)} ₽`}</small></td>
+                  <td><input type="radio" name="chat-default-model" disabled={!enabled} checked={assistantData.config.chat.defaultModel === model.id} onChange={() => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, defaultModel: model.id } })} /></td>
+                </tr>
+              })}</tbody>
+            </table>
+            <div className="actions" style={{ padding: 12 }}><button className="primary" disabled={assistantBusy} onClick={() => void saveAssistantConfig()}>{assistantBusy ? 'Сохраняю…' : 'Сохранить текстовые модели'}</button><label className="resolution-plan"><input type="radio" name="chat-default-model" checked={assistantData.config.chat.defaultModel === 'local:izo-chat'} onChange={() => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, defaultModel: 'local:izo-chat' } })} /><span>ИЗО Чат по умолчанию</span></label></div>
+          </>}
+        </div>}
+      </article>
+
+      <article className="card video-catalog-card">
         <button className="video-catalog-head" onClick={() => setVideoCatalogOpen((open) => !open)} aria-expanded={videoCatalogOpen}>
           <div className="video-catalog-title">
             <span aria-hidden="true">▶</span>
@@ -1911,7 +1970,14 @@ export default function AdminModelsV2() {
         </div>}
       </article>
 
-      {API_MODE_SECTIONS.map((section) => {
+      <article className="card video-catalog-card">
+        <button className="video-catalog-head" onClick={() => setImageCatalogOpen((open) => !open)} aria-expanded={imageCatalogOpen}>
+          <div className="video-catalog-title"><span aria-hidden="true">▶</span><div><h2 className="card-title">Модели изображений OpenRouter</h2><p className="card-note">Генерация, редактирование, сборка и экономика форматов.</p></div></div>
+          <div className="video-catalog-meta"><span className="state ok">{capabilityModels.length} моделей</span><span className="mini">{imageCatalogOpen ? 'Свернуть' : 'Раскрыть'}</span></div>
+        </button>
+      </article>
+
+      {imageCatalogOpen && API_MODE_SECTIONS.map((section) => {
         const sort = apiSorts[section.id] || { key: 'price' as const, dir: 'asc' as const }
         const sectionOpen = apiSectionsOpen[section.id] ?? false
         const enabledForSection = data.openrouter.config?.enabled?.[section.id] || []
