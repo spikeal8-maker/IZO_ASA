@@ -254,8 +254,8 @@ Auth policy is a conservative static hint. Every `REVIEW` row must be checked in
 | POST | `/api/max/set-webhook` | `max_set_webhook` | 238 | admin |
 | POST | `/api/telegram/webhook` | `telegram_webhook` | 248 | webhook: telegram secret required |
 | POST | `/api/max/webhook` | `max_webhook` | 284 | webhook: MAX secret conditional |
-| GET | `/api/phone/chat/models` | `phone_chat_models` | 262 | user |
-| POST | `/api/phone/chat` | `phone_chat` | 299 | user |
+| GET | `/api/phone/chat/models` | `phone_chat_models` | 427 | user |
+| POST | `/api/phone/chat` | `phone_chat` | 464 | user |
 
 ## Classes
 
@@ -622,8 +622,8 @@ Auth policy is a conservative static hint. Every `REVIEW` row must be checked in
 | `normalize_assistant_models_config` | function | 6352–6377 |
 | `assistant_models_config` | function | 6380–6383 |
 | `ollama_models_status` | async function | 6386–6387 |
-| `qwen_asr_status` | async function | 6392–6394 |
-| `openrouter_text_models` | async function | 6401–6413 |
+| `qwen_asr_status` | async function | 6389–6391 |
+| `openrouter_text_models` | async function | 6398–6413 |
 | `openrouter_audio_models` | async function | 6416–6428 |
 | `_openrouter_text_content` | function | 6431–6486 |
 | `_parse_improved_prompt` | function | 6489–6501 |

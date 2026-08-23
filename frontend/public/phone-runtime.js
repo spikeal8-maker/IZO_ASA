@@ -98,6 +98,7 @@
     .live-chat-attachments{display:flex;gap:6px;overflow-x:auto;padding:9px 12px 0}.live-chat-attachments:empty{display:none}.live-chat-attachment{position:relative;flex:0 0 auto;width:54px;height:54px;border-radius:12px;background:var(--s2);overflow:hidden;box-shadow:inset 0 0 0 1px var(--edge)}
     .live-chat-attachment img{width:100%;height:100%;object-fit:cover}.live-chat-attachment.file{width:auto;max-width:140px;padding:8px 28px 8px 10px;height:auto;min-height:40px;color:var(--tx2);font:700 10px/1.25 inherit;display:flex;align-items:center}.live-chat-attachment button{position:absolute;right:3px;top:3px;width:20px;height:20px;border:0;border-radius:50%;background:rgba(5,6,10,.78);color:#fff;cursor:pointer}
     .live-chat-user-images{display:flex;gap:5px;margin-bottom:7px}.live-chat-user-images img{width:56px;height:56px;border-radius:10px;object-fit:cover}.live-chat-actions{display:flex;gap:6px;overflow-x:auto;padding:7px 2px 0}.live-chat-actions button{flex:0 0 auto;border:0;border-radius:10px;padding:8px 10px;background:var(--s2);color:var(--tx2);font:700 10.5px/1 inherit;cursor:pointer;box-shadow:inset 0 0 0 1px var(--edge)}
+    .live-chat-tools{display:grid;gap:7px;margin-top:9px}.live-chat-tool{padding:9px 10px;border-radius:12px;background:var(--s2);box-shadow:inset 0 0 0 1px var(--edge);color:var(--tx2);font:650 10.5px/1.35 inherit}.live-chat-tool b{display:flex;align-items:center;gap:6px;color:var(--tx);font-size:11px}.live-chat-tool b i{width:7px;height:7px;border-radius:50%;background:var(--act);box-shadow:0 0 10px var(--glow)}.live-chat-tool.error{box-shadow:inset 0 0 0 1px rgba(255,91,107,.4)}.live-chat-tool.error b{color:#ff9eaa}.live-chat-tool-sources{display:flex;gap:5px;overflow-x:auto;margin-top:7px}.live-chat-tool-sources a{flex:0 0 auto;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:6px 8px;border-radius:9px;background:var(--s3);color:var(--act);text-decoration:none}.live-chat-tool-image{display:block;width:100%;max-height:260px;object-fit:contain;border-radius:10px;margin-top:8px;background:#050609}
     .live-spinner{display:inline-block;width:13px;height:13px;border:2px solid var(--edge2);border-top-color:var(--act);border-radius:50%;animation:phoneSpin .8s linear infinite;vertical-align:-2px;margin-right:7px}@keyframes phoneSpin{to{transform:rotate(360deg)}}
   `
   document.head.appendChild(styleNode)
@@ -1067,9 +1068,29 @@
     document.getElementById('run').disabled = true; document.getElementById('cost').textContent = '—'
   }
 
-  const chatText = (value) => html(value).replace(/\r?\n/g, '<br>')
+  const chatText = (value) => html(value)
+    .replace(/\[([^\]]{1,180})\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+    .replace(/\r?\n/g, '<br>')
   const currentChat = () => state.chatThreads[chatKey()] || (state.chatThreads[chatKey()] = [])
   const chatScrollEnd = () => requestAnimationFrame(() => { body.scrollTop = body.scrollHeight; lastY = body.scrollTop })
+
+  const safeToolUrl = (value) => /^https?:\/\//i.test(String(value || '')) ? String(value) : ''
+  function chatToolsHtml(tools) {
+    if (!Array.isArray(tools) || !tools.length) return ''
+    return `<div class="live-chat-tools">${tools.map((tool) => {
+      if (tool.name === 'web_search') {
+        const sources = (tool.sources || []).map((source) => {
+          const url = safeToolUrl(source.url); return url ? `<a href="${html(url)}" target="_blank" rel="noopener noreferrer">${html(source.title || url)}</a>` : ''
+        }).join('')
+        return `<div class="live-chat-tool${tool.ok === false ? ' error' : ''}"><b><i></i>${tool.ok === false ? 'Поиск не выполнен' : 'Поиск в интернете'}</b>${tool.query ? `<span>${html(tool.query)}</span>` : ''}${sources ? `<div class="live-chat-tool-sources">${sources}</div>` : ''}</div>`
+      }
+      if (tool.name === 'generate_image') {
+        const label = tool.status === 'done' ? 'Изображение готово' : tool.status === 'error' ? 'Изображение не создано' : tool.status === 'running' ? 'Создаём изображение…' : 'Генерация изображения'
+        return `<div class="live-chat-tool${tool.status === 'error' ? ' error' : ''}"><b><i></i>${label}</b><span>${html(tool.prompt || '')}</span>${tool.resultUrl ? `<img class="live-chat-tool-image" src="${html(tool.resultUrl)}" alt="Изображение, созданное из чата">` : ''}${tool.error ? `<span>${html(tool.error)}</span>` : ''}</div>`
+      }
+      return ''
+    }).join('')}</div>`
+  }
 
   function growChatLive() {
     const input = document.getElementById('chatgp')
@@ -1110,7 +1131,7 @@
       <button type="button" data-chat-action="video" data-chat-index="${index}">В видео</button>
     </div>` : ''
     const meta = turn.status === 'done' && turn.provider ? `<div class="meta2"><span>ИЗО Чат</span><span>${turn.provider === 'local' ? 'локально' : 'облако'}</span></div>` : ''
-    return `<div class="live-chat-turn"><div class="ai${status}"><div class="txt">${reply}</div>${meta}${actions}</div></div>`
+    return `<div class="live-chat-turn"><div class="ai${status}"><div class="txt">${reply}</div>${chatToolsHtml(turn.tools)}${meta}${actions}</div></div>`
   }
 
   function renderChatLive() {
@@ -1132,6 +1153,45 @@
       toast(button.dataset.chatAction === 'video' ? 'Ответ перенесён в описание видео' : 'Ответ перенесён в описание изображения')
     }))
     renderChatAttachments(); growChatLive()
+  }
+
+  async function runChatImageTools(turn, key) {
+    const resolutions = {
+      '1:1': ['sq-hd', 1024, 1024], '9:16': ['v-hd', 720, 1280],
+      '16:9': ['h-hd', 1280, 720], '3:2': ['p-hd', 1152, 768],
+    }
+    const models = getImageModels('text_to_image')
+    const configured = state.modelAccess?.modes?.text_to_image?.presets?.fast
+    const selected = models.find((item) => item.id === configured) || models[0]
+    for (const tool of (turn.tools || []).filter((item) => item.name === 'generate_image' && item.status === 'requested')) {
+      const [resolutionId, width, height] = resolutions[tool.aspectRatio] || resolutions['1:1']
+      tool.status = 'running'; if (view === 'chat' && chatKey() === key) renderChatLive()
+      try {
+        const response = await api('/generate', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode: 'text_to_image', provider: selected.provider || 'comfyui', prompt: String(tool.prompt || '').slice(0, 3000),
+            negativePrompt: '', seed: Math.floor(Math.random() * 2147483646) + 1,
+            width, height, resolutionId, steps: 4, cfg: 1, guidance: 3.5,
+            strength: .75, modelProfile: selected.modelProfile || 'local_flux_klein', loras: [],
+          }),
+        })
+        if (!response.ok) throw new Error(await responseMessage(response, 'Не удалось запустить генерацию.'))
+        let job = generation(await response.json()); tool.jobId = job.id
+        while (job.id && !['completed', 'failed', 'cancelled', 'expired'].includes(job.status)) {
+          await sleep(1400)
+          const jobResponse = await api(`/jobs/${encodeURIComponent(job.id)}`)
+          if (!jobResponse.ok) throw new Error(await responseMessage(jobResponse, 'Не удалось получить состояние генерации.'))
+          job = generation(await jobResponse.json())
+        }
+        if (job.status !== 'completed' || !job.resultUrl) throw new Error(job.error || 'Изображение не создано.')
+        Object.assign(tool, { status: 'done', resultUrl: job.resultUrl })
+        await Promise.all([loadGallery(), loadMe()]); toast('Изображение из чата готово и добавлено в галерею')
+      } catch (error) {
+        Object.assign(tool, { status: 'error', error: error.message || 'Генерация временно недоступна.' }); toast(tool.error)
+      }
+      if (view === 'chat' && chatKey() === key) { renderChatLive(); chatScrollEnd() }
+    }
   }
 
   async function sendChatLive() {
@@ -1160,8 +1220,9 @@
       const result = await response.json(); const reply = String(result.reply || '').trim()
       if (!reply) throw new Error('Чат не вернул ответ.')
       const selected = state.chatModels.find((item) => item.id === state.chatModelId)
-      Object.assign(pending, { content: reply, status: 'done', provider: result.provider || '', model: selected?.name || 'ИЗО Чат' })
+      Object.assign(pending, { content: reply, status: 'done', provider: result.provider || '', model: selected?.name || 'ИЗО Чат', tools: Array.isArray(result.tools) ? result.tools : [] })
       await loadMe()
+      void runChatImageTools(pending, key)
     } catch (error) {
       Object.assign(pending, { content: error.message || 'Чат временно недоступен. Повторите позже.', status: 'error' })
     } finally {

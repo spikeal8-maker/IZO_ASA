@@ -6386,9 +6386,6 @@ def assistant_models_config() -> dict[str, Any]:
 async def ollama_models_status() -> dict[str, Any]:
     return await fetch_ollama_models_status()
 
-
-
-
 async def qwen_asr_status(config: dict[str, Any] | None = None) -> dict[str, Any]:
     config = config or assistant_models_config()["voice"]
     return await fetch_qwen_asr_status(base_url=str(config.get("qwenBaseUrl") or DEFAULT_QWEN_ASR_BASE_URL))

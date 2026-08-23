@@ -880,10 +880,10 @@
       "remaining": 100
     },
     {
-      "lines": 2197,
+      "lines": 2211,
       "max_lines": 2300,
       "path": "frontend/src/adminModels.tsx",
-      "remaining": 103
+      "remaining": 89
     },
     {
       "lines": 2422,
@@ -2947,7 +2947,7 @@
       {
         "auth": "user",
         "handler": "phone_chat",
-        "line": 299,
+        "line": 464,
         "method": "POST",
         "path": "/api/phone/chat",
         "process_role": "all-dev-current-monolith"
@@ -2955,7 +2955,7 @@
       {
         "auth": "user",
         "handler": "phone_chat_models",
-        "line": 262,
+        "line": 427,
         "method": "GET",
         "path": "/api/phone/chat/models",
         "process_role": "all-dev-current-monolith"

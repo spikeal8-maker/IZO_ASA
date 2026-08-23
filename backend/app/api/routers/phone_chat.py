@@ -10,6 +10,7 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, Literal
 
 import httpx
@@ -27,11 +28,48 @@ from ...integrations.openrouter import (
 
 PROVIDER_ENDPOINTS = load_provider_endpoint_policy()
 PHONE_CHAT_SYSTEM_PROMPT = (
-    "Ты — помощник ИЗО АСА. Отвечай по-русски, понятно и по существу. "
+    "Ты — помощник ИЗО АСА. Сегодня {current_date}. Отвечай по-русски, понятно и по существу. "
+    "У тебя есть инструменты web_search и generate_image. Сам вызывай web_search, когда пользователь просит "
+    "свежую, текущую или проверяемую информацию из интернета. Сам вызывай generate_image, когда пользователь "
+    "явно просит создать, нарисовать или сгенерировать изображение. Не вызывай генерацию, если пользователь "
+    "только обсуждает идею или просит написать промпт. "
     "Помогай формулировать идеи для изображений, видео и публикаций, но не утверждай, "
     "что файл или генерация уже созданы, если ты вернул только текст. "
     "Если запрос не связан с творчеством, всё равно дай полезный краткий ответ."
 )
+PHONE_CHAT_TOOLS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": "Найти в интернете актуальную информацию и источники. Использовать для свежих фактов, новостей, цен, расписаний и проверки сведений.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Точный поисковый запрос на языке пользователя"},
+                },
+                "required": ["query"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_image",
+            "description": "Запустить реальную генерацию изображения в ИЗО АСА, когда пользователь прямо просит создать изображение.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt": {"type": "string", "description": "Подробное описание изображения без служебных комментариев"},
+                    "aspect_ratio": {"type": "string", "enum": ["1:1", "9:16", "16:9", "3:2"], "description": "Формат изображения"},
+                },
+                "required": ["prompt"],
+                "additionalProperties": False,
+            },
+        },
+    },
+]
 _phone_chat_semaphore = asyncio.Semaphore(
     max(1, min(8, int(os.getenv("PHONE_CHAT_CONCURRENCY", "3"))))
 )
@@ -108,6 +146,99 @@ def _phone_chat_history(req: PhoneChatRequest) -> list[dict[str, Any]]:
     return [{"role": turn.role, "content": turn.content.strip()} for turn in req.messages[-20:]]
 
 
+def _system_prompt() -> str:
+    return PHONE_CHAT_SYSTEM_PROMPT.format(current_date=date.today().isoformat())
+
+
+def _assistant_message(payload: dict[str, Any]) -> dict[str, Any]:
+    choices = payload.get("choices") if isinstance(payload, dict) else None
+    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+        message = choices[0].get("message")
+        if isinstance(message, dict):
+            return message
+    message = payload.get("message") if isinstance(payload, dict) else None
+    return message if isinstance(message, dict) else {}
+
+
+def _tool_calls(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    calls = _assistant_message(payload).get("tool_calls")
+    return [call for call in calls if isinstance(call, dict)] if isinstance(calls, list) else []
+
+
+def _tool_call(call: dict[str, Any]) -> tuple[str, dict[str, Any], str]:
+    function = call.get("function") if isinstance(call.get("function"), dict) else {}
+    name = str(function.get("name") or "").strip()
+    raw = function.get("arguments")
+    if isinstance(raw, str):
+        try:
+            arguments = json.loads(raw)
+        except json.JSONDecodeError:
+            arguments = {}
+    else:
+        arguments = raw if isinstance(raw, dict) else {}
+    return name, arguments, str(call.get("id") or f"call_{uuid.uuid4().hex[:12]}")
+
+
+def _web_sources(payload: dict[str, Any]) -> list[dict[str, str]]:
+    annotations = _assistant_message(payload).get("annotations")
+    sources: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for annotation in annotations if isinstance(annotations, list) else []:
+        citation = annotation.get("url_citation") if isinstance(annotation, dict) and isinstance(annotation.get("url_citation"), dict) else {}
+        url = str(citation.get("url") or "").strip()
+        if not url.startswith(("https://", "http://")) or url in seen:
+            continue
+        seen.add(url)
+        sources.append({"url": url[:2000], "title": str(citation.get("title") or url)[:240]})
+    return sources[:8]
+
+
+async def _web_search(query: str, deps: PhoneChatDependencies, config: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    value = re.sub(r"\s+", " ", query).strip()[:500]
+    if len(value) < 2:
+        return {"ok": False, "error": "Поисковый запрос пустой."}, {}
+    headers = deps.openrouter_headers()
+    if not headers.get("Authorization", "").removeprefix("Bearer ").strip():
+        return {"ok": False, "error": "Поиск временно недоступен."}, {}
+    body = {
+        "model": str(config.get("apiModel") or PROVIDER_ENDPOINTS.prompt_improve_model),
+        "messages": [
+            {"role": "system", "content": "Найди актуальные сведения по запросу. Ответь кратко на русском языке и опирайся только на найденные источники."},
+            {"role": "user", "content": value},
+        ],
+        "tools": [{"type": "openrouter:web_search", "max_total_results": 5, "search_context_size": "medium"}],
+        "max_tokens": 900,
+        "temperature": 0.2,
+    }
+    status_code, payload = await request_openrouter_chat_completion(
+        base_url=PROVIDER_ENDPOINTS.openrouter_base_url,
+        headers=headers,
+        body=body,
+        timeout_seconds=max(20, min(90, int(config.get("apiTimeoutSeconds") or 60))),
+    )
+    if status_code >= 400 or not isinstance(payload, dict):
+        deps.record_openrouter_availability(status_code)
+        return {"ok": False, "error": "Поиск временно недоступен."}, payload if isinstance(payload, dict) else {}
+    deps.record_openrouter_availability(200)
+    summary = _openrouter_text_content(payload).strip()
+    sources = _web_sources(payload)
+    return {"ok": True, "query": value, "summary": summary[:6000], "sources": sources}, payload
+
+
+async def _execute_tool(name: str, arguments: dict[str, Any], deps: PhoneChatDependencies, config: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    if name == "web_search":
+        return await _web_search(str(arguments.get("query") or ""), deps, config)
+    if name == "generate_image":
+        prompt = re.sub(r"\s+", " ", str(arguments.get("prompt") or "")).strip()[:3000]
+        aspect_ratio = str(arguments.get("aspect_ratio") or "1:1")
+        if aspect_ratio not in {"1:1", "9:16", "16:9", "3:2"}:
+            aspect_ratio = "1:1"
+        if not prompt:
+            return {"ok": False, "error": "Описание изображения пустое."}, {}
+        return {"ok": True, "status": "requested", "prompt": prompt, "aspectRatio": aspect_ratio}, {}
+    return {"ok": False, "error": "Неизвестный инструмент."}, {}
+
+
 def _openrouter_text_content(payload: dict[str, Any]) -> str:
     choices = payload.get("choices") if isinstance(payload, dict) else None
     if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
@@ -157,27 +288,46 @@ async def phone_chat_ollama(
     config = config or _chat_config(deps)
     images = _phone_chat_image_payloads(req.images)
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": PHONE_CHAT_SYSTEM_PROMPT},
+        {"role": "system", "content": _system_prompt()},
         *_phone_chat_history(req),
     ]
     if images:
         messages[-1] = {**messages[-1], "images": [encoded for _kind, encoded in images]}
     model = str(config.get("localModel") or "gemma4:31b-cloud")
     keep_alive = os.getenv("OLLAMA_KEEP_ALIVE", "-1").strip() or "-1"
-    body = {
-        "model": model,
-        "stream": False,
-        "think": False,
-        "keep_alive": int(keep_alive) if keep_alive.lstrip("+-").isdigit() else keep_alive,
-        "messages": messages,
-        "options": {"temperature": 0.45, "num_predict": 1000, "num_ctx": 16384},
-    }
     timeout = max(10, min(180, int(config.get("localTimeoutSeconds") or 45)))
-    content, payload = await request_ollama_chat_message(body=body, timeout_seconds=timeout)
-    reply = content.strip()
-    if not reply:
-        raise RuntimeError("Чат не вернул ответ.")
-    return reply[:8000], payload if isinstance(payload, dict) else {}, model
+    tool_runs: list[dict[str, Any]] = []
+    tool_payloads: list[dict[str, Any]] = []
+    payload: dict[str, Any] = {}
+    for _round in range(3):
+        body = {
+            "model": model,
+            "stream": False,
+            "think": False,
+            "keep_alive": int(keep_alive) if keep_alive.lstrip("+-").isdigit() else keep_alive,
+            "messages": messages,
+            "tools": PHONE_CHAT_TOOLS,
+            "options": {"temperature": 0.35, "num_predict": 1000, "num_ctx": 16384},
+        }
+        content, raw_payload = await request_ollama_chat_message(body=body, timeout_seconds=timeout)
+        payload = raw_payload if isinstance(raw_payload, dict) else {}
+        calls = _tool_calls(payload)
+        if not calls:
+            reply = content.strip()
+            if not reply:
+                raise RuntimeError("Чат не вернул ответ.")
+            payload["_izo_tool_runs"] = tool_runs
+            payload["_izo_tool_payloads"] = tool_payloads
+            return reply[:8000], payload, model
+        messages.append({**_assistant_message(payload), "role": "assistant"})
+        for call in calls[:2]:
+            name, arguments, _call_id = _tool_call(call)
+            result, provider_payload = await _execute_tool(name, arguments, deps, config)
+            tool_runs.append({"name": name, **result})
+            if provider_payload:
+                tool_payloads.append(provider_payload)
+            messages.append({"role": "tool", "tool_name": name, "content": json.dumps(result, ensure_ascii=False)})
+    raise RuntimeError("Чат превысил допустимое число вызовов инструментов.")
 
 
 async def phone_chat_openrouter(
@@ -191,7 +341,7 @@ async def phone_chat_openrouter(
     config = config or _chat_config(deps)
     images = _phone_chat_image_payloads(req.images)
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": PHONE_CHAT_SYSTEM_PROMPT},
+        {"role": "system", "content": _system_prompt()},
         *_phone_chat_history(req),
     ]
     if images:
@@ -209,31 +359,46 @@ async def phone_chat_openrouter(
             ],
         }
     model = str(config.get("apiModel") or PROVIDER_ENDPOINTS.prompt_improve_model)
-    body = {"model": model, "messages": messages, "temperature": 0.45, "max_tokens": 1000}
     timeout = max(10, min(90, int(config.get("apiTimeoutSeconds") or 30)))
-    status_code, payload = await request_openrouter_chat_completion(
-        base_url=PROVIDER_ENDPOINTS.openrouter_base_url,
-        headers=headers,
-        body=body,
-        timeout_seconds=timeout,
-    )
-    if status_code >= 400:
-        deps.record_openrouter_availability(status_code)
-        safe_payload = payload if isinstance(payload, dict) else {}
-        raise RuntimeError(
-            format_openrouter_public_error(
-                status_code,
-                safe_payload,
-                truncate=lambda value, limit: value[:limit],
-            )
+    tool_runs: list[dict[str, Any]] = []
+    tool_payloads: list[dict[str, Any]] = []
+    payload: dict[str, Any] = {}
+    for _round in range(3):
+        body = {"model": model, "messages": messages, "tools": PHONE_CHAT_TOOLS, "temperature": 0.35, "max_tokens": 1000}
+        status_code, raw_payload = await request_openrouter_chat_completion(
+            base_url=PROVIDER_ENDPOINTS.openrouter_base_url,
+            headers=headers,
+            body=body,
+            timeout_seconds=timeout,
         )
-    deps.record_openrouter_availability(200)
-    if not isinstance(payload, dict):
-        raise RuntimeError("Чат вернул некорректный ответ.")
-    reply = _openrouter_text_content(payload).strip()
-    if not reply:
-        raise RuntimeError("Чат не вернул ответ.")
-    return reply[:8000], payload, model
+        payload = raw_payload if isinstance(raw_payload, dict) else {}
+        if status_code >= 400:
+            deps.record_openrouter_availability(status_code)
+            raise RuntimeError(
+                format_openrouter_public_error(
+                    status_code,
+                    payload,
+                    truncate=lambda value, limit: value[:limit],
+                )
+            )
+        deps.record_openrouter_availability(200)
+        calls = _tool_calls(payload)
+        if not calls:
+            reply = _openrouter_text_content(payload).strip()
+            if not reply:
+                raise RuntimeError("Чат не вернул ответ.")
+            payload["_izo_tool_runs"] = tool_runs
+            payload["_izo_tool_payloads"] = tool_payloads
+            return reply[:8000], payload, model
+        messages.append({**_assistant_message(payload), "role": "assistant"})
+        for call in calls[:2]:
+            name, arguments, call_id = _tool_call(call)
+            result, provider_payload = await _execute_tool(name, arguments, deps, config)
+            tool_runs.append({"name": name, **result})
+            if provider_payload:
+                tool_payloads.append(provider_payload)
+            messages.append({"role": "tool", "tool_call_id": call_id, "content": json.dumps(result, ensure_ascii=False)})
+    raise RuntimeError("Чат превысил допустимое число вызовов инструментов.")
 
 
 async def route_phone_chat(
@@ -343,7 +508,14 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
                 "Чат временно недоступен. Повторите позже или обратитесь в поддержку.",
             ) from exc
         usage = provider_payload.get("usage") if isinstance(provider_payload.get("usage"), dict) else {}
+        tool_runs = provider_payload.pop("_izo_tool_runs", []) if isinstance(provider_payload, dict) else []
+        tool_payloads = provider_payload.pop("_izo_tool_payloads", []) if isinstance(provider_payload, dict) else []
         cost = extract_openrouter_generation_cost(provider_payload) if provider == "api" else 0
+        cost += sum(
+            extract_openrouter_generation_cost(item)
+            for item in tool_payloads
+            if isinstance(item, dict)
+        )
         deps.record_event(
             "phone_chat_answered",
             internal_user_id=trusted.get("internal_user_id"),
@@ -362,6 +534,7 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
                 "cost_usd": cost,
                 "product_token_cost": token_cost,
                 "product_token_kind": token_kind,
+                "tools": [str(item.get("name") or "") for item in tool_runs if isinstance(item, dict)],
             },
         )
         return {
@@ -377,6 +550,7 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
             "tokenBalance": charge.get("new_balance"),
             "dailyTokensUsed": charge.get("daily_tokens_used_after"),
             "dailyTokensLimit": charge.get("daily_tokens_limit"),
+            "tools": tool_runs,
         }
 
     return router
