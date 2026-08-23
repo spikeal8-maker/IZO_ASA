@@ -213,8 +213,8 @@ async def submit_local_ltx_job(
             }
             conn.execute(
                 "INSERT INTO jobs "
-                "(id,user_id,mode,provider,status,progress,prompt_original,settings_json,created_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?)",
+                "(id,user_id,mode,provider,status,progress,prompt_original,settings_json,created_at,started_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (
                     job_id,
                     user_id,
@@ -224,6 +224,7 @@ async def submit_local_ltx_job(
                     5,
                     req.prompt.strip(),
                     json.dumps(settings, ensure_ascii=False),
+                    now,
                     now,
                 ),
             )

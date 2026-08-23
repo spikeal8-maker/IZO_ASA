@@ -51,7 +51,7 @@ def test_repository_inventory_is_valid_deterministic_and_semantically_complete()
     assert {item["process_role"] for item in first["routes"]["items"]} == {
         "all-dev-current-monolith"
     }
-    assert first["tasks"]["worker_count"] == 6
+    assert first["tasks"]["worker_count"] == 7
     assert first["tasks"]["ephemeral_count"] == 4
     assert {item["id"] for item in first["tasks"]["items"]} == {
         "generation-consumer",
@@ -62,6 +62,7 @@ def test_repository_inventory_is_valid_deterministic_and_semantically_complete()
         "admin-notification-delivery",
         "social-telegram-delivery",
         "unverified-account-retention",
+        "power-telemetry",
         "gallery-storage-optimization",
         "runtime-alert",
     }

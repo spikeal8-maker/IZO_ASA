@@ -186,6 +186,18 @@
       "watchdog": "single task handle, bounded batch, exception isolation; cleanup outcomes are security events"
     },
     {
+      "id": "power-telemetry",
+      "call_source": "backend/app/services/energy_telemetry.py",
+      "target": "_run",
+      "kind": "worker",
+      "owner": "backend.app.services.energy_telemetry.PowerTelemetryWorker",
+      "role": "all-dev-current-monolith",
+      "persistence": "SQLite power_samples and generation_energy_usage; CyberPower database is read-only",
+      "startup": "main.startup -> PowerTelemetryWorker.start",
+      "recovery": "fresh two-second samples resume after process restart; completed generation summaries are idempotently reconciled",
+      "watchdog": "single task handle with isolated sample failures and bounded raw-data retention"
+    },
+    {
       "id": "gallery-storage-optimization",
       "call_source": "backend/main.py",
       "target": "asyncio.to_thread:optimize_existing_gallery_storage",
@@ -363,7 +375,7 @@
     "backend/static/gallery/index.html"
   ],
   "file_limits": [
-    {"path": "backend/main.py", "max_lines": 19623},
+    {"path": "backend/main.py", "max_lines": 19646},
     {"path": "frontend/src/newStudioV3.css", "max_lines": 6400},
     {"path": "frontend/src/newUi.tsx", "max_lines": 3950},
     {"path": "frontend/src/LegacyApp.tsx", "max_lines": 3700},

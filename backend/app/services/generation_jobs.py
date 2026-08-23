@@ -181,6 +181,7 @@ def persist_job(
             result_image_id=excluded.result_image_id,
             error_message=excluded.error_message,
             settings_json=excluded.settings_json,
+            started_at=COALESCE(jobs.started_at, excluded.started_at),
             completed_at=excluded.completed_at
         """,
         (

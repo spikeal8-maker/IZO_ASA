@@ -37,3 +37,24 @@ def test_read_powerpanel_missing_database_is_explicit(tmp_path):
     payload = powerpanel.read_powerpanel_telemetry(path=tmp_path / "missing.db")
     assert payload["available"] is False
     assert payload["status"] == "database_not_found"
+
+
+def test_read_powerpanel_hourly_samples_returns_bounded_chronological_rows(tmp_path):
+    db_path = tmp_path / "powerpanel.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE EnergyConsumption (id INTEGER PRIMARY KEY, consumption FLOAT, createTime DATETIME)")
+    conn.executemany(
+        "INSERT INTO EnergyConsumption (consumption,createTime) VALUES (?,?)",
+        [(200, "2026-08-20 08:00:00"), (320, "2026-08-22 11:00:00"), (410, "2026-08-22 12:00:00")],
+    )
+    conn.commit()
+    conn.close()
+
+    rows = powerpanel.read_powerpanel_hourly_samples(
+        path=db_path,
+        now=datetime(2026, 8, 22, 10, 30, tzinfo=timezone.utc),
+        days=1,
+    )
+
+    assert [row["average_watts"] for row in rows] == [320.0, 410.0]
+    assert rows[0]["sampled_at"] < rows[1]["sampled_at"]

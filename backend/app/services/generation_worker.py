@@ -62,6 +62,8 @@ async def process_generation_job(
             runtime.persist_job(job, request)
             return
 
+        if not job.get("startedAt"):
+            job["startedAt"] = runtime.now_iso()
         job.update(status="uploading", progress=12, message="Загружаем изображения")
         runtime.persist_job(job, request)
         await runtime.sleep(0.5)

@@ -3,6 +3,7 @@
 // Реальные данные приходят из GET /api/admin/models-page (см. backend). Тарифная матрица,
 // маршруты и user-choice сохраняются через /api/admin/settings/{key}.
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import AdminEnergy from './adminEnergy'
 import AdminVoice from './adminVoice'
 import { ensureSessionRefreshedV2 } from './authV2'
 import { normalizeTariffs, tariffKeys, type TariffConfig, type TariffKey } from './profileSupport'
@@ -927,7 +928,7 @@ const CSS = `
 
 export default function AdminModelsV2() {
   const [data, setData] = useState<PageData | null>(null)
-  const [pageTab, setPageTab] = useState<'config' | 'api' | 'voice' | 'improve'>('api')
+  const [pageTab, setPageTab] = useState<'config' | 'api' | 'voice' | 'improve' | 'energy'>('api')
   const [configSection, setConfigSection] = useState<'image' | 'video'>('image')
   const [configRuntime, setConfigRuntime] = useState({ imageEnabled: true, videoEnabled: true, videoProfile: 'local/ltx-2.3-fast-q3' })
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null)
@@ -1506,6 +1507,7 @@ export default function AdminModelsV2() {
     <div className="page-tabs" aria-label="Разделы моделей">
       <button className={pageTab === 'api' ? 'active' : ''} onClick={() => setPageTab('api')}>OpenRouter</button>
       <button className={pageTab === 'config' ? 'active' : ''} onClick={() => setPageTab('config')}>Config UI</button>
+      <button className={pageTab === 'energy' ? 'active' : ''} onClick={() => setPageTab('energy')}>Энергопотребление</button>
       <button className={pageTab === 'voice' ? 'active' : ''} onClick={() => setPageTab('voice')}>Голосовой ввод</button>
       <button className={pageTab === 'improve' ? 'active' : ''} onClick={() => setPageTab('improve')}>Улучшение промпта</button>
       {pageTab === 'api' && <div className="tab-status">
@@ -1515,6 +1517,8 @@ export default function AdminModelsV2() {
         <button className={`state ${exchangeStateClass}`} disabled={exchangeBusy} onClick={refreshExchange}>{exchangeBusy ? 'обновляю курс…' : `${exchangeStateText}: ${effectiveRateText}`}</button>
       </div>}
     </div>
+
+    {pageTab === 'energy' && <AdminEnergy />}
 
     {pageTab === 'voice' && <AdminVoice />}
 

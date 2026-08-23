@@ -38,6 +38,38 @@ CREATE TABLE IF NOT EXISTS users (
                 completed_at TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS power_samples (
+                sampled_at TEXT PRIMARY KEY,
+                server_estimated_watts REAL NOT NULL,
+                ups_reference_watts REAL,
+                overhead_watts REAL NOT NULL,
+                gpu_3090_watts REAL NOT NULL DEFAULT 0,
+                gpu_4070_watts REAL NOT NULL DEFAULT 0,
+                cpu_percent REAL NOT NULL DEFAULT 0,
+                active_local_jobs INTEGER NOT NULL DEFAULT 0,
+                source TEXT NOT NULL DEFAULT 'ups_calibrated_gpu'
+            );
+            CREATE INDEX IF NOT EXISTS idx_power_samples_sampled_at
+                ON power_samples(sampled_at DESC);
+
+            CREATE TABLE IF NOT EXISTS generation_energy_usage (
+                job_id TEXT PRIMARY KEY,
+                provider TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                model TEXT,
+                started_at TEXT NOT NULL,
+                completed_at TEXT NOT NULL,
+                duration_seconds REAL NOT NULL,
+                sample_count INTEGER NOT NULL,
+                average_watts REAL NOT NULL,
+                peak_watts REAL NOT NULL,
+                energy_wh REAL NOT NULL,
+                incremental_wh REAL NOT NULL,
+                measured_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_generation_energy_completed
+                ON generation_energy_usage(completed_at DESC);
+
             CREATE TABLE IF NOT EXISTS images (
                 id TEXT PRIMARY KEY,
                 user_id TEXT,

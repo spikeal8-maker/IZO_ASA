@@ -118,3 +118,45 @@ def read_powerpanel_telemetry(
         "sample_count": len(rows),
         "timeline": _series(rows, current),
     }
+
+
+def read_powerpanel_hourly_samples(
+    *,
+    path: Path | None = None,
+    now: datetime | None = None,
+    days: int = 90,
+) -> list[dict[str, Any]]:
+    """Return hourly whole-UPS power averages recorded by PowerPanel.
+
+    PowerPanel writes one ``EnergyConsumption`` row per completed hour.  The
+    numeric value is the average watts for that hour, so dividing the sum by
+    1000 yields kWh for complete hourly rows.
+    """
+    db_path = path or configured_database_path()
+    if not db_path.is_file():
+        return []
+    current = (now or datetime.now(timezone.utc)).astimezone(MOSCOW)
+    start = (current - timedelta(days=max(1, min(180, days)))).replace(tzinfo=None).isoformat(sep=" ")
+    try:
+        uri = f"{db_path.resolve().as_uri()}?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, timeout=1.0)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA query_only=ON")
+        raw_rows = conn.execute(
+            "SELECT consumption,createTime FROM EnergyConsumption "
+            "WHERE createTime>=? ORDER BY createTime",
+            (start,),
+        ).fetchall()
+        conn.close()
+    except (OSError, sqlite3.Error):
+        return []
+    result: list[dict[str, Any]] = []
+    for row in raw_rows:
+        created_at = _parse_local(row["createTime"])
+        try:
+            watts = float(row["consumption"])
+        except (TypeError, ValueError):
+            continue
+        if created_at is not None and 0 <= watts <= 100_000:
+            result.append({"sampled_at": created_at.isoformat(), "average_watts": round(watts, 3)})
+    return result

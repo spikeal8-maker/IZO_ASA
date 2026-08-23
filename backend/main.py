@@ -341,6 +341,7 @@ try:
         video_submission,
         video_download,
         admin_analytics,
+        energy_telemetry,
         powerpanel,
         presence,
         feed_presentation,
@@ -390,6 +391,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         video_submission,
         video_download,
         admin_analytics,
+        energy_telemetry,
         powerpanel,
         presence,
         feed_presentation,
@@ -7770,6 +7772,7 @@ async def startup() -> None:
     if recovered_feed_videos:
         print(f"feed video publications requeued: {recovered_feed_videos}")
     load_db_state()
+    energy_telemetry.POWER_TELEMETRY_WORKER.start(connect=db)
     if storage_maintenance_enabled:
         asyncio.create_task(asyncio.to_thread(optimize_existing_gallery_storage))
     worker_started = generation_queue.start_generation_consumer_once(
@@ -7786,6 +7789,7 @@ async def startup() -> None:
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
+    await energy_telemetry.POWER_TELEMETRY_WORKER.stop()
     await ACCOUNT_RETENTION_WORKER.stop()
     await ADMIN_NOTIFICATION_DELIVERY_WORKER.stop()
     await SOCIAL_DELIVERY_WORKER.stop()
@@ -14278,6 +14282,23 @@ async def admin_summary(request: Request) -> dict[str, Any]:
     }
 
 
+@app.get("/api/admin/energy")
+async def admin_energy(
+    request: Request,
+    realtime_minutes: int = 15,
+    period_days: int = 30,
+) -> dict[str, Any]:
+    require_trusted_admin(request)
+    with db() as conn:
+        energy_telemetry.reconcile_generation_energy(conn)
+        return energy_telemetry.build_energy_report(
+            conn,
+            settings=_saved_setting("energy_economy"),
+            realtime_minutes=realtime_minutes,
+            period_days=period_days,
+        )
+
+
 @app.get("/api/admin/users")
 async def admin_users(request: Request) -> list[dict[str, Any]]:
     require_trusted_admin(request)
@@ -14501,6 +14522,8 @@ async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Requ
         except ltx_video.LocalLtxRequestError as exc: raise HTTPException(exc.status_code, str(exc)) from exc
     elif key == "legal":
         settings = normalize_legal_settings(req.settings)
+    elif key == "energy_economy":
+        settings = energy_telemetry.normalize_energy_settings(req.settings)
     else:
         settings = req.settings
     now = datetime.now(timezone.utc).isoformat()
