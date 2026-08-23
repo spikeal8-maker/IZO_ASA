@@ -1505,6 +1505,10 @@ export default function AdminModelsV2() {
   const exchangeStateClass = usdRubBase === null ? 'rate-bad' : exchangeCache === 'stale' ? 'rate-stale' : 'rate-ok'
   const exchangeStateText = usdRubBase === null ? 'курс не загружен' : exchangeCache === 'stale' ? 'курс из последнего кэша' : 'курс загружен'
   const selectedAssistantApiModel = assistantData?.openrouterModels.find((model) => model.id === assistantData.config.improve.apiModel)
+  const normalizedModelQuery = query.trim().toLowerCase()
+  const filteredOpenrouterTextModels = (assistantData?.openrouterModels || []).filter((model) =>
+    !normalizedModelQuery || `${model.id} ${model.name}`.toLowerCase().includes(normalizedModelQuery),
+  )
   const assistantPreviewSystem = assistantData ? [
     assistantData.config.improve.systemPrompt.trim(),
     'Ответ верни на русском языке.',
@@ -1802,7 +1806,17 @@ export default function AdminModelsV2() {
       </div>
 
       <div className="toolbar">
-        <input type="search" placeholder="Фильтр по всем карточкам: модель, provider, price, параметр" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <input
+          type="search"
+          name="openrouter-model-catalog-filter"
+          autoComplete="off"
+          data-lpignore="true"
+          data-1p-ignore="true"
+          spellCheck={false}
+          placeholder="Поиск модели или провайдера"
+          value={query}
+          onChange={(e) => setQuery(e.target.value.includes('@') ? '' : e.target.value)}
+        />
         <button className="ghost" onClick={() => setQuery('')}>Сбросить</button>
         <button className="ghost" disabled={openrouterCatalogBusy || data.openrouter.catalogState?.refreshing} onClick={() => { void refreshOpenrouterCatalog() }}>
           {openrouterCatalogBusy || data.openrouter.catalogState?.refreshing ? 'Обновляем каталог…' : 'Обновить каталог'}
@@ -1825,7 +1839,7 @@ export default function AdminModelsV2() {
         {textCatalogOpen && <div className="matrix-wrap">
           {!assistantData ? <p className="hint">Загружаем текстовый каталог…</p> : <>
             <table className="api-table"><thead><tr><th>Вкл.</th><th>Модель</th><th>Вход / 1M</th><th>Выход / 1M</th><th>Контекст</th><th>Токены проекта</th><th>Пример: 1000 + 500</th><th>По умолчанию</th></tr></thead>
-              <tbody>{assistantData.openrouterModels.filter((model) => !query || `${model.id} ${model.name}`.toLowerCase().includes(query.toLowerCase())).map((model) => {
+              <tbody>{filteredOpenrouterTextModels.map((model) => {
                 const enabled = assistantData.config.chat.enabledApiModels.includes(model.id)
                 const productTokens = Number(assistantData.config.chat.apiTokenCosts[model.id] || 1)
                 const sampleUsd = model.inputPerMillionUsd / 1000 + model.outputPerMillionUsd / 2000
@@ -1844,7 +1858,7 @@ export default function AdminModelsV2() {
                   <td><strong>${sampleUsd.toFixed(6)}</strong><small>{sampleRub === null ? 'курс не загружен' : `${sampleRub.toFixed(4)} ₽ · выручка ${revenue.toFixed(2)} ₽ · прибыль ${profit?.toFixed(4)} ₽`}</small></td>
                   <td><input type="radio" name="chat-default-model" disabled={!enabled} checked={assistantData.config.chat.defaultModel === model.id} onChange={() => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, defaultModel: model.id } })} /></td>
                 </tr>
-              })}</tbody>
+              })}{filteredOpenrouterTextModels.length === 0 && <tr><td colSpan={8}><div className="hint">По выбранному фильтру модели не найдены. <button className="ghost" onClick={() => setQuery('')}>Показать все модели</button></div></td></tr>}</tbody>
             </table>
             <div className="actions" style={{ padding: 12 }}><button className="primary" disabled={assistantBusy} onClick={() => void saveAssistantConfig()}>{assistantBusy ? 'Сохраняю…' : 'Сохранить текстовые модели'}</button><label className="resolution-plan"><input type="radio" name="chat-default-model" checked={assistantData.config.chat.defaultModel === 'local:izo-chat'} onChange={() => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, defaultModel: 'local:izo-chat' } })} /><span>ИЗО Чат по умолчанию</span></label></div>
           </>}
