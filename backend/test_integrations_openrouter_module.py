@@ -608,7 +608,7 @@ def test_prompt_improvement_keeps_openrouter_body_timeout_and_parser(monkeypatch
     assert isinstance(body, dict)
     assert body["model"] == "deepseek/deepseek-v4-flash"
     assert body["temperature"] == 0.25
-    assert body["max_tokens"] == 500
+    assert body["max_tokens"] == 1000
     assert body["response_format"]["json_schema"]["strict"] is True
     assert body["response_format"]["json_schema"]["schema"]["additionalProperties"] is False
     assert "Ответ верни на русском" in body["messages"][0]["content"]

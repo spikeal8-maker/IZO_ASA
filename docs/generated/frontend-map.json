@@ -119,6 +119,7 @@
         "frontend/src/studio/videoFeedHistory.ts",
         "frontend/src/studio/videoSourceHandoff.ts",
         "frontend/src/stylePresets.ts",
+        "frontend/src/tokenVisual.ts",
         "frontend/src/topbarUtils.ts",
         "frontend/src/useProfileAuthNavigation.ts"
       ],
@@ -286,6 +287,7 @@
         "frontend/src/studio/videoFeedHistory.ts",
         "frontend/src/studio/videoSourceHandoff.ts",
         "frontend/src/stylePresets.ts",
+        "frontend/src/tokenVisual.ts",
         "frontend/src/topbarUtils.ts",
         "frontend/src/useProfileAuthNavigation.ts"
       ],

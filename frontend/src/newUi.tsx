@@ -42,6 +42,7 @@ import type { V3Mode, V3Section } from './TopBarV3'
 import { accountInfo } from './topbarUtils'
 import ProfilePage, { type PublicProfileLink } from './ProfilePage'
 import { DEFAULT_TARIFFS, avatarPresets, modelAccessOption, modelOptions, modelPublicInfo, type ModelModeKey, type ModelOption, type QualityPreset, type TariffKey } from './profileSupport'
+import { imageTokenVisualKind, tokenVisualClass, tokenVisualLabel } from './tokenVisual'
 import { normalizeResolutionId } from './resolutionPolicy'
 import type { PaintDrawMode, PaintLine, PaintOutpaintPlacement, PaintSubMode, PaintTool } from './paintTypes'
 import type { PaintWorkbenchHandle } from './PaintWorkbench'
@@ -2748,6 +2749,7 @@ export default function NewStudio(): ReactElement {
                 const qualityId = q.id as QualityPreset
                 const qualityModel = studioSelectedModel(currentModelMode, qualityId)
                 const qualityTokens = tokenCostForModel(qualityModel)
+                const qualityTokenKind = imageTokenVisualKind(qualityModel)
                 return (
                   <button
                     key={q.id}
@@ -2757,7 +2759,7 @@ export default function NewStudio(): ReactElement {
                   >
                     <span className="quality-label">{q.label}</span>
                     <span className="quality-model-name">{qualityModel.label}</span>
-                    <span className="quality-token-cost">{qualityTokens} ток.</span>
+                    <span className={`quality-token-cost ${tokenVisualClass(qualityTokenKind)}`} title={tokenVisualLabel(qualityTokenKind)}>{qualityTokens} ток.</span>
                   </button>
                 )
               })}
@@ -2779,9 +2781,9 @@ export default function NewStudio(): ReactElement {
               <div className="studio-model-formats" aria-label="Стоимость по форматам">
                 {inspectedStudioModel.provider === 'openrouter'
                   ? (openrouterPricing[inspectedStudioModel.id]?.formats || []).map((fmt) => (
-                    <span key={fmt.id} className={`${fmt.id === currentFormatPricingId ? 'active' : ''}${fmt.supported === false ? ' disabled' : ''}`.trim()}>{fmt.short}: {fmt.supported === false ? 'нет' : `${fmt.tokens ?? inspectedStudioModel.tokenHint}т`}</span>
+                    <span key={fmt.id} className={`${fmt.id === currentFormatPricingId ? 'active' : ''}${fmt.supported === false ? ' disabled' : ''} ${tokenVisualClass(imageTokenVisualKind(inspectedStudioModel))}`.trim()}>{fmt.short}: {fmt.supported === false ? 'нет' : `${fmt.tokens ?? inspectedStudioModel.tokenHint}т`}</span>
                   ))
-                  : ['1:1', '9:16', '16:9', '3:2'].map((fmt) => <span key={fmt} className={fmt === formatName(currentFormatPricingId) ? 'active' : ''}>{fmt}: {inspectedStudioModel.tokenHint}т</span>)}
+                  : ['1:1', '9:16', '16:9', '3:2'].map((fmt) => <span key={fmt} className={`${fmt === formatName(currentFormatPricingId) ? 'active' : ''} ${tokenVisualClass(imageTokenVisualKind(inspectedStudioModel))}`.trim()}>{fmt}: {inspectedStudioModel.tokenHint}т</span>)}
               </div>
             </div>
             <div className="studio-model-sort" aria-label="Сортировка моделей">
@@ -2805,7 +2807,7 @@ export default function NewStudio(): ReactElement {
                     role="option"
                   >
                     <span className="studio-model-main"><strong>{model.label}</strong><small>{info.strengths.slice(0, 2).join(' · ')}</small></span>
-                    <span className="studio-model-cost"><b>{available ? `${tokenCostForModel(model)} ток.` : 'Недоступна'}</b><small>{formatSummaryForModel(model)}</small></span>
+                    <span className={`studio-model-cost ${available ? tokenVisualClass(imageTokenVisualKind(model)) : ''}`} title={available ? tokenVisualLabel(imageTokenVisualKind(model)) : undefined}><b>{available ? `${tokenCostForModel(model)} ток.` : 'Недоступна'}</b><small>{formatSummaryForModel(model)}</small></span>
                   </button>
                 )
               })}
@@ -2820,7 +2822,7 @@ export default function NewStudio(): ReactElement {
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M12 3.5l1.9 4.8 4.8 1.9-4.8 1.9-1.9 4.9-1.9-4.9-4.8-1.9 4.8-1.9L12 3.5Z" fill="currentColor" />
           </svg>
-          {jobActive || isSubmitting ? generatingLabel : <>{generateLabel}<span className="generate-token-cost">{currentStudioTokenCost} ток.</span></>}
+          {jobActive || isSubmitting ? generatingLabel : <>{generateLabel}<span className={`generate-token-cost ${tokenVisualClass(imageTokenVisualKind(currentStudioModel))}`} title={tokenVisualLabel(imageTokenVisualKind(currentStudioModel))}>{currentStudioTokenCost} ток.</span></>}
         </button>
       </aside>
       )} />

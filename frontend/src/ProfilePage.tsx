@@ -2,6 +2,7 @@ import { useEffect, useState, type ChangeEvent, type Dispatch, type SetStateActi
 import { ArrowRight, Copy, KeyRound, Link as LinkIcon, Lock, LogOut, Plus, Save, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, Upload, WandSparkles, X } from 'lucide-react'
 import { changePasswordV2, type AuthStatusV2, type MeV2 } from './authV2'
 import { DEFAULT_TARIFFS, SERVER_MODEL_OPTION, avatarPresets, formatModelCount, modelAccessOption, modelModeOrder, modelOptions, modelPublicInfo, qualityPresetLabels, qualityPresets, tariffKeys, type ModelModeKey, type ModelOption, type QualityPreset, type TariffConfig, type TariffKey, type TariffModelDefaults, type UserModelAccess } from './profileSupport'
+import { imageTokenVisualKind, tokenVisualClass, tokenVisualLabel, videoTokenVisualKind } from './tokenVisual'
 import './profileAccount.css'
 
 type ProfileTab = 'profile' | 'tariffs' | 'earn' | 'models'
@@ -46,7 +47,7 @@ type BillingLegal = {
 }
 type CheckoutSelection = { code: string; title: string; price: number; description?: string; benefits?: string[] }
 type ProfileVideoMode = 'text_to_video' | 'image_to_video' | 'first_last_frame' | 'reference_to_video'
-type ProfileVideoModel = { id: string; name: string; description?: string; publicPricing?: { fromTokens?: number | null }; supportedDurations?: number[]; supportedResolutions?: string[]; supportedAspectRatios?: string[]; generateAudio?: boolean | null }
+type ProfileVideoModel = { id: string; name: string; provider?: string; description?: string; publicPricing?: { fromTokens?: number | null }; supportedDurations?: number[]; supportedResolutions?: string[]; supportedAspectRatios?: string[]; generateAudio?: boolean | null }
 type ProfileVideoConfig = { modes: Record<ProfileVideoMode, ProfileVideoModel[]>; plan?: string }
 const videoModeLabels: Record<ProfileVideoMode, string> = { text_to_video: 'Текст → видео', image_to_video: 'Изображение → видео', first_last_frame: 'Начало и конец', reference_to_video: 'По референсам' }
 const videoQualityLabels = { fast: 'Быстро', standard: 'Стандарт', max: 'Максимум' } as const
@@ -863,7 +864,7 @@ export default function ProfilePage({
                 {qualityPresets.map((preset) => {
                   const option = modelAccessOption(modelAccess, 'text_to_image', preset, userModelChoices)
                   const Icon = preset === 'fast' ? Sparkles : preset === 'standard' ? WandSparkles : SlidersHorizontal
-                  return <button type="button" key={preset} className={selectedQuality === preset ? 'profile-card profile-model active' : 'profile-card profile-model'} onClick={() => setQuality(preset)}><Icon size={26} /><b>{qualityPresetLabels[preset]}</b><span>{option.label} · {option.tokenHint} ток.</span><small>будет списано при генерации</small></button>
+                  return <button type="button" key={preset} className={selectedQuality === preset ? 'profile-card profile-model active' : 'profile-card profile-model'} onClick={() => setQuality(preset)}><Icon size={26} /><b>{qualityPresetLabels[preset]}</b><span className={tokenVisualClass(imageTokenVisualKind(option))} title={tokenVisualLabel(imageTokenVisualKind(option))}>{option.label} · {option.tokenHint} ток.</span><small>будет списано при генерации</small></button>
                 })}
               </div>
               <div className="profile-estimate"><span>По умолчанию: <strong>{qualityPresetLabels[selectedQuality]}</strong></span><span><strong>{selectedModel.label}</strong> · {tokenPrice} ток.</span><span>Перед генерацией списание будет показано еще раз</span></div>
@@ -919,7 +920,7 @@ export default function ProfilePage({
                               <span>показывать</span>
                             </label>
                             <strong>{model.label}</strong>
-                            <span className="profile-model-token">{model.tokenHint} ток.</span>
+                            <span className={`profile-model-token ${tokenVisualClass(imageTokenVisualKind(model))}`} title={tokenVisualLabel(imageTokenVisualKind(model))}>{model.tokenHint} ток.</span>
                             <span className={available ? 'profile-model-status available' : 'profile-model-status unavailable'}>{available ? 'доступно' : 'недоступно'}</span>
                           </summary>
                           <div className="profile-model-info-body">
@@ -927,7 +928,7 @@ export default function ProfilePage({
                             <div className="profile-model-info-meta"><span>Год: <b>{info.year}</b></span><span>Семейство: <b>{info.company}</b></span></div>
                             <div className="profile-model-format-grid" aria-label="Стоимость по форматам">
                               {modelFormatChips(model).map((fmt) => (
-                                <span key={`${model.id}-${fmt.id}`} className={fmt.supported === false ? 'disabled' : ''}>
+                                <span key={`${model.id}-${fmt.id}`} className={`${fmt.supported === false ? 'disabled' : ''} ${tokenVisualClass(imageTokenVisualKind(model))}`.trim()}>
                                   <b>{fmt.short}</b>
                                   <em>{fmt.supported === false ? 'недоступно' : `${fmt.tokens ?? model.tokenHint} ток.`}</em>
                                 </span>
@@ -964,6 +965,7 @@ export default function ProfilePage({
                     <div className="profile-video-model-list">
                       {models.map((model) => {
                         const visible = videoVisibility[mode]?.[model.id] !== false
+                        const tokenKind = videoTokenVisualKind(model)
                         return <div className={visible ? 'profile-video-model-row' : 'profile-video-model-row muted'} key={`${mode}-${model.id}`}>
                           <label className="profile-video-model-toggle" title={visible ? 'Скрыть модель в видеогенераторе' : 'Показывать модель в видеогенераторе'}>
                             <input type="checkbox" checked={visible} onChange={(event) => toggleVideoModel(mode, model.id, event.currentTarget.checked)} />
@@ -972,7 +974,7 @@ export default function ProfilePage({
                           <details className="profile-video-model-details">
                             <summary>
                               <span className="profile-video-model-copy"><strong>{model.name}</strong><small>{(model.supportedResolutions || []).join(', ') || 'разрешение по модели'}</small></span>
-                              <span className="profile-video-model-meta"><b>от {model.publicPricing?.fromTokens ?? '—'} ток.</b><small>{(model.supportedDurations || []).map((value) => `${value} с`).join(', ') || 'длительность по модели'} · доступна для {videoConfig?.plan || 'вашего тарифа'}</small></span>
+                              <span className="profile-video-model-meta"><b className={tokenVisualClass(tokenKind)} title={tokenVisualLabel(tokenKind)}>от {model.publicPricing?.fromTokens ?? '—'} ток.</b><small>{(model.supportedDurations || []).map((value) => `${value} с`).join(', ') || 'длительность по модели'} · доступна для {videoConfig?.plan || 'вашего тарифа'}</small></span>
                             </summary>
                             <div className="profile-video-model-description">
                               <p>{model.description || 'Описание модели пока не опубликовано.'}</p>

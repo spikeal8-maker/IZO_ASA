@@ -81,7 +81,7 @@
     .phone-hold-tooltip{position:fixed;left:50%;top:50%;z-index:1200;max-width:min(260px,calc(100vw - 28px));transform:translate(-50%,-50%);padding:9px 12px;border-radius:11px;background:rgba(12,13,19,.96);color:#fff;font:720 11px/1.35 inherit;text-align:center;box-shadow:0 14px 34px rgba(0,0,0,.45),inset 0 0 0 1px rgba(255,255,255,.15);pointer-events:none;opacity:0;transition:opacity .16s}.phone-hold-tooltip.on{opacity:1}
     .sheet.live-dragging{transition:none!important;will-change:transform}.sheet{touch-action:pan-y}
     .live-status{position:absolute;left:10px;right:10px;bottom:10px;border-radius:12px;padding:8px 10px;background:rgba(6,7,10,.72);color:#fff;font:700 10px/1.3 inherit;backdrop-filter:blur(10px)}
-    .pick.disabled{opacity:.38;pointer-events:none}.pick .live-price{margin-left:auto;color:var(--quiet);font:750 11px/1 inherit}
+    .pick.disabled{opacity:.38;pointer-events:none}.pick .live-price{margin-left:auto;font:750 11px/1 inherit;padding:5px 8px;border:1px solid;border-radius:999px;white-space:nowrap}.token-kind-daily{color:#dff12b!important;border-color:rgba(223,241,43,.5)!important;background:rgba(223,241,43,.1)!important}.token-kind-main{color:#dd9cff!important;border-color:rgba(205,117,255,.58)!important;background:rgba(157,64,225,.16)!important}#cost.token-kind-daily,#cost.token-kind-main{display:inline-flex;align-items:center;padding:3px 7px;border:1px solid;border-radius:999px;opacity:1}.gen-btn #cost.token-kind-daily{color:#fff28a!important;border-color:rgba(255,244,133,.5)!important;background:rgba(56,47,0,.3)!important}.gen-btn #cost.token-kind-main{color:#f3d7ff!important;border-color:rgba(241,210,255,.5)!important;background:rgba(65,18,100,.38)!important}
     .card video{width:100%;display:block}.gal span{position:relative}.gal video{width:100%;aspect-ratio:1;object-fit:cover;display:block}
     .live-recording{position:relative;background:#e34f61!important;color:#fff!important;box-shadow:0 0 0 1px rgba(255,95,113,.8),0 0 20px rgba(255,78,99,.48)!important}
     .live-recording:before,.live-recording:after{content:"";position:absolute;inset:-5px;border:1px solid rgba(255,95,113,.72);border-radius:50%;animation:phoneVoicePulse 1.35s infinite;pointer-events:none}
@@ -416,6 +416,22 @@
     const selected = models.find((item) => item.id === state.videoModelByMode[modeKey]) || models[0] || null
     if (selected) state.videoModelByMode[modeKey] = selected.id
     return selected
+  }
+
+  function imageTokenKind(item) {
+    return item?.provider === 'comfyui' || String(item?.id || '').startsWith('server:') ? 'daily' : 'main'
+  }
+
+  function videoTokenKind(item) {
+    return item?.provider === 'local_ltx' || String(item?.id || '').startsWith('local/ltx-') ? 'daily' : 'main'
+  }
+
+  function paintCostTokenKind(kind) {
+    const node = document.getElementById('cost')
+    if (!node) return
+    node.classList.toggle('token-kind-daily', kind === 'daily')
+    node.classList.toggle('token-kind-main', kind === 'main')
+    node.title = kind === 'daily' ? 'Дневные токены' : 'Основные токены'
   }
 
   function videoModelDescription(item) {
@@ -798,6 +814,7 @@
     if (controls[2]) { controls[2].querySelector('.v').textContent = '1'; controls[2].setAttribute('aria-disabled', 'true') }
     const cost = Number(selected.tokenHint || 1)
     document.getElementById('cost').textContent = `${cost} кр.`
+    paintCostTokenKind(imageTokenKind(selected))
 
     const canvasHost = scr.querySelector('.canvas')
     if (canvasHost && gstate === 'idle' && idx === 0) {
@@ -949,6 +966,7 @@
     const audioRow = rows[2]?.querySelector('.mt')
     if (audioRow) audioRow.innerHTML = `<span class="k">Звук</span><span class="v">${state.videoAudio ? 'Включён' : 'Выключен'}</span><span class="d2">${selected?.generateAudio === false ? 'эта модель создаёт видео без звука' : 'генерировать звук вместе с роликом'}</span>`
     document.getElementById('cost').textContent = state.videoEstimate?.chargedTokens ? `${state.videoEstimate.chargedTokens} кр.` : `${Number(selected?.publicPricing?.fromTokens || 0) || '—'} кр.`
+    paintCostTokenKind(videoTokenKind(selected))
     document.getElementById('run').disabled = vstate === 'busy' || !selected
     if (vstate === 'busy' && state.videoJob) {
       vstage = Math.min(3, Math.floor(Number(state.videoJob.progress || 0) / 25))
@@ -998,7 +1016,7 @@
   }
 
   function realPick(title, items, current, choose) {
-    shPick.innerHTML = `<div class="grab"></div><div class="shead"><h4>${html(title)}</h4>${X}</div>${items.map((item, index) => `<div class="pick ${item.disabled ? 'disabled' : ''} ${index === current ? 'on' : ''}" data-live-pick="${index}"><span class="fig">${item.icon || IC.cube}</span><span><b>${html(item.label)}</b><span class="ds">${html(item.description || '')}</span></span>${item.price ? `<span class="live-price">${html(item.price)}</span>` : ''}</div>`).join('')}`
+    shPick.innerHTML = `<div class="grab"></div><div class="shead"><h4>${html(title)}</h4>${X}</div>${items.map((item, index) => `<div class="pick ${item.disabled ? 'disabled' : ''} ${index === current ? 'on' : ''}" data-live-pick="${index}"><span class="fig">${item.icon || IC.cube}</span><span><b>${html(item.label)}</b><span class="ds">${html(item.description || '')}</span></span>${item.price ? `<span class="live-price token-kind-${item.tokenKind || 'main'}">${html(item.price)}</span>` : ''}</div>`).join('')}`
     shPick.querySelectorAll('[data-live-pick]').forEach((node) => node.addEventListener('click', () => { const item = items[Number(node.dataset.livePick)]; if (!item || item.disabled) return; choose(item, Number(node.dataset.livePick)); closeSheets() }))
     openSheet('pick')
   }
@@ -1007,7 +1025,7 @@
   openPick = function phoneOpenPick(kind) {
     if (view === 'img' && kind === 'model') {
       const models = getImageModels(); const selected = selectedImageModel()
-      return realPick('Модель', models.map((item) => ({ label: item.label || item.id, description: imageModelDescription(item), price: `${Number(item.tokenHint || 1)} кр.` })), models.findIndex((item) => item.id === selected.id), (_item, index) => { state.imageModelByMode[imageMode()] = models[index].id; model = index; if (!qualityAllowed(qual)) qual = Math.max(0, [0, 1, 2, 3].filter(qualityAllowed).pop() || 0); paintGen() })
+      return realPick('Модель', models.map((item) => ({ label: item.label || item.id, description: imageModelDescription(item), price: `${Number(item.tokenHint || 1)} кр.`, tokenKind: imageTokenKind(item) })), models.findIndex((item) => item.id === selected.id), (_item, index) => { state.imageModelByMode[imageMode()] = models[index].id; model = index; if (!qualityAllowed(qual)) qual = Math.max(0, [0, 1, 2, 3].filter(qualityAllowed).pop() || 0); paintGen() })
     }
     if (view === 'img' && kind === 'qual') {
       return realPick('Качество', QUAL.map((item, index) => { const entry = resolutionTable[RATIOS[ratio][0]][item[0]]; return { label: item[0], description: `${entry[1]} × ${entry[2]}`, disabled: !qualityAllowed(index), icon: item[0] } }), qual, (_item, index) => { qual = index; paintGen() })
@@ -1016,7 +1034,7 @@
     if (view === 'vid' && ['model', 'vf', 'vd', 'vq'].includes(kind)) {
       syncVideoOptions(); const selected = selectedVideoModel()
       if (kind === 'model') {
-        const models = getVideoModels(); return realPick('Видеомодель', models.map((item) => ({ label: item.name || item.id, description: videoModelDescription(item), price: item.publicPricing?.fromTokens ? `от ${item.publicPricing.fromTokens} кр.` : '' })), models.findIndex((item) => item.id === selected?.id), (_item, index) => { state.videoModelByMode[videoMode()] = models[index].id; syncVideoOptions(); state.videoEstimate = null; paintVid(); estimateVideo() })
+        const models = getVideoModels(); return realPick('Видеомодель', models.map((item) => ({ label: item.name || item.id, description: videoModelDescription(item), price: item.publicPricing?.fromTokens ? `от ${item.publicPricing.fromTokens} кр.` : '', tokenKind: videoTokenKind(item) })), models.findIndex((item) => item.id === selected?.id), (_item, index) => { state.videoModelByMode[videoMode()] = models[index].id; syncVideoOptions(); state.videoEstimate = null; paintVid(); estimateVideo() })
       }
       const source = kind === 'vf' ? (selected?.supportedAspectRatios || []) : kind === 'vd' ? (selected?.supportedDurations || []) : (selected?.supportedResolutions || [])
       const current = kind === 'vf' ? state.videoAspect : kind === 'vd' ? state.videoDuration : state.videoResolution

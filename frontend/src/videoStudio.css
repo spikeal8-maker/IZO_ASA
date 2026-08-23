@@ -2805,3 +2805,51 @@
     transform: scale(.9);
   }
 }
+
+/* Keep both token balances recognizable in every video price surface. */
+.video-studio .token-cost--daily {
+  color: #dff42e;
+  border-color: rgba(223, 244, 46, .54) !important;
+  background: rgba(223, 244, 46, .09);
+}
+
+.video-studio .token-cost--main {
+  color: #d99cff;
+  border-color: rgba(205, 117, 255, .58) !important;
+  background: rgba(157, 64, 225, .14);
+}
+
+.video-live-price.token-cost {
+  padding: 4px 8px;
+  border: 1px solid;
+  border-radius: 10px;
+}
+
+.video-live-price.token-cost strong,
+.video-live-price.token-cost small {
+  color: inherit;
+}
+
+.video-quality-tabs .token-cost,
+.video-model-list .token-cost,
+.video-pro .token-cost {
+  width: fit-content;
+  padding: 2px 6px;
+  border: 1px solid;
+  border-radius: 999px;
+}
+
+.video-quality-tabs button.active .token-cost--main { color: #e4b9ff; }
+.video-quality-tabs button.active .token-cost--daily { color: #e2f64b; }
+
+.video-generate b.token-cost--daily {
+  color: #151b03;
+  border: 1px solid rgba(43, 54, 2, .28);
+  background: rgba(255, 255, 255, .2);
+}
+
+.video-generate b.token-cost--main {
+  color: #f3dcff;
+  border: 1px solid rgba(244, 220, 255, .44);
+  background: rgba(71, 23, 109, .82);
+}

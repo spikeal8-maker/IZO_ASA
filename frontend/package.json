@@ -40,6 +40,7 @@
     "e2e:guest-entry": "node e2e-guest-studio-entry.mjs",
     "test:video-handoff": "node videoSourceHandoff.test.ts",
     "test:style-presets": "node stylePresets.test.ts",
+    "test:token-visual": "node tokenVisual.test.ts",
     "e2e:real25": "node e2e-real-generations-25.mjs",
     "preview": "vite preview",
     "check:origin": "node ../tools/check_frontend_origin_isolation.mjs"

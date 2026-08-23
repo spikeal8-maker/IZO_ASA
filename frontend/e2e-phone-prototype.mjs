@@ -24,7 +24,7 @@ const modelAccess = {
   },
 }
 const videoModel = {
-  id: 'test/video-model', name: 'ИЗО Видео', supportedDurations: [4, 6], supportedResolutions: ['720p', '1080p'],
+  id: 'test/video-model', name: 'ИЗО Видео', provider: 'openrouter', supportedDurations: [4, 6], supportedResolutions: ['720p', '1080p'],
   supportedAspectRatios: ['16:9', '9:16', '1:1'], supportedFrameImages: ['first_frame'], generateAudio: true,
   publicPricing: { fromTokens: 13 },
 }
@@ -131,11 +131,14 @@ try {
       assert((await emptyPreview.getAttribute('src'))?.endsWith('/phone-preview-placeholder.jpg'), 'brand preview placeholder is missing')
       const emptyBox = await frame.locator('.canvas').boundingBox()
       assert(emptyBox && Math.abs(emptyBox.width / emptyBox.height - 16 / 9) < .04, `empty image preview is not 16:9: ${JSON.stringify(emptyBox)}`)
+      assert(await frame.locator('#cost.token-kind-daily').count() === 1, 'base image cost is not marked as daily tokens')
 
       await frame.getByRole('button', { name: 'Модель ИЗО Base', exact: false }).click()
       await frame.locator('#shPick').getByText('Фирменная модель: быстрое создание, фото и сборка.', { exact: true }).waitFor()
       await frame.locator('#shPick').getByText('Гибкая стилизация и творческие варианты.', { exact: true }).waitFor()
       await frame.locator('#shPick').getByText('Яркие сцены, персонажи и быстрые идеи.', { exact: true }).waitFor()
+      assert(await frame.locator('#shPick .live-price.token-kind-daily').count() === 1, 'base model price is not yellow in phone model list')
+      assert(await frame.locator('#shPick .live-price.token-kind-main').count() === 2, 'premium model prices are not purple in phone model list')
       await frame.evaluate(() => {
         const sheet = document.querySelector('#shPick')
         const fire = (type, clientY) => sheet.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 44, pointerType: 'touch', clientX: 190, clientY, buttons: type === 'pointerup' ? 0 : 1 }))
@@ -294,6 +297,7 @@ try {
       await frame.getByRole('button', { name: 'Показать нижнее меню' }).click()
       await frame.getByRole('button', { name: 'Видео', exact: true }).click()
       await frame.getByPlaceholder('Например: робот идёт по ночному городу, камера приближается…', { exact: true }).fill('Камера плавно приближается')
+      assert(await frame.locator('#cost.token-kind-main').count() === 1, 'API video cost is not marked as main tokens')
       await frame.getByRole('button', { name: 'Сделать видео 13 кр.', exact: true }).click()
       await frame.waitForFunction(() => window.__IZO_PHONE_RUNTIME__?.videoJob?.id === 'video-job-1')
       assert(generatedVideos.length === 1, `video request count=${generatedVideos.length}`)

@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { ensureSessionRefreshedV2 } from './authV2'
 import { modelOptionById } from './profileSupport'
+import { tokenVisualClass, tokenVisualLabel, videoTokenVisualKind } from './tokenVisual'
 import { apiUrl, verifyPrivateImage } from './studio/studioApi'
 import {
   VIDEO_SOURCE_DEFAULT_PROMPT,
@@ -33,6 +34,7 @@ type VideoEstimate = {
 }
 type VideoModel = {
   id: string
+  provider?: string
   name: string
   description: string
   supportedResolutions: string[]
@@ -950,6 +952,7 @@ export default function VideoStudio({ authStatus = 'loading', onTokenBalanceChan
   const visibleEstimate = estimateKey === estimateRequestKey ? estimate : null
   const visibleEstimateLoading = Boolean(estimateRequest && (estimateLoading || estimateKey !== estimateRequestKey))
   const currentRate = visibleEstimate && duration > 0 ? visibleEstimate.chargedTokens / duration : null
+  const selectedTokenKind = videoTokenVisualKind(selectedModel)
   const shownElapsed = formatElapsed(shownJob?.createdAt, shownJob?.completedAt, clockNow)
   const viewingActiveJob = Boolean(activeJob && shownJob?.id === activeJob.id)
   const findJobModel = (job: VideoJob) => config?.modes[job.mode]?.find((item) => item.id === job.model)
@@ -1036,7 +1039,7 @@ export default function VideoStudio({ authStatus = 'loading', onTokenBalanceChan
                 <i />
                 <span>{selectedModel?.generateAudio === false ? 'Недоступно' : generateAudio ? 'Включён' : 'Выключен'}</span>
               </label>
-            <div className="video-live-price" aria-live="polite">
+            <div className={`video-live-price ${tokenVisualClass(selectedTokenKind)}`} aria-live="polite" title={tokenVisualLabel(selectedTokenKind)}>
               <strong>{visibleEstimateLoading ? 'Считаем…' : visibleEstimate ? `${visibleEstimate.chargedTokens} ток. за ${secondsLabel(duration)}` : '—'}</strong>
               <small>{currentRate ? `≈ ${formatTokenRate(currentRate)} ток./с` : 'текущая цена'}</small>
             </div>
@@ -1059,18 +1062,19 @@ export default function VideoStudio({ authStatus = 'loading', onTokenBalanceChan
               const presetEstimate = qualityEstimates[item.id]
               const presetDuration = presetModel?.supportedDurations.includes(duration) ? duration : (presetModel?.supportedDurations[0] || duration)
               const presetRate = presetEstimate && presetDuration > 0 ? presetEstimate.chargedTokens / presetDuration : null
+              const presetTokenKind = videoTokenVisualKind(presetModel)
               return <button type="button" key={item.id} className={quality === item.id && selectedModel?.id === presetModel?.id ? 'active' : ''} onClick={() => selectQuality(item.id)}>
-                <span><strong>{item.label}</strong><b>{presetRate ? `≈ ${formatTokenRate(presetRate)} ток./с` : 'Считаем…'}</b></span>
+                <span><strong>{item.label}</strong><b className={tokenVisualClass(presetTokenKind)} title={tokenVisualLabel(presetTokenKind)}>{presetRate ? `≈ ${formatTokenRate(presetRate)} ток./с` : 'Считаем…'}</b></span>
                 <small>{shortModelName(presetModel)}</small>
-                <em>{presetEstimate ? `${presetEstimate.chargedTokens} ток. за ${secondsLabel(presetDuration)}` : 'Цена уточняется'}</em>
+                <em className={tokenVisualClass(presetTokenKind)}>{presetEstimate ? `${presetEstimate.chargedTokens} ток. за ${secondsLabel(presetDuration)}` : 'Цена уточняется'}</em>
               </button>
             })}</div>
-            <button type="button" className="video-pro" onClick={() => setProOpen((value) => !value)}><Settings2 /><span><b>Выбрать модель</b><small>{shortModelName(selectedModel)} · {publicModelRate(selectedModel)}</small></span><ChevronDown className={proOpen ? 'open' : ''} /></button>
-            {proOpen && <div className="video-model-list">{models.map((model) => <button key={model.id} type="button" className={selectedModel?.id === model.id ? 'active' : ''} onClick={() => syncModelDefaults(model)}><span><strong>{model.name}</strong><b>{publicModelRate(model)}</b></span><p>{publicVideoDescription(model)}</p><small>{publicVideoSpecs(model)}</small></button>)}</div>}
+            <button type="button" className="video-pro" onClick={() => setProOpen((value) => !value)}><Settings2 /><span><b>Выбрать модель</b><small className={tokenVisualClass(selectedTokenKind)}>{shortModelName(selectedModel)} · {publicModelRate(selectedModel)}</small></span><ChevronDown className={proOpen ? 'open' : ''} /></button>
+            {proOpen && <div className="video-model-list">{models.map((model) => { const tokenKind = videoTokenVisualKind(model); return <button key={model.id} type="button" className={selectedModel?.id === model.id ? 'active' : ''} onClick={() => syncModelDefaults(model)}><span><strong>{model.name}</strong><b className={tokenVisualClass(tokenKind)} title={tokenVisualLabel(tokenKind)}>{publicModelRate(model)}</b></span><p>{publicVideoDescription(model)}</p><small>{publicVideoSpecs(model)}</small></button> })}</div>}
           </section>
         </> : <div className="video-empty-models">{error || config?.availability?.[mode]?.reason || 'Для этого режима пока нет доступных моделей.'}</div>}
         </div>
-        {!loading && <button className={`video-generate${submitting || activeJob ? ' is-generating' : ''}`} type="button" disabled={!canSubmit} title={authStatus === 'anon' ? 'Войдите, чтобы создать видео' : undefined} onClick={() => void submit()}>{submitting || activeJob ? <LoaderCircle className="spin" /> : <Sparkles />}<span>{authStatus === 'anon' ? 'Войдите, чтобы создать' : submitting ? 'Запускаем видео' : activeJob ? 'Создаём видео' : 'Создать видео'}</span><b>{authStatus === 'anon' ? 'После входа' : visibleEstimateLoading ? 'Считаем…' : visibleEstimate ? `${visibleEstimate.chargedTokens} ток.` : models.length ? '—' : 'Нет модели'}</b></button>}
+        {!loading && <button className={`video-generate${submitting || activeJob ? ' is-generating' : ''}`} type="button" disabled={!canSubmit} title={authStatus === 'anon' ? 'Войдите, чтобы создать видео' : undefined} onClick={() => void submit()}>{submitting || activeJob ? <LoaderCircle className="spin" /> : <Sparkles />}<span>{authStatus === 'anon' ? 'Войдите, чтобы создать' : submitting ? 'Запускаем видео' : activeJob ? 'Создаём видео' : 'Создать видео'}</span><b className={tokenVisualClass(selectedTokenKind)} title={tokenVisualLabel(selectedTokenKind)}>{authStatus === 'anon' ? 'После входа' : visibleEstimateLoading ? 'Считаем…' : visibleEstimate ? `${visibleEstimate.chargedTokens} ток.` : models.length ? '—' : 'Нет модели'}</b></button>}
       </aside>
 
       <section className="video-result">
