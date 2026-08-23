@@ -23,13 +23,13 @@
 /* Token account semantics: local/base generation uses the daily allowance,
    while premium/API models use the main balance. */
 .iv3 .token-cost--daily {
-color: #dff42e;
+color: #dff42e !important;
 border-color: rgba(223, 244, 46, .56) !important;
 background: rgba(223, 244, 46, .09) !important;
 box-shadow: inset 0 0 0 1px rgba(223, 244, 46, .07);
 }
 .iv3 .token-cost--main {
-color: #d99cff;
+color: #d99cff !important;
 border-color: rgba(205, 117, 255, .6) !important;
 background: rgba(157, 64, 225, .14) !important;
 box-shadow: inset 0 0 0 1px rgba(217, 156, 255, .08);
@@ -43,12 +43,12 @@ border-radius: 999px;
 .iv3 .quality-token-cost.token-cost { padding: 0 5px; }
 .iv3 .studio-model-cost.token-cost b { padding: 3px 7px; }
 .iv3 .generate-token-cost.token-cost--daily {
-color: #171d03;
+color: #171d03 !important;
 border-color: rgba(55, 68, 3, .34) !important;
 background: rgba(255, 255, 255, .22) !important;
 }
 .iv3 .generate-token-cost.token-cost--main {
-color: #f3dcff;
+color: #f3dcff !important;
 border-color: rgba(244, 220, 255, .5) !important;
 background: rgba(71, 23, 109, .82) !important;
 }
