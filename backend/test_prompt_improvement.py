@@ -239,6 +239,10 @@ def test_prompt_parser_accepts_strict_json_and_rejects_empty_value():
     assert main._parse_improved_prompt(main._openrouter_text_content(parsed_content)) == "parsed ответ"
     tool_content = {"choices": [{"message": {"content": None, "tool_calls": [{"function": {"arguments": '{"improved_prompt":"tool ответ"}'}}]}}]}
     assert main._parse_improved_prompt(main._openrouter_text_content(tool_content)) == "tool ответ"
+    reasoning_content = {"choices": [{"message": {"content": None, "reasoning": '{"improved_prompt":"reasoning ответ"}'}}]}
+    assert main._parse_improved_prompt(main._openrouter_text_content(reasoning_content)) == "reasoning ответ"
+    reasoning_details = {"choices": [{"message": {"content": None, "reasoning_details": [{"text": '{"improved_prompt":"details ответ"}'}]}}]}
+    assert main._parse_improved_prompt(main._openrouter_text_content(reasoning_details)) == "details ответ"
     with pytest.raises(RuntimeError):
         main._parse_improved_prompt('{"improved_prompt":""}')
 

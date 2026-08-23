@@ -6460,6 +6460,23 @@ def _openrouter_text_content(payload: dict[str, Any]) -> str:
                 return arguments.strip()
             if isinstance(arguments, dict):
                 return json.dumps(arguments, ensure_ascii=False)
+    # Some reasoning-capable OpenRouter providers return the completed answer
+    # in a reasoning field even when the normalized content field is null.
+    # This is still parsed and bounded by _parse_improved_prompt below; it is
+    # never forwarded to the browser as provider diagnostics.
+    for field in ("reasoning", "reasoning_content"):
+        reasoning = message.get(field)
+        if isinstance(reasoning, str) and reasoning.strip():
+            return reasoning.strip()
+    reasoning_details = message.get("reasoning_details")
+    if isinstance(reasoning_details, list):
+        parts = [
+            str(part.get("text") or part.get("content") or "").strip()
+            for part in reasoning_details
+            if isinstance(part, dict)
+        ]
+        if any(parts):
+            return "\n".join(part for part in parts if part)
     choice_text = choices[0].get("text")
     if isinstance(choice_text, str) and choice_text.strip():
         return choice_text.strip()
@@ -6510,7 +6527,11 @@ async def improve_prompt_openrouter(req: ImprovePromptRequest, config: dict[str,
             },
         ],
         "temperature": 0.25,
-        "max_tokens": 500,
+        "max_tokens": 1000,
+        # Prompt improvement does not benefit from a long hidden chain of
+        # thought. Disabling it prevents reasoning-only responses from
+        # consuming the entire output budget on supported providers.
+        "reasoning": {"effort": "none", "exclude": True},
         "response_format": {
             "type": "json_schema",
             "json_schema": {
