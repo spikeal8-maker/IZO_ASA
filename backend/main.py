@@ -6403,7 +6403,10 @@ async def openrouter_text_models(force: bool = False) -> list[dict[str, Any]]:
     cached = _openrouter_text_model_cache.get("models")
     if not force and isinstance(cached, list) and cached and now - float(_openrouter_text_model_cache.get("ts") or 0) < 3600:
         return cached
-    headers = openrouter_headers() if openrouter_api_key() else {"Content-Type": "application/json"}
+    # The model catalog is public.  Do not attach the account key here: some
+    # OpenRouter keys are restricted to a capability subset and then return an
+    # incomplete catalog (in production this hid every text model).
+    headers = {"Content-Type": "application/json"}
     models = await fetch_openrouter_text_models(
         base_url=OPENROUTER_BASE_URL,
         headers=headers,
@@ -6418,7 +6421,7 @@ async def openrouter_audio_models(force: bool = False) -> list[dict[str, Any]]:
     cached = _openrouter_audio_model_cache.get("models")
     if not force and isinstance(cached, list) and cached and now - float(_openrouter_audio_model_cache.get("ts") or 0) < 3600:
         return cached
-    headers = openrouter_headers() if openrouter_api_key() else {"Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json"}
     models = await fetch_openrouter_audio_input_models(
         base_url=OPENROUTER_BASE_URL,
         headers=headers,
