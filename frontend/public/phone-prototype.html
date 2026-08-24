@@ -1033,7 +1033,7 @@ function runVid(){
   },500);}
  },900);
 }
-const VOICES=[['Анна','мягкий, тёплый','А'],['Марк','низкий, уверенный','М'],['Лиза','звонкий, живой','Л'],['Диктор','новостной','Д'],['Дед','пожилой, добрый','Р']];
+const VOICES=[['Ирина','мягкий женский голос','И'],['Павел','спокойный мужской голос','П']];
 const MOODS=[['a15','Спокойный'],['a3','Энергичный'],['a16','Ретро'],['a5','Драма'],['a12','Весёлый'],['a6','Мечтательный']];
 const SLEN=[['30 с','для сторис'],['1 мин','для ролика'],['3 мин','полный трек']];
 let voice=0,mood=0,slen=1,speed=50,sstate='idle';
@@ -1051,9 +1051,9 @@ function paintSnd(){
    <div class="wavebox"><button class="pbtn" data-play><svg viewBox="0 0 24 24"><path d="M8 6l10 6-10 6z"/></svg></button>
     <span class="wf">${wave(true)}</span><span class="tmr">${isMusic?'2:14':'0:12'}</span></div>
    <div class="meta2" style="padding:10px 2px 2px"><span>${isMusic?MOODS[mood][1]+' · 90 BPM':VOICES[voice][0]+' · русский'}</span>
-    <span>${formatCost(activeCharges.snd||getSoundCost(),true)}</span><span>MP3 · 320 kbps</span></div>
+    <span>${formatCost(activeCharges.snd||getSoundCost(),true)}</span><span>WAV</span></div>
    <div class="acts2" style="padding:6px 0 0">
-    <button class="k">${dl} Скачать MP3</button>
+    <button class="k">${dl} Скачать WAV</button>
     ${isMusic?'<button>Клип под трек</button><button>Другое настроение</button><button>Только минус</button>'
       :'<button>Наложить на видео</button><button>Другой голос</button><button>Перевести</button>'}
     <button>${rep} Ещё вариант</button></div></div>`;
