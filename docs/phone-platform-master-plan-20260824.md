@@ -672,9 +672,9 @@ Release считается успешным только при совпаден
   React UX, web/image tools, удержание микрофона, tool recovery и mobile E2E.
   Подробности:
   [phone-chat-implementation-20260824.md](phone-chat-implementation-20260824.md).
-- `PHONE-IMAGE-001A`: **CODE COMPLETE; NOT DEPLOYED; LIVE GENERATION
-  ACCEPTANCE PENDING ROLLOUT** — нативное создание, изменение/совмещение,
-  рисование, capability-driven форматы, история, fullscreen zoom/pinch и
-  mobile E2E. Полный epic остаётся открытым до маски, расширения, удаления фона
-  и face-reference. Подробности:
+- `PHONE-IMAGE-001`: **CODE COMPLETE; NOT DEPLOYED; LIVE QUALITY ACCEPTANCE
+  PENDING ROLLOUT** — нативное создание, изменение/совмещение, рисование,
+  маска, расширение, удаление фона, face-reference с силой LoRA, публикация,
+  capability-driven форматы, история, fullscreen zoom/pinch и mobile E2E.
+  Содержательное качество live-результатов проверяется при rollout. Подробности:
   [phone-image-implementation-20260824.md](phone-image-implementation-20260824.md).

@@ -41,6 +41,7 @@ try {
     await page.route('**/api/model-access', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ plan: 'mini', modes: { text_to_image: { models: [{ id: 'server:local_flux_klein', label: 'ИЗО Base', provider: 'comfyui', modelProfile: 'local_flux_klein', tokenHint: 1, supportedResolutionIds: ['sq-sd', 'sq-hd', 'sq-fhd'] }], presets: { fast: 'server:local_flux_klein' } } } }) }))
     await page.route('**/api/generate', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'image-job-1' }) }))
     await page.route('**/api/gallery/items?limit=20&filter=image', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'gallery-image-1', viewerSrc: '/phone-preview-placeholder.jpg', thumbnailUrl: '/phone-preview-placeholder.jpg', width: 1024, height: 1024 }] }) }))
+    await page.route('**/api/feed/publications', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, publication: { id: 'publication-1' }, moderation: 'approved' }) }))
     await page.route('**/api/me-v2', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(me) }))
     const thread = { id: '0123456789abcdef', title: 'Новый чат', chatModelId: 'local:izo-chat', imageModelId: null, videoModelId: null, contextChars: 60000, createdAt: '2026-08-24T00:00:00Z', updatedAt: '2026-08-24T00:00:00Z' }
     await page.route('**/api/phone/chat/threads', async (route) => route.request().method() === 'POST'
@@ -62,9 +63,14 @@ try {
     await page.getByAltText('Результат генерации').waitFor()
     assert(await page.getByRole('button', { name: 'Освободить предпросмотр' }).isVisible(), `${viewport.width}: image preview close is missing`)
     assert(await page.getByRole('button', { name: 'Открыть изображение из истории' }).isVisible(), `${viewport.width}: image history is missing`)
+    await page.getByRole('button', { name: 'В ленту' }).click()
+    await page.getByText('Работа опубликована в ленте.').waitFor()
     await page.getByAltText('Результат генерации').dblclick()
     await page.getByRole('dialog', { name: 'Просмотр изображения' }).waitFor()
-    await page.getByRole('button', { name: 'Закрыть' }).click()
+    await page.getByRole('button', { name: 'Закрыть', exact: true }).click()
+    await page.getByRole('button', { name: /Изменить/ }).click()
+    assert(await page.getByRole('button', { name: /Маска/ }).isVisible(), `${viewport.width}: image editor tools are missing`)
+    assert(await page.getByRole('button', { name: /Убрать фон/ }).isVisible(), `${viewport.width}: background removal tool is missing`)
 
     await page.getByRole('button', { name: 'Видео', exact: true }).click()
     await page.getByRole('heading', { name: 'Видео', exact: true }).waitFor()

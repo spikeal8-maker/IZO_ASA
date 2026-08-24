@@ -27,3 +27,38 @@ test('starts image generation with selected real mode and resolution', async () 
     assert.equal(body.modelProfile, 'local_flux_klein')
   } finally { globalThis.fetch = previousFetch }
 })
+
+test('sends a real inpaint mask and source image', async () => {
+  const previousFetch = globalThis.fetch
+  let body: Record<string, unknown> = {}
+  globalThis.fetch = async (input, init) => {
+    if (String(input) === '/api/generate') {
+      body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>
+      return new Response(JSON.stringify({ id: 'mask-job' }), { status: 200 })
+    }
+    return new Response(JSON.stringify({ job: { id: 'mask-job', modality: 'image', operation: 'inpaint', status: 'failed', phase: 'terminal', progress: 100, message: 'controlled', createdAt: null, startedAt: null, completedAt: null, terminal: true, result: null, billing: { chargedTokens: 0, tokenKind: 'daily', refunded: true } } }), { status: 200 })
+  }
+  try {
+    await startPhoneImage({ mode: 'inpaint', prompt: 'добавить цветок', model: { id: 'server:local_flux_klein', label: 'ИЗО Base', provider: 'comfyui', modelProfile: 'local_flux_klein', tokenHint: 1, supportedResolutionIds: ['sq-hd'] }, resolutionId: 'sq-hd', width: 1024, height: 1024, inputImages: ['data:image/png;base64,source'], mask: 'data:image/png;base64,mask' })
+    assert.equal(body.mode, 'inpaint')
+    assert.equal(body.inputImage1, 'data:image/png;base64,source')
+    assert.equal(body.maskImage, 'data:image/png;base64,mask')
+  } finally { globalThis.fetch = previousFetch }
+})
+
+test('sends face role and selected full-quality LoRA strength', async () => {
+  const previousFetch = globalThis.fetch
+  let body: Record<string, unknown> = {}
+  globalThis.fetch = async (input, init) => {
+    if (String(input) === '/api/generate') {
+      body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>
+      return new Response(JSON.stringify({ id: 'face-job' }), { status: 200 })
+    }
+    return new Response(JSON.stringify({ job: { id: 'face-job', modality: 'image', operation: 'edit', status: 'failed', phase: 'terminal', progress: 100, message: 'controlled', createdAt: null, startedAt: null, completedAt: null, terminal: true, result: null, billing: { chargedTokens: 0, tokenKind: 'daily', refunded: true } } }), { status: 200 })
+  }
+  try {
+    await startPhoneImage({ mode: 'edit', prompt: 'сохранить тело', model: { id: 'server:local_flux_klein', label: 'ИЗО Base', provider: 'comfyui', modelProfile: 'local_flux_klein', tokenHint: 1, supportedResolutionIds: ['sq-hd'] }, resolutionId: 'sq-hd', width: 1024, height: 1024, inputImages: ['base', 'face'], inputRoles: ['base', 'face'], faceLora: { id: 'quality-face.safetensors' }, faceStrength: 75 })
+    assert.equal((body.inputImages as Array<{ role: string }>)[1].role, 'face')
+    assert.deepEqual(body.loras, [{ id: 'quality-face.safetensors', strength: .75, triggerWord: '' }])
+  } finally { globalThis.fetch = previousFetch }
+})

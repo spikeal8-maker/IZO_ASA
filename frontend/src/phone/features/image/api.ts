@@ -11,7 +11,7 @@ export type PhoneImageModel = {
   supportedResolutionIds: string[]
 }
 
-export type PhoneImageMode = 'text_to_image' | 'image_to_image' | 'edit' | 'paint'
+export type PhoneImageMode = 'text_to_image' | 'image_to_image' | 'edit' | 'paint' | 'inpaint' | 'outpaint' | 'remove_background'
 
 export type PhoneGalleryImage = {
   id: string
@@ -34,20 +34,42 @@ export async function startPhoneImage(input: {
   height: number
   inputImages: string[]
   canvas?: string
+  mask?: string
+  inputRoles?: string[]
+  faceLora?: { id: string; triggerWord?: string }
+  faceStrength?: number
+  outpaint?: { left: number; right: number; top: number; bottom: number }
 }, onChange?: (job: PhoneJob) => void): Promise<PhoneJob> {
   const body: Record<string, unknown> = {
     mode: input.mode, provider: input.model.provider, prompt: input.prompt, negativePrompt: '',
     seed: Math.floor(Math.random() * 2147483646) + 1, width: input.width, height: input.height,
     resolutionId: input.resolutionId, steps: 4, cfg: 1, guidance: 3.5, strength: .75,
-    modelProfile: input.model.modelProfile, loras: [],
+    modelProfile: input.model.modelProfile,
+    loras: input.faceLora ? [{ id: input.faceLora.id, strength: Math.max(.25, Math.min(1, (input.faceStrength || 75) / 100)), triggerWord: input.faceLora.triggerWord || '' }] : [],
   }
-  if (input.mode === 'image_to_image') body.inputImage1 = input.inputImages[0]
-  if (input.mode === 'edit') body.inputImages = input.inputImages.map((image, index) => ({ index: index + 1, role: index === 0 ? 'base' : 'reference', image }))
+  if (['image_to_image', 'inpaint', 'outpaint', 'remove_background'].includes(input.mode)) body.inputImage1 = input.inputImages[0]
+  if (input.mode === 'edit') body.inputImages = input.inputImages.map((image, index) => ({ index: index + 1, role: index === 0 ? 'base' : input.inputRoles?.[index] || 'reference', image }))
   if (input.mode === 'paint') body.canvas = input.canvas
+  if (input.mode === 'inpaint') body.maskImage = input.mask
+  if (input.mode === 'outpaint') body.outpaint = input.outpaint
   const started = await phoneFetch<{ id?: string; jobId?: string }>('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
   const jobId = String(started.id || started.jobId || '')
   if (!jobId) throw new Error('Сервер не вернул номер генерации.')
   return waitForPhoneJob(jobId, { onChange })
+}
+
+export async function loadFaceLora(signal?: AbortSignal): Promise<{ id: string; triggerWord?: string } | null> {
+  const payload = await phoneFetch<{ loras?: string[] }>('/api/models', { signal })
+  const values = (payload.loras || []).filter((item) => item && item !== 'none')
+  const id = values.find((item) => /bfs|face|head/i.test(item)) || values[0]
+  return id ? { id } : null
+}
+
+export async function publishPhoneImage(imageId: string, title: string): Promise<{ publication?: { id?: string }; moderation?: string }> {
+  return phoneFetch('/api/feed/publications', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ imageId, title: title.trim().slice(0, 120) || 'Новая работа', promptVisibility: 'open', allowRecreate: true }),
+  })
 }
 
 export async function loadPhoneGallery(signal?: AbortSignal): Promise<PhoneGalleryImage[]> {
