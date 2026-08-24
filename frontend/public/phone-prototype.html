@@ -1148,7 +1148,8 @@ function paint(){
  pbar.hidden=!regularPrompt;
  chatbar.hidden=view!=='chat';
  dock.classList.toggle('chat-mode',view==='chat');
- if(view!=='chat'){chatNavOpen=false;dock.classList.remove('chat-nav-open');navPeek.setAttribute('aria-expanded','false');}
+ if(view==='chat'){chatNavOpen=true;dock.classList.add('chat-nav-open');navPeek.setAttribute('aria-expanded','true');}
+ else{chatNavOpen=false;dock.classList.remove('chat-nav-open');navPeek.setAttribute('aria-expanded','false');}
  requestAnimationFrame(updateDockPadding);
  if(view==='chat')setTimeout(updateDockPadding,320);
  if(view==='feed')scr.innerHTML='<div class="mas">'+FEED.map(x=>
