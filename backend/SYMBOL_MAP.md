@@ -8,7 +8,7 @@ Source: `backend/main.py`
 
 - Functions: 683
 - Classes: 77
-- Routes: 248
+- Routes: 249
 
 Auth policy is a conservative static hint. Every `REVIEW` row must be checked in code and tests.
 
@@ -254,13 +254,14 @@ Auth policy is a conservative static hint. Every `REVIEW` row must be checked in
 | POST | `/api/max/set-webhook` | `max_set_webhook` | 238 | admin |
 | POST | `/api/telegram/webhook` | `telegram_webhook` | 248 | webhook: telegram secret required |
 | POST | `/api/max/webhook` | `max_webhook` | 284 | webhook: MAX secret conditional |
-| GET | `/api/phone/chat/threads` | `phone_chat_threads` | 542 | public/optional/review |
-| POST | `/api/phone/chat/threads` | `phone_chat_thread_create` | 550 | public/optional/review |
-| PATCH | `/api/phone/chat/threads/{thread_id}` | `phone_chat_thread_update` | 564 | public/optional/review |
-| DELETE | `/api/phone/chat/threads/{thread_id}` | `phone_chat_thread_delete` | 576 | public/optional/review |
-| GET | `/api/phone/chat/threads/{thread_id}/messages` | `phone_chat_thread_messages` | 588 | public/optional/review |
-| GET | `/api/phone/chat/models` | `phone_chat_models` | 600 | user |
-| POST | `/api/phone/chat` | `phone_chat` | 640 | public/optional/review |
+| GET | `/api/phone/chat/threads` | `phone_chat_threads` | 546 | public/optional/review |
+| POST | `/api/phone/chat/threads` | `phone_chat_thread_create` | 554 | public/optional/review |
+| PATCH | `/api/phone/chat/threads/{thread_id}` | `phone_chat_thread_update` | 568 | public/optional/review |
+| DELETE | `/api/phone/chat/threads/{thread_id}` | `phone_chat_thread_delete` | 580 | public/optional/review |
+| GET | `/api/phone/chat/threads/{thread_id}/messages` | `phone_chat_thread_messages` | 592 | public/optional/review |
+| PATCH | `/api/phone/chat/threads/{thread_id}/messages/{message_id}/tools` | `phone_chat_message_tools` | 604 | public/optional/review |
+| GET | `/api/phone/chat/models` | `phone_chat_models` | 616 | user |
+| POST | `/api/phone/chat` | `phone_chat` | 656 | public/optional/review |
 | GET | `` | `phone_jobs` | 31 | user |
 | GET | `/{job_id}` | `phone_job` | 44 | user |
 | GET | `/platform` | `phone_platform` | 23 | user |

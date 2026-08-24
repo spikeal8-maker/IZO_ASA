@@ -26,6 +26,46 @@ def _thread(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def _public_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    output: list[dict[str, Any]] = []
+    for source in tools[:8]:
+        if not isinstance(source, dict):
+            continue
+        name = str(source.get("name") or "")
+        if name not in {"web_search", "generate_image"}:
+            continue
+        item: dict[str, Any] = {"name": name}
+        if name == "generate_image":
+            status = str(source.get("status") or "requested")
+            item["status"] = status if status in {"requested", "running", "done", "error"} else "requested"
+            item["prompt"] = str(source.get("prompt") or "")[:3000]
+            item["aspectRatio"] = str(source.get("aspectRatio") or "1:1")[:10]
+            item["jobId"] = str(source.get("jobId") or "")[:100]
+            result_url = str(source.get("resultUrl") or "")[:2000]
+            if result_url.startswith("/api/"):
+                item["resultUrl"] = result_url
+            if source.get("error"):
+                item["error"] = str(source.get("error"))[:500]
+        else:
+            item["ok"] = bool(source.get("ok"))
+            item["query"] = str(source.get("query") or "")[:500]
+            sources = source.get("sources") if isinstance(source.get("sources"), list) else []
+            item["sources"] = [
+                {"title": str(value.get("title") or "")[:240], "url": str(value.get("url") or "")[:2000]}
+                for value in sources[:8] if isinstance(value, dict) and str(value.get("url") or "").startswith(("https://", "http://"))
+            ]
+        output.append(item)
+    return output
+
+
+def _tools_from_json(value: Any) -> list[dict[str, Any]]:
+    try:
+        parsed = json.loads(str(value or "[]"))
+    except (json.JSONDecodeError, TypeError):
+        return []
+    return _public_tools(parsed) if isinstance(parsed, list) else []
+
+
 def list_threads(conn: sqlite3.Connection, user_id: str) -> list[dict[str, Any]]:
     rows = conn.execute(
         "SELECT * FROM phone_chat_threads WHERE user_id=? ORDER BY updated_at DESC LIMIT 50",
@@ -105,7 +145,7 @@ def list_messages(conn: sqlite3.Connection, user_id: str, thread_id: str, *, lim
     return [{
         "id": row["id"], "role": row["role"], "content": row["content"],
         "provider": row["provider"] or "", "model": row["model"] or "",
-        "tools": json.loads(row["tools_json"] or "[]"),
+        "tools": _tools_from_json(row["tools_json"]),
         "chargedTokens": int(row["charged_tokens"] or 0), "tokenKind": row["token_kind"] or "",
         "createdAt": row["created_at"], "status": "done",
     } for row in rows]
@@ -140,16 +180,33 @@ def add_exchange(
     tools: list[dict[str, Any]],
     charged_tokens: int,
     token_kind: str,
-) -> None:
+) -> dict[str, str]:
     if get_thread(conn, user_id, thread_id) is None:
         raise KeyError("thread_not_found")
     now = _now()
+    user_message_id = uuid.uuid4().hex
+    assistant_message_id = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO phone_chat_messages (id,thread_id,role,content,created_at) VALUES (?,?,?,?,?)",
-        (uuid.uuid4().hex, thread_id, "user", user_content[:8000], now),
+        (user_message_id, thread_id, "user", user_content[:8000], now),
     )
     conn.execute(
         "INSERT INTO phone_chat_messages (id,thread_id,role,content,provider,model,tools_json,charged_tokens,token_kind,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-        (uuid.uuid4().hex, thread_id, "assistant", assistant_content[:12000], provider, model, json.dumps(tools, ensure_ascii=False), charged_tokens, token_kind, now),
+        (assistant_message_id, thread_id, "assistant", assistant_content[:12000], provider, model, json.dumps(_public_tools(tools), ensure_ascii=False), charged_tokens, token_kind, now),
     )
     conn.execute("UPDATE phone_chat_threads SET updated_at=? WHERE id=? AND user_id=?", (now, thread_id, user_id))
+    return {"userMessageId": user_message_id, "assistantMessageId": assistant_message_id}
+
+
+def update_message_tools(
+    conn: sqlite3.Connection,
+    user_id: str,
+    thread_id: str,
+    message_id: str,
+    tools: list[dict[str, Any]],
+) -> bool:
+    cursor = conn.execute(
+        "UPDATE phone_chat_messages SET tools_json=? WHERE id=? AND thread_id=? AND role='assistant' AND EXISTS (SELECT 1 FROM phone_chat_threads WHERE id=? AND user_id=?)",
+        (json.dumps(_public_tools(tools), ensure_ascii=False), message_id, thread_id, thread_id, user_id),
+    )
+    return cursor.rowcount > 0

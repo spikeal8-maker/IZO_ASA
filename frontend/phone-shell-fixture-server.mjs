@@ -34,6 +34,9 @@ http.createServer(async (request, response) => {
     profile: { display_name: 'Тестовый пользователь' },
     account: { token_balance: 1259, daily_tokens_limit: 100, daily_tokens_remaining: 93 },
   })
+  if (url.pathname === '/api/phone/chat/threads') return json(response, request.method === 'POST' ? { ok: true, thread: { id: '0123456789abcdef', title: 'Новый чат', chatModelId: 'local:izo-chat', imageModelId: null, videoModelId: null, contextChars: 60000, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } } : { ok: true, threads: [] })
+  if (url.pathname === '/api/phone/chat/models') return json(response, { ok: true, defaultModel: 'local:izo-chat', models: [{ id: 'local:izo-chat', name: 'ИЗО Чат', provider: 'local', tokenCost: 1, tokenKind: 'daily', description: 'Быстрые ответы на этом сервере', contextChars: 60000 }] })
+  if (url.pathname === '/api/phone/chat') return json(response, { ok: true, reply: 'Готово — это проверенный ответ.', modelId: 'local:izo-chat', chargedTokens: 1, tokenKind: 'daily', tools: [] })
   try {
     const upstreamResponse = await fetch(new URL(url.pathname + url.search, upstream), { redirect: 'manual' })
     const headers = Object.fromEntries(upstreamResponse.headers.entries())

@@ -667,3 +667,8 @@ Release считается успешным только при совпаден
   facade активных image/video jobs, owner check, безопасные статусы, recovery
   без повторного запуска, общие media/billing helpers и mobile E2E. Подробности:
   [phone-core-implementation-20260824.md](phone-core-implementation-20260824.md).
+- `PHONE-CHAT-001`: **CODE COMPLETE; NOT DEPLOYED; LIVE PROVIDER ACCEPTANCE
+  PENDING ROLLOUT** — сохраняемые диалоги, модели и контекст, минималистичный
+  React UX, web/image tools, удержание микрофона, tool recovery и mobile E2E.
+  Подробности:
+  [phone-chat-implementation-20260824.md](phone-chat-implementation-20260824.md).

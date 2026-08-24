@@ -43,3 +43,25 @@ def test_context_history_is_bounded_from_the_newest_messages() -> None:
     assert history[-1]["content"].startswith("Ответ 2")
     assert sum(len(item["content"]) for item in history) <= 4000
     assert not any(item["content"].startswith("Вопрос 0") for item in history)
+
+
+def test_tool_result_update_is_owned_and_keeps_only_private_media_route() -> None:
+    conn = _database()
+    thread = phone_chat_history.create_thread(conn, "user-1")
+    ids = phone_chat_history.add_exchange(
+        conn, "user-1", thread["id"], user_content="Нарисуй кота", assistant_content="Создаю.",
+        provider="local", model="local:izo-chat",
+        tools=[{"name": "generate_image", "status": "requested", "prompt": "кот"}],
+        charged_tokens=1, token_kind="daily",
+    )
+    assert phone_chat_history.update_message_tools(
+        conn, "user-2", thread["id"], ids["assistantMessageId"],
+        [{"name": "generate_image", "status": "done", "resultUrl": "/api/media/cat.webp"}],
+    ) is False
+    assert phone_chat_history.update_message_tools(
+        conn, "user-1", thread["id"], ids["assistantMessageId"],
+        [{"name": "generate_image", "status": "done", "prompt": "кот", "resultUrl": "https://provider.invalid/private"}],
+    ) is True
+    tool = phone_chat_history.list_messages(conn, "user-1", thread["id"])[1]["tools"][0]
+    assert tool["status"] == "done"
+    assert "resultUrl" not in tool

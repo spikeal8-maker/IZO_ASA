@@ -113,6 +113,10 @@ class PhoneChatThreadUpdate(BaseModel):
     contextChars: int | None = Field(default=None, ge=4000, le=240000)
 
 
+class PhoneChatToolsUpdate(BaseModel):
+    tools: list[dict[str, Any]] = Field(default_factory=list, max_length=8)
+
+
 @dataclass(frozen=True)
 class PhoneChatDependencies:
     require_trusted_user: Callable[[Request], dict[str, Any]]
@@ -596,6 +600,18 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
             raise HTTPException(404, "Чат не найден.")
         return {"ok": True, "thread": thread, "messages": messages}
 
+    @router.patch("/api/phone/chat/threads/{thread_id}/messages/{message_id}/tools")
+    async def phone_chat_message_tools(thread_id: str, message_id: str, req: PhoneChatToolsUpdate, request: Request) -> dict[str, Any]:
+        _trusted, user_id = trusted_user_id(request)
+        if deps.connect_db is None:
+            raise HTTPException(503, "История чатов временно недоступна.")
+        with deps.connect_db() as conn:
+            updated = phone_chat_history.update_message_tools(conn, user_id, thread_id, message_id, req.tools)
+            conn.commit()
+        if not updated:
+            raise HTTPException(404, "Сообщение не найдено.")
+        return {"ok": True}
+
     @router.get("/api/phone/chat/models")
     async def phone_chat_models(request: Request) -> dict[str, Any]:
         deps.require_trusted_user(request)
@@ -719,9 +735,10 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
                 "tools": [str(item.get("name") or "") for item in tool_runs if isinstance(item, dict)],
             },
         )
+        message_ids: dict[str, str] = {}
         if req.threadId and deps.connect_db is not None:
             with deps.connect_db() as conn:
-                phone_chat_history.add_exchange(
+                message_ids = phone_chat_history.add_exchange(
                     conn, user_id, req.threadId,
                     user_content=req.messages[-1].content, assistant_content=reply,
                     provider=provider, model=public_model_id, tools=tool_runs,
@@ -747,6 +764,7 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
             "dailyTokensUsed": charge.get("daily_tokens_used_after"),
             "dailyTokensLimit": charge.get("daily_tokens_limit"),
             "tools": tool_runs,
+            "messageId": message_ids.get("assistantMessageId"),
         }
 
     return router

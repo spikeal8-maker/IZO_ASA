@@ -38,6 +38,12 @@ try {
     await page.route('**/api/phone/v1/platform', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(platform) }))
     await page.route('**/api/phone/v1/jobs?active=true', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, items: [] }) }))
     await page.route('**/api/me-v2', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(me) }))
+    const thread = { id: '0123456789abcdef', title: 'Новый чат', chatModelId: 'local:izo-chat', imageModelId: null, videoModelId: null, contextChars: 60000, createdAt: '2026-08-24T00:00:00Z', updatedAt: '2026-08-24T00:00:00Z' }
+    await page.route('**/api/phone/chat/threads', async (route) => route.request().method() === 'POST'
+      ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, thread }) })
+      : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, threads: [] }) }))
+    await page.route('**/api/phone/chat/models', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, defaultModel: 'local:izo-chat', models: [{ id: 'local:izo-chat', name: 'ИЗО Чат', provider: 'local', tokenCost: 1, tokenKind: 'daily', description: 'Быстрые ответы на этом сервере', contextChars: 60000 }] }) }))
+    await page.route('**/api/phone/chat', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, reply: 'Готово — это проверенный ответ.', modelId: 'local:izo-chat', chargedTokens: 1, tokenKind: 'daily', tools: [] }) }))
 
     await page.goto(`${origin}/phone`, { waitUntil: 'domcontentloaded' })
     await page.getByRole('heading', { name: 'Картинка', exact: true }).waitFor()
@@ -67,9 +73,14 @@ try {
     await dialog.waitFor({ state: 'hidden' })
 
     await page.goto(`${origin}/phone/chat`, { waitUntil: 'domcontentloaded' })
-    await page.getByRole('heading', { name: 'Чат', exact: true }).waitFor()
+    await page.getByText('С чего начнём?').waitFor()
+    await page.getByPlaceholder('Сообщение…').fill('Проверка мобильного чата')
+    await page.getByRole('button', { name: 'Отправить' }).click()
+    await page.getByText('Готово — это проверенный ответ.').waitFor()
+    assert((await page.locator('.phone-chat-message.user').count()) === 1, `${viewport.width}: user message missing`)
+    assert((await page.locator('.phone-chat-message.assistant').count()) === 1, `${viewport.width}: assistant message missing`)
     await page.reload({ waitUntil: 'domcontentloaded' })
-    await page.getByRole('heading', { name: 'Чат', exact: true }).waitFor()
+    await page.getByText('С чего начнём?').waitFor()
     assert(new URL(page.url()).pathname === '/phone/chat', `${viewport.width}: direct route did not survive refresh`)
     assert(errors.length === 0, `${viewport.width}: page errors: ${errors.join('; ')}`)
     await context.close()

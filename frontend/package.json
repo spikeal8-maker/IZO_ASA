@@ -45,6 +45,7 @@
     "test:token-visual": "node tokenVisual.test.ts",
     "test:phone-contract": "node --test phoneContracts.test.ts",
     "test:phone-core": "node --test phoneCore.test.ts",
+    "test:phone-chat": "node --test phoneChat.test.ts",
     "e2e:real25": "node e2e-real-generations-25.mjs",
     "preview": "vite preview",
     "check:origin": "node ../tools/check_frontend_origin_isolation.mjs"
