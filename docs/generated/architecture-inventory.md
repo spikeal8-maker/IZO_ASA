@@ -5,12 +5,12 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 ## Summary
 
-- Routes: 240
+- Routes: 245
 - Registered workers: 8
 - Registered ephemeral tasks: 4
-- SQLite tables: 60
-- SQLite indexes: 94
-- Foreign-key declarations: 1
+- SQLite tables: 62
+- SQLite indexes: 96
+- Foreign-key declarations: 2
 - Frontend/static API literals: 26
 - Route process role: `all-dev-current-monolith`
 
@@ -20,9 +20,9 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 |---|---:|
 | REVIEW: admin route without detected gate | 8 |
 | admin | 94 |
-| public/optional/review | 79 |
+| public/optional/review | 85 |
 | session | 1 |
-| user | 56 |
+| user | 55 |
 | webhook: MAX secret conditional | 1 |
 | webhook: telegram secret required | 1 |
 
@@ -57,11 +57,11 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 ### Tables
 
-`account_verifications`, `admin_notification_delivery_outbox`, `admin_notifications`, `admin_secrets`, `admin_settings`, `audit_logs`, `auth_identities`, `auth_login_attempts`, `auth_login_challenges`, `auth_otp_challenges`, `auth_passwords`, `auth_sessions`, `billing_packages`, `bonus_grants`, `bot_polling_state`, `challenge_entries`, `challenges`, `device_installations`, `event_logs`, `feed_author_follows`, `feed_engagement_events`, `feed_publications`, `feed_reactions`, `feed_subscription_reads`, `feed_view_events`, `generation_energy_usage`, `image_sources`, `images`, `images_search`, `invoice_items`, `invoices`, `jobs`, `legal_acceptances`, `loras`, `model_profiles`, `password_reset_challenges`, `payment_notification_outbox`, `payment_provider_events`, `payments`, `power_samples`, `presets`, `promo_codes`, `promo_redemptions`, `referral_links`, `referral_relations`, `referral_rewards`, `refunds`, `schema_migrations`, `security_events`, `session_events`, `social_delivery_outbox`, `tariff_token_grants`, `token_ledger`, `user_billing_profiles`, `user_consents`, `user_presence_samples`, `users`, `video_file_deletions`, `video_sources`, `videos`
+`account_verifications`, `admin_notification_delivery_outbox`, `admin_notifications`, `admin_secrets`, `admin_settings`, `audit_logs`, `auth_identities`, `auth_login_attempts`, `auth_login_challenges`, `auth_otp_challenges`, `auth_passwords`, `auth_sessions`, `billing_packages`, `bonus_grants`, `bot_polling_state`, `challenge_entries`, `challenges`, `device_installations`, `event_logs`, `feed_author_follows`, `feed_engagement_events`, `feed_publications`, `feed_reactions`, `feed_subscription_reads`, `feed_view_events`, `generation_energy_usage`, `image_sources`, `images`, `images_search`, `invoice_items`, `invoices`, `jobs`, `legal_acceptances`, `loras`, `model_profiles`, `password_reset_challenges`, `payment_notification_outbox`, `payment_provider_events`, `payments`, `phone_chat_messages`, `phone_chat_threads`, `power_samples`, `presets`, `promo_codes`, `promo_redemptions`, `referral_links`, `referral_relations`, `referral_rewards`, `refunds`, `schema_migrations`, `security_events`, `session_events`, `social_delivery_outbox`, `tariff_token_grants`, `token_ledger`, `user_billing_profiles`, `user_consents`, `user_presence_samples`, `users`, `video_file_deletions`, `video_sources`, `videos`
 
 ### Indexes
 
-`idx_account_verifications_pending_delete`, `idx_admin_notification_delivery_pending`, `idx_admin_notifications_unread`, `idx_audit_actor`, `idx_audit_created`, `idx_audit_target`, `idx_auth_identities_internal`, `idx_auth_identities_legacy`, `idx_auth_login_challenges_expires`, `idx_auth_login_challenges_provider_status`, `idx_auth_passwords_internal_user_id`, `idx_auth_sessions_expires`, `idx_auth_sessions_internal`, `idx_auth_sessions_revoked`, `idx_bonus_grants_user_created`, `idx_challenge_entries_challenge`, `idx_consents_internal`, `idx_consents_type`, `idx_device_internal`, `idx_event_logs_anonymous`, `idx_event_logs_created`, `idx_event_logs_event_name`, `idx_event_logs_installation`, `idx_event_logs_internal`, `idx_event_logs_platform`, `idx_feed_author_follows_author`, `idx_feed_engagement_events_publication_created`, `idx_feed_engagement_events_type_created`, `idx_feed_engagement_events_viewer_created`, `idx_feed_publications_category_ready_created`, `idx_feed_publications_legacy_ready_created`, `idx_feed_publications_media_ready`, `idx_feed_publications_media_type_ready_created`, `idx_feed_publications_moderation_created`, `idx_feed_publications_status_created`, `idx_feed_publications_user`, `idx_feed_reactions_publication`, `idx_feed_reactions_viewer_kind`, `idx_feed_view_events_last_viewed`, `idx_feed_view_events_viewer_recent`, `idx_generation_energy_completed`, `idx_image_sources_image`, `idx_image_sources_library_available`, `idx_image_sources_user`, `idx_images_active_user_created`, `idx_images_job_id`, `idx_images_user_deleted_created`, `idx_images_user_favorite_deleted_created`, `idx_invoice_items_invoice`, `idx_invoices_status_created`, `idx_invoices_user_created`, `idx_jobs_result_image`, `idx_jobs_user_created`, `idx_legal_acceptances_user_time`, `idx_login_attempts_created`, `idx_login_attempts_ip`, `idx_login_attempts_provider_ident`, `idx_otp_destination`, `idx_otp_expires`, `idx_password_reset_expires_at`, `idx_password_reset_internal_user_id`, `idx_password_reset_token_hash`, `idx_payment_notification_outbox_pending`, `idx_payment_provider_events_received`, `idx_payments_invoice`, `idx_payments_user_created`, `idx_power_samples_sampled_at`, `idx_presence_bucket`, `idx_presence_internal_bucket`, `idx_promo_redemptions_user_created`, `idx_referral_links_code`, `idx_referral_relations_child_created`, `idx_referral_relations_parent_created`, `idx_referral_rewards_parent_created`, `idx_refunds_user_created`, `idx_security_events_created`, `idx_security_events_internal`, `idx_security_events_type`, `idx_session_events_internal`, `idx_session_events_session`, `idx_social_delivery_outbox_pending`, `idx_tariff_token_grants_user_created`, `idx_users_internal_user_id`, `idx_video_file_deletions_created`, `idx_video_sources_job`, `idx_video_sources_user`, `idx_videos_active_user_created`, `idx_videos_job`, `idx_videos_job_id`, `idx_videos_user_created`, `ux_auth_passwords_active`, `ux_payments_provider_payment`, `ux_users_internal_user_id`, `ux_users_public_user_code`
+`idx_account_verifications_pending_delete`, `idx_admin_notification_delivery_pending`, `idx_admin_notifications_unread`, `idx_audit_actor`, `idx_audit_created`, `idx_audit_target`, `idx_auth_identities_internal`, `idx_auth_identities_legacy`, `idx_auth_login_challenges_expires`, `idx_auth_login_challenges_provider_status`, `idx_auth_passwords_internal_user_id`, `idx_auth_sessions_expires`, `idx_auth_sessions_internal`, `idx_auth_sessions_revoked`, `idx_bonus_grants_user_created`, `idx_challenge_entries_challenge`, `idx_consents_internal`, `idx_consents_type`, `idx_device_internal`, `idx_event_logs_anonymous`, `idx_event_logs_created`, `idx_event_logs_event_name`, `idx_event_logs_installation`, `idx_event_logs_internal`, `idx_event_logs_platform`, `idx_feed_author_follows_author`, `idx_feed_engagement_events_publication_created`, `idx_feed_engagement_events_type_created`, `idx_feed_engagement_events_viewer_created`, `idx_feed_publications_category_ready_created`, `idx_feed_publications_legacy_ready_created`, `idx_feed_publications_media_ready`, `idx_feed_publications_media_type_ready_created`, `idx_feed_publications_moderation_created`, `idx_feed_publications_status_created`, `idx_feed_publications_user`, `idx_feed_reactions_publication`, `idx_feed_reactions_viewer_kind`, `idx_feed_view_events_last_viewed`, `idx_feed_view_events_viewer_recent`, `idx_generation_energy_completed`, `idx_image_sources_image`, `idx_image_sources_library_available`, `idx_image_sources_user`, `idx_images_active_user_created`, `idx_images_job_id`, `idx_images_user_deleted_created`, `idx_images_user_favorite_deleted_created`, `idx_invoice_items_invoice`, `idx_invoices_status_created`, `idx_invoices_user_created`, `idx_jobs_result_image`, `idx_jobs_user_created`, `idx_legal_acceptances_user_time`, `idx_login_attempts_created`, `idx_login_attempts_ip`, `idx_login_attempts_provider_ident`, `idx_otp_destination`, `idx_otp_expires`, `idx_password_reset_expires_at`, `idx_password_reset_internal_user_id`, `idx_password_reset_token_hash`, `idx_payment_notification_outbox_pending`, `idx_payment_provider_events_received`, `idx_payments_invoice`, `idx_payments_user_created`, `idx_phone_chat_messages_thread_created`, `idx_phone_chat_threads_user_updated`, `idx_power_samples_sampled_at`, `idx_presence_bucket`, `idx_presence_internal_bucket`, `idx_promo_redemptions_user_created`, `idx_referral_links_code`, `idx_referral_relations_child_created`, `idx_referral_relations_parent_created`, `idx_referral_rewards_parent_created`, `idx_refunds_user_created`, `idx_security_events_created`, `idx_security_events_internal`, `idx_security_events_type`, `idx_session_events_internal`, `idx_session_events_session`, `idx_social_delivery_outbox_pending`, `idx_tariff_token_grants_user_created`, `idx_users_internal_user_id`, `idx_video_file_deletions_created`, `idx_video_sources_job`, `idx_video_sources_user`, `idx_videos_active_user_created`, `idx_videos_job`, `idx_videos_job_id`, `idx_videos_user_created`, `ux_auth_passwords_active`, `ux_payments_provider_payment`, `ux_users_internal_user_id`, `ux_users_public_user_code`
 
 ## External integrations and secret sources
 
@@ -136,7 +136,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | `backend/static/feed/index.html` | 2124 | 2200 | 76 |
 | `backend/test_feed_v2.py` | 2346 | 2600 | 254 |
 | `frontend/src/LegacyApp.tsx` | 3600 | 3700 | 100 |
-| `frontend/src/adminModels.tsx` | 2211 | 2300 | 89 |
+| `frontend/src/adminModels.tsx` | 2213 | 2300 | 87 |
 | `frontend/src/index.css` | 2422 | 2650 | 228 |
 | `frontend/src/newStudioV3.css` | 5999 | 6400 | 401 |
 | `frontend/src/newUi.css` | 3097 | 3400 | 303 |

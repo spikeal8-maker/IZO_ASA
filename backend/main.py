@@ -144,7 +144,6 @@ try:
         load_storage_path_policy,
         validate_production_configuration as validate_config_production_configuration,
     )
-
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.config import (
         env_bool,
@@ -241,7 +240,6 @@ try:
         telegram_file_url,
         upload_comfyui_image as integration_upload_comfyui_image,
     )
-
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.integrations import (
         ComfyUIHistoryClient as IntegrationComfyUIHistoryClient, OpenRouterVideoRequestError,
@@ -513,7 +511,8 @@ try:
         ADMIN_NOTIFICATION_DELIVERY_MIGRATION, ADMIN_NOTIFICATIONS_MIGRATION,
         DbGuardError,
         LEGACY_BASELINE_MIGRATION,
-        apply_account_verification_migration, apply_admin_notification_delivery_migration, apply_admin_notifications_migration,
+        PHONE_CHAT_HISTORY_MIGRATION,
+        apply_account_verification_migration, apply_admin_notification_delivery_migration, apply_admin_notifications_migration, apply_phone_chat_history_migration,
         backfill_identity_core,
         collect_sqlite_guard_status,
         database_size_mb,
@@ -538,7 +537,8 @@ except ImportError:  # Direct `python backend/main.py` execution.
         ADMIN_NOTIFICATION_DELIVERY_MIGRATION, ADMIN_NOTIFICATIONS_MIGRATION,
         DbGuardError,
         LEGACY_BASELINE_MIGRATION,
-        apply_account_verification_migration, apply_admin_notification_delivery_migration, apply_admin_notifications_migration,
+        PHONE_CHAT_HISTORY_MIGRATION,
+        apply_account_verification_migration, apply_admin_notification_delivery_migration, apply_admin_notifications_migration, apply_phone_chat_history_migration,
         backfill_identity_core,
         collect_sqlite_guard_status,
         database_size_mb,
@@ -1856,16 +1856,14 @@ def enforce_db_guard_after_migrations() -> None:
     if is_production_like_env() and not status["ok"]:
         db_guard_fail(str(status.get("reason") or "DB guard failed after migrations."))
 
-
 def db() -> sqlite3.Connection:
     return open_sqlite(DB_PATH)
-
 
 def init_db() -> None:
     with db() as conn:
         ensure_migration_ledger(
             conn,
-            supported_version=ACCOUNT_VERIFICATION_MIGRATION.version,
+            supported_version=PHONE_CHAT_HISTORY_MIGRATION.version,
         )
         prepare_core_schema_group(conn)
         ensure_outbox_schema(conn)
@@ -1890,6 +1888,7 @@ def init_db() -> None:
         apply_admin_notifications_migration(conn, applied_at=now)
         apply_admin_notification_delivery_migration(conn, applied_at=now)
         apply_account_verification_migration(conn, applied_at=now)
+        apply_phone_chat_history_migration(conn, applied_at=now)
 
 PROVIDER_CODE_PREFIX = {"web_email": "WEB", "telegram": "TG", "max": "MAX"}
 
@@ -17024,6 +17023,7 @@ app.include_router(create_phone_chat_router(PhoneChatDependencies(
     OPENROUTER_AVAILABILITY.record, record_event_log, openrouter_text_models,
     lambda **kwargs: chat_billing.charge_chat_tokens_for_user(connect=db, get_tariffs=get_tariff_config, reconcile_tariff=_reconcile_user_tariff, **kwargs),
     lambda **kwargs: chat_billing.refund_chat_tokens_for_user(connect=db, **kwargs),
+    db,
 )))
 
 

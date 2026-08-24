@@ -68,8 +68,8 @@ def test_repository_inventory_is_valid_deterministic_and_semantically_complete()
         "runtime-alert",
     }
     table_names = {item["name"] for item in first["schema"]["tables"]}
-    assert {"users", "auth_sessions", "payments", "token_ledger", "images", "feed_publications"} <= table_names
-    assert len(first["schema"]["foreign_key_declarations"]) == 1
+    assert {"users", "auth_sessions", "payments", "token_ledger", "images", "feed_publications", "phone_chat_threads", "phone_chat_messages"} <= table_names
+    assert len(first["schema"]["foreign_key_declarations"]) == 2
     assert first["schema"]["foreign_key_declarations"][0]["source"] == (
         "backend/app/database/migrations.py"
     )

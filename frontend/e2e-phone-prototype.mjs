@@ -40,6 +40,7 @@ try {
     let feedLiked = false
     let feedLikeCount = 7
     let transcribeRequests = 0
+    const chatThread = { id: '0123456789abcdef', title: 'Новый чат', chatModelId: 'local:izo-chat', contextChars: 60000 }
     const context = await browser.newContext({ viewport, isMobile: true, hasTouch: true })
     await context.addInitScript(() => {
       Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }) } })
@@ -76,6 +77,12 @@ try {
       if (path === '/api/gallery/items') return json({ items: [{ id: 'gallery-1', mediaType: 'image', url: pixel, thumbnailUrl: pixel, promptOriginal: 'Из галереи' }] })
       if (path === '/api/tools/improve-prompt') return json({ ok: true, improvedPrompt: 'Розовый стеклянный шар на светлом деревянном столе, мягкий студийный свет' })
       if (path === '/api/tools/transcribe') { transcribeRequests += 1; return json({ ok: true, text: 'добавь мягкие отражения' }) }
+      if (path === '/api/phone/chat/models') return json({ ok: true, defaultModel: 'local:izo-chat', models: [{ id: 'local:izo-chat', name: 'ИЗО Чат', provider: 'local', tokenCost: 1, tokenKind: 'daily', description: 'Быстрые ответы и инструменты', contextChars: 60000 }] })
+      if (path === '/api/phone/chat/threads' && request.method() === 'GET') return json({ ok: true, threads: [] })
+      if (path === '/api/phone/chat/threads' && request.method() === 'POST') return json({ ok: true, thread: chatThread })
+      if (/\/api\/phone\/chat\/threads\/[^/]+$/.test(path) && request.method() === 'PATCH') return json({ ok: true, thread: { ...chatThread, ...request.postDataJSON() } })
+      if (/\/api\/phone\/chat\/threads\/[^/]+$/.test(path) && request.method() === 'DELETE') return json({ ok: true })
+      if (/\/api\/phone\/chat\/threads\/[^/]+\/messages$/.test(path)) return json({ ok: true, thread: chatThread, messages: [] })
       if (path === '/api/phone/chat') {
         chatRequests.push(request.postDataJSON())
         if (chatRequests.length === 2) return json({
@@ -87,7 +94,7 @@ try {
           tokenKind: 'daily',
           tools: [{ name: 'generate_image', ok: true, status: 'requested', prompt: 'Осенняя Москва', aspectRatio: '1:1' }],
         })
-        return json({ ok: true, reply: 'Предлагаю сделать выразительную сцену с мягким светом.', provider: 'local', model: 'gemma4:31b-cloud' })
+        return json({ ok: true, reply: 'Предлагаю сделать выразительную сцену с мягким светом.', provider: 'local', model: 'gemma4:31b-cloud', tools: [{ name: 'web_search', ok: true, sources: [{ title: 'Проверенный источник', url: 'https://example.com/source' }] }] })
       }
       if (path === '/api/generate' && request.method() === 'POST') { generated.push(request.postDataJSON()); return json({ id: 'image-job-1', status: 'queued', progress: 4 }) }
       if (path === '/api/jobs/image-job-1') return json({ id: 'image-job-1', status: 'completed', progress: 100, resultUrl: pixel, resultImageId: 'image-1' })
@@ -298,8 +305,9 @@ try {
       await chatPrompt.fill('Придумай идею для новой картинки')
       await frame.getByRole('button', { name: 'Отправить сообщение' }).click()
       await frame.getByText('Предлагаю сделать выразительную сцену с мягким светом.', { exact: true }).waitFor()
+      assert(await frame.getByText('Источники', { exact: false }).count() === 0, 'web-search service card is visible in the transcript')
       assert(chatRequests.length === 1, `chat request count=${chatRequests.length}`)
-      assert(chatRequests[0].route === 'auto' && chatRequests[0].messages.at(-1)?.content === 'Придумай идею для новой картинки', 'phone chat request contract changed')
+      assert(chatRequests[0].route === 'local' && chatRequests[0].threadId === chatThread.id && chatRequests[0].messages.at(-1)?.content === 'Придумай идею для новой картинки', `phone chat request contract changed: ${JSON.stringify(chatRequests[0])}`)
       await frame.getByRole('button', { name: 'Добавить фото или файл' }).click()
       assert(await frame.getByText('Добавить фото', { exact: true }).isVisible(), 'chat attachment menu did not open')
       await frame.getByRole('button', { name: 'Инструменты чата' }).click()

@@ -20,6 +20,8 @@ DEFAULT_CHAT_CONFIG: dict[str, Any] = {
     "defaultModel": "local:izo-chat",
     "enabledApiModels": ["deepseek/deepseek-v4-flash"],
     "apiTokenCosts": {"deepseek/deepseek-v4-flash": 1},
+    "contextChars": 60000,
+    "localNumCtx": 16384,
     "localTimeoutSeconds": 60,
     "apiTimeoutSeconds": 60,
 }
@@ -38,6 +40,8 @@ def normalize_chat_config(value: Any) -> dict[str, Any]:
         "localTokenCost": bounded(source.get("localTokenCost"), 1, 1, 1000),
         "enabledApiModels": enabled_api,
         "apiTokenCosts": {model_id: bounded(raw_costs.get(model_id), 1, 1, 1000) for model_id in enabled_api},
+        "contextChars": bounded(source.get("contextChars"), 60000, 4000, 240000),
+        "localNumCtx": bounded(source.get("localNumCtx"), 16384, 4096, 32768),
         "localTimeoutSeconds": bounded(source.get("localTimeoutSeconds"), 60, 10, 180),
         "apiTimeoutSeconds": bounded(source.get("apiTimeoutSeconds"), 60, 10, 90),
     })

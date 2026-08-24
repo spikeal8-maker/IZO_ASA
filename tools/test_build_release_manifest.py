@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from backend.app.database.migrations import PHONE_CHAT_HISTORY_MIGRATION
 from backend.app.release_identity import frontend_asset_manifest as runtime_asset_manifest
 from tools.build_release_manifest import (
     build_manifest,
@@ -22,6 +23,18 @@ def _release(tmp_path: Path) -> Path:
     (release / "index.html").write_text("<html>release</html>\n", encoding="utf-8")
     (assets / "index-abc.js").write_text("console.log('release')\n", encoding="utf-8")
     return release
+
+
+def test_release_contract_covers_current_database_schema() -> None:
+    root = Path(__file__).resolve().parents[1]
+    contract = json.loads(
+        (root / "architecture" / "contract.json").read_text(encoding="utf-8")
+    )
+
+    assert (
+        contract["release_contract"]["schema_compatibility"]["max_version"]
+        == PHONE_CHAT_HISTORY_MIGRATION.version
+    )
 
 
 def test_asset_inventory_is_deterministic_and_excludes_release_metadata(tmp_path: Path) -> None:

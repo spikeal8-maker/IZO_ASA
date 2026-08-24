@@ -65,6 +65,13 @@ ACCOUNT_VERIFICATION_MIGRATION = MigrationDefinition(
 )
 
 
+PHONE_CHAT_HISTORY_MIGRATION = MigrationDefinition(
+    version=5,
+    name="phone_chat_history",
+    checksum="sha256:cb56d0bb48cb8062fdf7e2f71ca6a2ea62de880f48b347339729e324648f939e",
+)
+
+
 ADMIN_NOTIFICATIONS_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS admin_notifications (
     id TEXT PRIMARY KEY,
@@ -142,6 +149,39 @@ CREATE INDEX IF NOT EXISTS idx_account_verifications_pending_delete
 """
 
 
+PHONE_CHAT_HISTORY_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS phone_chat_threads (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    chat_model_id TEXT NOT NULL DEFAULT 'local:izo-chat',
+    image_model_id TEXT,
+    video_model_id TEXT,
+    context_chars INTEGER NOT NULL DEFAULT 60000 CHECK (context_chars BETWEEN 4000 AND 240000),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_phone_chat_threads_user_updated
+    ON phone_chat_threads(user_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS phone_chat_messages (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+    content TEXT NOT NULL,
+    provider TEXT,
+    model TEXT,
+    tools_json TEXT NOT NULL DEFAULT '[]',
+    charged_tokens INTEGER NOT NULL DEFAULT 0,
+    token_kind TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(thread_id) REFERENCES phone_chat_threads(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_phone_chat_messages_thread_created
+    ON phone_chat_messages(thread_id, created_at, id);
+"""
+
+
 def apply_admin_notifications_migration(
     conn: sqlite3.Connection,
     *,
@@ -182,6 +222,20 @@ def apply_account_verification_migration(
     return record_applied_migration(
         conn,
         ACCOUNT_VERIFICATION_MIGRATION,
+        applied_at=applied_at,
+    )
+
+
+def apply_phone_chat_history_migration(
+    conn: sqlite3.Connection,
+    *,
+    applied_at: str,
+) -> bool:
+    """Apply durable per-user phone chat threads and messages exactly once."""
+    conn.executescript(PHONE_CHAT_HISTORY_SCHEMA_SQL)
+    return record_applied_migration(
+        conn,
+        PHONE_CHAT_HISTORY_MIGRATION,
         applied_at=applied_at,
     )
 

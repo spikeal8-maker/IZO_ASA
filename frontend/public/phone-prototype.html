@@ -253,6 +253,8 @@ body{background:#04050A;color:#fff;font-family:-apple-system,system-ui,"SF Pro D
  box-shadow:0 8px 18px -10px var(--glow)}
 .newchat.on{display:grid}
 .newchat svg{width:16px;height:16px;stroke:#fff;fill:none;stroke-width:2.4;stroke-linecap:round}
+.tabs button .chat-close{display:grid;place-items:center;width:18px;height:18px;margin-left:2px;border-radius:50%;color:var(--tx3);font:700 14px/1 inherit}
+.tabs button .chat-close:active{background:var(--s3);color:var(--tx)}
 .quick{display:flex;gap:6px;overflow-x:auto;padding:0 2px 8px}
 .quick::-webkit-scrollbar{display:none}
 .quick button{flex:0 0 auto;border:0;border-radius:12px;padding:9px 12px;font:700 11.5px/1 inherit;cursor:pointer;
@@ -845,10 +847,11 @@ const IMAGE_TEMPLATES=IMAGE_PRESETS.templates||[];
 const styleAsset=value=>I[value]||value;
 
 function paintTabs(){
- tabs.innerHTML=TABS[view].map((t,i)=>`<button role="tab" aria-selected="${i===idx}" tabindex="${i===idx?0:-1}"><span class="ti">${tabIcon(view,i)}</span><span class="tl">${t}</span></button>`).join('');
+ tabs.innerHTML=TABS[view].map((t,i)=>`<button role="tab" aria-selected="${i===idx}" tabindex="${i===idx?0:-1}"><span class="ti">${tabIcon(view,i)}</span><span class="tl">${t}</span>${view==='chat'?`<span class="chat-close" data-close-chat="${i}" aria-label="Удалить чат">×</span>`:''}</button>`).join('');
  [...tabs.children].forEach((b,i)=>b.addEventListener('click',()=>{
-  idx=i;document.querySelector('.head').classList.remove('hide');lastY=0;body.scrollTop=0;paint();
+  idx=i;document.querySelector('.head').classList.remove('hide');lastY=0;body.scrollTop=0;if(view==='chat')window.__IZO_PHONE_CHAT_SELECTED__?.();paint();
  }));
+ tabs.querySelectorAll('[data-close-chat]').forEach(close=>close.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();window.__IZO_PHONE_DELETE_CHAT__?.(Number(close.dataset.closeChat));}));
  const a=tabs.children[idx];if(a)tabs.scrollTo({left:Math.max(0,a.offsetLeft-100),behavior:'smooth'});
 }
 const dl='<svg viewBox="0 0 24 24"><path d="M12 4v11M7.5 11L12 15.5 16.5 11M5 20h14"/></svg>';

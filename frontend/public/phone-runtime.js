@@ -32,6 +32,7 @@
     videoAudio: false,
     lastImageRequest: null,
     chatThreads: {},
+    chatThreadMeta: {},
     chatRoute: 'auto',
     chatModels: [],
     chatModelId: 'local:izo-chat',
@@ -99,7 +100,7 @@
     .live-chat-attachment img{width:100%;height:100%;object-fit:cover}.live-chat-attachment.file{width:auto;max-width:140px;padding:8px 28px 8px 10px;height:auto;min-height:40px;color:var(--tx2);font:700 10px/1.25 inherit;display:flex;align-items:center}.live-chat-attachment button{position:absolute;right:3px;top:3px;width:20px;height:20px;border:0;border-radius:50%;background:rgba(5,6,10,.78);color:#fff;cursor:pointer}
     .live-chat-user-images{display:flex;gap:5px;margin-bottom:7px}.live-chat-user-images img{width:56px;height:56px;border-radius:10px;object-fit:cover}.live-chat-actions{display:flex;gap:6px;overflow-x:auto;padding:7px 2px 0}.live-chat-actions button{flex:0 0 auto;border:0;border-radius:10px;padding:8px 10px;background:var(--s2);color:var(--tx2);font:700 10.5px/1 inherit;cursor:pointer;box-shadow:inset 0 0 0 1px var(--edge)}
     .live-chat-turn .bub,.live-chat-turn .ai{position:relative}.live-chat-turn .bub{max-width:80%;padding:9px 30px 9px 12px;border-radius:16px 16px 5px 16px;font-size:13px;line-height:1.38}.live-chat-turn .ai{max-width:93%;padding:9px 30px 8px 9px;border-radius:16px 16px 16px 5px}.live-chat-turn .ai .txt{padding:0 3px 2px;font-size:13px;line-height:1.48}.live-chat-turn .ai .txt:empty{display:none}.live-chat-turn .ai .txt strong{font-weight:760}.live-chat-turn .ai .txt a{color:var(--act);text-decoration:none}.live-chat-message-menu{position:absolute;right:4px;top:4px;width:23px;height:23px;border:0;border-radius:8px;background:transparent;color:var(--tx3);font:800 15px/1 inherit;cursor:pointer;opacity:.48}.live-chat-message-menu:active,.live-chat-message-menu:focus-visible{opacity:1;background:var(--s3);outline:none}.live-chat-turn .bub .live-chat-message-menu{color:rgba(255,255,255,.78)}.live-chat-charge{display:flex;justify-content:flex-end;padding:5px 2px 0;color:var(--tx3);font:650 9px/1.2 inherit}
-    .live-chat-tools{display:grid;gap:6px;margin-top:7px}.live-chat-tool{padding:7px 8px;border-radius:11px;background:var(--s2);box-shadow:inset 0 0 0 1px var(--edge);color:var(--tx2);font:650 10px/1.35 inherit}.live-chat-tool b,.live-chat-tool summary{display:flex;align-items:center;gap:6px;color:var(--tx);font:720 10.5px/1.2 inherit}.live-chat-tool summary{cursor:pointer;list-style:none}.live-chat-tool summary::-webkit-details-marker{display:none}.live-chat-tool summary .count{margin-left:auto;color:var(--tx3);font-size:9.5px}.live-chat-tool b i,.live-chat-tool summary i{width:6px;height:6px;border-radius:50%;background:var(--act);box-shadow:0 0 9px var(--glow)}.live-chat-tool.error{box-shadow:inset 0 0 0 1px rgba(255,91,107,.4)}.live-chat-tool.error b{color:#ff9eaa}.live-chat-tool-sources{display:grid;gap:2px;margin-top:6px}.live-chat-tool-sources a{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 7px;border-radius:7px;background:var(--s3);color:var(--act);text-decoration:none}.live-chat-tool.image{padding:5px;background:transparent}.live-chat-tool-image-wrap{position:relative}.live-chat-tool-image{display:block;width:100%;max-height:320px;object-fit:contain;border-radius:10px;background:#050609;cursor:zoom-in}.live-chat-tool-image-actions{position:absolute;left:6px;bottom:6px;display:flex;gap:4px}.live-chat-tool-image-actions button,.live-chat-tool-image-actions a{width:28px;height:28px;border:0;border-radius:50%;display:grid;place-items:center;background:rgba(7,8,12,.58);color:#fff;backdrop-filter:blur(10px);box-shadow:inset 0 0 0 1px rgba(255,255,255,.13);text-decoration:none}.live-chat-tool-image-actions svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.live-chat-tool-state{display:flex;align-items:center;gap:6px;padding:5px 3px 1px;color:var(--tx3);font:700 9.5px/1.2 inherit}
+    .live-chat-tools{display:grid;gap:6px;margin-top:7px}.live-chat-tool{padding:7px 8px;border-radius:11px;background:var(--s2);box-shadow:inset 0 0 0 1px var(--edge);color:var(--tx2);font:650 10px/1.35 inherit}.live-chat-tool.error{box-shadow:inset 0 0 0 1px rgba(255,91,107,.4)}.live-chat-tool.image{padding:0;background:transparent;box-shadow:none}.live-chat-tool-image-wrap{position:relative}.live-chat-tool-image{display:block;width:100%;max-height:340px;object-fit:contain;border-radius:12px;background:#050609;cursor:zoom-in}.live-chat-tool-image-actions{position:absolute;left:6px;bottom:6px;display:flex;gap:4px}.live-chat-tool-image-actions button,.live-chat-tool-image-actions a{width:28px;height:28px;border:0;border-radius:50%;display:grid;place-items:center;background:rgba(7,8,12,.58);color:#fff;backdrop-filter:blur(10px);box-shadow:inset 0 0 0 1px rgba(255,255,255,.13);text-decoration:none}.live-chat-tool-image-actions svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.live-chat-tool-state{display:none}
     .live-chat-tool-state i{width:6px;height:6px;border-radius:50%;background:var(--act);box-shadow:0 0 9px var(--glow)}
     .chatprompt .chatbox{border-radius:23px}.chatprompt .chatinput{min-height:54px;font-size:15px;line-height:1.42;padding:13px 14px 5px}.chatprompt .chattools{padding:3px 7px 7px}.chatprompt .chatic{width:32px;height:32px}.chatprompt .chatmodel{height:32px;max-width:112px}
     .live-spinner{display:inline-block;width:13px;height:13px;border:2px solid var(--edge2);border-top-color:var(--act);border-radius:50%;animation:phoneSpin .8s linear infinite;vertical-align:-2px;margin-right:7px}@keyframes phoneSpin{to{transform:rotate(360deg)}}
@@ -1090,17 +1091,76 @@
   const currentChat = () => state.chatThreads[chatKey()] || (state.chatThreads[chatKey()] = [])
   const chatScrollEnd = () => requestAnimationFrame(() => { body.scrollTop = body.scrollHeight; lastY = body.scrollTop })
 
+  const uniqueChatLabel = (value, except = '') => {
+    const base = String(value || 'Новый чат').replace(/\s+/g, ' ').trim().slice(0, 42) || 'Новый чат'
+    let label = base; let suffix = 2
+    while (label !== except && Object.prototype.hasOwnProperty.call(state.chatThreads, label)) label = `${base.slice(0, 35)} · ${suffix++}`
+    return label
+  }
+
+  async function createChatThread(title = 'Новый чат') {
+    const response = await api('/phone/chat/threads', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, chatModelId: state.chatModelId, contextChars: 60000 }),
+    })
+    if (!response.ok) throw new Error(await responseMessage(response, 'Не удалось создать чат.'))
+    return (await response.json()).thread
+  }
+
+  async function ensureCurrentThread() {
+    const key = chatKey(); const existing = state.chatThreadMeta[key]
+    if (existing?.id) return existing
+    const created = await createChatThread(key)
+    state.chatThreadMeta[key] = created
+    return created
+  }
+
+  async function loadChatThreads() {
+    if (!state.me) return
+    try {
+      const response = await api('/phone/chat/threads')
+      if (!response.ok) return
+      const result = await response.json(); const threads = (result.threads || []).slice(0, 20)
+      if (!threads.length) return
+      const labels = []
+      state.chatThreads = {}; state.chatThreadMeta = {}
+      for (const thread of threads) {
+        const label = uniqueChatLabel(thread.title)
+        labels.push(label); state.chatThreads[label] = []; state.chatThreadMeta[label] = thread
+      }
+      TABS.chat.splice(0, TABS.chat.length, ...labels); idx = Math.min(idx, labels.length - 1)
+      await Promise.all(threads.map(async (thread, position) => {
+        const messagesResponse = await api(`/phone/chat/threads/${encodeURIComponent(thread.id)}/messages`)
+        if (!messagesResponse.ok) return
+        const messages = (await messagesResponse.json()).messages || []
+        state.chatThreads[labels[position]] = messages
+      }))
+      window.__IZO_PHONE_CHAT_SELECTED__?.()
+      if (view === 'chat') paint()
+    } catch { /* The chat remains usable in the current page if history is unavailable. */ }
+  }
+
+  window.__IZO_PHONE_DELETE_CHAT__ = async (position) => {
+    const key = TABS.chat[position]; if (!key) return
+    const meta = state.chatThreadMeta[key]
+    if (meta?.id && !confirm(`Удалить чат «${key}»?`)) return
+    try {
+      if (meta?.id) {
+        const response = await api(`/phone/chat/threads/${encodeURIComponent(meta.id)}`, { method: 'DELETE' })
+        if (!response.ok) throw new Error(await responseMessage(response, 'Не удалось удалить чат.'))
+      }
+      delete state.chatThreads[key]; delete state.chatThreadMeta[key]; TABS.chat.splice(position, 1)
+      if (!TABS.chat.length) { TABS.chat.push('Новый чат'); state.chatThreads['Новый чат'] = [] }
+      idx = Math.max(0, Math.min(idx, TABS.chat.length - 1)); paint(); toast('Чат удалён')
+    } catch (error) { toast(error.message || 'Не удалось удалить чат') }
+  }
+
   const safeToolUrl = (value) => /^https?:\/\//i.test(String(value || '')) ? String(value) : ''
   function chatToolsHtml(tools) {
     if (!Array.isArray(tools) || !tools.length) return ''
     return `<div class="live-chat-tools">${tools.map((tool) => {
       if (tool.name === 'web_search') {
-        const sourceItems = tool.sources || []
-        const sources = sourceItems.map((source) => {
-          const url = safeToolUrl(source.url); return url ? `<a href="${html(url)}" target="_blank" rel="noopener noreferrer">${html(source.title || url)}</a>` : ''
-        }).join('')
-        if (tool.ok === false) return `<div class="live-chat-tool error"><b><i></i>Поиск временно недоступен</b></div>`
-        return `<details class="live-chat-tool"><summary><i></i>Источники <span class="count">${sourceItems.length || 0}</span></summary>${sources ? `<div class="live-chat-tool-sources">${sources}</div>` : ''}</details>`
+        return ''
       }
       if (tool.name === 'generate_image') {
         const label = tool.status === 'done' ? 'Изображение готово' : tool.status === 'error' ? 'Изображение не создано' : tool.status === 'running' ? 'Создаём изображение…' : 'Генерация изображения'
@@ -1164,24 +1224,23 @@
     const turn = turns[index]; if (!turn) return
     const isUser = turn.role === 'user'
     const charged = Number(turn.chargedTokens || 0)
+    const sources = (turn.tools || []).flatMap((tool) => tool.name === 'web_search' ? (tool.sources || []) : [])
     const items = isUser ? [
       { label: 'Копировать', description: 'Скопировать ваш текст', icon: IC.copy || IC.edit },
       { label: 'Изменить', description: 'Вернуть текст в поле ввода', icon: IC.edit },
       { label: 'Отправить ещё раз', description: 'Повторить запрос с возможностью изменить его', icon: IC.refresh || IC.edit },
-      { label: 'Удалить', description: 'Убрать сообщение и следующий ответ из этого диалога', icon: IC.trash || IC.edit },
     ] : [
       { label: 'Копировать', description: 'Скопировать ответ', icon: IC.copy || IC.edit },
       { label: 'Повторить запрос', description: 'Вернуть исходный вопрос в поле ввода', icon: IC.refresh || IC.edit },
       { label: 'Создать картинку', description: 'Использовать ответ как описание изображения', icon: IC.img },
       { label: 'Создать видео', description: 'Использовать ответ как описание ролика', icon: IC.vid },
       { label: 'Сведения', description: charged ? `Списано ${charged} ${turn.tokenKind === 'daily' ? 'дневных' : 'основных'} токенов` : 'Списание не зафиксировано', icon: IC.cube },
-      { label: 'Удалить', description: 'Убрать этот ответ из диалога', icon: IC.trash || IC.edit },
+      ...(sources.length ? [{ label: `Источники · ${sources.length}`, description: 'Открыть ссылки, использованные для ответа', icon: IC.link || IC.copy || IC.edit }] : []),
     ]
     realPick(isUser ? 'Ваше сообщение' : 'Ответ ИЗО Чат', items, -1, async (_item, choice) => {
       if (choice === 0) { await copyChatText(turn.content); return }
       if (isUser) {
         if (choice === 1 || choice === 2) repeatChatTurn(turns, index)
-        else if (choice === 3) { turns.splice(index, turns[index + 1]?.role === 'assistant' ? 2 : 1); renderChatLive() }
         return
       }
       if (choice === 1) { repeatChatTurn(turns, index); return }
@@ -1190,7 +1249,11 @@
         toast(choice === 3 ? 'Ответ перенесён в описание видео' : 'Ответ перенесён в описание изображения'); return
       }
       if (choice === 4) { toast(charged ? `Списано: ${charged} ${turn.tokenKind === 'daily' ? 'дневных' : 'основных'} токенов` : 'Данные о списании отсутствуют'); return }
-      turns.splice(index, 1); renderChatLive()
+      if (sources.length && choice === 5) {
+        realPick('Источники ответа', sources.map((source) => ({ label: source.title || source.url, description: source.url, icon: IC.link || IC.copy || IC.edit })), -1, (_source, sourceIndex) => {
+          const url = safeToolUrl(sources[sourceIndex]?.url); if (url) window.open(url, '_blank', 'noopener,noreferrer')
+        }); return
+      }
     })
   }
 
@@ -1216,8 +1279,9 @@
       '16:9': ['h-hd', 1280, 720], '3:2': ['p-hd', 1152, 768],
     }
     const models = getImageModels('text_to_image')
+    const threadModelId = state.chatThreadMeta[key]?.imageModelId
     const configured = state.modelAccess?.modes?.text_to_image?.presets?.fast
-    const selected = models.find((item) => item.id === configured) || models[0]
+    const selected = models.find((item) => item.id === threadModelId) || models.find((item) => item.id === configured) || models[0]
     for (const tool of (turn.tools || []).filter((item) => item.name === 'generate_image' && item.status === 'requested')) {
       const [resolutionId, width, height] = resolutions[tool.aspectRatio] || resolutions['1:1']
       tool.status = 'running'; if (view === 'chat' && chatKey() === key) renderChatLive()
@@ -1263,19 +1327,27 @@
       while (Object.prototype.hasOwnProperty.call(state.chatThreads, title) && title !== key) title = `${base.slice(0, 19)} · ${suffix++}`
       delete state.chatThreads[key]; TABS.chat[idx] = title; key = title; state.chatThreads[key] = turns; paintTabs()
     }
+    let thread
+    try { thread = await ensureCurrentThread() } catch (error) { toast(error.message || 'Не удалось открыть чат'); return }
     const images = [...state.chatImages]
     turns.push({ role: 'user', content, images })
     const pending = { role: 'assistant', content: '', status: 'pending' }; turns.push(pending)
     state.chatImages = []; state.chatFiles = []; chatgp.value = ''; state.chatBusy = true
     renderChatLive(); chatScrollEnd()
-    const history = turns.filter((turn) => turn.role === 'user' || turn.status === 'done').slice(-20).map((turn) => ({ role: turn.role, content: turn.content }))
     try {
-      const response = await api('/phone/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: history, route: state.chatRoute, modelId: state.chatModelId, requestId: crypto.randomUUID(), images }) })
+      const response = await api('/phone/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: [{ role: 'user', content }], threadId: thread.id, route: state.chatRoute, requestId: crypto.randomUUID(), images }) })
       if (!response.ok) throw new Error(await responseMessage(response, 'Чат временно недоступен.'))
       const result = await response.json(); const reply = String(result.reply || '').trim()
       if (!reply) throw new Error('Чат не вернул ответ.')
       const selected = state.chatModels.find((item) => item.id === state.chatModelId)
       Object.assign(pending, { content: reply, status: 'done', provider: result.provider || '', model: selected?.name || 'ИЗО Чат', tools: Array.isArray(result.tools) ? result.tools : [], chargedTokens: Number(result.chargedTokens || 0), tokenKind: result.tokenKind || '' })
+      if (turns.length === 2) {
+        const oldKey = key; const title = uniqueChatLabel(content.slice(0, 42), oldKey)
+        if (title !== oldKey) {
+          state.chatThreads[title] = turns; state.chatThreadMeta[title] = { ...thread, title }
+          delete state.chatThreads[oldKey]; delete state.chatThreadMeta[oldKey]; TABS.chat[idx] = title; key = title; paintTabs()
+        }
+      }
       await loadMe()
       void runChatImageTools(pending, key)
     } catch (error) {
@@ -1287,7 +1359,7 @@
   }
 
   function installChatControls() {
-    TABS.chat.splice(0, TABS.chat.length, 'Новый чат'); state.chatThreads = { 'Новый чат': [] }
+    TABS.chat.splice(0, TABS.chat.length, 'Новый чат'); state.chatThreads = { 'Новый чат': [] }; state.chatThreadMeta = {}
     const replace = (id) => { const old = document.getElementById(id); const clean = old.cloneNode(true); old.replaceWith(clean); return clean }
     const liveSend = replace('chatSend'); const liveMic = replace('chatMic'); const liveTools = replace('chatTools')
     const liveModel = replace('chatModelButton'); const livePlus = replace('chatPlus'); const liveMenu = replace('chatPlusMenu'); const liveNew = replace('newchat')
@@ -1299,6 +1371,13 @@
       liveModel.title = selected ? `${selected.description || ''} · ${selected.tokenCost} кр.` : 'Выбрать модель чата'
     }
     liveMic.dataset.liveMic = 'chat'; liveMic.title = 'Сказать голосом'; syncChatModelButton()
+    window.__IZO_PHONE_CHAT_SELECTED__ = () => {
+      const meta = state.chatThreadMeta[chatKey()]
+      if (!meta?.chatModelId) return
+      state.chatModelId = meta.chatModelId
+      const selected = state.chatModels.find((item) => item.id === state.chatModelId)
+      state.chatRoute = selected?.provider === 'api' ? 'api' : 'local'; syncChatModelButton()
+    }
     const imageInput = document.createElement('input'); imageInput.type = 'file'; imageInput.accept = 'image/jpeg,image/png,image/webp'; imageInput.multiple = true; imageInput.hidden = true
     const cameraInput = imageInput.cloneNode(); cameraInput.multiple = false; cameraInput.setAttribute('capture', 'environment')
     const textInput = document.createElement('input'); textInput.type = 'file'; textInput.accept = '.txt,.md,.json,.csv,text/plain,application/json,text/csv'; textInput.multiple = true; textInput.hidden = true
@@ -1322,7 +1401,20 @@
       if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.stopImmediatePropagation(); sendChatLive() }
     }, true)
     chatgp.addEventListener('input', growChatLive); liveSend.addEventListener('click', sendChatLive)
-    liveMic.addEventListener('click', () => toggleVoice('chat', liveMic, chatgp))
+    let chatVoiceHeld = false
+    liveMic.style.touchAction = 'none'
+    liveMic.addEventListener('pointerdown', async (event) => {
+      event.preventDefault(); chatVoiceHeld = true
+      try { liveMic.setPointerCapture?.(event.pointerId) } catch {}
+      await toggleVoice('chat', liveMic, chatgp)
+      if (!chatVoiceHeld && state.recording?.button === liveMic) stopRecording()
+    })
+    const releaseVoice = (event) => {
+      event.preventDefault(); chatVoiceHeld = false
+      if (state.recording?.button === liveMic && state.recording.phase === 'recording') stopRecording()
+    }
+    liveMic.addEventListener('pointerup', releaseVoice); liveMic.addEventListener('pointercancel', releaseVoice); liveMic.addEventListener('lostpointercapture', releaseVoice)
+    liveMic.addEventListener('click', (event) => event.preventDefault())
     livePlus.addEventListener('click', (event) => { event.stopPropagation(); liveMenu.hidden = !liveMenu.hidden; livePlus.setAttribute('aria-expanded', String(!liveMenu.hidden)) })
     liveMenu.querySelectorAll('[data-chat-add]').forEach((button) => button.addEventListener('click', () => {
       liveMenu.hidden = true; livePlus.setAttribute('aria-expanded', 'false')
@@ -1331,26 +1423,59 @@
       else textInput.click()
     }))
     liveTools.addEventListener('click', () => realPick('Инструменты чата', [
+      { label: 'Настройки диалога', description: 'Контекст и модели инструментов', icon: IC.cube },
       { label: 'Улучшить сообщение', description: 'Сделать запрос точнее перед отправкой', icon: IC.edit },
       { label: 'Перенести в картинку', description: 'Использовать текст как описание изображения', icon: IC.img },
       { label: 'Перенести в видео', description: 'Использовать текст как описание ролика', icon: IC.vid },
-      { label: 'Очистить диалог', description: 'Начать этот чат заново', icon: IC.trash || IC.edit },
+      { label: 'Удалить текущий чат', description: 'Удалить диалог и его историю', icon: IC.trash || IC.edit },
     ], -1, async (_item, choice) => {
-      if (choice === 0) await improveInput(chatgp, liveTools, 'text')
-      else if (choice === 1 || choice === 2) { gp.value = chatgp.value; gp.dispatchEvent(new Event('input', { bubbles: true })); go(choice === 2 ? 'vid' : 'img', 0) }
-      else { state.chatThreads[chatKey()] = []; renderChatLive(); toast('Диалог очищен') }
+      if (choice === 0) {
+        const meta = await ensureCurrentThread()
+        const imageModels = getImageModels('text_to_image'); const videoModels = getVideoModels('text_to_video')
+        realPick('Настройки диалога', [
+          { label: `Контекст · ${Number(meta.contextChars || 60000).toLocaleString('ru-RU')}`, description: 'Сколько предыдущего текста помнит этот чат', icon: IC.cube },
+          { label: 'Модель изображений', description: imageModels.find((item) => item.id === meta.imageModelId)?.label || 'Базовая модель студии', icon: IC.img },
+          { label: 'Модель видео', description: videoModels.find((item) => item.id === meta.videoModelId)?.name || 'Базовая модель студии', icon: IC.vid },
+        ], -1, (_setting, settingIndex) => {
+          const saveThread = async (values, message) => {
+            const response = await api(`/phone/chat/threads/${encodeURIComponent(meta.id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) })
+            if (!response.ok) { toast(await responseMessage(response, 'Не удалось сохранить настройки.')); return }
+            state.chatThreadMeta[chatKey()] = (await response.json()).thread; toast(message)
+          }
+          if (settingIndex === 0) realPick('Контекст диалога', [
+            { label: 'Короткий · 20 000', description: 'Быстрее для простых вопросов', icon: IC.cube },
+            { label: 'Обычный · 60 000', description: 'Рекомендуемый баланс', icon: IC.cube },
+            { label: 'Большой · 120 000', description: 'Для длинных документов', icon: IC.cube },
+          ], [20000, 60000, 120000].indexOf(Number(meta.contextChars || 60000)), (_context, contextIndex) => {
+            const contextChars = [20000, 60000, 120000][contextIndex]; void saveThread({ contextChars }, `Контекст: ${contextChars.toLocaleString('ru-RU')} символов`)
+          })
+          else if (settingIndex === 1) realPick('Модель изображений', imageModels.map((item) => ({ label: item.label || item.name, description: imageModelDescription(item), price: `${item.tokenHint || 1} кр.`, tokenKind: imageTokenKind(item), icon: IC.img })), Math.max(0, imageModels.findIndex((item) => item.id === meta.imageModelId)), (_model, modelIndex) => { void saveThread({ imageModelId: imageModels[modelIndex].id }, `Изображения: ${imageModels[modelIndex].label || imageModels[modelIndex].name}`) })
+          else realPick('Модель видео', videoModels.map((item) => ({ label: item.name, description: item.description || 'Создание видео из чата', price: `${item.publicPricing?.fromTokens || 1} кр.`, tokenKind: item.provider === 'comfyui' ? 'daily' : 'main', icon: IC.vid })), Math.max(0, videoModels.findIndex((item) => item.id === meta.videoModelId)), (_model, modelIndex) => { void saveThread({ videoModelId: videoModels[modelIndex].id }, `Видео: ${videoModels[modelIndex].name}`) })
+        })
+      }
+      else if (choice === 1) await improveInput(chatgp, liveTools, 'text')
+      else if (choice === 2 || choice === 3) { gp.value = chatgp.value; gp.dispatchEvent(new Event('input', { bubbles: true })); go(choice === 3 ? 'vid' : 'img', 0) }
+      else await window.__IZO_PHONE_DELETE_CHAT__?.(idx)
     }))
     liveModel.addEventListener('click', () => {
       const models = state.chatModels.length ? state.chatModels : [{ id: 'local:izo-chat', name: 'ИЗО Чат', description: 'Быстрая локальная модель ИЗО АСА', tokenCost: 1, tokenKind: 'daily', provider: 'local' }]
-      realPick('Модель чата', models.map((item) => ({ label: item.name, description: item.description, price: `${item.tokenCost} кр.`, tokenKind: item.tokenKind, icon: IC.cube })), Math.max(0, models.findIndex((item) => item.id === state.chatModelId)), (_item, choice) => {
+      realPick('Модель чата', models.map((item) => ({ label: item.name, description: `${item.description} · контекст ${(Number(item.contextChars || 60000) / 1000).toFixed(0)} тыс. симв.`, price: `${item.tokenCost} кр.`, tokenKind: item.tokenKind, icon: IC.cube })), Math.max(0, models.findIndex((item) => item.id === state.chatModelId)), async (_item, choice) => {
         state.chatModelId = models[choice].id
         state.chatRoute = models[choice].provider === 'local' ? 'local' : 'api'
         syncChatModelButton()
+        const meta = state.chatThreadMeta[chatKey()]
+        if (meta?.id) {
+          const response = await api(`/phone/chat/threads/${encodeURIComponent(meta.id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chatModelId: state.chatModelId }) })
+          if (response.ok) state.chatThreadMeta[chatKey()] = (await response.json()).thread
+        }
       })
     })
-    liveNew.addEventListener('click', () => {
-      if (TABS.chat[0] !== 'Новый чат') TABS.chat.unshift('Новый чат')
-      state.chatThreads['Новый чат'] = []; idx = 0; paint(); chatgp.focus(); toast('Новый диалог готов')
+    liveNew.addEventListener('click', async () => {
+      try {
+        const thread = await createChatThread()
+        const label = uniqueChatLabel(thread.title); TABS.chat.unshift(label); state.chatThreads[label] = []; state.chatThreadMeta[label] = thread
+        idx = 0; paint(); chatgp.focus(); toast('Новый диалог готов')
+      } catch (error) { toast(error.message || 'Не удалось создать чат') }
     })
     document.addEventListener('click', (event) => { if (!event.target.closest('#chatbar')) { liveMenu.hidden = true; livePlus.setAttribute('aria-expanded', 'false') } })
     growChatLive()
@@ -1406,6 +1531,7 @@
         loadChatModels(),
         api('/model-access').then(async (response) => { if (response.ok) state.modelAccess = await response.json() }).catch(() => undefined),
       ])
+      await loadChatThreads()
     }
     syncVideoOptions(); state.ready = true; paint()
     document.dispatchEvent(new CustomEvent('izo-phone-ready', { detail: { authenticated: Boolean(state.me) } }))

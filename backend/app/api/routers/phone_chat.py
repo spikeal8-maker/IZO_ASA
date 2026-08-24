@@ -24,6 +24,7 @@ from ...integrations.openrouter import (
     format_openrouter_public_error,
     request_openrouter_chat_completion,
 )
+from ...services import phone_chat_history
 
 
 PROVIDER_ENDPOINTS = load_provider_endpoint_policy()
@@ -37,7 +38,9 @@ PHONE_CHAT_SYSTEM_PROMPT = (
     "используй web_search. Никогда не говори, что у тебя нет интернета, пока не попробовал этот инструмент. "
     "Помогай формулировать идеи для изображений, видео и публикаций, но не утверждай, "
     "что файл или генерация уже созданы, если ты вернул только текст. "
-    "Пиши компактно: обычно 2–5 коротких абзацев или пунктов. Не повторяй вопрос пользователя. "
+    "Сначала дай прямой ответ. Пиши компактно: обычно 1–3 коротких абзаца или не больше трёх пунктов. "
+    "Для погоды начни с одной строки: город, температура и состояние; затем только осадки, ветер и важное предупреждение. "
+    "Не делай заголовок ради одного короткого ответа, не пересказывай вопрос и не описывай процесс поиска. "
     "Никогда не показывай JSON, имена полей, аргументы или внутренний результат вызова инструмента. "
     "После вызова инструмента не повторяй длинный промпт и дай только короткое человеческое пояснение. "
     "Если запрос не связан с творчеством, всё равно дай полезный краткий ответ."
@@ -86,11 +89,28 @@ class PhoneChatTurn(BaseModel):
 
 
 class PhoneChatRequest(BaseModel):
-    messages: list[PhoneChatTurn] = Field(min_length=1, max_length=20)
+    messages: list[PhoneChatTurn] = Field(min_length=1, max_length=100)
     route: Literal["auto", "local", "api"] = "auto"
     modelId: str | None = Field(default=None, max_length=200)
     requestId: str = Field(default_factory=lambda: uuid.uuid4().hex, min_length=8, max_length=100, pattern=r"^[A-Za-z0-9._:-]+$")
     images: list[str] = Field(default_factory=list, max_length=4)
+    threadId: str | None = Field(default=None, min_length=8, max_length=64, pattern=r"^[a-fA-F0-9]+$")
+
+
+class PhoneChatThreadCreate(BaseModel):
+    title: str = Field(default="Новый чат", max_length=80)
+    chatModelId: str = Field(default="local:izo-chat", max_length=200)
+    imageModelId: str | None = Field(default=None, max_length=200)
+    videoModelId: str | None = Field(default=None, max_length=200)
+    contextChars: int = Field(default=60000, ge=4000, le=240000)
+
+
+class PhoneChatThreadUpdate(BaseModel):
+    title: str | None = Field(default=None, max_length=80)
+    chatModelId: str | None = Field(default=None, max_length=200)
+    imageModelId: str | None = Field(default=None, max_length=200)
+    videoModelId: str | None = Field(default=None, max_length=200)
+    contextChars: int | None = Field(default=None, ge=4000, le=240000)
 
 
 @dataclass(frozen=True)
@@ -103,6 +123,7 @@ class PhoneChatDependencies:
     openrouter_text_models: Callable[[], Any]
     charge_tokens: Callable[..., dict[str, Any]]
     refund_tokens: Callable[..., bool]
+    connect_db: Callable[[], Any] | None = None
 
 
 def _chat_config(deps: PhoneChatDependencies) -> dict[str, Any]:
@@ -148,7 +169,17 @@ def _phone_chat_image_payloads(images: list[str]) -> list[tuple[str, str]]:
 
 
 def _phone_chat_history(req: PhoneChatRequest) -> list[dict[str, Any]]:
-    return [{"role": turn.role, "content": turn.content.strip()} for turn in req.messages[-20:]]
+    remaining = 60000
+    selected: list[dict[str, Any]] = []
+    for turn in reversed(req.messages):
+        content = turn.content.strip()
+        if selected and len(content) > remaining:
+            break
+        selected.append({"role": turn.role, "content": content[-remaining:]})
+        remaining -= min(remaining, len(content))
+        if remaining <= 0:
+            break
+    return list(reversed(selected))
 
 
 def _system_prompt() -> str:
@@ -371,7 +402,11 @@ async def phone_chat_ollama(
             "keep_alive": int(keep_alive) if keep_alive.lstrip("+-").isdigit() else keep_alive,
             "messages": messages,
             "tools": PHONE_CHAT_TOOLS,
-            "options": {"temperature": 0.35, "num_predict": 1000, "num_ctx": 16384},
+            "options": {
+                "temperature": 0.35,
+                "num_predict": 1000,
+                "num_ctx": max(4096, min(32768, int(config.get("localNumCtx") or 16384))),
+            },
         }
         content, raw_payload = await request_ollama_chat_message(body=body, timeout_seconds=timeout)
         payload = raw_payload if isinstance(raw_payload, dict) else {}
@@ -496,6 +531,71 @@ async def route_phone_chat(
 def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
     router = APIRouter()
 
+    def trusted_user_id(request: Request) -> tuple[dict[str, Any], str]:
+        trusted = deps.require_trusted_user(request)
+        user_id = str(trusted.get("legacy_user_id") or "")
+        if not user_id:
+            raise HTTPException(401, "Требуется вход в аккаунт.")
+        return trusted, user_id
+
+    @router.get("/api/phone/chat/threads")
+    async def phone_chat_threads(request: Request) -> dict[str, Any]:
+        _trusted, user_id = trusted_user_id(request)
+        if deps.connect_db is None:
+            return {"ok": True, "threads": []}
+        with deps.connect_db() as conn:
+            return {"ok": True, "threads": phone_chat_history.list_threads(conn, user_id)}
+
+    @router.post("/api/phone/chat/threads")
+    async def phone_chat_thread_create(req: PhoneChatThreadCreate, request: Request) -> dict[str, Any]:
+        _trusted, user_id = trusted_user_id(request)
+        if deps.connect_db is None:
+            raise HTTPException(503, "История чатов временно недоступна.")
+        with deps.connect_db() as conn:
+            thread = phone_chat_history.create_thread(
+                conn, user_id, title=req.title, chat_model_id=req.chatModelId,
+                image_model_id=req.imageModelId, video_model_id=req.videoModelId,
+                context_chars=req.contextChars,
+            )
+            conn.commit()
+        return {"ok": True, "thread": thread}
+
+    @router.patch("/api/phone/chat/threads/{thread_id}")
+    async def phone_chat_thread_update(thread_id: str, req: PhoneChatThreadUpdate, request: Request) -> dict[str, Any]:
+        _trusted, user_id = trusted_user_id(request)
+        if deps.connect_db is None:
+            raise HTTPException(503, "История чатов временно недоступна.")
+        with deps.connect_db() as conn:
+            thread = phone_chat_history.update_thread(conn, user_id, thread_id, req.model_dump(exclude_none=True))
+            conn.commit()
+        if thread is None:
+            raise HTTPException(404, "Чат не найден.")
+        return {"ok": True, "thread": thread}
+
+    @router.delete("/api/phone/chat/threads/{thread_id}")
+    async def phone_chat_thread_delete(thread_id: str, request: Request) -> dict[str, Any]:
+        _trusted, user_id = trusted_user_id(request)
+        if deps.connect_db is None:
+            raise HTTPException(503, "История чатов временно недоступна.")
+        with deps.connect_db() as conn:
+            deleted = phone_chat_history.delete_thread(conn, user_id, thread_id)
+            conn.commit()
+        if not deleted:
+            raise HTTPException(404, "Чат не найден.")
+        return {"ok": True}
+
+    @router.get("/api/phone/chat/threads/{thread_id}/messages")
+    async def phone_chat_thread_messages(thread_id: str, request: Request) -> dict[str, Any]:
+        _trusted, user_id = trusted_user_id(request)
+        if deps.connect_db is None:
+            return {"ok": True, "messages": []}
+        with deps.connect_db() as conn:
+            thread = phone_chat_history.get_thread(conn, user_id, thread_id)
+            messages = phone_chat_history.list_messages(conn, user_id, thread_id) if thread else []
+        if thread is None:
+            raise HTTPException(404, "Чат не найден.")
+        return {"ok": True, "thread": thread, "messages": messages}
+
     @router.get("/api/phone/chat/models")
     async def phone_chat_models(request: Request) -> dict[str, Any]:
         deps.require_trusted_user(request)
@@ -509,6 +609,8 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
                 "tokenCost": int(config.get("localTokenCost") or 1),
                 "tokenKind": "daily",
                 "description": "Быстрая локальная модель ИЗО АСА",
+                "contextChars": int(config.get("contextChars") or 60000),
+                "runtimeContextTokens": int(config.get("localNumCtx") or 16384),
             })
         enabled_api = {str(value) for value in config.get("enabledApiModels", [])}
         costs = config.get("apiTokenCosts") if isinstance(config.get("apiTokenCosts"), dict) else {}
@@ -530,26 +632,33 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
                 "tokenKind": "main",
                 "description": "Облачная текстовая модель",
                 "contextLength": int(item.get("contextLength") or 0),
+                "contextChars": min(int(config.get("contextChars") or 60000), max(4000, int(item.get("contextLength") or 15000) * 4)),
             })
         return {"ok": True, "defaultModel": str(config.get("defaultModel") or "local:izo-chat"), "models": models}
 
     @router.post("/api/phone/chat")
     async def phone_chat(req: PhoneChatRequest, request: Request) -> dict[str, Any]:
-        trusted = deps.require_trusted_user(request)
+        trusted, user_id = trusted_user_id(request)
         if req.messages[-1].role != "user":
             raise HTTPException(400, "Последним в чате должно быть сообщение пользователя.")
         try:
             _phone_chat_image_payloads(req.images)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
+        routed_req = req
+        if req.threadId and deps.connect_db is not None:
+            with deps.connect_db() as conn:
+                thread = phone_chat_history.get_thread(conn, user_id, req.threadId)
+                if thread is None:
+                    raise HTTPException(404, "Чат не найден.")
+                history = phone_chat_history.bounded_history(conn, user_id, req.threadId, int(thread["contextChars"]))
+            messages = [PhoneChatTurn(**item) for item in [*history, req.messages[-1].model_dump()]][-100:]
+            routed_req = req.model_copy(update={"messages": messages, "modelId": req.modelId or thread["chatModelId"]})
         config = _chat_config(deps)
         try:
-            _public_id, selected_provider, selected_model, selected_cost, selected_kind = _resolve_phone_chat_model(req, config)
+            _public_id, selected_provider, selected_model, selected_cost, selected_kind = _resolve_phone_chat_model(routed_req, config)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-        user_id = str(trusted.get("legacy_user_id") or "")
-        if not user_id:
-            raise HTTPException(401, "Требуется вход в аккаунт.")
         charge = deps.charge_tokens(
             user_id=user_id,
             token_cost=selected_cost,
@@ -560,7 +669,7 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
         started = time.monotonic()
         try:
             routed = await asyncio.wait_for(
-                route_phone_chat(req, deps),
+                route_phone_chat(routed_req, deps),
                 timeout=185,
             )
             if len(routed) == 4:  # Compatibility for older isolated route test doubles.
@@ -610,6 +719,20 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
                 "tools": [str(item.get("name") or "") for item in tool_runs if isinstance(item, dict)],
             },
         )
+        if req.threadId and deps.connect_db is not None:
+            with deps.connect_db() as conn:
+                phone_chat_history.add_exchange(
+                    conn, user_id, req.threadId,
+                    user_content=req.messages[-1].content, assistant_content=reply,
+                    provider=provider, model=public_model_id, tools=tool_runs,
+                    charged_tokens=token_cost, token_kind=token_kind,
+                )
+                if len(phone_chat_history.list_messages(conn, user_id, req.threadId, limit=3)) <= 2:
+                    phone_chat_history.update_thread(
+                        conn, user_id, req.threadId,
+                        {"title": req.messages[-1].content.strip()[:42], "chatModelId": public_model_id},
+                    )
+                conn.commit()
         return {
             "ok": True,
             "reply": reply,
