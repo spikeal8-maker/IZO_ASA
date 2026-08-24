@@ -813,7 +813,8 @@ const TABI={
   '<svg viewBox="0 0 24 24"><path d="M12 4v12"/><path d="M8.5 7.5v5.5a3.5 3.5 0 1 0 7 0V7.5"/><path d="M5 20h14"/></svg>'
  ],
  vid:[IC.vid,IC.animate,IC.extend,IC.clip],
- snd:[IC.mic,IC.music,IC.extract,'<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="10" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/><path d="M16.5 6.5l3-1.5v4l-3-1.5"/></svg>']
+ snd:[IC.mic,IC.music,IC.extract,'<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="10" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/><path d="M16.5 6.5l3-1.5v4l-3-1.5"/></svg>'],
+ three:[IC.cube]
 };
 function tabIcon(view,i){const arr=TABI[view]||[];return arr[i]||'';}
 
@@ -822,7 +823,8 @@ const TABS={feed:['Популярное','Новое','Ремиксы','Челл
  img:['По описанию','Изменить','Нарисовать'],
  chat:['Реклама кофейни','Аватары','Обложка трека','Озвучка урока'],
  vid:['По описанию','Оживить фото','Продолжить','Клип'],
- snd:['Озвучка','Музыка','Из видео','Клонировать голос']};
+ snd:['Озвучка','Музыка','Из видео','Клонировать голос'],
+ three:['3D-модель']};
 const RATIOS=[['1:1','квадрат','для профиля и превью',26,26],['16:9','широкий','YouTube, презентации',32,18],
  ['9:16','высокий','сторис и рилс',18,32],['3:2','фото','печать и публикации',30,20]];
 const QUAL=[['SD','512 × 512','быстро и дёшево'],['HD','1024 × 1024','обычный выбор'],['Full HD','1920 × 1920','для печати A4'],['4K','3840 × 3840','максимум деталей']];
@@ -835,7 +837,14 @@ const CHAT_MODEL_GROUPS={
  audio:{title:'Звук',icon:'audio',models:[['ElevenLabs','речь и голоса'],['Suno','песни и музыкальные треки'],['MusicGen','фоновая музыка и вариации']]}
 };
 const chatModelChoice={text:0,image:0,video:0,audio:0};
-let view='feed',idx=0,gstate='idle',picked=0,ratio=0,qual=1,cnt=0,model=0,style=-1,photo=null,lastY=0,headerLockUntil=0;
+const PHONE_PATHS={img:'/phone/image',vid:'/phone/video',snd:'/phone/audio',chat:'/phone/chat',three:'/phone/3d'};
+const phoneStateFromPath=()=>{
+ const path=location.pathname.replace(/\/+$/,'')||'/phone';
+ const pair=Object.entries(PHONE_PATHS).find(([,route])=>route===path);
+ return pair?{view:pair[0],idx:0}:{view:'img',idx:0};
+};
+const initialPhoneState=phoneStateFromPath();
+let view=initialPhoneState.view,idx=initialPhoneState.idx,gstate='idle',picked=0,ratio=0,qual=1,cnt=0,model=0,style=-1,photo=null,lastY=0,headerLockUntil=0;
 let chatNavOpen=false;
 const chatMessages={};
 const IMAGE_PRESETS=window.__IZO_PHONE_IMAGE_PRESETS__||{styles:[],templates:[]};
@@ -1146,9 +1155,11 @@ function paint(){
    `<div class="card"><img alt="" src="${I[x]}"><button class="feed-like" type="button" aria-label="Лайки загружаются" disabled><span class="heart" aria-hidden="true">♡</span><span>0</span></button></div>`).join('')+'</div>';
  else if(view==='gal')scr.innerHTML='<div class="gal">'+GAL.map(x=>`<span><img alt="" src="${I[x]}"></span>`).join('')+'</div>';
  else if(view==='chat'){paintChat();chatgp.placeholder='Сообщение…';}
+ else if(view==='three')scr.innerHTML=`<div class="phone-preview-empty" style="min-height:58vh"><div class="phone-preview-empty-copy"><span class="spark">3D</span><b>3D-моделирование</b><span>Раздел уже зарезервирован в мобильной навигации. Генерацию включим после подключения и проверки 3D-провайдера.</span><button type="button" class="b" data-three-back>Вернуться к изображениям</button></div></div>`;
  else if(view==='snd'){paintSnd();gp.placeholder=idx===0?'Вставьте текст, который нужно озвучить…':idx===1?'Например: спокойная музыка для научного ролика…':idx===2?'Опишите, что сделать со звуком из видео…':'Опишите, где будет использоваться голос…';}
  else if(view==='vid'){paintVid();gp.placeholder=idx===0?'Например: робот идёт по ночному городу, камера приближается…':idx===1?'Опишите, как должно ожить фото…':idx===2?'Опишите продолжение видео…':'Опишите следующую сцену клипа…';}
  else{paintGen();gp.placeholder=idx===0?'Например: сова в космосе, неоновые звёзды…':idx===1?'Опишите, что изменить или как совместить изображения…':'Опишите, как дорисовать набросок…';}
+ scr.querySelector('[data-three-back]')?.addEventListener('click',()=>go('img'));
  const rb=document.getElementById('run');
  if(view==='snd')requestAnimationFrame(()=>{const d=document.querySelector('.dock').offsetHeight;
   body.style.paddingBottom=(d+18)+'px';});
@@ -1270,8 +1281,14 @@ document.querySelectorAll('.promptbar .ic').forEach(b=>b.addEventListener('click
  if(t==='add')toast('Прикрепите фото, набросок или референс');
  if(t==='fix'){gp.value=(gp.value||'Сова в космосе')+', мягкий контровой свет, детализированные перья, глубина резкости';toast('Описание дополнено');}
  if(t==='hist')toast('Повторим прошлый запрос с теми же настройками');}));
-const go=(v,i=0)=>{
- view=v;idx=i;document.querySelector('.head').classList.remove('hide');lastY=0;body.scrollTop=0;paint();closeSheets();
+const go=(v,i=0,replace=false)=>{
+ if(v==='feed'){location.assign('/feed');return;}
+ if(v==='gal'){location.assign('/gallery');return;}
+ if(v==='you'){location.assign('/profile');return;}
+ view=v;idx=i;
+ const route=PHONE_PATHS[v];
+ if(route&&window.top===window.self&&location.pathname!==route)history[replace?'replaceState':'pushState']({},'',route);
+ document.querySelector('.head').classList.remove('hide');lastY=0;body.scrollTop=0;paint();closeSheets();
 };
 tF.addEventListener('click',()=>go('feed'));tG.addEventListener('click',()=>go('gal'));
 document.querySelectorAll('#nav button[data-s]').forEach(b=>b.addEventListener('click',()=>{
@@ -1280,6 +1297,8 @@ document.querySelectorAll('#nav button[data-s]').forEach(b=>b.addEventListener('
  else if(b.dataset.s==='snd')go('snd');
  else if(b.dataset.s==='chat')go('chat');
  else toast('Этот раздел ещё не сделан');}));
+addEventListener('popstate',()=>{const next=phoneStateFromPath();view=next.view;idx=next.idx;document.querySelector('.head').classList.remove('hide');lastY=0;body.scrollTop=0;paint();closeSheets();});
+if(window.top===window.self&&(location.pathname==='/phone'||location.pathname==='/phone/'))history.replaceState({},'',PHONE_PATHS.img);
 const X='<button class="x" data-close aria-label="Закрыть"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>';
 const M=[
  ['Изображения',[
@@ -1299,6 +1318,9 @@ const M=[
   ['music','Создать музыку','описать жанр, настроение и длительность','snd:1'],
   ['extract','Работа со звуком видео','извлечь или заменить аудиодорожку','snd:2'],
   ['mic','Клонировать голос','создать голос по разрешённому образцу','snd:3']
+ ]],
+ ['3D',[
+  ['cube','3D-моделирование','раздел подготовлен и появится после проверки провайдера','three']
  ]],
  ['Обзор и общение',[
   ['feed','Лента','работы сообщества и идеи для вдохновения','feed'],
@@ -1331,9 +1353,9 @@ shMenu.querySelectorAll('[data-r]').forEach(el=>el.addEventListener('click',()=>
  if(r.startsWith('img:'))return go('img',+r.split(':')[1]);
  if(r.startsWith('vid:'))return go('vid',+r.split(':')[1]);
  if(r.startsWith('snd:'))return go('snd',+r.split(':')[1]);
- if(r==='feed')return go('feed');if(r==='gal')return go('gal');if(r==='chat')return go('chat');
+ if(r==='feed')return go('feed');if(r==='gal')return go('gal');if(r==='chat')return go('chat');if(r==='three')return go('three');
  if(r==='help'){closeSheets();return setTimeout(openHelp,160);}
- if(r==='you'){closeSheets();setTimeout(()=>openSheet('you'),160);}}));
+ if(r==='you')return go('you');}));
 shYou.innerHTML=`<div class="grab"></div><div class="shead"><h4>Профиль</h4>${X}</div>
  <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px"><img alt="" src="${I.a9}" style="width:46px;height:46px;border-radius:50%;object-fit:cover">
  <span><b style="display:block;font:750 16px/1.2 inherit">Александр</b><span style="font:650 11.5px/1.3 inherit;color:var(--tx3)">Pro · до 1 августа</span></span></div>
@@ -1377,8 +1399,8 @@ function openSheet(k){Object.values(SH).forEach(s=>s.classList.remove('on'));SH[
  if(k==='you'){dayB.textContent=day;monB.textContent=mon;}}
 function closeSheets(){Object.values(SH).forEach(s=>s.classList.remove('on'));shade.classList.remove('on');}
 fabB.addEventListener('click',()=>openSheet('menu'));
-youB.addEventListener('click',()=>openSheet('you'));
-youB.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openSheet('you');}});
+youB.addEventListener('click',()=>go('you'));
+youB.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go('you');}});
 shade.addEventListener('click',closeSheets);
 document.addEventListener('click',e=>{if(e.target.closest('[data-close]'))closeSheets();});
 let x0=null,y0=null;
