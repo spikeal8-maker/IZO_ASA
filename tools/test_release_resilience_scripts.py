@@ -103,6 +103,13 @@ def test_project_promoter_keeps_backend_online_during_rollback_snapshot() -> Non
     assert "Start-Service -Name $serviceName" in script
     assert "Global\\IZO_ASA_ProjectReleasePromotion" in script
     assert "check_frontend_release_identity.mjs" in script
+    assert "ensure_service_python_runtime.py" in script
+    assert "C:\\IZO_ASA\\runtime\\python311\\python.exe" in script
+    assert "--required-module fastapi" in script
+    assert "--repair" in script
+    service_runtime = "& $serviceBasePython $servicePythonTool"
+    assert script.index(service_runtime) < script.index(online_backup)
+    assert script.index(service_runtime) < script.index(backend_stop)
     assert "--expected $releaseId" in script
     assert script.index("--expected $releaseId") < script.index("Copy-Item -Path (Join-Path $newRelease 'frontend\\dist\\*')")
     assert "$frontendMarker.Success" in script

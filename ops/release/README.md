@@ -14,3 +14,12 @@ Availability invariants:
 - the outer cleanup attempts to leave backend and Caddy running;
 - production installation must compare the normalized tracked and runtime
   scripts and record the exact release SHA.
+
+Install the promoter only from an exact clean commit. The installer creates a
+rollback copy and a machine-readable receipt, and it does not restart services:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\ops\release\install-project-promoter.ps1 `
+  -ExpectedCommit <40-character-clean-commit-sha>
+```

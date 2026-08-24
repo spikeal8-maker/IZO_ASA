@@ -25,6 +25,18 @@
 - AdGuard VPN, FRP, VPS, DNS и production data вне scope без отдельного решения
   владельца.
 
+### `REL-SVC-001` — service-safe candidate Python
+
+Статус: **CODE COMPLETE; TARGETED AND CI COMPONENTS GREEN; CLEAN FULL PENDING;
+NOT DEPLOYED**.
+
+- журнал неудачного promotion доказал не медленный startup, а venv launcher,
+  привязанный к Python интерактивного профиля и недоступный `LocalService`;
+- candidate теперь обязан проверить/исправить venv от стабильного server Python
+  до online backup и до остановки production-служб;
+- exact incident, contract и acceptance:
+  [rel-svc-001-service-python.md](rel-svc-001-service-python.md).
+
 ## Пакет `PHONE-CHAT-MINIMAL-UX-20260824`
 
 Статус: **CODE COMPLETE; TARGETED AND QUICK TESTS GREEN; FULL RELEASE VERIFICATION PENDING**.

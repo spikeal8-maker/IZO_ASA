@@ -16,6 +16,7 @@ $updateStatusPath = 'C:\IZO_ASA\health\update-current.json'
 $git = 'C:\Users\admins\AppData\Local\Programs\Git\cmd\git.exe'
 $nodeDirectory = 'C:\Users\admins\AppData\Local\Programs\nodejs'
 $node = Join-Path $nodeDirectory 'node.exe'
+$serviceBasePython = 'C:\IZO_ASA\runtime\python311\python.exe'
 
 function Get-ServiceEnvironmentNode {
     param([xml]$Document, [string]$Name)
@@ -200,15 +201,16 @@ $releaseId = ''
 $manifestPath = ''
 $frontendRoot = Join-Path $newRelease 'frontend\dist'
 $hotBackupTool = Join-Path $newRelease 'tools\sqlite_hot_backup.py'
+$servicePythonTool = Join-Path $newRelease 'tools\ensure_service_python_runtime.py'
 $ltxLauncherSource = Join-Path $newRelease 'ops\ltx23\start-local-ltx-comfyui.ps1'
 $ltxLauncherRuntime = 'C:\IZO_ASA\runtime\start-local-ltx-comfyui.ps1'
 
 try {
     foreach ($required in @(
-        "$newRelease\backend\.venv\Scripts\python.exe",
         "$newRelease\backend\main.py",
+        "$newRelease\backend\requirements.txt",
         "$newRelease\frontend\dist\index.html",
-        $hotBackupTool,
+        $hotBackupTool, $servicePythonTool, $serviceBasePython,
         $ltxLauncherSource,
         $backendXml, $backendExe, $caddyFile, $caddyExe, $database, $git
     )) {
@@ -216,6 +218,25 @@ try {
             throw "Required promotion input is missing: $required"
         }
     }
+
+    # A candidate may contain a venv created by an interactive user Python. Its
+    # launcher can pass verification but fail under LocalService. Repair and
+    # validate it while the previous production backend is still online.
+    & $serviceBasePython $servicePythonTool `
+        --release-root $newRelease `
+        --base-python $serviceBasePython `
+        --required-module fastapi `
+        --required-module uvicorn `
+        --required-module PIL `
+        --required-module httpx `
+        --repair
+    if ($LASTEXITCODE -ne 0) {
+        throw "Candidate Python service-runtime preparation failed with exit code $LASTEXITCODE."
+    }
+    if (-not (Test-Path -LiteralPath "$newRelease\backend\.venv\Scripts\python.exe" -PathType Leaf)) {
+        throw 'Candidate service-safe Python launcher was not created.'
+    }
+
     if (-not $database.StartsWith('C:\IZO_ASA\', [StringComparison]::OrdinalIgnoreCase) -and
         -not $database.StartsWith('F:\IZO_ASA\', [StringComparison]::OrdinalIgnoreCase) -and
         -not $database.StartsWith('F:\IZO_ASA_StandbyData\', [StringComparison]::OrdinalIgnoreCase)) {
