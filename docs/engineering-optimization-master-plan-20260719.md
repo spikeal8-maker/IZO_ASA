@@ -27,8 +27,8 @@
 
 ### `REL-SVC-001` — service-safe candidate Python
 
-Статус: **CODE COMPLETE; TARGETED AND CI COMPONENTS GREEN; CLEAN FULL PENDING;
-NOT DEPLOYED**.
+Статус: **CODE COMPLETE; TARGETED AND CLEAN CI GREEN; FULL BLOCKED BY MISSING
+ACTIVE FRONTEND MANIFEST; NOT DEPLOYED**.
 
 - журнал неудачного promotion доказал не медленный startup, а venv launcher,
   привязанный к Python интерактивного профиля и недоступный `LocalService`;

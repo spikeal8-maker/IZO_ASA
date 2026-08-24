@@ -1,7 +1,7 @@
 # REL-SVC-001 — service-safe Python для release candidate
 
-Статус: **CODE COMPLETE; TARGETED AND CI COMPONENTS GREEN; CLEAN FULL PENDING;
-NOT DEPLOYED**.
+Статус: **CODE COMPLETE; TARGETED AND CLEAN CI GREEN; FULL BLOCKED BY MISSING
+ACTIVE FRONTEND MANIFEST; NOT DEPLOYED**.
 
 ## Инцидент
 
@@ -44,6 +44,11 @@ NOT DEPLOYED**.
 9. Controlled promotion и rollback выполняются последовательно три раза.
 10. Exact release identity, local/public health и service process ancestry
     подтверждаются после каждого переключения.
+
+Текущее verification evidence: пять последовательных focused-прогонов по 14
+тестов и clean CI (`1827 passed`, frontend lint/build/release identity/origin
+isolation/studio resilience). `Full` останавливается до suite на live gate:
+у действующего старого frontend отсутствует обязательный active manifest.
 
 Документ и код не разрешают restart/deploy. AdGuard VPN, FRP, VPS, DNS,
 production DB/media и provider traffic вне scope.
