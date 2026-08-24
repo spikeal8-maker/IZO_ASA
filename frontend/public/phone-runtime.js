@@ -651,18 +651,19 @@
     const recording = state.recording?.target === 'chat' ? state.recording : null
     const activity = recording || state.chatActivity
     status.hidden = !activity
+    box.classList.toggle('chat-state-active', Boolean(activity))
     box.classList.toggle('chat-busy', Boolean(state.chatBusy))
-    input.disabled = Boolean(state.chatBusy)
+    input.disabled = Boolean(state.chatBusy || recording)
     if (!activity) { status.innerHTML = ''; return }
     if (recording) {
       const elapsed = Date.now() - recording.startedAt
       status.innerHTML = recording.phase === 'transcribing'
-        ? '<span class="live-spinner"></span><span class="copy"><b>Распознаю речь</b><span>Текст появится здесь автоматически</span></span>'
-        : `<span class="dot"></span><span class="copy"><b>Слушаю вас</b><span>Отпустите микрофон, чтобы закончить</span></span><span class="wave">${voiceWave()}</span><time>${voiceTime(elapsed)}</time>`
+        ? '<span class="live-spinner"></span><span class="copy"><b>Распознаю речь…</b></span>'
+        : `<span class="wave">${voiceWave()}</span><span class="copy"><b>Слушаю…</b><span class="detail">отпустите для отправки</span></span><time>${voiceTime(elapsed)}</time>`
       return
     }
     const progress = Number(activity.progress)
-    status.innerHTML = `<span class="live-spinner"></span><span class="copy"><b>${html(activity.label || 'Обдумываю ответ')}</b><span>${Number.isFinite(progress) ? `Готово на ${Math.max(0, Math.min(100, Math.round(progress)))}%` : html(activity.detail || 'Пожалуйста, подождите')}</span></span>`
+    status.innerHTML = `<span class="live-spinner"></span><span class="copy"><b>${html(activity.label || 'Обдумываю…')}</b>${Number.isFinite(progress) ? `<span class="detail">${Math.max(0, Math.min(100, Math.round(progress)))}%</span>` : ''}</span>`
   }
 
   function appendVoiceText(input, text, target) {
@@ -739,6 +740,25 @@
     }
   }
 
+  function bindHoldToTalk(button, target, input) {
+    let held = false
+    button.style.touchAction = 'none'
+    button.addEventListener('pointerdown', async (event) => {
+      event.preventDefault(); held = true
+      try { button.setPointerCapture?.(event.pointerId) } catch {}
+      await toggleVoice(target, button, input)
+      if (!held && state.recording?.button === button) stopRecording()
+    })
+    const release = (event) => {
+      event.preventDefault(); held = false
+      if (state.recording?.button === button && state.recording.phase === 'recording') stopRecording()
+    }
+    button.addEventListener('pointerup', release)
+    button.addEventListener('pointercancel', release)
+    button.addEventListener('lostpointercapture', release)
+    button.addEventListener('click', (event) => event.preventDefault())
+  }
+
   const improveMode = () => imageMode() === 'text_to_image' ? 'text' : imageMode() === 'paint' ? 'sketch' : imageMode() === 'edit' ? 'edit' : 'i2i'
 
   async function improveInput(input, button, mode = improveMode()) {
@@ -763,8 +783,8 @@
       const clean = button.cloneNode(true); button.replaceWith(clean); return [clean.dataset.t, clean]
     }))
     if (buttons.mic) {
-      buttons.mic.dataset.liveMic = 'image'; buttons.mic.title = 'Сказать голосом'
-      buttons.mic.addEventListener('click', () => toggleVoice('image', buttons.mic, gp))
+      buttons.mic.dataset.liveMic = 'image'; buttons.mic.title = 'Удерживайте, чтобы говорить'
+      bindHoldToTalk(buttons.mic, 'image', gp)
     }
     if (buttons.add) buttons.add.addEventListener('click', () => {
       if (view !== 'img') return
@@ -1047,9 +1067,11 @@
     }
   }
 
-  function realPick(title, items, current, choose) {
-    shPick.innerHTML = `<div class="grab"></div><div class="shead"><h4>${html(title)}</h4>${X}</div>${items.map((item, index) => `<div class="pick ${item.disabled ? 'disabled' : ''} ${index === current ? 'on' : ''}" data-live-pick="${index}"><span class="fig">${item.icon || IC.cube}</span><span><b>${html(item.label)}</b><span class="ds">${html(item.description || '')}</span></span>${item.price ? `<span class="live-price token-kind-${item.tokenKind || 'main'}">${html(item.price)}</span>` : ''}</div>`).join('')}`
+  function realPick(title, items, current, choose, options = {}) {
+    const back = typeof options.back === 'function' ? '<button class="back" type="button" aria-label="Назад"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>' : ''
+    shPick.innerHTML = `<div class="grab"></div><div class="shead">${back}<h4>${html(title)}</h4>${X}</div>${items.map((item, index) => `<div class="pick ${item.disabled ? 'disabled' : ''} ${index === current ? 'on' : ''}" data-live-pick="${index}"><span class="fig">${item.icon || IC.cube}</span><span><b>${html(item.label)}</b><span class="ds">${html(item.description || '')}</span></span>${item.price ? `<span class="live-price token-kind-${item.tokenKind || 'main'}">${html(item.price)}</span>` : ''}</div>`).join('')}`
     shPick.querySelectorAll('[data-live-pick]').forEach((node) => node.addEventListener('click', () => { const item = items[Number(node.dataset.livePick)]; if (!item || item.disabled) return; closeSheets(); choose(item, Number(node.dataset.livePick)) }))
+    shPick.querySelector('.back')?.addEventListener('click', () => { void options.back() })
     openSheet('pick')
   }
 
@@ -1439,20 +1461,7 @@
       if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.stopImmediatePropagation(); sendChatLive() }
     }, true)
     chatgp.addEventListener('input', growChatLive); liveSend.addEventListener('click', sendChatLive)
-    let chatVoiceHeld = false
-    liveMic.style.touchAction = 'none'
-    liveMic.addEventListener('pointerdown', async (event) => {
-      event.preventDefault(); chatVoiceHeld = true
-      try { liveMic.setPointerCapture?.(event.pointerId) } catch {}
-      await toggleVoice('chat', liveMic, chatgp)
-      if (!chatVoiceHeld && state.recording?.button === liveMic) stopRecording()
-    })
-    const releaseVoice = (event) => {
-      event.preventDefault(); chatVoiceHeld = false
-      if (state.recording?.button === liveMic && state.recording.phase === 'recording') stopRecording()
-    }
-    liveMic.addEventListener('pointerup', releaseVoice); liveMic.addEventListener('pointercancel', releaseVoice); liveMic.addEventListener('lostpointercapture', releaseVoice)
-    liveMic.addEventListener('click', (event) => event.preventDefault())
+    bindHoldToTalk(liveMic, 'chat', chatgp)
     livePlus.addEventListener('click', (event) => { event.stopPropagation(); liveMenu.hidden = !liveMenu.hidden; livePlus.setAttribute('aria-expanded', String(!liveMenu.hidden)) })
     liveMenu.querySelectorAll('[data-chat-add]').forEach((button) => button.addEventListener('click', () => {
       liveMenu.hidden = true; livePlus.setAttribute('aria-expanded', 'false')
@@ -1460,41 +1469,44 @@
       else if (button.dataset.chatAdd === 'camera') cameraInput.click()
       else textInput.click()
     }))
-    liveTools.addEventListener('click', () => realPick('Инструменты чата', [
-      { label: 'Настройки диалога', description: 'Контекст и модели инструментов', icon: IC.cube },
-      { label: 'Улучшить сообщение', description: 'Сделать запрос точнее перед отправкой', icon: IC.edit },
-      { label: 'Перенести в картинку', description: 'Использовать текст как описание изображения', icon: IC.img },
-      { label: 'Перенести в видео', description: 'Использовать текст как описание ролика', icon: IC.vid },
-      { label: 'Удалить текущий чат', description: 'Удалить диалог и его историю', icon: IC.trash || IC.edit },
+    const memoryLabel = (value) => Number(value) <= 20000 ? 'Короткая' : Number(value) >= 120000 ? 'Расширенная' : 'Обычная'
+    const openChatTools = () => realPick('Ещё', [
+      { label: 'Память и создание', description: 'Память чата, изображения и видео', icon: IC.cube },
+      { label: 'Улучшить текст', description: 'Сделать сообщение точнее', icon: IC.edit },
+      { label: 'Сделать изображение', description: 'Перенести текст в генератор', icon: IC.img },
+      { label: 'Сделать видео', description: 'Перенести текст в видеогенератор', icon: IC.vid },
+      { label: 'Удалить чат', description: 'Удалить этот диалог', icon: IC.trash || IC.edit },
     ], -1, async (_item, choice) => {
-      if (choice === 0) {
-        const meta = await ensureCurrentThread()
-        const imageModels = getImageModels('text_to_image'); const videoModels = getVideoModels('text_to_video')
-        realPick('Настройки диалога', [
-          { label: `Контекст · ${Number(meta.contextChars || 60000).toLocaleString('ru-RU')}`, description: 'Сколько предыдущего текста помнит этот чат', icon: IC.cube },
-          { label: 'Модель изображений', description: imageModels.find((item) => item.id === meta.imageModelId)?.label || 'Базовая модель студии', icon: IC.img },
-          { label: 'Модель видео', description: videoModels.find((item) => item.id === meta.videoModelId)?.name || 'Базовая модель студии', icon: IC.vid },
-        ], -1, (_setting, settingIndex) => {
-          const saveThread = async (values, message) => {
-            const response = await api(`/phone/chat/threads/${encodeURIComponent(meta.id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) })
-            if (!response.ok) { toast(await responseMessage(response, 'Не удалось сохранить настройки.')); return }
-            state.chatThreadMeta[chatKey()] = (await response.json()).thread; toast(message)
-          }
-          if (settingIndex === 0) realPick('Контекст диалога', [
-            { label: 'Короткий · 20 000', description: 'Быстрее для простых вопросов', icon: IC.cube },
-            { label: 'Обычный · 60 000', description: 'Рекомендуемый баланс', icon: IC.cube },
-            { label: 'Большой · 120 000', description: 'Для длинных документов', icon: IC.cube },
-          ], [20000, 60000, 120000].indexOf(Number(meta.contextChars || 60000)), (_context, contextIndex) => {
-            const contextChars = [20000, 60000, 120000][contextIndex]; void saveThread({ contextChars }, `Контекст: ${contextChars.toLocaleString('ru-RU')} символов`)
-          })
-          else if (settingIndex === 1) realPick('Модель изображений', imageModels.map((item) => ({ label: item.label || item.name, description: imageModelDescription(item), price: `${item.tokenHint || 1} кр.`, tokenKind: imageTokenKind(item), icon: IC.img })), Math.max(0, imageModels.findIndex((item) => item.id === meta.imageModelId)), (_model, modelIndex) => { void saveThread({ imageModelId: imageModels[modelIndex].id }, `Изображения: ${imageModels[modelIndex].label || imageModels[modelIndex].name}`) })
-          else realPick('Модель видео', videoModels.map((item) => ({ label: item.name, description: item.description || 'Создание видео из чата', price: `${item.publicPricing?.fromTokens || 1} кр.`, tokenKind: item.provider === 'comfyui' ? 'daily' : 'main', icon: IC.vid })), Math.max(0, videoModels.findIndex((item) => item.id === meta.videoModelId)), (_model, modelIndex) => { void saveThread({ videoModelId: videoModels[modelIndex].id }, `Видео: ${videoModels[modelIndex].name}`) })
-        })
-      }
+      if (choice === 0) await openChatPreferences()
       else if (choice === 1) await improveInput(chatgp, liveTools, 'text')
       else if (choice === 2 || choice === 3) { gp.value = chatgp.value; gp.dispatchEvent(new Event('input', { bubbles: true })); go(choice === 3 ? 'vid' : 'img', 0) }
       else await window.__IZO_PHONE_DELETE_CHAT__?.(idx)
-    }))
+    })
+    const openChatPreferences = async () => {
+      const meta = await ensureCurrentThread()
+      const imageModels = getImageModels('text_to_image'); const videoModels = getVideoModels('text_to_video')
+      const saveThread = async (values, message) => {
+        const response = await api(`/phone/chat/threads/${encodeURIComponent(meta.id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) })
+        if (!response.ok) { toast(await responseMessage(response, 'Не удалось сохранить.')); return }
+        state.chatThreadMeta[chatKey()] = (await response.json()).thread; toast(message)
+      }
+      realPick('Память и создание', [
+        { label: 'Память чата', description: memoryLabel(meta.contextChars || 60000), icon: IC.cube },
+        { label: 'Изображения', description: imageModels.find((item) => item.id === meta.imageModelId)?.label || 'Базовая модель', icon: IC.img },
+        { label: 'Видео', description: videoModels.find((item) => item.id === meta.videoModelId)?.name || 'Базовая модель', icon: IC.vid },
+      ], -1, (_setting, settingIndex) => {
+        if (settingIndex === 0) realPick('Память чата', [
+          { label: 'Короткая', description: 'Для быстрых вопросов', icon: IC.cube },
+          { label: 'Обычная', description: 'Для большинства диалогов', icon: IC.cube },
+          { label: 'Расширенная', description: 'Для длинной переписки и документов', icon: IC.cube },
+        ], [20000, 60000, 120000].indexOf(Number(meta.contextChars || 60000)), (_context, contextIndex) => {
+          const contextChars = [20000, 60000, 120000][contextIndex]; void saveThread({ contextChars }, `Память: ${memoryLabel(contextChars)}`)
+        }, { back: openChatPreferences })
+        else if (settingIndex === 1) realPick('Изображения', imageModels.map((item) => ({ label: item.label || item.name, description: imageModelDescription(item), price: `${item.tokenHint || 1} кр.`, tokenKind: imageTokenKind(item), icon: IC.img })), Math.max(0, imageModels.findIndex((item) => item.id === meta.imageModelId)), (_model, modelIndex) => { void saveThread({ imageModelId: imageModels[modelIndex].id }, `Изображения: ${imageModels[modelIndex].label || imageModels[modelIndex].name}`) }, { back: openChatPreferences })
+        else realPick('Видео', videoModels.map((item) => ({ label: item.name, description: item.description || 'Создание видео из чата', price: `${item.publicPricing?.fromTokens || 1} кр.`, tokenKind: item.provider === 'comfyui' ? 'daily' : 'main', icon: IC.vid })), Math.max(0, videoModels.findIndex((item) => item.id === meta.videoModelId)), (_model, modelIndex) => { void saveThread({ videoModelId: videoModels[modelIndex].id }, `Видео: ${videoModels[modelIndex].name}`) }, { back: openChatPreferences })
+      }, { back: openChatTools })
+    }
+    liveTools.addEventListener('click', openChatTools)
     const saveModelSetting = async (meta, values, message) => {
       const response = await api(`/phone/chat/threads/${encodeURIComponent(meta.id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) })
       if (!response.ok) { toast(await responseMessage(response, 'Не удалось сохранить модель.')); return }
@@ -1522,10 +1534,10 @@
         })), Math.max(0, chatModels.findIndex((item) => item.id === state.chatModelId)), async (_model, choice) => {
           state.chatModelId = chatModels[choice].id; state.chatRoute = chatModels[choice].provider === 'local' ? 'local' : 'api'; syncChatModelButton()
           await saveModelSetting(meta, { chatModelId: state.chatModelId }, `Чат: ${chatModels[choice].name}`)
-        })
-        else if (section === 1) realPick('Модель изображений', imageModels.map((item) => ({ label: item.label || item.name, description: imageModelDescription(item), price: `${item.tokenHint || 1} кр.`, tokenKind: imageTokenKind(item), icon: IC.img })), Math.max(0, imageModels.findIndex((item) => item.id === meta.imageModelId)), (_model, choice) => { void saveModelSetting(meta, { imageModelId: imageModels[choice].id }, `Изображения: ${imageModels[choice].label || imageModels[choice].name}`) })
-        else if (section === 2) realPick('Модель видео', videoModels.map((item) => ({ label: item.name, description: videoModelDescription(item), price: `${item.publicPricing?.fromTokens || 1} кр.`, tokenKind: item.provider === 'comfyui' ? 'daily' : 'main', icon: IC.vid })), Math.max(0, videoModels.findIndex((item) => item.id === meta.videoModelId)), (_model, choice) => { void saveModelSetting(meta, { videoModelId: videoModels[choice].id }, `Видео: ${videoModels[choice].name}`) })
-        else realPick('Голос озвучивания', VOICES.map((item) => ({ label: item[0], description: item[1], icon: IC.mic || IC.cube })), voice, (_model, choice) => { voice = choice; localStorage.setItem('izo-asa-phone-voice', String(choice)); toast(`Голос: ${VOICES[choice][0]}`) })
+        }, { back: openModelHub })
+        else if (section === 1) realPick('Изображения', imageModels.map((item) => ({ label: item.label || item.name, description: imageModelDescription(item), price: `${item.tokenHint || 1} кр.`, tokenKind: imageTokenKind(item), icon: IC.img })), Math.max(0, imageModels.findIndex((item) => item.id === meta.imageModelId)), (_model, choice) => { void saveModelSetting(meta, { imageModelId: imageModels[choice].id }, `Изображения: ${imageModels[choice].label || imageModels[choice].name}`) }, { back: openModelHub })
+        else if (section === 2) realPick('Видео', videoModels.map((item) => ({ label: item.name, description: videoModelDescription(item), price: `${item.publicPricing?.fromTokens || 1} кр.`, tokenKind: item.provider === 'comfyui' ? 'daily' : 'main', icon: IC.vid })), Math.max(0, videoModels.findIndex((item) => item.id === meta.videoModelId)), (_model, choice) => { void saveModelSetting(meta, { videoModelId: videoModels[choice].id }, `Видео: ${videoModels[choice].name}`) }, { back: openModelHub })
+        else realPick('Голос', VOICES.map((item) => ({ label: item[0], description: item[1], icon: IC.mic || IC.cube })), voice, (_model, choice) => { voice = choice; localStorage.setItem('izo-asa-phone-voice', String(choice)); toast(`Голос: ${VOICES[choice][0]}`) }, { back: openModelHub })
       })
     }
     liveModel.addEventListener('click', () => { void openModelHub() })
