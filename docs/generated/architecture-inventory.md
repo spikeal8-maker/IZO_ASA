@@ -5,13 +5,13 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 ## Summary
 
-- Routes: 245
+- Routes: 249
 - Registered workers: 8
 - Registered ephemeral tasks: 4
 - SQLite tables: 62
 - SQLite indexes: 96
 - Foreign-key declarations: 2
-- Frontend/static API literals: 26
+- Frontend/static API literals: 41
 - Route process role: `all-dev-current-monolith`
 
 ## Route authorization
@@ -20,9 +20,9 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 |---|---:|
 | REVIEW: admin route without detected gate | 8 |
 | admin | 94 |
-| public/optional/review | 85 |
+| public/optional/review | 86 |
 | session | 1 |
-| user | 55 |
+| user | 58 |
 | webhook: MAX secret conditional | 1 |
 | webhook: telegram secret required | 1 |
 
@@ -113,20 +113,35 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | `/api/feed/challenges` | backend/static/feed/index.html |
 | `/api/feed/events` | backend/static/feed/index.html |
 | `/api/feed/following/read` | backend/static/feed/index.html |
-| `/api/feed/publications` | backend/static/gallery/gallery.js |
+| `/api/feed/publications` | backend/static/gallery/gallery.js, frontend/src/phone/features/image/api.ts, frontend/src/phone/features/video/api.ts |
 | `/api/feed/publications/{dynamic}` | backend/static/feed/index.html, backend/static/gallery/gallery.js |
 | `/api/gallery` | frontend/src/LegacyApp.tsx, frontend/src/newUi.tsx |
-| `/api/gallery/items` | backend/static/gallery/gallery.js |
+| `/api/gallery/items` | backend/static/gallery/gallery.js, frontend/src/phone/features/image/api.ts, frontend/src/phone/features/video/api.ts |
 | `/api/gallery/secondary` | backend/static/gallery/gallery.js |
 | `/api/gallery/sources/{dynamic}` | backend/static/gallery/gallery.js |
 | `/api/gallery/videos/{dynamic}` | backend/static/gallery/gallery.js |
 | `/api/gallery/{dynamic}` | backend/static/gallery/gallery.js |
 | `/api/gallery/{id}` | frontend/src/newUi.tsx |
-| `/api/generate` | frontend/src/newUi.tsx |
+| `/api/generate` | frontend/src/newUi.tsx, frontend/src/phone/features/chat/api.ts, frontend/src/phone/features/image/api.ts |
 | `/api/jobs` | frontend/src/newUi.tsx |
-| `/api/me-v2` | backend/static/feed/index.html, backend/static/gallery/gallery.js, frontend/src/authV2.tsx |
+| `/api/me-v2` | backend/static/feed/index.html, backend/static/gallery/gallery.js, frontend/src/authV2.tsx, frontend/src/phone/PhoneApp.tsx |
 | `/api/media/` | backend/static/gallery/gallery.js, frontend/src/studio/videoSourceHandoff.ts |
+| `/api/model-access` | frontend/src/phone/features/chat/api.ts, frontend/src/phone/features/image/api.ts |
+| `/api/models` | frontend/src/phone/features/image/api.ts |
+| `/api/phone/chat` | frontend/src/phone/features/chat/api.ts |
+| `/api/phone/chat/models` | frontend/src/phone/features/chat/api.ts |
+| `/api/phone/chat/threads` | frontend/src/phone/features/chat/api.ts |
+| `/api/phone/chat/threads/{dynamic}` | frontend/src/phone/features/chat/api.ts |
+| `/api/phone/v1/jobs` | frontend/src/phone/core/jobs.ts |
+| `/api/phone/v1/jobs/{dynamic}` | frontend/src/phone/core/jobs.ts |
+| `/api/phone/v1/platform` | frontend/src/phone/api.ts |
+| `/api/tools/transcribe` | frontend/src/phone/features/audio/api.ts, frontend/src/phone/features/chat/api.ts |
 | `/api/version` | frontend/src/diag.tsx |
+| `/api/video/config` | frontend/src/phone/features/video/api.ts |
+| `/api/video/estimate` | frontend/src/phone/features/video/api.ts |
+| `/api/video/generate` | frontend/src/phone/features/video/api.ts |
+| `/api/video/history` | frontend/src/phone/features/video/api.ts |
+| `/api/video/media/{dynamic}` | frontend/src/phone/features/video/PhoneVideoWorkspace.tsx |
 
 ## Large-file budgets
 

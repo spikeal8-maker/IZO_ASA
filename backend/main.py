@@ -993,7 +993,6 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 if AVATAR_PRESET_DIR is not None:
     app.mount("/avatars", StaticFiles(directory=AVATAR_PRESET_DIR), name="avatars")
 
-
 @app.get("/favicon.svg", include_in_schema=False)
 async def favicon() -> FileResponse:
     if FAVICON_FILE is None:
@@ -1003,7 +1002,6 @@ async def favicon() -> FileResponse:
         media_type="image/svg+xml",
         headers={"Cache-Control": "public, max-age=86400"},
     )
-
 
 @app.get("/", include_in_schema=False)
 async def home_page_shell() -> FileResponse:
@@ -16995,7 +16993,6 @@ async def model_access(request: Request) -> dict[str, Any]:
         capability_catalog = []
     return {"ok": True, **public_model_access_for_plan(plan, capability_catalog), "openrouterPricing": public_openrouter_pricing(await fetch_usd_rub_rate())}
 
-
 app.include_router(create_admin_operations_router(AdminOperationsDependencies(
     db=db,
     require_admin=require_trusted_admin,
@@ -17030,13 +17027,7 @@ app.include_router(create_phone_chat_router(PhoneChatDependencies(
     db,
 )))
 app.include_router(create_phone_platform_router(PhonePlatformDependencies(require_trusted_user)))
-app.include_router(create_phone_jobs_router(PhoneJobDependencies(
-    require_trusted_user=require_trusted_user,
-    connect_db=db,
-    read_image_job=get_job,
-    read_video_job=get_video_job,
-)))
-
+app.include_router(create_phone_jobs_router(PhoneJobDependencies(require_trusted_user, db, get_job, get_video_job)))
 
 @app.put("/api/admin/openrouter/key")
 async def admin_save_openrouter_key(req: AdminSecretKeyRequest, request: Request) -> dict[str, Any]:
@@ -17058,7 +17049,6 @@ async def admin_save_openrouter_key(req: AdminSecretKeyRequest, request: Request
         "catalogRefreshStarted": refresh_started,
     }
 
-
 @app.delete("/api/admin/openrouter/key")
 async def admin_delete_openrouter_key(request: Request) -> dict[str, Any]:
     require_trusted_admin(request)
@@ -17075,7 +17065,6 @@ async def admin_delete_openrouter_key(request: Request) -> dict[str, Any]:
         "config": get_openrouter_config(),
         "catalogRefreshStarted": refresh_started,
     }
-
 
 @app.post("/api/admin/openrouter/test-generate")
 async def admin_openrouter_test_generate(req: AdminOpenRouterTestRequest, request: Request) -> dict[str, Any]:
