@@ -33,12 +33,13 @@ def _database() -> sqlite3.Connection:
     return conn
 
 
-def test_local_chat_uses_daily_allowance_before_main_balance() -> None:
+def test_local_chat_is_free_and_preserves_both_balances() -> None:
     conn = _database()
-    charge = charge_chat_tokens(conn, user_id="user-1", token_cost=2, request_id="req-local-1", provider="local", model="gemma4:12b", daily_limit=25)
+    charge = charge_chat_tokens(conn, user_id="user-1", token_cost=0, request_id="req-local-1", provider="local", model="gemma4:12b", daily_limit=25)
     row = conn.execute("SELECT token_balance,daily_tokens_used,tokens_used FROM users WHERE id='user-1'").fetchone()
-    assert dict(row) == {"token_balance": 10, "daily_tokens_used": 2, "tokens_used": 2}
-    assert charge["daily_part"] == 2
+    assert dict(row) == {"token_balance": 10, "daily_tokens_used": 0, "tokens_used": 0}
+    assert charge["token_cost"] == 0
+    assert charge["daily_part"] == 0
     assert charge["balance_part"] == 0
 
 
@@ -50,6 +51,17 @@ def test_openrouter_chat_uses_main_balance_and_is_idempotent() -> None:
     assert dict(row) == {"token_balance": 7, "daily_tokens_used": 0, "tokens_used": 3}
     assert second["ledger_id"] == first["ledger_id"]
     assert second["duplicate"] is True
+
+
+def test_fractional_openrouter_chat_accumulates_before_one_main_token() -> None:
+    conn = _database()
+    for index in range(9):
+        charge = charge_chat_tokens(conn, user_id="user-1", token_cost=0.1, request_id=f"req-frac-{index}", provider="api", model="provider/model", daily_limit=25)
+        assert charge["balance_part"] == 0
+    tenth = charge_chat_tokens(conn, user_id="user-1", token_cost=0.1, request_id="req-frac-9", provider="api", model="provider/model", daily_limit=25)
+    row = conn.execute("SELECT token_balance,daily_tokens_used,tokens_used FROM users WHERE id='user-1'").fetchone()
+    assert dict(row) == {"token_balance": 9, "daily_tokens_used": 0, "tokens_used": 1}
+    assert tenth["balance_part"] == 1
 
 
 def test_failed_chat_refund_is_idempotent() -> None:
@@ -66,12 +78,12 @@ def test_chat_model_selection_never_exposes_or_silently_switches_local_model() -
         "enabled": True,
         "localEnabled": True,
         "localModel": "gemma4:12b",
-        "localTokenCost": 1,
+        "localTokenCost": 0,
         "defaultModel": "local:izo-chat",
         "enabledApiModels": ["provider/model"],
-        "apiTokenCosts": {"provider/model": 4},
+        "apiTokenCosts": {"provider/model": 0.1},
     }
     selected = _resolve_phone_chat_model(PhoneChatRequest(messages=[{"role": "user", "content": "Привет"}], modelId="local:izo-chat"), config)
-    assert selected == ("local:izo-chat", "local", "gemma4:12b", 1, "daily")
+    assert selected == ("local:izo-chat", "local", "gemma4:12b", 0.0, "free")
     selected_api = _resolve_phone_chat_model(PhoneChatRequest(messages=[{"role": "user", "content": "Привет"}], modelId="provider/model"), config)
-    assert selected_api == ("provider/model", "api", "provider/model", 4, "main")
+    assert selected_api == ("provider/model", "api", "provider/model", 0.1, "main")

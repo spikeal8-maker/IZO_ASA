@@ -1364,9 +1364,11 @@ shYou.innerHTML=`<div class="grab"></div><div class="shead"><h4>Профиль</
  <div><b id="monB">340</b><span>Месячные · до 1 августа</span></div></div>
  <div class="lbl">Оформление</div>
  <div class="theme"><button data-t="light">Светлая</button><button data-t="dark" aria-pressed="true">Тёмная</button><button data-t="system">Как в системе</button></div>
- <div class="mi"><div class="row"><span class="i">${IC.gear}</span><span><b>Настройки</b><span class="ds">язык, качество, уведомления</span></span></div></div>
- <div class="mi"><div class="row"><span class="i">${IC.coin}</span><span><b>Подписка и платежи</b><span class="ds">Pro · 999 ₽</span></span></div></div>`;
+ <div class="mi"><div class="row" data-profile-link="/profile"><span class="i">${IC.gear}</span><span><b>Открыть профиль</b><span class="ds">аккаунт, галерея и история</span></span></div></div>
+ <div class="mi"><div class="row" data-profile-link="/profile?tab=settings"><span class="i">${IC.gear}</span><span><b>Настройки</b><span class="ds">язык, качество, уведомления</span></span></div></div>
+ <div class="mi"><div class="row" data-profile-link="/profile?tab=billing"><span class="i">${IC.coin}</span><span><b>Подписка и платежи</b><span class="ds">тариф, баланс и операции</span></span></div></div>`;
 shYou.querySelectorAll('.theme button').forEach(b=>b.addEventListener('click',()=>{themePref=b.dataset.t;applyTheme();}));
+shYou.querySelectorAll('[data-profile-link]').forEach(row=>row.addEventListener('click',()=>location.assign(row.dataset.profileLink)));
 const shChatModels=document.getElementById('shChatModels');
 const chatModelButton=document.getElementById('chatModelButton');
 const chatModelName=document.getElementById('chatModelName');
@@ -1400,8 +1402,8 @@ function openSheet(k){Object.values(SH).forEach(s=>s.classList.remove('on'));SH[
  if(k==='you'){dayB.textContent=day;monB.textContent=mon;}}
 function closeSheets(){Object.values(SH).forEach(s=>s.classList.remove('on'));shade.classList.remove('on');}
 fabB.addEventListener('click',()=>openSheet('menu'));
-youB.addEventListener('click',()=>go('you'));
-youB.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go('you');}});
+youB.addEventListener('click',()=>openSheet('you'));
+youB.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openSheet('you');}});
 shade.addEventListener('click',closeSheets);
 document.addEventListener('click',e=>{if(e.target.closest('[data-close]'))closeSheets();});
 let x0=null,y0=null;

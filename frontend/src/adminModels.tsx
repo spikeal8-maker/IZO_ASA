@@ -1601,12 +1601,12 @@ export default function AdminModelsV2() {
           <div className="assistant-summary">
             <div><span>Ollama</span><strong>{assistantData.ollama.ok ? 'работает' : 'не отвечает'}</strong><small>{assistantData.ollama.baseUrl}</small></div>
             <div><span>Модель в памяти</span><strong>{assistantData.ollamaResidency.models.some((m) => (m.name || m.model) === assistantData.config.chat.localModel) ? 'да' : 'нет'}</strong><small>{assistantData.config.chat.localModel}</small></div>
-            <div><span>Тариф</span><strong>{assistantData.config.chat.localTokenCost} дневн. ток.</strong><small>При исчерпании дневных списывается основной баланс.</small></div>
+            <div><span>Тариф</span><strong>Бесплатно</strong><small>Базовый локальный чат не расходует дневные и основные токены.</small></div>
           </div>
           <div className="two-col">
             <div className="field"><label>Название для пользователя</label><input value={assistantData.config.chat.localLabel} onChange={(e) => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, localLabel: e.target.value } })} /></div>
             <div className="field"><label>Техническая модель Ollama</label><select value={assistantData.config.chat.localModel} onChange={(e) => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, localModel: e.target.value } })}>{assistantData.ollama.models.filter((m) => m.name && !(m.name || '').endsWith(':cloud')).map((m) => <option key={m.name} value={m.name}>{m.name}</option>)}</select></div>
-            <div className="field"><label>Цена ответа, дневных токенов</label><input type="number" min="1" max="1000" value={assistantData.config.chat.localTokenCost} onChange={(e) => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, localTokenCost: Number(e.target.value) } })} /></div>
+            <div className="field"><label>Цена базового ответа</label><input type="text" value="Бесплатно" disabled /></div>
             <div className="field"><label>Таймаут, секунд</label><input type="number" min="10" max="180" value={assistantData.config.chat.localTimeoutSeconds} onChange={(e) => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, localTimeoutSeconds: Number(e.target.value) } })} /></div>
             <div className="field"><label>История диалога, символов</label><input type="number" min="4000" max="240000" step="1000" value={assistantData.config.chat.contextChars} onChange={(e) => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, contextChars: Number(e.target.value) } })} /><small>60 000 символов — примерно 15 000 токенов текста.</small></div>
             <div className="field"><label>Контекст Ollama, токенов</label><input type="number" min="4096" max="32768" step="1024" value={assistantData.config.chat.localNumCtx} onChange={(e) => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, localNumCtx: Number(e.target.value) } })} /><small>Увеличение требует больше видеопамяти; проверяйте загрузку RTX 4070.</small></div>
@@ -1843,7 +1843,7 @@ export default function AdminModelsV2() {
             <table className="api-table"><thead><tr><th>Вкл.</th><th>Модель</th><th>Вход / 1M</th><th>Выход / 1M</th><th>Контекст</th><th>Токены проекта</th><th>Пример: 1000 + 500</th><th>По умолчанию</th></tr></thead>
               <tbody>{filteredOpenrouterTextModels.map((model) => {
                 const enabled = assistantData.config.chat.enabledApiModels.includes(model.id)
-                const productTokens = Number(assistantData.config.chat.apiTokenCosts[model.id] || 1)
+                const productTokens = Number(assistantData.config.chat.apiTokenCosts[model.id] ?? 0.1)
                 const sampleUsd = model.inputPerMillionUsd / 1000 + model.outputPerMillionUsd / 2000
                 const sampleRub = usdRubEffective === null ? null : sampleUsd * usdRubEffective
                 const revenue = productTokens * tokenRub
@@ -1856,7 +1856,7 @@ export default function AdminModelsV2() {
                   }} /></td>
                   <td><strong>{model.name}</strong><small className="model-id">{model.id}</small></td>
                   <td>${model.inputPerMillionUsd.toFixed(4)}</td><td>${model.outputPerMillionUsd.toFixed(4)}</td><td>{model.contextLength.toLocaleString('ru-RU')}</td>
-                  <td><input style={{ width: 76 }} type="number" min="1" max="1000" disabled={!enabled} value={productTokens} onChange={(e) => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, apiTokenCosts: { ...assistantData.config.chat.apiTokenCosts, [model.id]: Number(e.target.value) } } })} /> <span className="state">осн.</span></td>
+                  <td><input style={{ width: 76 }} type="number" min="0.01" max="1000" step="0.01" disabled={!enabled} value={productTokens} onChange={(e) => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, apiTokenCosts: { ...assistantData.config.chat.apiTokenCosts, [model.id]: Number(e.target.value) } } })} /> <span className="state">осн.</span></td>
                   <td><strong>${sampleUsd.toFixed(6)}</strong><small>{sampleRub === null ? 'курс не загружен' : `${sampleRub.toFixed(4)} ₽ · выручка ${revenue.toFixed(2)} ₽ · прибыль ${profit?.toFixed(4)} ₽`}</small></td>
                   <td><input type="radio" name="chat-default-model" disabled={!enabled} checked={assistantData.config.chat.defaultModel === model.id} onChange={() => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, defaultModel: model.id } })} /></td>
                 </tr>

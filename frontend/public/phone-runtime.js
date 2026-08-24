@@ -84,7 +84,7 @@
     .phone-hold-tooltip{position:fixed;left:50%;top:50%;z-index:1200;max-width:min(260px,calc(100vw - 28px));transform:translate(-50%,-50%);padding:9px 12px;border-radius:11px;background:rgba(12,13,19,.96);color:#fff;font:720 11px/1.35 inherit;text-align:center;box-shadow:0 14px 34px rgba(0,0,0,.45),inset 0 0 0 1px rgba(255,255,255,.15);pointer-events:none;opacity:0;transition:opacity .16s}.phone-hold-tooltip.on{opacity:1}
     .sheet.live-dragging{transition:none!important;will-change:transform}.sheet{touch-action:pan-y}
     .live-status{position:absolute;left:10px;right:10px;bottom:10px;border-radius:12px;padding:8px 10px;background:rgba(6,7,10,.72);color:#fff;font:700 10px/1.3 inherit;backdrop-filter:blur(10px)}
-    .pick.disabled{opacity:.38;pointer-events:none}.pick .live-price{margin-left:auto;font:750 11px/1 inherit;padding:5px 8px;border:1px solid;border-radius:999px;white-space:nowrap}.token-kind-daily{color:#dff12b!important;border-color:rgba(223,241,43,.5)!important;background:rgba(223,241,43,.1)!important}.token-kind-main{color:#dd9cff!important;border-color:rgba(205,117,255,.58)!important;background:rgba(157,64,225,.16)!important}#cost.token-kind-daily,#cost.token-kind-main{display:inline-flex;align-items:center;padding:3px 7px;border:1px solid;border-radius:999px;opacity:1}.gen-btn #cost.token-kind-daily{color:#fff28a!important;border-color:rgba(255,244,133,.5)!important;background:rgba(56,47,0,.3)!important}.gen-btn #cost.token-kind-main{color:#f3d7ff!important;border-color:rgba(241,210,255,.5)!important;background:rgba(65,18,100,.38)!important}
+    .pick.disabled{opacity:.38;pointer-events:none}.pick .live-price{margin-left:auto;font:750 11px/1 inherit;padding:5px 8px;border:1px solid;border-radius:999px;white-space:nowrap}.token-kind-daily{color:#dff12b!important;border-color:rgba(223,241,43,.5)!important;background:rgba(223,241,43,.1)!important}.token-kind-main{color:#dd9cff!important;border-color:rgba(205,117,255,.58)!important;background:rgba(157,64,225,.16)!important}.token-kind-free{color:#8ff5bc!important;border-color:rgba(96,230,157,.5)!important;background:rgba(47,181,112,.13)!important}#cost.token-kind-daily,#cost.token-kind-main,#cost.token-kind-free{display:inline-flex;align-items:center;padding:3px 7px;border:1px solid;border-radius:999px;opacity:1}.gen-btn #cost.token-kind-daily{color:#fff28a!important;border-color:rgba(255,244,133,.5)!important;background:rgba(56,47,0,.3)!important}.gen-btn #cost.token-kind-main{color:#f3d7ff!important;border-color:rgba(241,210,255,.5)!important;background:rgba(65,18,100,.38)!important}
     .card video{width:100%;display:block}.gal span{position:relative}.gal video{width:100%;aspect-ratio:1;object-fit:cover;display:block}
     .live-recording{position:relative;background:#e34f61!important;color:#fff!important;box-shadow:0 0 0 1px rgba(255,95,113,.8),0 0 20px rgba(255,78,99,.48)!important}
     .live-recording:before,.live-recording:after{content:"";position:absolute;inset:-5px;border:1px solid rgba(255,95,113,.72);border-radius:50%;animation:phoneVoicePulse 1.35s infinite;pointer-events:none}
@@ -1205,7 +1205,8 @@
     const status = turn.status === 'pending' ? ' pending' : turn.status === 'error' ? ' error' : ''
     const visibleReply = visibleChatReply(turn.content, turn.tools)
     const reply = turn.status === 'pending' ? '<span class="live-spinner"></span>Думаю…' : chatText(visibleReply)
-    const charge = turn.status === 'done' && turn.chargedTokens ? `<div class="live-chat-charge">${Number(turn.chargedTokens)} ${turn.tokenKind === 'daily' ? 'дневн.' : 'осн.'} ток.</div>` : ''
+    const chargeValue = Number(turn.chargedTokens || 0)
+    const charge = turn.status === 'done' && chargeValue > 0 ? `<div class="live-chat-charge">${chargeValue.toLocaleString('ru-RU',{maximumFractionDigits:3})} осн. ток.</div>` : ''
     const menu = turn.status === 'done' || turn.status === 'error' ? `<button class="live-chat-message-menu" type="button" data-chat-menu="${index}" aria-label="Действия с ответом">⋯</button>` : ''
     return `<div class="live-chat-turn"><div class="ai${status}" data-chat-message="${index}">${menu}<div class="txt">${reply}</div>${chatToolsHtml(turn.tools)}${charge}</div></div>`
   }
@@ -1234,7 +1235,7 @@
       { label: 'Повторить запрос', description: 'Вернуть исходный вопрос в поле ввода', icon: IC.refresh || IC.edit },
       { label: 'Создать картинку', description: 'Использовать ответ как описание изображения', icon: IC.img },
       { label: 'Создать видео', description: 'Использовать ответ как описание ролика', icon: IC.vid },
-      { label: 'Сведения', description: charged ? `Списано ${charged} ${turn.tokenKind === 'daily' ? 'дневных' : 'основных'} токенов` : 'Списание не зафиксировано', icon: IC.cube },
+      { label: 'Сведения', description: charged ? `Списано ${charged.toLocaleString('ru-RU',{maximumFractionDigits:3})} основных токенов` : 'Ответ базовой модели бесплатный', icon: IC.cube },
       ...(sources.length ? [{ label: `Источники · ${sources.length}`, description: 'Открыть ссылки, использованные для ответа', icon: IC.link || IC.copy || IC.edit }] : []),
     ]
     realPick(isUser ? 'Ваше сообщение' : 'Ответ ИЗО Чат', items, -1, async (_item, choice) => {
@@ -1248,7 +1249,7 @@
         gp.value = turn.content; gp.dispatchEvent(new Event('input', { bubbles: true })); go(choice === 3 ? 'vid' : 'img', 0)
         toast(choice === 3 ? 'Ответ перенесён в описание видео' : 'Ответ перенесён в описание изображения'); return
       }
-      if (choice === 4) { toast(charged ? `Списано: ${charged} ${turn.tokenKind === 'daily' ? 'дневных' : 'основных'} токенов` : 'Данные о списании отсутствуют'); return }
+      if (choice === 4) { toast(charged ? `Списано: ${charged.toLocaleString('ru-RU',{maximumFractionDigits:3})} основных токенов` : 'Ответ базовой модели бесплатный'); return }
       if (sources.length && choice === 5) {
         realPick('Источники ответа', sources.map((source) => ({ label: source.title || source.url, description: source.url, icon: IC.link || IC.copy || IC.edit })), -1, (_source, sourceIndex) => {
           const url = safeToolUrl(sources[sourceIndex]?.url); if (url) window.open(url, '_blank', 'noopener,noreferrer')
@@ -1366,9 +1367,10 @@
     const syncChatModelButton = () => {
       const selected = state.chatModels.find((item) => item.id === state.chatModelId)
       liveModel.querySelector('#chatModelName').textContent = selected?.name || 'ИЗО Чат'
-      liveModel.classList.toggle('token-kind-daily', (selected?.tokenKind || 'daily') === 'daily')
+      liveModel.classList.toggle('token-kind-daily', selected?.tokenKind === 'daily')
       liveModel.classList.toggle('token-kind-main', selected?.tokenKind === 'main')
-      liveModel.title = selected ? `${selected.description || ''} · ${selected.tokenCost} кр.` : 'Выбрать модель чата'
+      liveModel.classList.toggle('token-kind-free', (selected?.tokenKind || 'free') === 'free')
+      liveModel.title = selected ? `${selected.description || ''} · ${Number(selected.tokenCost || 0) ? `${Number(selected.tokenCost).toLocaleString('ru-RU',{maximumFractionDigits:3})} ток.` : 'бесплатно'}` : 'Выбрать модель чата'
     }
     liveMic.dataset.liveMic = 'chat'; liveMic.title = 'Сказать голосом'; syncChatModelButton()
     window.__IZO_PHONE_CHAT_SELECTED__ = () => {
@@ -1458,8 +1460,8 @@
       else await window.__IZO_PHONE_DELETE_CHAT__?.(idx)
     }))
     liveModel.addEventListener('click', () => {
-      const models = state.chatModels.length ? state.chatModels : [{ id: 'local:izo-chat', name: 'ИЗО Чат', description: 'Быстрая локальная модель ИЗО АСА', tokenCost: 1, tokenKind: 'daily', provider: 'local' }]
-      realPick('Модель чата', models.map((item) => ({ label: item.name, description: `${item.description} · контекст ${(Number(item.contextChars || 60000) / 1000).toFixed(0)} тыс. симв.`, price: `${item.tokenCost} кр.`, tokenKind: item.tokenKind, icon: IC.cube })), Math.max(0, models.findIndex((item) => item.id === state.chatModelId)), async (_item, choice) => {
+      const models = state.chatModels.length ? state.chatModels : [{ id: 'local:izo-chat', name: 'ИЗО Чат', description: 'Быстрая локальная модель ИЗО АСА', tokenCost: 0, tokenKind: 'free', provider: 'local' }]
+      realPick('Модель чата', models.map((item) => ({ label: item.name, description: `${item.description} · контекст ${(Number(item.contextChars || 60000) / 1000).toFixed(0)} тыс. симв.`, price: Number(item.tokenCost || 0) ? `${Number(item.tokenCost).toLocaleString('ru-RU',{maximumFractionDigits:3})} ток.` : 'Бесплатно', tokenKind: item.tokenKind, icon: IC.cube })), Math.max(0, models.findIndex((item) => item.id === state.chatModelId)), async (_item, choice) => {
         state.chatModelId = models[choice].id
         state.chatRoute = models[choice].provider === 'local' ? 'local' : 'api'
         syncChatModelButton()

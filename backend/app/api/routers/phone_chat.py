@@ -135,7 +135,7 @@ def _chat_config(deps: PhoneChatDependencies) -> dict[str, Any]:
     return config.get("chat") if isinstance(config.get("chat"), dict) else config["improve"]
 
 
-def _resolve_phone_chat_model(req: PhoneChatRequest, config: dict[str, Any]) -> tuple[str, str, str, int, str]:
+def _resolve_phone_chat_model(req: PhoneChatRequest, config: dict[str, Any]) -> tuple[str, str, str, float, str]:
     enabled_api = [str(value) for value in config.get("enabledApiModels", []) if str(value).strip()]
     selected = str(req.modelId or "").strip()
     if not selected:
@@ -148,11 +148,11 @@ def _resolve_phone_chat_model(req: PhoneChatRequest, config: dict[str, Any]) -> 
     if selected == "local:izo-chat":
         if config.get("enabled") is False or config.get("localEnabled") is False:
             raise ValueError("Локальная модель чата сейчас отключена.")
-        return selected, "local", str(config.get("localModel") or "gemma4:12b"), int(config.get("localTokenCost") or 1), "daily"
+        return selected, "local", str(config.get("localModel") or "gemma4:12b"), 0.0, "free"
     if config.get("enabled") is False or selected not in enabled_api:
         raise ValueError("Эта модель чата сейчас недоступна.")
     costs = config.get("apiTokenCosts") if isinstance(config.get("apiTokenCosts"), dict) else {}
-    return selected, "api", selected, int(costs.get(selected) or 1), "main"
+    return selected, "api", selected, float(costs.get(selected) or 0.1), "main"
 
 
 def _phone_chat_image_payloads(images: list[str]) -> list[tuple[str, str]]:
@@ -622,9 +622,9 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
                 "id": "local:izo-chat",
                 "name": str(config.get("localLabel") or "ИЗО Чат"),
                 "provider": "local",
-                "tokenCost": int(config.get("localTokenCost") or 1),
-                "tokenKind": "daily",
-                "description": "Быстрая локальная модель ИЗО АСА",
+                "tokenCost": 0,
+                "tokenKind": "free",
+                "description": "Базовая локальная модель · сообщения бесплатны",
                 "contextChars": int(config.get("contextChars") or 60000),
                 "runtimeContextTokens": int(config.get("localNumCtx") or 16384),
             })
@@ -644,7 +644,7 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
                 "id": model_id,
                 "name": str(item.get("name") or model_id.rsplit("/", 1)[-1]),
                 "provider": "api",
-                "tokenCost": int(costs.get(model_id) or 1),
+                "tokenCost": float(costs.get(model_id) or 0.1),
                 "tokenKind": "main",
                 "description": "Облачная текстовая модель",
                 "contextLength": int(item.get("contextLength") or 0),

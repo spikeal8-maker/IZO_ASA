@@ -697,6 +697,12 @@ CREATE TABLE IF NOT EXISTS auth_identities (
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (bucket_at, user_id)
             );
+
+            CREATE TABLE IF NOT EXISTS chat_billing_meters (
+                user_id TEXT PRIMARY KEY,
+                accrued_millitokens INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL
+            );
             CREATE INDEX IF NOT EXISTS idx_presence_bucket ON user_presence_samples(bucket_at);
             CREATE INDEX IF NOT EXISTS idx_presence_internal_bucket
                 ON user_presence_samples(internal_user_id, bucket_at);
