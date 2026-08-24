@@ -37,6 +37,10 @@ try {
     page.on('pageerror', (error) => errors.push(error.message))
     await page.route('**/api/phone/v1/platform', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(platform) }))
     await page.route('**/api/phone/v1/jobs?active=true', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, items: [] }) }))
+    await page.route('**/api/phone/v1/jobs/image-job-1', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ job: { id: 'image-job-1', modality: 'image', operation: 'text_to_image', status: 'completed', phase: 'terminal', progress: 100, message: '', createdAt: null, startedAt: null, completedAt: null, terminal: true, result: { id: 'image-1', type: 'image', url: '/phone-preview-placeholder.jpg', thumbnailUrl: null, width: 1024, height: 1024, durationSeconds: null, aspectRatio: '1:1' }, billing: { chargedTokens: 1, tokenKind: 'daily', refunded: false } } }) }))
+    await page.route('**/api/model-access', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ plan: 'mini', modes: { text_to_image: { models: [{ id: 'server:local_flux_klein', label: 'ИЗО Base', provider: 'comfyui', modelProfile: 'local_flux_klein', tokenHint: 1, supportedResolutionIds: ['sq-sd', 'sq-hd', 'sq-fhd'] }], presets: { fast: 'server:local_flux_klein' } } } }) }))
+    await page.route('**/api/generate', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'image-job-1' }) }))
+    await page.route('**/api/gallery/items?limit=20&filter=image', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'gallery-image-1', viewerSrc: '/phone-preview-placeholder.jpg', thumbnailUrl: '/phone-preview-placeholder.jpg', width: 1024, height: 1024 }] }) }))
     await page.route('**/api/me-v2', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(me) }))
     const thread = { id: '0123456789abcdef', title: 'Новый чат', chatModelId: 'local:izo-chat', imageModelId: null, videoModelId: null, contextChars: 60000, createdAt: '2026-08-24T00:00:00Z', updatedAt: '2026-08-24T00:00:00Z' }
     await page.route('**/api/phone/chat/threads', async (route) => route.request().method() === 'POST'
@@ -46,13 +50,21 @@ try {
     await page.route('**/api/phone/chat', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, reply: 'Готово — это проверенный ответ.', modelId: 'local:izo-chat', chargedTokens: 1, tokenKind: 'daily', tools: [] }) }))
 
     await page.goto(`${origin}/phone`, { waitUntil: 'domcontentloaded' })
-    await page.getByRole('heading', { name: 'Картинка', exact: true }).waitFor()
+    await page.getByText('Создайте первое изображение').waitFor()
     assert(new URL(page.url()).pathname === '/phone/image', `${viewport.width}: root did not redirect to image`)
     assert(await page.locator('iframe').count() === 0, `${viewport.width}: native shell still uses iframe`)
     const layout = await page.evaluate(() => ({ viewport: innerWidth, document: document.documentElement.scrollWidth, app: document.querySelector('.phone-app')?.getBoundingClientRect().width }))
     assert(layout.document === layout.viewport && layout.app === layout.viewport, `${viewport.width}: shell overflows ${JSON.stringify(layout)}`)
     const balance = await page.getByRole('button', { name: 'Открыть профиль и баланс' }).innerText()
     assert(balance.includes('93') && balance.includes('1259'), `${viewport.width}: balance is wrong: ${balance}`)
+    await page.getByPlaceholder(/сова в космосе/).fill('Красная керамическая кружка')
+    await page.getByRole('button', { name: /Сгенерировать/ }).click()
+    await page.getByAltText('Результат генерации').waitFor()
+    assert(await page.getByRole('button', { name: 'Освободить предпросмотр' }).isVisible(), `${viewport.width}: image preview close is missing`)
+    assert(await page.getByRole('button', { name: 'Открыть изображение из истории' }).isVisible(), `${viewport.width}: image history is missing`)
+    await page.getByAltText('Результат генерации').dblclick()
+    await page.getByRole('dialog', { name: 'Просмотр изображения' }).waitFor()
+    await page.getByRole('button', { name: 'Закрыть' }).click()
 
     await page.getByRole('button', { name: 'Видео', exact: true }).click()
     await page.getByRole('heading', { name: 'Видео', exact: true }).waitFor()

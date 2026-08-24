@@ -22,6 +22,7 @@ import {
 import { phoneWorkspaceFromPath } from './routes.ts'
 import { loadPhoneJobs, type PhoneJob } from './core/jobs.ts'
 import PhoneChatWorkspace from './features/chat/PhoneChatWorkspace.tsx'
+import PhoneImageWorkspace from './features/image/PhoneImageWorkspace.tsx'
 import './phoneShell.css'
 
 
@@ -269,7 +270,7 @@ export default function PhoneApp() {
       {error && manifest && !offline && <div className="phone-warning" role="status">Не удалось обновить настройки <button type="button" onClick={() => void refresh()}>Повторить</button></div>}
 
       <div className="phone-content">
-        {current?.id === 'chat' ? <PhoneChatWorkspace offline={offline} /> : current ? <PhoneWorkspacePanel workspace={current} offline={offline} /> : (
+        {current?.id === 'image' ? <PhoneImageWorkspace offline={offline} /> : current?.id === 'chat' ? <PhoneChatWorkspace offline={offline} /> : current ? <PhoneWorkspacePanel workspace={current} offline={offline} /> : (
           <section className="phone-not-found"><h1>Такого раздела нет</h1><button type="button" onClick={() => navigate(manifest.defaultRoute, true)}>Открыть картинки</button></section>
         )}
       </div>

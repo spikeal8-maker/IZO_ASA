@@ -30,6 +30,10 @@ http.createServer(async (request, response) => {
   const url = new URL(request.url || '/', `http://${request.headers.host || '127.0.0.1'}`)
   if (url.pathname === '/api/phone/v1/platform') return json(response, platform)
   if (url.pathname === '/api/phone/v1/jobs') return json(response, { ok: true, items: [] })
+  if (url.pathname === '/api/phone/v1/jobs/image-job-1') return json(response, { job: { id: 'image-job-1', modality: 'image', operation: 'text_to_image', status: 'completed', phase: 'terminal', progress: 100, message: '', createdAt: null, startedAt: null, completedAt: null, terminal: true, result: { id: 'image-1', type: 'image', url: '/phone-preview-placeholder.jpg', thumbnailUrl: null, width: 1024, height: 1024, durationSeconds: null, aspectRatio: '1:1' }, billing: { chargedTokens: 1, tokenKind: 'daily', refunded: false } } })
+  if (url.pathname === '/api/model-access') return json(response, { plan: 'mini', modes: { text_to_image: { models: [{ id: 'server:local_flux_klein', label: 'ИЗО Base', provider: 'comfyui', modelProfile: 'local_flux_klein', tokenHint: 1, supportedResolutionIds: ['sq-sd', 'sq-hd', 'sq-fhd'] }], presets: { fast: 'server:local_flux_klein' } } } })
+  if (url.pathname === '/api/generate') return json(response, { id: 'image-job-1' })
+  if (url.pathname === '/api/gallery/items') return json(response, { items: [{ id: 'gallery-image-1', viewerSrc: '/phone-preview-placeholder.jpg', thumbnailUrl: '/phone-preview-placeholder.jpg', width: 1024, height: 1024 }] })
   if (url.pathname === '/api/me-v2') return json(response, {
     profile: { display_name: 'Тестовый пользователь' },
     account: { token_balance: 1259, daily_tokens_limit: 100, daily_tokens_remaining: 93 },
