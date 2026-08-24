@@ -454,6 +454,7 @@ try:
     )
     from .app.api.routers.admin_operations import AdminOperationsDependencies, create_admin_operations_router
     from .app.api.routers.phone_chat import PhoneChatDependencies, create_phone_chat_router
+    from .app.api.routers.phone_platform import PhonePlatformDependencies, create_phone_platform_router
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.services.platform_status import (
         mini_app_public_url,
@@ -489,6 +490,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
     )
     from app.api.routers.admin_operations import AdminOperationsDependencies, create_admin_operations_router
     from app.api.routers.phone_chat import PhoneChatDependencies, create_phone_chat_router
+    from app.api.routers.phone_platform import PhonePlatformDependencies, create_phone_platform_router
 
 try:
     from .app.services.bot_admin import (
@@ -17025,6 +17027,7 @@ app.include_router(create_phone_chat_router(PhoneChatDependencies(
     lambda **kwargs: chat_billing.refund_chat_tokens_for_user(connect=db, **kwargs),
     db,
 )))
+app.include_router(create_phone_platform_router(PhonePlatformDependencies(require_trusted_user)))
 
 
 @app.put("/api/admin/openrouter/key")

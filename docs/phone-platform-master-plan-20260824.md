@@ -2,7 +2,7 @@
 
 **Дата решения владельца:** 2026-08-24
 
-**Статус:** `APPROVED SPECIFICATION; IMPLEMENTATION NOT STARTED`
+**Статус:** `APPROVED SPECIFICATION; IMPLEMENTATION IN PROGRESS`
 
 **Область:** `/phone`, общие Phone API и интеграция мобильных изображений,
 видео, чата, звука и 3D в действующий продукт IZO_ASA.
@@ -649,3 +649,13 @@ Release считается успешным только при совпаден
 `REL-SVC-001`: воспроизвести и устранить расхождение между успешно проверенным
 кандидатом и запуском `IZOBackend` как production-службы. До его завершения
 новая бизнес-логика Phone не публикуется.
+
+## 20. Журнал реализации
+
+- `REL-SVC-001`: **OPERATIONALLY INSTALLED** — service-safe promoter установлен
+  из clean commit, исходный и runtime hash совпали, службы не перезапускались,
+  локальный и публичный health вернули 200.
+- `PHONE-ARCH-001`: **CODE COMPLETE; NOT DEPLOYED** — добавлен authenticated
+  `/api/phone/v1/platform`, server-owned feature flags и общие frontend types,
+  transport и route contract. Подробности:
+  [phone-architecture-contract-20260824.md](phone-architecture-contract-20260824.md).
