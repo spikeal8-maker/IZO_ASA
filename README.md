@@ -14,6 +14,9 @@ Start here when you or another agent joins the project:
   the canonical Windows runtime on another computer without copying live state.
 - `docs/engineering-optimization-master-plan-20260719.md` — authoritative current
   execution order for optimization of the live product.
+- `docs/phone-platform-master-plan-20260824.md` — owner-approved product,
+  architecture, economics, 3D and acceptance contract for the `/phone`
+  platform; implementation packages remain governed by the global plan.
 - `docs/agent-compliance-audit-20260719.md` — current evidence audit of recent
   agent work, architecture, live runtime and confirmed risks.
 - `docs/public-launch.md` — public/live launch flow with `start-public.bat` (запуск и deploy).

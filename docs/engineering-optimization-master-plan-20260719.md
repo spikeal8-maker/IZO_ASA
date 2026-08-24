@@ -6,6 +6,25 @@
 Фактический аудит: [agent-compliance-audit-20260719.md](agent-compliance-audit-20260719.md)
 Предыдущий план: `engineering-transformation-master-plan-20260717.md` — исторический checkpoint, не текущая очередь.
 
+## Пакет `PHONE-PLATFORM-MASTER-20260824`
+
+Статус: **APPROVED SPECIFICATION; IMPLEMENTATION NOT STARTED**.
+
+- единый обязательный контракт мобильных изображений, видео, чата, звука и
+  3D-моделирования зафиксирован в
+  [phone-platform-master-plan-20260824.md](phone-platform-master-plan-20260824.md);
+- текущий iframe/standalone runtime и phone chat sidecar считаются переходными
+  механизмами и не получают новую бизнес-логику;
+- общие обязательные зависимости: service-safe release, React App Shell,
+  capability catalog, durable jobs, media ownership и единый финансовый cycle;
+- этапы документа являются epics и реализуются отдельными bounded packages по
+  правилам этого master plan;
+- первый пакет — `REL-SVC-001`: доказать запуск проверенного backend-кандидата
+  в production service context и автономный rollback; до этого новые Phone
+  функции не публикуются;
+- AdGuard VPN, FRP, VPS, DNS и production data вне scope без отдельного решения
+  владельца.
+
 ## Пакет `PHONE-CHAT-MINIMAL-UX-20260824`
 
 Статус: **CODE COMPLETE; TARGETED AND QUICK TESTS GREEN; FULL RELEASE VERIFICATION PENDING**.
