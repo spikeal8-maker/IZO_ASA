@@ -688,3 +688,7 @@ Release считается успешным только при совпаден
   серверная аудиогалерея, экономика и передача в видео остаются отдельным
   обязательным серверным подпакетом. Подробности:
   [phone-audio-implementation-20260824.md](phone-audio-implementation-20260824.md).
+- `PHONE-3D-SPIKE-001`: **CONTRACT COMPLETE; PAID BENCHMARK NOT RUN; 3D
+  DISABLED** — сравнение Meshy/Tripo, provider-neutral request/job/asset
+  contract, fake adapter test и mobile safety budgets. Подробности:
+  [phone-3d-provider-spike-20260824.md](phone-3d-provider-spike-20260824.md).

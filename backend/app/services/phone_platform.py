@@ -68,7 +68,7 @@ def phone_platform_manifest() -> dict[str, Any]:
             "route": "/phone/3d",
             "enabled": _enabled("PHONE_3D_ENABLED", False),
             "stage": "planned",
-            "operations": [],
+            "operations": ["text_to_3d", "image_to_3d"],
             "navigation": "menu",
         },
     ]

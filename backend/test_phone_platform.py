@@ -22,6 +22,7 @@ def test_phone_platform_manifest_has_stable_routes_and_no_provider_internals(mon
     assert routes["audio"]["operations"] == ["speech_to_text"]
     assert routes["3d"]["navigation"] == "menu"
     assert routes["3d"]["enabled"] is False
+    assert routes["3d"]["operations"] == ["text_to_3d", "image_to_3d"]
     serialized = str(payload).casefold()
     assert "checkpoint" not in serialized
     assert "provider" not in serialized
