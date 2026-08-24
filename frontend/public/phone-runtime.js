@@ -39,6 +39,7 @@
     chatImages: [],
     chatFiles: [],
     chatBusy: false,
+    chatActivity: null,
     recording: null,
     lastError: '',
   }
@@ -102,7 +103,7 @@
     .live-chat-turn .bub,.live-chat-turn .ai{position:relative}.live-chat-turn .bub{max-width:80%;padding:9px 30px 9px 12px;border-radius:16px 16px 5px 16px;font-size:13px;line-height:1.38}.live-chat-turn .ai{max-width:93%;padding:9px 30px 8px 9px;border-radius:16px 16px 16px 5px}.live-chat-turn .ai .txt{padding:0 3px 2px;font-size:13px;line-height:1.48}.live-chat-turn .ai .txt:empty{display:none}.live-chat-turn .ai .txt strong{font-weight:760}.live-chat-turn .ai .txt a{color:var(--act);text-decoration:none}.live-chat-message-menu{position:absolute;right:4px;top:4px;width:23px;height:23px;border:0;border-radius:8px;background:transparent;color:var(--tx3);font:800 15px/1 inherit;cursor:pointer;opacity:.48}.live-chat-message-menu:active,.live-chat-message-menu:focus-visible{opacity:1;background:var(--s3);outline:none}.live-chat-turn .bub .live-chat-message-menu{color:rgba(255,255,255,.78)}.live-chat-charge{display:flex;justify-content:flex-end;padding:5px 2px 0;color:var(--tx3);font:650 9px/1.2 inherit}
     .live-chat-tools{display:grid;gap:6px;margin-top:7px}.live-chat-tool{padding:7px 8px;border-radius:11px;background:var(--s2);box-shadow:inset 0 0 0 1px var(--edge);color:var(--tx2);font:650 10px/1.35 inherit}.live-chat-tool.error{box-shadow:inset 0 0 0 1px rgba(255,91,107,.4)}.live-chat-tool.image{padding:0;background:transparent;box-shadow:none}.live-chat-tool-image-wrap{position:relative}.live-chat-tool-image{display:block;width:100%;max-height:340px;object-fit:contain;border-radius:12px;background:#050609;cursor:zoom-in}.live-chat-tool-image-actions{position:absolute;left:6px;bottom:6px;display:flex;gap:4px}.live-chat-tool-image-actions button,.live-chat-tool-image-actions a{width:28px;height:28px;border:0;border-radius:50%;display:grid;place-items:center;background:rgba(7,8,12,.58);color:#fff;backdrop-filter:blur(10px);box-shadow:inset 0 0 0 1px rgba(255,255,255,.13);text-decoration:none}.live-chat-tool-image-actions svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.live-chat-tool-state{display:none}
     .live-chat-tool-state i{width:6px;height:6px;border-radius:50%;background:var(--act);box-shadow:0 0 9px var(--glow)}
-    .chatprompt .chatbox{border-radius:23px}.chatprompt .chatinput{min-height:54px;font-size:15px;line-height:1.42;padding:13px 14px 5px}.chatprompt .chattools{padding:3px 7px 7px}.chatprompt .chatic{width:32px;height:32px}.chatprompt .chatmodel{height:32px;max-width:112px}
+    .chatprompt .chatbox{border-radius:23px}.chatprompt .chatinput{min-height:54px;font-size:15px;line-height:1.42;padding:13px 14px 5px}.chatprompt .chattools{padding:3px 7px 7px}.chatprompt .chatic{width:32px;height:32px}.chatprompt .chatmodel{height:32px;max-width:112px}.pick>span:nth-child(2){min-width:0;flex:1}.pick>span:nth-child(2)>b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pick .ds{display:-webkit-box!important;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.sheet .live-price.token-kind-free{display:none}
     .live-spinner{display:inline-block;width:13px;height:13px;border:2px solid var(--edge2);border-top-color:var(--act);border-radius:50%;animation:phoneSpin .8s linear infinite;vertical-align:-2px;margin-right:7px}@keyframes phoneSpin{to{transform:rotate(360deg)}}
   `
   document.head.appendChild(styleNode)
@@ -629,8 +630,9 @@
       button.setAttribute('aria-label', active && state.recording.phase === 'recording' ? 'Остановить запись голоса' : 'Сказать голосом')
     })
     const recording = state.recording
-    if (!recording) return
-    const host = recording.target === 'chat' ? document.getElementById('chatbar') : document.getElementById('pbar')
+    if (!recording) { renderChatComposerActivity(); return }
+    if (recording.target === 'chat') { renderChatComposerActivity(); return }
+    const host = document.getElementById('pbar')
     if (!host) return
     const elapsed = Date.now() - recording.startedAt
     const status = document.createElement('div')
@@ -639,6 +641,28 @@
       ? '<span class="live-spinner"></span><span>Распознаём речь и вставляем текст…</span>'
       : `<span class="dot"></span><span>Идёт запись · нажмите микрофон, чтобы закончить</span><span class="wave">${voiceWave()}</span><time>${voiceTime(elapsed)}</time>`
     host.prepend(status)
+  }
+
+  function renderChatComposerActivity() {
+    const status = document.getElementById('chatComposerStatus')
+    const box = status?.closest('.chatbox')
+    const input = document.getElementById('chatgp')
+    if (!status || !box || !input) return
+    const recording = state.recording?.target === 'chat' ? state.recording : null
+    const activity = recording || state.chatActivity
+    status.hidden = !activity
+    box.classList.toggle('chat-busy', Boolean(state.chatBusy))
+    input.disabled = Boolean(state.chatBusy)
+    if (!activity) { status.innerHTML = ''; return }
+    if (recording) {
+      const elapsed = Date.now() - recording.startedAt
+      status.innerHTML = recording.phase === 'transcribing'
+        ? '<span class="live-spinner"></span><span class="copy"><b>Распознаю речь</b><span>Текст появится здесь автоматически</span></span>'
+        : `<span class="dot"></span><span class="copy"><b>Слушаю вас</b><span>Отпустите микрофон, чтобы закончить</span></span><span class="wave">${voiceWave()}</span><time>${voiceTime(elapsed)}</time>`
+      return
+    }
+    const progress = Number(activity.progress)
+    status.innerHTML = `<span class="live-spinner"></span><span class="copy"><b>${html(activity.label || 'Обдумываю ответ')}</b><span>${Number.isFinite(progress) ? `Готово на ${Math.max(0, Math.min(100, Math.round(progress)))}%` : html(activity.detail || 'Пожалуйста, подождите')}</span></span>`
   }
 
   function appendVoiceText(input, text, target) {
@@ -1025,7 +1049,7 @@
 
   function realPick(title, items, current, choose) {
     shPick.innerHTML = `<div class="grab"></div><div class="shead"><h4>${html(title)}</h4>${X}</div>${items.map((item, index) => `<div class="pick ${item.disabled ? 'disabled' : ''} ${index === current ? 'on' : ''}" data-live-pick="${index}"><span class="fig">${item.icon || IC.cube}</span><span><b>${html(item.label)}</b><span class="ds">${html(item.description || '')}</span></span>${item.price ? `<span class="live-price token-kind-${item.tokenKind || 'main'}">${html(item.price)}</span>` : ''}</div>`).join('')}`
-    shPick.querySelectorAll('[data-live-pick]').forEach((node) => node.addEventListener('click', () => { const item = items[Number(node.dataset.livePick)]; if (!item || item.disabled) return; choose(item, Number(node.dataset.livePick)); closeSheets() }))
+    shPick.querySelectorAll('[data-live-pick]').forEach((node) => node.addEventListener('click', () => { const item = items[Number(node.dataset.livePick)]; if (!item || item.disabled) return; closeSheets(); choose(item, Number(node.dataset.livePick)) }))
     openSheet('pick')
   }
 
@@ -1212,7 +1236,8 @@
     }
     const status = turn.status === 'pending' ? ' pending' : turn.status === 'error' ? ' error' : ''
     const visibleReply = visibleChatReply(turn.content, turn.tools)
-    const reply = turn.status === 'pending' ? '<span class="live-spinner"></span>Думаю…' : chatText(visibleReply)
+    if (turn.status === 'pending') return ''
+    const reply = chatText(visibleReply)
     const chargeValue = Number(turn.chargedTokens || 0)
     const charge = turn.status === 'done' && chargeValue > 0 ? `<div class="live-chat-charge">${chargeValue.toLocaleString('ru-RU',{maximumFractionDigits:3})} осн. ток.</div>` : ''
     const menu = turn.status === 'done' || turn.status === 'error' ? `<button class="live-chat-message-menu" type="button" data-chat-menu="${index}" aria-label="Действия с ответом">⋯</button>` : ''
@@ -1279,7 +1304,7 @@
     scr.querySelectorAll('[data-chat-image-share]').forEach((button) => button.addEventListener('click', (event) => { event.stopPropagation(); void shareImage(button.dataset.chatImageShare) }))
     scr.querySelectorAll('[data-chat-image-animate]').forEach((button) => button.addEventListener('click', (event) => { event.stopPropagation(); animateImage(button.dataset.chatImageAnimate) }))
     scr.querySelectorAll('[data-chat-message]').forEach((message) => message.addEventListener('contextmenu', (event) => { event.preventDefault(); openChatMessageMenu(turns, Number(message.dataset.chatMessage)) }))
-    renderChatAttachments(); growChatLive()
+    renderChatAttachments(); growChatLive(); renderChatComposerActivity()
   }
 
   async function runChatImageTools(turn, key) {
@@ -1293,6 +1318,7 @@
     const selected = models.find((item) => item.id === threadModelId) || models.find((item) => item.id === configured) || models[0]
     for (const tool of (turn.tools || []).filter((item) => item.name === 'generate_image' && item.status === 'requested')) {
       const [resolutionId, width, height] = resolutions[tool.aspectRatio] || resolutions['1:1']
+      state.chatActivity = { label: 'Создаю изображение', detail: 'Запускаю модель', progress: 0 }; renderChatComposerActivity()
       tool.status = 'running'; if (view === 'chat' && chatKey() === key) renderChatLive()
       try {
         const response = await api('/generate', {
@@ -1306,11 +1332,13 @@
         })
         if (!response.ok) throw new Error(await responseMessage(response, 'Не удалось запустить генерацию.'))
         let job = generation(await response.json()); tool.jobId = job.id
+        state.chatActivity = { label: 'Создаю изображение', progress: Number(job.progress || 0) }; renderChatComposerActivity()
         while (job.id && !['completed', 'failed', 'cancelled', 'expired'].includes(job.status)) {
           await sleep(1400)
           const jobResponse = await api(`/jobs/${encodeURIComponent(job.id)}`)
           if (!jobResponse.ok) throw new Error(await responseMessage(jobResponse, 'Не удалось получить состояние генерации.'))
           job = generation(await jobResponse.json())
+          state.chatActivity = { label: 'Создаю изображение', progress: Number(job.progress || 0) }; renderChatComposerActivity()
         }
         if (job.status !== 'completed' || !job.resultUrl) throw new Error(job.error || 'Изображение не создано.')
         Object.assign(tool, { status: 'done', resultUrl: job.resultUrl })
@@ -1341,7 +1369,7 @@
     const images = [...state.chatImages]
     turns.push({ role: 'user', content, images })
     const pending = { role: 'assistant', content: '', status: 'pending' }; turns.push(pending)
-    state.chatImages = []; state.chatFiles = []; chatgp.value = ''; state.chatBusy = true
+    state.chatImages = []; state.chatFiles = []; chatgp.value = ''; state.chatBusy = true; state.chatActivity = { label: 'Обдумываю ответ', detail: 'Выбираю подходящий инструмент' }
     renderChatLive(); chatScrollEnd()
     try {
       const response = await api('/phone/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: [{ role: 'user', content }], threadId: thread.id, route: state.chatRoute, requestId: crypto.randomUUID(), images }) })
@@ -1358,11 +1386,11 @@
         }
       }
       await loadMe()
-      void runChatImageTools(pending, key)
+      await runChatImageTools(pending, key)
     } catch (error) {
       Object.assign(pending, { content: error.message || 'Чат временно недоступен. Повторите позже.', status: 'error' })
     } finally {
-      state.chatBusy = false
+      state.chatBusy = false; state.chatActivity = null
       if (view === 'chat' && chatKey() === key) { renderChatLive(); chatScrollEnd() }
     }
   }
@@ -1377,8 +1405,8 @@
       liveModel.querySelector('#chatModelName').textContent = selected?.name || 'ИЗО Чат'
       liveModel.classList.toggle('token-kind-daily', selected?.tokenKind === 'daily')
       liveModel.classList.toggle('token-kind-main', selected?.tokenKind === 'main')
-      liveModel.classList.toggle('token-kind-free', (selected?.tokenKind || 'free') === 'free')
-      liveModel.title = selected ? `${selected.description || ''} · ${Number(selected.tokenCost || 0) ? `${Number(selected.tokenCost).toLocaleString('ru-RU',{maximumFractionDigits:3})} ток.` : 'бесплатно'}` : 'Выбрать модель чата'
+      liveModel.classList.remove('token-kind-free')
+      liveModel.title = selected ? `${selected.description || 'Модель чата'}${Number(selected.tokenCost || 0) ? ` · ${Number(selected.tokenCost).toLocaleString('ru-RU',{maximumFractionDigits:3})} ток.` : ''}` : 'Выбрать модели'
     }
     liveMic.dataset.liveMic = 'chat'; liveMic.title = 'Сказать голосом'; syncChatModelButton()
     window.__IZO_PHONE_CHAT_SELECTED__ = () => {
@@ -1467,19 +1495,40 @@
       else if (choice === 2 || choice === 3) { gp.value = chatgp.value; gp.dispatchEvent(new Event('input', { bubbles: true })); go(choice === 3 ? 'vid' : 'img', 0) }
       else await window.__IZO_PHONE_DELETE_CHAT__?.(idx)
     }))
-    liveModel.addEventListener('click', () => {
-      const models = state.chatModels.length ? state.chatModels : [{ id: 'local:izo-chat', name: 'ИЗО Чат', description: 'Быстрая локальная модель ИЗО АСА', tokenCost: 0, tokenKind: 'free', provider: 'local' }]
-      realPick('Модель чата', models.map((item) => ({ label: item.name, description: `${item.description} · контекст ${(Number(item.contextChars || 60000) / 1000).toFixed(0)} тыс. симв.`, price: Number(item.tokenCost || 0) ? `${Number(item.tokenCost).toLocaleString('ru-RU',{maximumFractionDigits:3})} ток.` : 'Бесплатно', tokenKind: item.tokenKind, icon: IC.cube })), Math.max(0, models.findIndex((item) => item.id === state.chatModelId)), async (_item, choice) => {
-        state.chatModelId = models[choice].id
-        state.chatRoute = models[choice].provider === 'local' ? 'local' : 'api'
-        syncChatModelButton()
-        const meta = state.chatThreadMeta[chatKey()]
-        if (meta?.id) {
-          const response = await api(`/phone/chat/threads/${encodeURIComponent(meta.id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chatModelId: state.chatModelId }) })
-          if (response.ok) state.chatThreadMeta[chatKey()] = (await response.json()).thread
-        }
+    const saveModelSetting = async (meta, values, message) => {
+      const response = await api(`/phone/chat/threads/${encodeURIComponent(meta.id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) })
+      if (!response.ok) { toast(await responseMessage(response, 'Не удалось сохранить модель.')); return }
+      state.chatThreadMeta[chatKey()] = (await response.json()).thread; toast(message)
+    }
+    const openModelHub = async () => {
+      let meta
+      try { meta = await ensureCurrentThread() } catch (error) { toast(error.message || 'Не удалось открыть настройки моделей'); return }
+      const chatModels = state.chatModels.length ? state.chatModels : [{ id: 'local:izo-chat', name: 'ИЗО Чат', description: 'Базовая локальная модель', tokenCost: 0, tokenKind: 'free', provider: 'local' }]
+      const imageModels = getImageModels('text_to_image'); const videoModels = getVideoModels('text_to_video')
+      const selectedChat = chatModels.find((item) => item.id === state.chatModelId) || chatModels[0]
+      const selectedImage = imageModels.find((item) => item.id === meta.imageModelId) || imageModels[0]
+      const selectedVideo = videoModels.find((item) => item.id === meta.videoModelId) || videoModels[0]
+      realPick('Модели', [
+        { label: 'Модель чата', description: selectedChat?.name || 'ИЗО Чат', icon: modelIconSvg.text },
+        { label: 'Модель изображений', description: selectedImage?.label || selectedImage?.name || 'Базовая модель', icon: IC.img },
+        { label: 'Модель видео', description: selectedVideo?.name || 'Базовая видеомодель', icon: IC.vid },
+        { label: 'Голос озвучивания', description: VOICES[voice]?.[0] || 'Ирина', icon: IC.mic || IC.cube },
+      ], -1, (_section, section) => {
+        if (section === 0) realPick('Модель чата', chatModels.map((item) => ({
+          label: item.name,
+          description: item.provider === 'local' ? 'Базовая локальная модель' : (item.description || 'Облачная текстовая модель'),
+          price: Number(item.tokenCost || 0) ? `${Number(item.tokenCost).toLocaleString('ru-RU',{maximumFractionDigits:3})} ток.` : '',
+          tokenKind: item.tokenKind, icon: IC.cube,
+        })), Math.max(0, chatModels.findIndex((item) => item.id === state.chatModelId)), async (_model, choice) => {
+          state.chatModelId = chatModels[choice].id; state.chatRoute = chatModels[choice].provider === 'local' ? 'local' : 'api'; syncChatModelButton()
+          await saveModelSetting(meta, { chatModelId: state.chatModelId }, `Чат: ${chatModels[choice].name}`)
+        })
+        else if (section === 1) realPick('Модель изображений', imageModels.map((item) => ({ label: item.label || item.name, description: imageModelDescription(item), price: `${item.tokenHint || 1} кр.`, tokenKind: imageTokenKind(item), icon: IC.img })), Math.max(0, imageModels.findIndex((item) => item.id === meta.imageModelId)), (_model, choice) => { void saveModelSetting(meta, { imageModelId: imageModels[choice].id }, `Изображения: ${imageModels[choice].label || imageModels[choice].name}`) })
+        else if (section === 2) realPick('Модель видео', videoModels.map((item) => ({ label: item.name, description: videoModelDescription(item), price: `${item.publicPricing?.fromTokens || 1} кр.`, tokenKind: item.provider === 'comfyui' ? 'daily' : 'main', icon: IC.vid })), Math.max(0, videoModels.findIndex((item) => item.id === meta.videoModelId)), (_model, choice) => { void saveModelSetting(meta, { videoModelId: videoModels[choice].id }, `Видео: ${videoModels[choice].name}`) })
+        else realPick('Голос озвучивания', VOICES.map((item) => ({ label: item[0], description: item[1], icon: IC.mic || IC.cube })), voice, (_model, choice) => { voice = choice; localStorage.setItem('izo-asa-phone-voice', String(choice)); toast(`Голос: ${VOICES[choice][0]}`) })
       })
-    })
+    }
+    liveModel.addEventListener('click', () => { void openModelHub() })
     liveNew.addEventListener('click', async () => {
       try {
         const thread = await createChatThread()
