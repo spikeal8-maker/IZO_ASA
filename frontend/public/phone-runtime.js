@@ -98,6 +98,7 @@
     .live-chat-attachments{display:flex;gap:6px;overflow-x:auto;padding:9px 12px 0}.live-chat-attachments:empty{display:none}.live-chat-attachment{position:relative;flex:0 0 auto;width:54px;height:54px;border-radius:12px;background:var(--s2);overflow:hidden;box-shadow:inset 0 0 0 1px var(--edge)}
     .live-chat-attachment img{width:100%;height:100%;object-fit:cover}.live-chat-attachment.file{width:auto;max-width:140px;padding:8px 28px 8px 10px;height:auto;min-height:40px;color:var(--tx2);font:700 10px/1.25 inherit;display:flex;align-items:center}.live-chat-attachment button{position:absolute;right:3px;top:3px;width:20px;height:20px;border:0;border-radius:50%;background:rgba(5,6,10,.78);color:#fff;cursor:pointer}
     .live-chat-user-images{display:flex;gap:5px;margin-bottom:7px}.live-chat-user-images img{width:56px;height:56px;border-radius:10px;object-fit:cover}.live-chat-actions{display:flex;gap:6px;overflow-x:auto;padding:7px 2px 0}.live-chat-actions button{flex:0 0 auto;border:0;border-radius:10px;padding:8px 10px;background:var(--s2);color:var(--tx2);font:700 10.5px/1 inherit;cursor:pointer;box-shadow:inset 0 0 0 1px var(--edge)}
+    .live-chat-turn .bub,.live-chat-turn .ai{position:relative}.live-chat-turn .bub{padding-right:34px}.live-chat-turn .ai{padding-right:34px}.live-chat-message-menu{position:absolute;right:6px;top:6px;width:26px;height:26px;border:0;border-radius:9px;background:transparent;color:var(--tx3);font:800 17px/1 inherit;cursor:pointer;opacity:.5}.live-chat-message-menu:active,.live-chat-message-menu:focus-visible{opacity:1;background:var(--s3);outline:none}.live-chat-turn .bub .live-chat-message-menu{color:rgba(255,255,255,.82)}.live-chat-charge{padding:5px 4px 0;color:var(--tx3);font:650 9.5px/1.2 inherit}
     .live-chat-tools{display:grid;gap:7px;margin-top:9px}.live-chat-tool{padding:9px 10px;border-radius:12px;background:var(--s2);box-shadow:inset 0 0 0 1px var(--edge);color:var(--tx2);font:650 10.5px/1.35 inherit}.live-chat-tool b{display:flex;align-items:center;gap:6px;color:var(--tx);font-size:11px}.live-chat-tool b i{width:7px;height:7px;border-radius:50%;background:var(--act);box-shadow:0 0 10px var(--glow)}.live-chat-tool.error{box-shadow:inset 0 0 0 1px rgba(255,91,107,.4)}.live-chat-tool.error b{color:#ff9eaa}.live-chat-tool-sources{display:flex;gap:5px;overflow-x:auto;margin-top:7px}.live-chat-tool-sources a{flex:0 0 auto;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:6px 8px;border-radius:9px;background:var(--s3);color:var(--act);text-decoration:none}.live-chat-tool-image{display:block;width:100%;max-height:260px;object-fit:contain;border-radius:10px;margin-top:8px;background:#050609}
     .live-spinner{display:inline-block;width:13px;height:13px;border:2px solid var(--edge2);border-top-color:var(--act);border-radius:50%;animation:phoneSpin .8s linear infinite;vertical-align:-2px;margin-right:7px}@keyframes phoneSpin{to{transform:rotate(360deg)}}
   `
@@ -1121,17 +1122,57 @@
   function chatTurnHtml(turn, index) {
     if (turn.role === 'user') {
       const images = (turn.images || []).map((src) => `<img alt="Вложение пользователя" src="${html(src)}">`).join('')
-      return `<div class="live-chat-turn"><div class="bub">${images ? `<span class="live-chat-user-images">${images}</span>` : ''}${chatText(turn.content)}</div></div>`
+      return `<div class="live-chat-turn"><div class="bub" data-chat-message="${index}"><button class="live-chat-message-menu" type="button" data-chat-menu="${index}" aria-label="Действия с сообщением">⋯</button>${images ? `<span class="live-chat-user-images">${images}</span>` : ''}${chatText(turn.content)}</div></div>`
     }
     const status = turn.status === 'pending' ? ' pending' : turn.status === 'error' ? ' error' : ''
     const reply = turn.status === 'pending' ? '<span class="live-spinner"></span>Готовлю ответ…' : chatText(turn.content)
-    const actions = turn.status === 'done' ? `<div class="live-chat-actions">
-      <button type="button" data-chat-action="copy" data-chat-index="${index}">Копировать</button>
-      <button type="button" data-chat-action="image" data-chat-index="${index}">В картинку</button>
-      <button type="button" data-chat-action="video" data-chat-index="${index}">В видео</button>
-    </div>` : ''
-    const meta = turn.status === 'done' && turn.provider ? `<div class="meta2"><span>ИЗО Чат</span><span>${turn.provider === 'local' ? 'локально' : 'облако'}</span></div>` : ''
-    return `<div class="live-chat-turn"><div class="ai${status}"><div class="txt">${reply}</div>${chatToolsHtml(turn.tools)}${meta}${actions}</div></div>`
+    const charge = turn.status === 'done' && turn.chargedTokens ? `<div class="live-chat-charge">${Number(turn.chargedTokens)} ${turn.tokenKind === 'daily' ? 'дневн.' : 'осн.'} ток.</div>` : ''
+    const menu = turn.status === 'done' || turn.status === 'error' ? `<button class="live-chat-message-menu" type="button" data-chat-menu="${index}" aria-label="Действия с ответом">⋯</button>` : ''
+    return `<div class="live-chat-turn"><div class="ai${status}" data-chat-message="${index}">${menu}<div class="txt">${reply}</div>${chatToolsHtml(turn.tools)}${charge}</div></div>`
+  }
+
+  async function copyChatText(value) {
+    try { await navigator.clipboard.writeText(String(value || '')); toast('Текст скопирован') } catch { toast('Не удалось скопировать текст') }
+  }
+
+  function repeatChatTurn(turns, index) {
+    const source = turns[index]?.role === 'user' ? turns[index] : [...turns.slice(0, index)].reverse().find((turn) => turn.role === 'user')
+    if (!source) return
+    chatgp.value = source.content || ''; state.chatImages = [...(source.images || [])]; renderChatAttachments(); growChatLive(); chatgp.focus()
+  }
+
+  function openChatMessageMenu(turns, index) {
+    const turn = turns[index]; if (!turn) return
+    const isUser = turn.role === 'user'
+    const charged = Number(turn.chargedTokens || 0)
+    const items = isUser ? [
+      { label: 'Копировать', description: 'Скопировать ваш текст', icon: IC.copy || IC.edit },
+      { label: 'Изменить', description: 'Вернуть текст в поле ввода', icon: IC.edit },
+      { label: 'Отправить ещё раз', description: 'Повторить запрос с возможностью изменить его', icon: IC.refresh || IC.edit },
+      { label: 'Удалить', description: 'Убрать сообщение и следующий ответ из этого диалога', icon: IC.trash || IC.edit },
+    ] : [
+      { label: 'Копировать', description: 'Скопировать ответ', icon: IC.copy || IC.edit },
+      { label: 'Повторить запрос', description: 'Вернуть исходный вопрос в поле ввода', icon: IC.refresh || IC.edit },
+      { label: 'Создать картинку', description: 'Использовать ответ как описание изображения', icon: IC.img },
+      { label: 'Создать видео', description: 'Использовать ответ как описание ролика', icon: IC.vid },
+      { label: 'Сведения', description: charged ? `Списано ${charged} ${turn.tokenKind === 'daily' ? 'дневных' : 'основных'} токенов` : 'Списание не зафиксировано', icon: IC.cube },
+      { label: 'Удалить', description: 'Убрать этот ответ из диалога', icon: IC.trash || IC.edit },
+    ]
+    realPick(isUser ? 'Ваше сообщение' : 'Ответ ИЗО Чат', items, -1, async (_item, choice) => {
+      if (choice === 0) { await copyChatText(turn.content); return }
+      if (isUser) {
+        if (choice === 1 || choice === 2) repeatChatTurn(turns, index)
+        else if (choice === 3) { turns.splice(index, turns[index + 1]?.role === 'assistant' ? 2 : 1); renderChatLive() }
+        return
+      }
+      if (choice === 1) { repeatChatTurn(turns, index); return }
+      if (choice === 2 || choice === 3) {
+        gp.value = turn.content; gp.dispatchEvent(new Event('input', { bubbles: true })); go(choice === 3 ? 'vid' : 'img', 0)
+        toast(choice === 3 ? 'Ответ перенесён в описание видео' : 'Ответ перенесён в описание изображения'); return
+      }
+      if (choice === 4) { toast(charged ? `Списано: ${charged} ${turn.tokenKind === 'daily' ? 'дневных' : 'основных'} токенов` : 'Данные о списании отсутствуют'); return }
+      turns.splice(index, 1); renderChatLive()
+    })
   }
 
   function renderChatLive() {
@@ -1142,16 +1183,8 @@
       </div>`
     scr.innerHTML = `<div class="thread" style="padding-top:${turns.length ? 12 : 34}px">${intro}${turns.map(chatTurnHtml).join('')}</div>`
     scr.querySelectorAll('[data-live-chat-quick]').forEach((button) => button.addEventListener('click', () => { chatgp.value = button.dataset.liveChatQuick; chatgp.dispatchEvent(new Event('input', { bubbles: true })); chatgp.focus() }))
-    scr.querySelectorAll('[data-chat-action]').forEach((button) => button.addEventListener('click', async () => {
-      const turn = turns[Number(button.dataset.chatIndex)]; if (!turn?.content) return
-      if (button.dataset.chatAction === 'copy') {
-        try { await navigator.clipboard.writeText(turn.content); toast('Ответ скопирован') } catch { toast('Не удалось скопировать ответ') }
-        return
-      }
-      gp.value = turn.content; gp.dispatchEvent(new Event('input', { bubbles: true }))
-      go(button.dataset.chatAction === 'video' ? 'vid' : 'img', 0)
-      toast(button.dataset.chatAction === 'video' ? 'Ответ перенесён в описание видео' : 'Ответ перенесён в описание изображения')
-    }))
+    scr.querySelectorAll('[data-chat-menu]').forEach((button) => button.addEventListener('click', () => openChatMessageMenu(turns, Number(button.dataset.chatMenu))))
+    scr.querySelectorAll('[data-chat-message]').forEach((message) => message.addEventListener('contextmenu', (event) => { event.preventDefault(); openChatMessageMenu(turns, Number(message.dataset.chatMessage)) }))
     renderChatAttachments(); growChatLive()
   }
 
@@ -1220,7 +1253,7 @@
       const result = await response.json(); const reply = String(result.reply || '').trim()
       if (!reply) throw new Error('Чат не вернул ответ.')
       const selected = state.chatModels.find((item) => item.id === state.chatModelId)
-      Object.assign(pending, { content: reply, status: 'done', provider: result.provider || '', model: selected?.name || 'ИЗО Чат', tools: Array.isArray(result.tools) ? result.tools : [] })
+      Object.assign(pending, { content: reply, status: 'done', provider: result.provider || '', model: selected?.name || 'ИЗО Чат', tools: Array.isArray(result.tools) ? result.tools : [], chargedTokens: Number(result.chargedTokens || 0), tokenKind: result.tokenKind || '' })
       await loadMe()
       void runChatImageTools(pending, key)
     } catch (error) {

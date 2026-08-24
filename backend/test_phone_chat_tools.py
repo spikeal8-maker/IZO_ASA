@@ -49,6 +49,37 @@ def test_web_sources_are_safe_deduplicated_and_bounded() -> None:
     assert phone_chat._web_sources(payload) == [{"url": "https://example.com/a", "title": "Источник"}]
 
 
+def test_current_weather_always_requires_web_search() -> None:
+    weather = PhoneChatRequest(messages=[{"role": "user", "content": "Какая сейчас погода в Москве?"}])
+    general = PhoneChatRequest(messages=[{"role": "user", "content": "Почему меняется погода?"}])
+
+    assert phone_chat._required_web_query(weather) == "Какая сейчас погода в Москве?"
+    assert phone_chat._required_web_query(general) == ""
+
+
+def test_local_chat_prefetches_weather_even_if_model_does_not_call_tool(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_tool(name, arguments, deps, config):
+        assert name == "web_search"
+        return {"ok": True, "query": arguments["query"], "summary": "В Москве +20.", "sources": []}, {"usage": {"cost": 0.001}}
+
+    async def fake_ollama(*, body, timeout_seconds):
+        captured["messages"] = body["messages"]
+        return "Сейчас в Москве +20 °C.", {"message": {"role": "assistant", "content": "Сейчас в Москве +20 °C."}}
+
+    monkeypatch.setattr(phone_chat, "_execute_tool", fake_tool)
+    monkeypatch.setattr(phone_chat, "request_ollama_chat_message", fake_ollama)
+    _reply, payload, _model = asyncio.run(phone_chat.phone_chat_ollama(
+        PhoneChatRequest(messages=[{"role": "user", "content": "Какая сейчас погода в Москве?"}]),
+        _deps(),
+        _config(),
+    ))
+
+    assert payload["_izo_tool_runs"][0]["name"] == "web_search"
+    assert captured["messages"][-1]["role"] == "tool"
+
+
 def test_local_chat_executes_image_tool_then_returns_answer(monkeypatch) -> None:
     requests: list[dict[str, object]] = []
 

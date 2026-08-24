@@ -33,6 +33,8 @@ PHONE_CHAT_SYSTEM_PROMPT = (
     "свежую, текущую или проверяемую информацию из интернета. Сам вызывай generate_image, когда пользователь "
     "явно просит создать, нарисовать или сгенерировать изображение. Не вызывай генерацию, если пользователь "
     "только обсуждает идею или просит написать промпт. "
+    "Для текущей погоды, новостей, цен и прямой просьбы найти или проверить что-либо в интернете обязательно "
+    "используй web_search. Никогда не говори, что у тебя нет интернета, пока не попробовал этот инструмент. "
     "Помогай формулировать идеи для изображений, видео и публикаций, но не утверждай, "
     "что файл или генерация уже созданы, если ты вернул только текст. "
     "Если запрос не связан с творчеством, всё равно дай полезный краткий ответ."
@@ -150,6 +152,18 @@ def _system_prompt() -> str:
     return PHONE_CHAT_SYSTEM_PROMPT.format(current_date=date.today().isoformat())
 
 
+def _required_web_query(req: PhoneChatRequest) -> str:
+    """Guarantee a search for explicit live-data requests if a small model misses tool selection."""
+
+    latest = req.messages[-1].content.strip()
+    normalized = re.sub(r"\s+", " ", latest.lower())
+    explicit_search = re.search(r"\b(найди|поищи|посмотри|проверь)\b.{0,80}\b(интернет|сеть|онлайн|сайт)", normalized)
+    live_weather = re.search(r"\b(погода|температура|прогноз)\b", normalized) and re.search(
+        r"\b(сейчас|сегодня|завтра|текущ|какая|какой|москв|город|на улице)\w*\b", normalized
+    )
+    return latest[:500] if explicit_search or live_weather else ""
+
+
 def _assistant_message(payload: dict[str, Any]) -> dict[str, Any]:
     choices = payload.get("choices") if isinstance(payload, dict) else None
     if isinstance(choices, list) and choices and isinstance(choices[0], dict):
@@ -239,6 +253,31 @@ async def _execute_tool(name: str, arguments: dict[str, Any], deps: PhoneChatDep
     return {"ok": False, "error": "Неизвестный инструмент."}, {}
 
 
+async def _prime_required_web_search(
+    req: PhoneChatRequest,
+    messages: list[dict[str, Any]],
+    deps: PhoneChatDependencies,
+    config: dict[str, Any],
+    *,
+    openrouter_style: bool,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], set[str]]:
+    query = _required_web_query(req)
+    if not query:
+        return [], [], set()
+    call_id = f"call_{uuid.uuid4().hex[:12]}"
+    result, provider_payload = await _execute_tool("web_search", {"query": query}, deps, config)
+    arguments: Any = json.dumps({"query": query}, ensure_ascii=False) if openrouter_style else {"query": query}
+    messages.append({
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [{"id": call_id, "type": "function", "function": {"name": "web_search", "arguments": arguments}}],
+    })
+    tool_message = {"role": "tool", "content": json.dumps(result, ensure_ascii=False)}
+    tool_message["tool_call_id" if openrouter_style else "tool_name"] = call_id if openrouter_style else "web_search"
+    messages.append(tool_message)
+    return [{"name": "web_search", **result}], [provider_payload] if provider_payload else [], {"web_search"}
+
+
 def _openrouter_text_content(payload: dict[str, Any]) -> str:
     choices = payload.get("choices") if isinstance(payload, dict) else None
     if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
@@ -296,8 +335,9 @@ async def phone_chat_ollama(
     model = str(config.get("localModel") or "gemma4:31b-cloud")
     keep_alive = os.getenv("OLLAMA_KEEP_ALIVE", "-1").strip() or "-1"
     timeout = max(10, min(180, int(config.get("localTimeoutSeconds") or 45)))
-    tool_runs: list[dict[str, Any]] = []
-    tool_payloads: list[dict[str, Any]] = []
+    tool_runs, tool_payloads, used_tools = await _prime_required_web_search(
+        req, messages, deps, config, openrouter_style=False,
+    )
     payload: dict[str, Any] = {}
     for _round in range(3):
         body = {
@@ -322,7 +362,11 @@ async def phone_chat_ollama(
         messages.append({**_assistant_message(payload), "role": "assistant"})
         for call in calls[:2]:
             name, arguments, _call_id = _tool_call(call)
-            result, provider_payload = await _execute_tool(name, arguments, deps, config)
+            if name in used_tools:
+                result, provider_payload = {"ok": False, "error": "Этот инструмент уже использован в текущем ответе."}, {}
+            else:
+                result, provider_payload = await _execute_tool(name, arguments, deps, config)
+                used_tools.add(name)
             tool_runs.append({"name": name, **result})
             if provider_payload:
                 tool_payloads.append(provider_payload)
@@ -360,8 +404,9 @@ async def phone_chat_openrouter(
         }
     model = str(config.get("apiModel") or PROVIDER_ENDPOINTS.prompt_improve_model)
     timeout = max(10, min(90, int(config.get("apiTimeoutSeconds") or 30)))
-    tool_runs: list[dict[str, Any]] = []
-    tool_payloads: list[dict[str, Any]] = []
+    tool_runs, tool_payloads, used_tools = await _prime_required_web_search(
+        req, messages, deps, config, openrouter_style=True,
+    )
     payload: dict[str, Any] = {}
     for _round in range(3):
         body = {"model": model, "messages": messages, "tools": PHONE_CHAT_TOOLS, "temperature": 0.35, "max_tokens": 1000}
@@ -393,7 +438,11 @@ async def phone_chat_openrouter(
         messages.append({**_assistant_message(payload), "role": "assistant"})
         for call in calls[:2]:
             name, arguments, call_id = _tool_call(call)
-            result, provider_payload = await _execute_tool(name, arguments, deps, config)
+            if name in used_tools:
+                result, provider_payload = {"ok": False, "error": "Этот инструмент уже использован в текущем ответе."}, {}
+            else:
+                result, provider_payload = await _execute_tool(name, arguments, deps, config)
+                used_tools.add(name)
             tool_runs.append({"name": name, **result})
             if provider_payload:
                 tool_payloads.append(provider_payload)
