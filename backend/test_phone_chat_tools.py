@@ -110,6 +110,31 @@ def test_local_chat_executes_image_tool_then_returns_answer(monkeypatch) -> None
     assert json.loads(tool_message["content"])["status"] == "requested"
 
 
+def test_image_tool_internal_json_is_never_returned_to_user(monkeypatch) -> None:
+    calls = 0
+
+    async def fake_ollama(*, body, timeout_seconds):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return "", {"message": {"role": "assistant", "content": "", "tool_calls": [{
+                "function": {"name": "generate_image", "arguments": {"prompt": "Москва осенью"}},
+            }]}}
+        envelope = '{"action":"generate_image","action_input":{"prompt":"Moscow in autumn"}}'
+        return envelope, {"message": {"role": "assistant", "content": envelope}}
+
+    monkeypatch.setattr(phone_chat, "request_ollama_chat_message", fake_ollama)
+    reply, payload, _model = asyncio.run(phone_chat.phone_chat_ollama(
+        PhoneChatRequest(messages=[{"role": "user", "content": "Создай картинку Москвы осенью"}]),
+        _deps(),
+        _config(),
+    ))
+
+    assert reply == "Создаю изображение."
+    assert "action_input" not in reply
+    assert payload["_izo_tool_runs"][0]["name"] == "generate_image"
+
+
 def test_web_search_uses_openrouter_server_tool_and_returns_sources(monkeypatch) -> None:
     captured: dict[str, object] = {}
 

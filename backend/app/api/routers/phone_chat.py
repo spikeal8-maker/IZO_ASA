@@ -37,6 +37,9 @@ PHONE_CHAT_SYSTEM_PROMPT = (
     "используй web_search. Никогда не говори, что у тебя нет интернета, пока не попробовал этот инструмент. "
     "Помогай формулировать идеи для изображений, видео и публикаций, но не утверждай, "
     "что файл или генерация уже созданы, если ты вернул только текст. "
+    "Пиши компактно: обычно 2–5 коротких абзацев или пунктов. Не повторяй вопрос пользователя. "
+    "Никогда не показывай JSON, имена полей, аргументы или внутренний результат вызова инструмента. "
+    "После вызова инструмента не повторяй длинный промпт и дай только короткое человеческое пояснение. "
     "Если запрос не связан с творчеством, всё равно дай полезный краткий ответ."
 )
 PHONE_CHAT_TOOLS: list[dict[str, Any]] = [
@@ -319,6 +322,27 @@ def _openrouter_text_content(payload: dict[str, Any]) -> str:
     raise RuntimeError("OpenRouter вернул неподдерживаемый формат текста.")
 
 
+def _public_tool_reply(reply: str, used_tools: set[str]) -> str:
+    """Keep internal tool envelopes out of the user-facing chat transcript."""
+    value = reply.strip()
+    if "generate_image" not in used_tools:
+        return value
+    parsed: Any = None
+    try:
+        parsed = json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        pass
+    if isinstance(parsed, dict) and (
+        parsed.get("action") == "generate_image"
+        or "action_input" in parsed
+        or {"prompt", "aspect_ratio"}.intersection(parsed)
+    ):
+        return "Создаю изображение."
+    if re.match(r"^\s*\{[\s\S]*(?:action|action_input|generate_image)[\s\S]*\}\s*$", value, re.I):
+        return "Создаю изображение."
+    return value
+
+
 async def phone_chat_ollama(
     req: PhoneChatRequest,
     deps: PhoneChatDependencies,
@@ -353,7 +377,7 @@ async def phone_chat_ollama(
         payload = raw_payload if isinstance(raw_payload, dict) else {}
         calls = _tool_calls(payload)
         if not calls:
-            reply = content.strip()
+            reply = _public_tool_reply(content, used_tools)
             if not reply:
                 raise RuntimeError("Чат не вернул ответ.")
             payload["_izo_tool_runs"] = tool_runs
@@ -429,7 +453,7 @@ async def phone_chat_openrouter(
         deps.record_openrouter_availability(200)
         calls = _tool_calls(payload)
         if not calls:
-            reply = _openrouter_text_content(payload).strip()
+            reply = _public_tool_reply(_openrouter_text_content(payload), used_tools)
             if not reply:
                 raise RuntimeError("Чат не вернул ответ.")
             payload["_izo_tool_runs"] = tool_runs

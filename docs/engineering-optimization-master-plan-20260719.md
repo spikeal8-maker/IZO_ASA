@@ -6,6 +6,21 @@
 Фактический аудит: [agent-compliance-audit-20260719.md](agent-compliance-audit-20260719.md)
 Предыдущий план: `engineering-transformation-master-plan-20260717.md` — исторический checkpoint, не текущая очередь.
 
+## Пакет `PHONE-CHAT-MINIMAL-UX-20260824`
+
+Статус: **CODE COMPLETE; TARGETED AND QUICK TESTS GREEN; FULL RELEASE VERIFICATION PENDING**.
+
+- телефонный чат не показывает внутренний JSON и аргументы инструментов;
+- markdown ответа отображается как читаемый текст без сырых `**`, сообщения и
+  композер используют более компактные мобильные размеры;
+- плашка о контексте убрана из непустого диалога, поиск не повторяет запрос и
+  сворачивает источники в компактный раскрываемый блок;
+- результат генерации не повторяет длинный технический промпт, помещает картинку
+  в карточку и предлагает открыть, скачать, поделиться или оживить;
+- acceptance: backend tool-envelope regression, frontend lint/build, focused
+  Playwright на `390×844` и `430×932`, Quick, один Full на clean SHA, затем
+  мобильная browser-проверка точного production release.
+
 ## Пакет `AUTH-SOCIAL-PROOF-20260822`
 
 Статус: **CODE COMPLETE; QUICK AND FOCUSED TESTS GREEN; NOT DEPLOYED**.

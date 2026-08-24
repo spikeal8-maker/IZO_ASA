@@ -94,12 +94,14 @@
     .live-voice-status .wave{height:18px;display:flex;gap:2px;align-items:center;flex:1}.live-voice-status .wave i{width:2px;flex:1;max-width:3px;border-radius:3px;background:#ff7184;animation:phoneWave .75s ease-in-out infinite alternate}.live-voice-status .wave i:nth-child(2n){animation-delay:.18s}.live-voice-status .wave i:nth-child(3n){animation-delay:.34s}
     @keyframes phoneWave{from{height:4px;opacity:.45}to{height:17px;opacity:1}}
     .live-voice-status time{font-variant-numeric:tabular-nums;color:#ff8292}.live-voice-status.transcribing{background:rgba(109,74,255,.13);box-shadow:inset 0 0 0 1px rgba(150,112,255,.28)}
-    .live-chat-empty{padding-top:34px}.live-chat-turn{display:flex;flex-direction:column;gap:8px}.live-chat-turn .ai.pending{opacity:.72}.live-chat-turn .ai.error{box-shadow:inset 0 0 0 1px rgba(255,91,107,.42);color:#ff9eaa}
+    .live-chat-empty{padding-top:26px}.live-chat-turn{display:flex;flex-direction:column;gap:6px}.thread:has(.live-chat-turn){gap:10px}.live-chat-turn .ai.pending{opacity:.72}.live-chat-turn .ai.error{box-shadow:inset 0 0 0 1px rgba(255,91,107,.42);color:#ff9eaa}
     .live-chat-attachments{display:flex;gap:6px;overflow-x:auto;padding:9px 12px 0}.live-chat-attachments:empty{display:none}.live-chat-attachment{position:relative;flex:0 0 auto;width:54px;height:54px;border-radius:12px;background:var(--s2);overflow:hidden;box-shadow:inset 0 0 0 1px var(--edge)}
     .live-chat-attachment img{width:100%;height:100%;object-fit:cover}.live-chat-attachment.file{width:auto;max-width:140px;padding:8px 28px 8px 10px;height:auto;min-height:40px;color:var(--tx2);font:700 10px/1.25 inherit;display:flex;align-items:center}.live-chat-attachment button{position:absolute;right:3px;top:3px;width:20px;height:20px;border:0;border-radius:50%;background:rgba(5,6,10,.78);color:#fff;cursor:pointer}
     .live-chat-user-images{display:flex;gap:5px;margin-bottom:7px}.live-chat-user-images img{width:56px;height:56px;border-radius:10px;object-fit:cover}.live-chat-actions{display:flex;gap:6px;overflow-x:auto;padding:7px 2px 0}.live-chat-actions button{flex:0 0 auto;border:0;border-radius:10px;padding:8px 10px;background:var(--s2);color:var(--tx2);font:700 10.5px/1 inherit;cursor:pointer;box-shadow:inset 0 0 0 1px var(--edge)}
-    .live-chat-turn .bub,.live-chat-turn .ai{position:relative}.live-chat-turn .bub{padding-right:34px}.live-chat-turn .ai{padding-right:34px}.live-chat-message-menu{position:absolute;right:6px;top:6px;width:26px;height:26px;border:0;border-radius:9px;background:transparent;color:var(--tx3);font:800 17px/1 inherit;cursor:pointer;opacity:.5}.live-chat-message-menu:active,.live-chat-message-menu:focus-visible{opacity:1;background:var(--s3);outline:none}.live-chat-turn .bub .live-chat-message-menu{color:rgba(255,255,255,.82)}.live-chat-charge{padding:5px 4px 0;color:var(--tx3);font:650 9.5px/1.2 inherit}
-    .live-chat-tools{display:grid;gap:7px;margin-top:9px}.live-chat-tool{padding:9px 10px;border-radius:12px;background:var(--s2);box-shadow:inset 0 0 0 1px var(--edge);color:var(--tx2);font:650 10.5px/1.35 inherit}.live-chat-tool b{display:flex;align-items:center;gap:6px;color:var(--tx);font-size:11px}.live-chat-tool b i{width:7px;height:7px;border-radius:50%;background:var(--act);box-shadow:0 0 10px var(--glow)}.live-chat-tool.error{box-shadow:inset 0 0 0 1px rgba(255,91,107,.4)}.live-chat-tool.error b{color:#ff9eaa}.live-chat-tool-sources{display:flex;gap:5px;overflow-x:auto;margin-top:7px}.live-chat-tool-sources a{flex:0 0 auto;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:6px 8px;border-radius:9px;background:var(--s3);color:var(--act);text-decoration:none}.live-chat-tool-image{display:block;width:100%;max-height:260px;object-fit:contain;border-radius:10px;margin-top:8px;background:#050609}
+    .live-chat-turn .bub,.live-chat-turn .ai{position:relative}.live-chat-turn .bub{max-width:80%;padding:9px 30px 9px 12px;border-radius:16px 16px 5px 16px;font-size:13px;line-height:1.38}.live-chat-turn .ai{max-width:93%;padding:9px 30px 8px 9px;border-radius:16px 16px 16px 5px}.live-chat-turn .ai .txt{padding:0 3px 2px;font-size:13px;line-height:1.48}.live-chat-turn .ai .txt:empty{display:none}.live-chat-turn .ai .txt strong{font-weight:760}.live-chat-turn .ai .txt a{color:var(--act);text-decoration:none}.live-chat-message-menu{position:absolute;right:4px;top:4px;width:23px;height:23px;border:0;border-radius:8px;background:transparent;color:var(--tx3);font:800 15px/1 inherit;cursor:pointer;opacity:.48}.live-chat-message-menu:active,.live-chat-message-menu:focus-visible{opacity:1;background:var(--s3);outline:none}.live-chat-turn .bub .live-chat-message-menu{color:rgba(255,255,255,.78)}.live-chat-charge{display:flex;justify-content:flex-end;padding:5px 2px 0;color:var(--tx3);font:650 9px/1.2 inherit}
+    .live-chat-tools{display:grid;gap:6px;margin-top:7px}.live-chat-tool{padding:7px 8px;border-radius:11px;background:var(--s2);box-shadow:inset 0 0 0 1px var(--edge);color:var(--tx2);font:650 10px/1.35 inherit}.live-chat-tool b,.live-chat-tool summary{display:flex;align-items:center;gap:6px;color:var(--tx);font:720 10.5px/1.2 inherit}.live-chat-tool summary{cursor:pointer;list-style:none}.live-chat-tool summary::-webkit-details-marker{display:none}.live-chat-tool summary .count{margin-left:auto;color:var(--tx3);font-size:9.5px}.live-chat-tool b i,.live-chat-tool summary i{width:6px;height:6px;border-radius:50%;background:var(--act);box-shadow:0 0 9px var(--glow)}.live-chat-tool.error{box-shadow:inset 0 0 0 1px rgba(255,91,107,.4)}.live-chat-tool.error b{color:#ff9eaa}.live-chat-tool-sources{display:grid;gap:2px;margin-top:6px}.live-chat-tool-sources a{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 7px;border-radius:7px;background:var(--s3);color:var(--act);text-decoration:none}.live-chat-tool.image{padding:5px;background:transparent}.live-chat-tool-image-wrap{position:relative}.live-chat-tool-image{display:block;width:100%;max-height:320px;object-fit:contain;border-radius:10px;background:#050609;cursor:zoom-in}.live-chat-tool-image-actions{position:absolute;left:6px;bottom:6px;display:flex;gap:4px}.live-chat-tool-image-actions button,.live-chat-tool-image-actions a{width:28px;height:28px;border:0;border-radius:50%;display:grid;place-items:center;background:rgba(7,8,12,.58);color:#fff;backdrop-filter:blur(10px);box-shadow:inset 0 0 0 1px rgba(255,255,255,.13);text-decoration:none}.live-chat-tool-image-actions svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.live-chat-tool-state{display:flex;align-items:center;gap:6px;padding:5px 3px 1px;color:var(--tx3);font:700 9.5px/1.2 inherit}
+    .live-chat-tool-state i{width:6px;height:6px;border-radius:50%;background:var(--act);box-shadow:0 0 9px var(--glow)}
+    .chatprompt .chatbox{border-radius:23px}.chatprompt .chatinput{min-height:54px;font-size:15px;line-height:1.42;padding:13px 14px 5px}.chatprompt .chattools{padding:3px 7px 7px}.chatprompt .chatic{width:32px;height:32px}.chatprompt .chatmodel{height:32px;max-width:112px}
     .live-spinner{display:inline-block;width:13px;height:13px;border:2px solid var(--edge2);border-top-color:var(--act);border-radius:50%;animation:phoneSpin .8s linear infinite;vertical-align:-2px;margin-right:7px}@keyframes phoneSpin{to{transform:rotate(360deg)}}
   `
   document.head.appendChild(styleNode)
@@ -123,6 +125,7 @@
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
   const actionIcons = {
+    expand: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></svg>',
     download: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7.5 11L12 15.5 16.5 11M5 20h14"/></svg>',
     share: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.8l7.6-4.5M8.2 13.2l7.6 4.5"/></svg>',
     animate: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 8.5v7l6-3.5z"/></svg>',
@@ -1071,7 +1074,19 @@
 
   const chatText = (value) => html(value)
     .replace(/\[([^\]]{1,180})\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/^\s*[*-]\s+/gm, '• ')
     .replace(/\r?\n/g, '<br>')
+  function visibleChatReply(value, tools) {
+    const reply = String(value || '').trim()
+    if (!(tools || []).some((tool) => tool.name === 'generate_image')) return reply
+    try {
+      const parsed = JSON.parse(reply)
+      if (parsed && typeof parsed === 'object' && (parsed.action === 'generate_image' || parsed.action_input || parsed.prompt)) return ''
+    } catch {}
+    if (/^\s*\{[\s\S]*["']?(?:action|action_input|generate_image)["']?[\s\S]*\}\s*$/i.test(reply)) return ''
+    return /^(?:создаю|генерирую|запускаю).{0,80}(?:изображ|картин)/i.test(reply) ? '' : reply
+  }
   const currentChat = () => state.chatThreads[chatKey()] || (state.chatThreads[chatKey()] = [])
   const chatScrollEnd = () => requestAnimationFrame(() => { body.scrollTop = body.scrollHeight; lastY = body.scrollTop })
 
@@ -1080,14 +1095,17 @@
     if (!Array.isArray(tools) || !tools.length) return ''
     return `<div class="live-chat-tools">${tools.map((tool) => {
       if (tool.name === 'web_search') {
-        const sources = (tool.sources || []).map((source) => {
+        const sourceItems = tool.sources || []
+        const sources = sourceItems.map((source) => {
           const url = safeToolUrl(source.url); return url ? `<a href="${html(url)}" target="_blank" rel="noopener noreferrer">${html(source.title || url)}</a>` : ''
         }).join('')
-        return `<div class="live-chat-tool${tool.ok === false ? ' error' : ''}"><b><i></i>${tool.ok === false ? 'Поиск не выполнен' : 'Поиск в интернете'}</b>${tool.query ? `<span>${html(tool.query)}</span>` : ''}${sources ? `<div class="live-chat-tool-sources">${sources}</div>` : ''}</div>`
+        if (tool.ok === false) return `<div class="live-chat-tool error"><b><i></i>Поиск временно недоступен</b></div>`
+        return `<details class="live-chat-tool"><summary><i></i>Источники <span class="count">${sourceItems.length || 0}</span></summary>${sources ? `<div class="live-chat-tool-sources">${sources}</div>` : ''}</details>`
       }
       if (tool.name === 'generate_image') {
         const label = tool.status === 'done' ? 'Изображение готово' : tool.status === 'error' ? 'Изображение не создано' : tool.status === 'running' ? 'Создаём изображение…' : 'Генерация изображения'
-        return `<div class="live-chat-tool${tool.status === 'error' ? ' error' : ''}"><b><i></i>${label}</b><span>${html(tool.prompt || '')}</span>${tool.resultUrl ? `<img class="live-chat-tool-image" src="${html(tool.resultUrl)}" alt="Изображение, созданное из чата">` : ''}${tool.error ? `<span>${html(tool.error)}</span>` : ''}</div>`
+        const actions = tool.resultUrl ? `<div class="live-chat-tool-image-actions" aria-label="Действия с изображением"><button type="button" data-chat-image-open="${html(tool.resultUrl)}" aria-label="Открыть на весь экран">${actionIcons.expand}</button><a href="${html(tool.resultUrl)}" download="izo-asa-image.png" aria-label="Скачать">${actionIcons.download}</a><button type="button" data-chat-image-share="${html(tool.resultUrl)}" aria-label="Поделиться">${actionIcons.share}</button><button type="button" data-chat-image-animate="${html(tool.resultUrl)}" aria-label="Оживить">${actionIcons.animate}</button></div>` : ''
+        return `<div class="live-chat-tool image${tool.status === 'error' ? ' error' : ''}">${tool.resultUrl ? `<div class="live-chat-tool-image-wrap"><img class="live-chat-tool-image" data-chat-image-open="${html(tool.resultUrl)}" src="${html(tool.resultUrl)}" alt="Изображение, созданное из чата">${actions}</div>` : ''}<div class="live-chat-tool-state"><i></i>${label}</div>${tool.error ? `<span>${html(tool.error)}</span>` : ''}</div>`
       }
       return ''
     }).join('')}</div>`
@@ -1125,7 +1143,8 @@
       return `<div class="live-chat-turn"><div class="bub" data-chat-message="${index}"><button class="live-chat-message-menu" type="button" data-chat-menu="${index}" aria-label="Действия с сообщением">⋯</button>${images ? `<span class="live-chat-user-images">${images}</span>` : ''}${chatText(turn.content)}</div></div>`
     }
     const status = turn.status === 'pending' ? ' pending' : turn.status === 'error' ? ' error' : ''
-    const reply = turn.status === 'pending' ? '<span class="live-spinner"></span>Готовлю ответ…' : chatText(turn.content)
+    const visibleReply = visibleChatReply(turn.content, turn.tools)
+    const reply = turn.status === 'pending' ? '<span class="live-spinner"></span>Думаю…' : chatText(visibleReply)
     const charge = turn.status === 'done' && turn.chargedTokens ? `<div class="live-chat-charge">${Number(turn.chargedTokens)} ${turn.tokenKind === 'daily' ? 'дневн.' : 'осн.'} ток.</div>` : ''
     const menu = turn.status === 'done' || turn.status === 'error' ? `<button class="live-chat-message-menu" type="button" data-chat-menu="${index}" aria-label="Действия с ответом">⋯</button>` : ''
     return `<div class="live-chat-turn"><div class="ai${status}" data-chat-message="${index}">${menu}<div class="txt">${reply}</div>${chatToolsHtml(turn.tools)}${charge}</div></div>`
@@ -1177,13 +1196,16 @@
 
   function renderChatLive() {
     const turns = currentChat()
-    const intro = turns.length ? '<div class="sys">Чат помнит контекст этого диалога. Можно уточнять и продолжать мысль.</div>' : `<div class="sys live-chat-empty"><b>С чего начнём?</b>Напишите сообщение, скажите его голосом или добавьте изображение и файл.</div>
+    const intro = turns.length ? '' : `<div class="sys live-chat-empty"><b>С чего начнём?</b>Напишите сообщение или скажите его голосом.</div>
       <div class="quick" style="padding:4px 0;justify-content:center;flex-wrap:wrap">
         ${['Придумай идею для изображения', 'Улучши описание сцены', 'Напиши текст публикации'].map((value) => `<button type="button" data-live-chat-quick="${html(value)}">${html(value)}</button>`).join('')}
       </div>`
     scr.innerHTML = `<div class="thread" style="padding-top:${turns.length ? 12 : 34}px">${intro}${turns.map(chatTurnHtml).join('')}</div>`
     scr.querySelectorAll('[data-live-chat-quick]').forEach((button) => button.addEventListener('click', () => { chatgp.value = button.dataset.liveChatQuick; chatgp.dispatchEvent(new Event('input', { bubbles: true })); chatgp.focus() }))
     scr.querySelectorAll('[data-chat-menu]').forEach((button) => button.addEventListener('click', () => openChatMessageMenu(turns, Number(button.dataset.chatMenu))))
+    scr.querySelectorAll('[data-chat-image-open]').forEach((target) => target.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); openImageViewer(target.dataset.chatImageOpen) }))
+    scr.querySelectorAll('[data-chat-image-share]').forEach((button) => button.addEventListener('click', (event) => { event.stopPropagation(); void shareImage(button.dataset.chatImageShare) }))
+    scr.querySelectorAll('[data-chat-image-animate]').forEach((button) => button.addEventListener('click', (event) => { event.stopPropagation(); animateImage(button.dataset.chatImageAnimate) }))
     scr.querySelectorAll('[data-chat-message]').forEach((message) => message.addEventListener('contextmenu', (event) => { event.preventDefault(); openChatMessageMenu(turns, Number(message.dataset.chatMessage)) }))
     renderChatAttachments(); growChatLive()
   }

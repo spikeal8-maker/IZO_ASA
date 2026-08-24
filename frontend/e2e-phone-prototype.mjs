@@ -76,7 +76,19 @@ try {
       if (path === '/api/gallery/items') return json({ items: [{ id: 'gallery-1', mediaType: 'image', url: pixel, thumbnailUrl: pixel, promptOriginal: 'Из галереи' }] })
       if (path === '/api/tools/improve-prompt') return json({ ok: true, improvedPrompt: 'Розовый стеклянный шар на светлом деревянном столе, мягкий студийный свет' })
       if (path === '/api/tools/transcribe') { transcribeRequests += 1; return json({ ok: true, text: 'добавь мягкие отражения' }) }
-      if (path === '/api/phone/chat') { chatRequests.push(request.postDataJSON()); return json({ ok: true, reply: 'Предлагаю сделать выразительную сцену с мягким светом.', provider: 'local', model: 'gemma4:31b-cloud' }) }
+      if (path === '/api/phone/chat') {
+        chatRequests.push(request.postDataJSON())
+        if (chatRequests.length === 2) return json({
+          ok: true,
+          reply: '{"action":"generate_image","action_input":{"prompt":"service envelope"}}',
+          provider: 'local',
+          model: 'gemma4:31b-cloud',
+          chargedTokens: 1,
+          tokenKind: 'daily',
+          tools: [{ name: 'generate_image', ok: true, status: 'requested', prompt: 'Осенняя Москва', aspectRatio: '1:1' }],
+        })
+        return json({ ok: true, reply: 'Предлагаю сделать выразительную сцену с мягким светом.', provider: 'local', model: 'gemma4:31b-cloud' })
+      }
       if (path === '/api/generate' && request.method() === 'POST') { generated.push(request.postDataJSON()); return json({ id: 'image-job-1', status: 'queued', progress: 4 }) }
       if (path === '/api/jobs/image-job-1') return json({ id: 'image-job-1', status: 'completed', progress: 100, resultUrl: pixel, resultImageId: 'image-1' })
       if (path === '/api/video/estimate') return json({ chargedTokens: 13 })
@@ -293,6 +305,13 @@ try {
       await frame.getByRole('button', { name: 'Инструменты чата' }).click()
       await frame.getByText('Улучшить сообщение', { exact: true }).waitFor()
       await frame.evaluate(() => closeSheets())
+
+      await chatPrompt.fill('Создай картинку осенней Москвы')
+      await frame.getByRole('button', { name: 'Отправить сообщение' }).click()
+      await frame.locator('.live-chat-tool-image').waitFor()
+      assert(await frame.getByText('action_input', { exact: false }).count() === 0, 'internal image-tool JSON is visible in chat')
+      assert(await frame.locator('.live-chat-tool-image-actions button, .live-chat-tool-image-actions a').count() === 4, 'generated chat image actions are incomplete')
+      assert(await frame.locator('.live-chat-charge').last().textContent() === '1 дневн. ток.', 'chat charge is not compact or uses the wrong token kind')
 
       await frame.getByRole('button', { name: 'Показать нижнее меню' }).click()
       await frame.getByRole('button', { name: 'Видео', exact: true }).click()

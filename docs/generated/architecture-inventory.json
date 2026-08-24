@@ -2947,7 +2947,7 @@
       {
         "auth": "user",
         "handler": "phone_chat",
-        "line": 513,
+        "line": 537,
         "method": "POST",
         "path": "/api/phone/chat",
         "process_role": "all-dev-current-monolith"
@@ -2955,7 +2955,7 @@
       {
         "auth": "user",
         "handler": "phone_chat_models",
-        "line": 476,
+        "line": 500,
         "method": "GET",
         "path": "/api/phone/chat/models",
         "process_role": "all-dev-current-monolith"
