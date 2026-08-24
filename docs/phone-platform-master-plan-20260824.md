@@ -678,3 +678,8 @@ Release считается успешным только при совпаден
   capability-driven форматы, история, fullscreen zoom/pinch и mobile E2E.
   Содержательное качество live-результатов проверяется при rollout. Подробности:
   [phone-image-implementation-20260824.md](phone-image-implementation-20260824.md).
+- `PHONE-VIDEO-001`: **CODE COMPLETE; NOT DEPLOYED; LIVE VIDEO ACCEPTANCE
+  PENDING ROLLOUT** — четыре нативных режима, capability-driven модели и цены,
+  таймер от пользовательского запуска, recovery, галерея исходников,
+  воспроизводимый preview, история и публикация. Подробности:
+  [phone-video-implementation-20260824.md](phone-video-implementation-20260824.md).

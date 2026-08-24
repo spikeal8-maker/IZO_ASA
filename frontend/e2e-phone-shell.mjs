@@ -34,10 +34,18 @@ try {
     const context = await browser.newContext({ viewport, isMobile: true, hasTouch: true })
     const page = await context.newPage()
     const errors = []
+    let videoGenerated = false
     page.on('pageerror', (error) => errors.push(error.message))
     await page.route('**/api/phone/v1/platform', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(platform) }))
     await page.route('**/api/phone/v1/jobs?active=true', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, items: [] }) }))
     await page.route('**/api/phone/v1/jobs/image-job-1', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ job: { id: 'image-job-1', modality: 'image', operation: 'text_to_image', status: 'completed', phase: 'terminal', progress: 100, message: '', createdAt: null, startedAt: null, completedAt: null, terminal: true, result: { id: 'image-1', type: 'image', url: '/phone-preview-placeholder.jpg', thumbnailUrl: null, width: 1024, height: 1024, durationSeconds: null, aspectRatio: '1:1' }, billing: { chargedTokens: 1, tokenKind: 'daily', refunded: false } } }) }))
+    await page.route('**/api/phone/v1/jobs/video-job-1', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ job: { id: 'video-job-1', modality: 'video', operation: 'text_to_video', status: 'completed', phase: 'terminal', progress: 100, message: '', createdAt: '2026-08-24T00:00:00Z', startedAt: '2026-08-24T00:00:01Z', completedAt: '2026-08-24T00:00:04Z', terminal: true, result: { id: 'gallery-video-1', type: 'video', url: '/api/video/media/video-job-1', thumbnailUrl: null, width: 854, height: 480, durationSeconds: 4, aspectRatio: '16:9' }, billing: { chargedTokens: 5, tokenKind: 'main', refunded: false } } }) }))
+    const videoModel = { id: 'video/test-model', name: 'Seedance Тест', description: '', supportedResolutions: ['480p', '720p', '1080p'], supportedAspectRatios: ['16:9', '9:16', '1:1'], supportedDurations: [4, 6], generateAudio: true, publicPricing: { fromTokens: 5 } }
+    await page.route('**/api/video/config', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ modes: Object.fromEntries(['text_to_video', 'image_to_video', 'first_last_frame', 'reference_to_video'].map((key) => [key, [videoModel]])), videoSlots: 10, feedPublicationEnabled: true }) }))
+    await page.route('**/api/video/estimate', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ chargedTokens: 5 }) }))
+    await page.route('**/api/video/generate', (route) => { videoGenerated = true; return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'video-job-1' }) }) })
+    await page.route('**/api/video/history?limit=30', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: videoGenerated ? [{ id: 'video-job-1', mode: 'text_to_video', status: 'completed', progress: 100, prompt: 'Тестовое видео', createdAt: '2026-08-24T00:00:00Z', completedAt: '2026-08-24T00:00:04Z', model: 'video/test-model', publicModelLabel: 'Seedance Тест', duration: 4, resolution: '480p', aspectRatio: '16:9', tokenCost: 5, videoUrl: '/api/video/media/video-job-1', galleryVideoId: 'gallery-video-1', generateAudio: false }] : [] }) }))
+    await page.route('**/api/video/media/video-job-1', (route) => route.fulfill({ status: 200, contentType: 'video/mp4', body: Buffer.from([]) }))
     await page.route('**/api/model-access', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ plan: 'mini', modes: { text_to_image: { models: [{ id: 'server:local_flux_klein', label: 'ИЗО Base', provider: 'comfyui', modelProfile: 'local_flux_klein', tokenHint: 1, supportedResolutionIds: ['sq-sd', 'sq-hd', 'sq-fhd'] }], presets: { fast: 'server:local_flux_klein' } } } }) }))
     await page.route('**/api/generate', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'image-job-1' }) }))
     await page.route('**/api/gallery/items?limit=20&filter=image', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'gallery-image-1', viewerSrc: '/phone-preview-placeholder.jpg', thumbnailUrl: '/phone-preview-placeholder.jpg', width: 1024, height: 1024 }] }) }))
@@ -75,6 +83,10 @@ try {
     await page.getByRole('button', { name: 'Видео', exact: true }).click()
     await page.getByRole('heading', { name: 'Видео', exact: true }).waitFor()
     assert(new URL(page.url()).pathname === '/phone/video', `${viewport.width}: video route did not change`)
+    await page.getByPlaceholder(/движение камеры/).fill('Тестовое видео')
+    await page.getByRole('button', { name: /Создать видео/ }).click()
+    await page.locator('.phone-video-preview video').waitFor()
+    assert(await page.getByRole('button', { name: 'Освободить предпросмотр' }).isVisible(), `${viewport.width}: video preview close is missing`)
 
     await page.getByRole('button', { name: 'Меню', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Разделы ИЗО АСА' })
