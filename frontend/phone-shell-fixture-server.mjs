@@ -29,6 +29,7 @@ const json = (response, payload) => {
 http.createServer(async (request, response) => {
   const url = new URL(request.url || '/', `http://${request.headers.host || '127.0.0.1'}`)
   if (url.pathname === '/api/phone/v1/platform') return json(response, platform)
+  if (url.pathname === '/api/phone/v1/jobs') return json(response, { ok: true, items: [] })
   if (url.pathname === '/api/me-v2') return json(response, {
     profile: { display_name: 'Тестовый пользователь' },
     account: { token_balance: 1259, daily_tokens_limit: 100, daily_tokens_remaining: 93 },

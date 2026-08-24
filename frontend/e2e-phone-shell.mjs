@@ -36,6 +36,7 @@ try {
     const errors = []
     page.on('pageerror', (error) => errors.push(error.message))
     await page.route('**/api/phone/v1/platform', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(platform) }))
+    await page.route('**/api/phone/v1/jobs?active=true', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, items: [] }) }))
     await page.route('**/api/me-v2', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(me) }))
 
     await page.goto(`${origin}/phone`, { waitUntil: 'domcontentloaded' })

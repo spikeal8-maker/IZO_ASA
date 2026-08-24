@@ -455,6 +455,7 @@ try:
     from .app.api.routers.admin_operations import AdminOperationsDependencies, create_admin_operations_router
     from .app.api.routers.phone_chat import PhoneChatDependencies, create_phone_chat_router
     from .app.api.routers.phone_platform import PhonePlatformDependencies, create_phone_platform_router
+    from .app.api.routers.phone_jobs import PhoneJobDependencies, create_phone_jobs_router
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.services.platform_status import (
         mini_app_public_url,
@@ -491,6 +492,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
     from app.api.routers.admin_operations import AdminOperationsDependencies, create_admin_operations_router
     from app.api.routers.phone_chat import PhoneChatDependencies, create_phone_chat_router
     from app.api.routers.phone_platform import PhonePlatformDependencies, create_phone_platform_router
+    from app.api.routers.phone_jobs import PhoneJobDependencies, create_phone_jobs_router
 
 try:
     from .app.services.bot_admin import (
@@ -17028,6 +17030,12 @@ app.include_router(create_phone_chat_router(PhoneChatDependencies(
     db,
 )))
 app.include_router(create_phone_platform_router(PhonePlatformDependencies(require_trusted_user)))
+app.include_router(create_phone_jobs_router(PhoneJobDependencies(
+    require_trusted_user=require_trusted_user,
+    connect_db=db,
+    read_image_job=get_job,
+    read_video_job=get_video_job,
+)))
 
 
 @app.put("/api/admin/openrouter/key")

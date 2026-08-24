@@ -20,6 +20,7 @@ import {
   type PhoneWorkspaceId,
 } from './contracts.ts'
 import { phoneWorkspaceFromPath } from './routes.ts'
+import { loadPhoneJobs, type PhoneJob } from './core/jobs.ts'
 import './phoneShell.css'
 
 
@@ -169,13 +170,13 @@ export default function PhoneApp() {
   const [error, setError] = useState<PhoneApiError | null>(null)
   const [offline, setOffline] = useState(!navigator.onLine)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [activeJobs, setActiveJobs] = useState<PhoneJob[]>([])
 
-  const refresh = useCallback(async () => {
-    const controller = new AbortController()
+  const refresh = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     setError(null)
     try {
-      const platform = await loadPhonePlatform(controller.signal)
+      const platform = await loadPhonePlatform(signal)
       setManifest(platform)
       sessionStorage.setItem(MANIFEST_CACHE_KEY, JSON.stringify(platform))
       setOffline(false)
@@ -183,6 +184,7 @@ export default function PhoneApp() {
         .then(async (response) => response.ok ? response.json() as Promise<MePayload> : null)
         .then((payload) => { if (payload) setMe(payload) })
         .catch(() => undefined)
+      loadPhoneJobs(true, signal).then(setActiveJobs).catch(() => undefined)
     } catch (caught) {
       const failure = caught instanceof PhoneApiError ? caught : new PhoneApiError(0, 'Нет соединения с сервером.')
       setError(failure)
@@ -190,12 +192,12 @@ export default function PhoneApp() {
     } finally {
       setLoading(false)
     }
-    return () => controller.abort()
   }, [])
 
   useEffect(() => {
-    const timer = window.setTimeout(() => { void refresh() }, 0)
-    return () => window.clearTimeout(timer)
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => { void refresh(controller.signal) }, 0)
+    return () => { window.clearTimeout(timer); controller.abort() }
   }, [refresh])
   useEffect(() => {
     const syncPath = () => setPath(window.location.pathname)
@@ -276,7 +278,7 @@ export default function PhoneApp() {
           const Icon = workspaceIcons[workspace.id]
           return <button type="button" key={workspace.id} disabled={!workspace.enabled} aria-current={currentId === workspace.id ? 'page' : undefined} onClick={() => selectWorkspace(workspace)}><Icon /><span>{workspace.shortLabel}</span></button>
         })}
-        <button className="phone-menu-button" type="button" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}><Menu /><span>Меню</span></button>
+        <button className="phone-menu-button" type="button" aria-label="Меню" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}><Menu />{activeJobs.length > 0 && <b aria-hidden="true">{activeJobs.length}</b>}<span>Меню</span></button>
         {primary.slice(2).map((workspace) => {
           const Icon = workspaceIcons[workspace.id]
           return <button type="button" key={workspace.id} disabled={!workspace.enabled} aria-current={currentId === workspace.id ? 'page' : undefined} onClick={() => selectWorkspace(workspace)}><Icon /><span>{workspace.shortLabel}</span></button>

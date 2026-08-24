@@ -663,3 +663,7 @@ Release считается успешным только при совпаден
   общий shell, навигация, меню, offline/error/auth states и mobile browser E2E.
   Подробности:
   [phone-shell-implementation-20260824.md](phone-shell-implementation-20260824.md).
+- `PHONE-CORE-001`: **CODE COMPLETE; NOT DEPLOYED** — единый authenticated
+  facade активных image/video jobs, owner check, безопасные статусы, recovery
+  без повторного запуска, общие media/billing helpers и mobile E2E. Подробности:
+  [phone-core-implementation-20260824.md](phone-core-implementation-20260824.md).
