@@ -454,6 +454,7 @@ try:
     )
     from .app.api.routers.admin_operations import AdminOperationsDependencies, create_admin_operations_router
     from .app.api.routers.phone_chat import PhoneChatDependencies, create_phone_chat_router
+    from .app.api.routers.phone_audio import PhoneAudioDependencies, create_phone_audio_router
     from .app.api.routers.phone_platform import PhonePlatformDependencies, create_phone_platform_router
     from .app.api.routers.phone_jobs import PhoneJobDependencies, create_phone_jobs_router
 except ImportError:  # Direct `python backend/main.py` execution.
@@ -491,6 +492,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
     )
     from app.api.routers.admin_operations import AdminOperationsDependencies, create_admin_operations_router
     from app.api.routers.phone_chat import PhoneChatDependencies, create_phone_chat_router
+    from app.api.routers.phone_audio import PhoneAudioDependencies, create_phone_audio_router
     from app.api.routers.phone_platform import PhonePlatformDependencies, create_phone_platform_router
     from app.api.routers.phone_jobs import PhoneJobDependencies, create_phone_jobs_router
 
@@ -17026,6 +17028,7 @@ app.include_router(create_phone_chat_router(PhoneChatDependencies(
     lambda **kwargs: chat_billing.refund_chat_tokens_for_user(connect=db, **kwargs),
     db,
 )))
+app.include_router(create_phone_audio_router(PhoneAudioDependencies(require_trusted_user)))
 app.include_router(create_phone_platform_router(PhonePlatformDependencies(require_trusted_user)))
 app.include_router(create_phone_jobs_router(PhoneJobDependencies(require_trusted_user, db, get_job, get_video_job)))
 

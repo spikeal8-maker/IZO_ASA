@@ -748,7 +748,7 @@ const activeCharges={img:null,vid:null,snd:null};
 let gJobTab=-1,vJobTab=-1,sJobTab=-1;
 const getImageCost=()=>({balance:'day',amount:IMAGE_COSTS[cnt]});
 const getVideoCost=()=>({balance:'mon',amount:idx===3?45:(vd===0?8:vd===1?12:20)});
-const getSoundCost=()=>idx===1?{balance:'mon',amount:8}:idx===2?{balance:'day',amount:4}:idx===3?{balance:'day',amount:0}:{balance:'day',amount:3};
+const getSoundCost=()=>idx===1?{balance:'mon',amount:8}:idx===2?{balance:'day',amount:4}:{balance:'day',amount:0};
 function formatCost(cost,long=false){
  if(cost.amount===0)return long?'без списания':'0 кр.';
  if(long)return cost.amount+' '+(cost.balance==='day'?'дневных':'месячных');
@@ -1120,11 +1120,15 @@ function paintSnd(){
  const tr=scr.querySelector('.track3');
  if(tr)tr.addEventListener('click',e=>{const r=tr.getBoundingClientRect();
   speed=Math.max(6,Math.min(94,Math.round((e.clientX-r.left)/r.width*100)));paintSnd();});
- const pb=scr.querySelector('[data-play]');if(pb)pb.addEventListener('click',()=>toast('Воспроизведение'));
+ const pb=scr.querySelector('[data-play]');if(pb)pb.addEventListener('click',()=>{
+  if(window.phoneAudioResultUrl){const audio=new Audio(window.phoneAudioResultUrl);audio.play().catch(()=>toast('Не удалось начать воспроизведение'));}
+  else toast('Аудио ещё не готово');
+ });
  const at3=scr.querySelector('[data-attach3]');if(at3)at3.addEventListener('click',()=>toast(idx===3?'Начинаем запись — говорите':'Выберите видео из галереи'));
  scr.querySelectorAll('.acts2 button').forEach(b=>b.addEventListener('click',()=>{
   const t=b.textContent.trim();
-  if(t.startsWith('Скачать'))toast('Файл сохранён в галерею');else toast(t+' — запускаем');}));
+  if(t.startsWith('Скачать')&&window.phoneAudioResultUrl){const a=document.createElement('a');a.href=window.phoneAudioResultUrl;a.download='izo-asa-voice.wav';a.click();}
+  else if(t.startsWith('Скачать'))toast('Аудио ещё не готово');else toast(t+' — запускаем');}));
  const av=scr.querySelector('[data-allv]');if(av)av.addEventListener('click',()=>toast('Откроется список из 29 голосов'));
  const am=scr.querySelector('[data-allm]');if(am)am.addEventListener('click',()=>toast('Откроется полный список стилей'));
 }

@@ -1496,7 +1496,35 @@
   }
   run = runImage
   runVid = runVideo
-  runSnd = () => toast('Раздел звука пока не подключён к серверу')
+  runSnd = async () => {
+    if (idx !== 0) {
+      toast(idx === 1 ? 'Музыка готовится к подключению провайдера' : idx === 2 ? 'Обработка звука видео готовится к подключению' : 'Клонирование голоса пока недоступно')
+      return
+    }
+    const text = gp.value.trim()
+    if (!text) { toast('Введите текст для озвучивания'); gp.focus(); return }
+    const selectedVoice = voice === 1 ? 'pavel' : 'irina'
+    const rate = Math.max(-5, Math.min(5, Math.round((speed - 50) / 9)))
+    const jobId = ++jobs.snd
+    sJobTab = idx; sstate = 'busy'; activeCharges.snd = { balance: 'day', amount: 0 }; paintSnd()
+    try {
+      const response = await api('/phone/audio/speech', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voice: selectedVoice, rate }),
+      })
+      if (!response.ok) throw new Error(await responseMessage(response, 'Не удалось озвучить текст.'))
+      const blob = await response.blob()
+      if (jobs.snd !== jobId) return
+      if (window.phoneAudioResultUrl) URL.revokeObjectURL(window.phoneAudioResultUrl)
+      window.phoneAudioResultUrl = URL.createObjectURL(blob)
+      sstate = 'done'; activeCharges.snd = { balance: 'day', amount: 0 }; paintSnd()
+      toast('Озвучка готова')
+    } catch (error) {
+      if (jobs.snd !== jobId) return
+      sstate = 'idle'; activeCharges.snd = null; paintSnd()
+      toast(error instanceof Error ? error.message : 'Озвучивание временно недоступно')
+    }
+  }
 
   async function loadMe() {
     try {
