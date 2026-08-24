@@ -56,7 +56,7 @@ def phone_platform_manifest() -> dict[str, Any]:
             "label": "Звук",
             "shortLabel": "Звук",
             "route": "/phone/audio",
-            "enabled": _enabled("PHONE_AUDIO_ENABLED", False),
+            "enabled": _enabled("PHONE_AUDIO_ENABLED", True),
             "stage": "partial",
             "operations": ["speech_to_text"],
             "navigation": "primary",

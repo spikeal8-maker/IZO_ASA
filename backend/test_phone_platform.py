@@ -18,6 +18,8 @@ def test_phone_platform_manifest_has_stable_routes_and_no_provider_internals(mon
     assert payload["defaultRoute"] == "/phone/image"
     routes = {item["id"]: item for item in payload["workspaces"]}
     assert set(routes) == {"image", "video", "chat", "audio", "3d"}
+    assert routes["audio"]["enabled"] is True
+    assert routes["audio"]["operations"] == ["speech_to_text"]
     assert routes["3d"]["navigation"] == "menu"
     assert routes["3d"]["enabled"] is False
     serialized = str(payload).casefold()

@@ -14,7 +14,7 @@ const platform = {
     ['image', 'Картинка', 'Фото', true, 'ready', 'primary', ['create', 'edit', 'draw']],
     ['video', 'Видео', 'Видео', true, 'ready', 'primary', ['text_to_video', 'image_to_video']],
     ['chat', 'Чат', 'Чат', true, 'ready', 'primary', ['conversation', 'web_search']],
-    ['audio', 'Звук', 'Звук', false, 'partial', 'primary', ['speech_to_text']],
+    ['audio', 'Звук', 'Звук', true, 'partial', 'primary', ['speech_to_text']],
     ['3d', '3D-модель', '3D', false, 'planned', 'menu', []],
   ].map(([id, label, shortLabel, enabled, stage, navigation, operations]) => ({
     id, label, shortLabel, route: `/phone/${id}`, enabled, stage, navigation, operations,

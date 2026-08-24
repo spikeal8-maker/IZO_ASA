@@ -6,7 +6,7 @@ const workspaces = [
   ['image', 'Картинка', 'Фото', true, 'ready', 'primary'],
   ['video', 'Видео', 'Видео', true, 'ready', 'primary'],
   ['chat', 'Чат', 'Чат', true, 'ready', 'primary'],
-  ['audio', 'Звук', 'Звук', false, 'partial', 'primary'],
+  ['audio', 'Звук', 'Звук', true, 'partial', 'primary'],
   ['3d', '3D-модель', '3D', false, 'planned', 'menu'],
 ].map(([id, label, shortLabel, enabled, stage, navigation]) => ({
   id, label, shortLabel, route: `/phone/${id}`, enabled, stage, navigation, operations: [],
@@ -51,6 +51,7 @@ try {
     await page.route('**/api/gallery/items?limit=20&filter=image', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'gallery-image-1', viewerSrc: '/phone-preview-placeholder.jpg', thumbnailUrl: '/phone-preview-placeholder.jpg', width: 1024, height: 1024 }] }) }))
     await page.route('**/api/feed/publications', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, publication: { id: 'publication-1' }, moderation: 'approved' }) }))
     await page.route('**/api/me-v2', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(me) }))
+    await page.route('**/api/tools/transcribe?**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, text: 'Речь распознана', model: 'fake-asr', provider: 'fake', usage: {} }) }))
     const thread = { id: '0123456789abcdef', title: 'Новый чат', chatModelId: 'local:izo-chat', imageModelId: null, videoModelId: null, contextChars: 60000, createdAt: '2026-08-24T00:00:00Z', updatedAt: '2026-08-24T00:00:00Z' }
     await page.route('**/api/phone/chat/threads', async (route) => route.request().method() === 'POST'
       ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, thread }) })
@@ -88,11 +89,18 @@ try {
     await page.locator('.phone-video-preview video').waitFor()
     assert(await page.getByRole('button', { name: 'Освободить предпросмотр' }).isVisible(), `${viewport.width}: video preview close is missing`)
 
+    await page.goto(`${origin}/phone/audio`, { waitUntil: 'domcontentloaded' })
+    await page.getByRole('heading', { name: 'Запишите голос' }).waitFor()
+    await page.locator('.phone-audio-workspace input[type="file"]').setInputFiles({ name: 'voice.wav', mimeType: 'audio/wav', buffer: Buffer.from([82, 73, 70, 70, 0, 0, 0, 0, 87, 65, 86, 69]) })
+    await page.locator('.phone-audio-transcript p').getByText('Речь распознана', { exact: true }).waitFor()
+    assert(await page.getByRole('button', { name: 'Воспроизвести' }).isVisible(), `${viewport.width}: audio player is missing`)
+    assert(await page.getByRole('button', { name: /Копировать/ }).isVisible(), `${viewport.width}: transcript actions are missing`)
+
     await page.getByRole('button', { name: 'Меню', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Разделы ИЗО АСА' })
     await dialog.waitFor()
     assert(await dialog.getByRole('button').count() === 6, `${viewport.width}: menu actions are incomplete`)
-    assert(await dialog.getByRole('button', { name: /Звук/ }).isDisabled(), `${viewport.width}: partial audio is not disabled`)
+    assert(await dialog.getByRole('button', { name: /Звук/ }).isEnabled(), `${viewport.width}: working audio route is disabled`)
     assert(await dialog.getByRole('button', { name: /3D-модель/ }).isDisabled(), `${viewport.width}: planned 3D is not disabled`)
     const sheet = await page.locator('.phone-menu-sheet').boundingBox()
     assert(sheet, `${viewport.width}: menu sheet has no box`)
