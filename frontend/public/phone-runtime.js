@@ -1069,8 +1069,16 @@
   const demoPaintSnd = paintSnd
   paintSnd = function phonePaintSnd() {
     demoPaintSnd()
-    scr.innerHTML = '<div class="live-empty"><span><b>Звук пока не подключён</b>В проекте нет пользовательского API озвучки и музыки, поэтому этот экран не имитирует готовый результат.</span></div>'
-    document.getElementById('run').disabled = true; document.getElementById('cost').textContent = '—'
+    if (idx !== 0) {
+      const messages = [
+        '',
+        '<b>Музыка готовится к подключению</b>Нужна отдельная музыкальная модель — результат не имитируется.',
+        '<b>Обработка звука готовится к подключению</b>Извлечение дорожек будет включено после серверной проверки.',
+        '<b>Клонирование голоса пока недоступно</b>Функция появится только с безопасным подтверждением согласия.',
+      ]
+      scr.innerHTML = `<div class="live-empty"><span>${messages[idx]}</span></div>`
+      document.getElementById('run').disabled = true; document.getElementById('cost').textContent = '—'
+    }
   }
 
   const chatText = (value) => html(value)
