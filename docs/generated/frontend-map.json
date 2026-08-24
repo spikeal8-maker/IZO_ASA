@@ -5,23 +5,6 @@
   "routes": [
     {
       "paths": [
-        "/phone",
-        "/phone/"
-      ],
-      "predicate": "isPhonePrototypeRoute",
-      "entry": "frontend/src/PhonePrototypePage.tsx",
-      "components": [
-        "frontend/src/PhonePrototypePage.tsx"
-      ],
-      "hooks": [],
-      "api": [],
-      "css": [
-        "frontend/src/phonePrototypePage.css"
-      ],
-      "tests": []
-    },
-    {
-      "paths": [
         "/payment",
         "/payment/",
         "/payment/result",

@@ -6,7 +6,7 @@ const LegacyApp = lazy(() => import('./LegacyApp'))
 const AdminApp = lazy(() => import('./AdminApp'))
 const PaymentResultPage = lazy(() => import('./PaymentResultPage'))
 const CommercePage = lazy(() => import('./CommercePage'))
-const PhonePrototypePage = lazy(() => import('./PhonePrototypePage'))
+const PhoneApp = lazy(() => import('./phone/PhoneApp'))
 
 function isNewStudioRoute(path: string) {
   if (path === '/') return true
@@ -51,8 +51,8 @@ function isStaticGalleryRoute(path: string) {
   return path === '/gallery' || path.startsWith('/gallery/')
 }
 
-function isPhonePrototypeRoute(path: string) {
-  return path === '/phone' || path === '/phone/'
+function isPhoneRoute(path: string) {
+  return path === '/phone' || path === '/phone/' || path.startsWith('/phone/')
 }
 
 function NotFound() {
@@ -81,7 +81,7 @@ function App() {
     return <div className="app-loading">Загружаем галерею...</div>
   }
 
-  const Target = isPhonePrototypeRoute(path) ? PhonePrototypePage : isPaymentRoute(path) ? PaymentResultPage : isCommerceRoute(path) ? CommercePage : isNewStudioRoute(path) ? NewStudio : isAdminRoute(path) ? AdminApp : (isLegacyRoute(path) ? LegacyApp : null)
+  const Target = isPhoneRoute(path) ? PhoneApp : isPaymentRoute(path) ? PaymentResultPage : isCommerceRoute(path) ? CommercePage : isNewStudioRoute(path) ? NewStudio : isAdminRoute(path) ? AdminApp : (isLegacyRoute(path) ? LegacyApp : null)
 
   if (!Target) {
     return <NotFound />

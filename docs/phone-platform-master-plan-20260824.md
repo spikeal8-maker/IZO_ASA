@@ -659,3 +659,7 @@ Release считается успешным только при совпаден
   `/api/phone/v1/platform`, server-owned feature flags и общие frontend types,
   transport и route contract. Подробности:
   [phone-architecture-contract-20260824.md](phone-architecture-contract-20260824.md).
+- `PHONE-SHELL-001`: **CODE COMPLETE; NOT DEPLOYED** — нативные React routes,
+  общий shell, навигация, меню, offline/error/auth states и mobile browser E2E.
+  Подробности:
+  [phone-shell-implementation-20260824.md](phone-shell-implementation-20260824.md).
