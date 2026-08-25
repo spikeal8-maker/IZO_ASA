@@ -1,6 +1,9 @@
 import { chromium } from 'playwright'
+import { mkdirSync } from 'node:fs'
 
 const baseURL = process.env.QA_ADMIN_BASE_URL || 'http://127.0.0.1:5175'
+const outDir = process.env.QA_ARTIFACT_DIR || 'visual-out'
+mkdirSync(outDir, { recursive: true })
 const pages = [
   ['OpenRouter', '/admin/models/openrouter', 'Модели OpenRouter'],
   ['Config UI', '/admin/models/config-ui', 'Локальные модели Config UI'],
@@ -33,23 +36,39 @@ async function verify(viewport) {
   await mockAdmin(page)
   await page.goto(`${baseURL}/admin/models`, { waitUntil: 'networkidle', timeout: 40000 })
   try {
-    await page.getByRole('tablist', { name: 'Разделы моделей' }).waitFor()
+    if (viewport.width <= 980) await page.getByRole('button', { name: 'Открыть меню админки' }).click()
+    await page.getByRole('navigation', { name: 'Разделы админки' }).waitFor()
   } catch (error) {
     console.error((await page.locator('body').innerText()).slice(0, 3000))
     throw error
   }
   assert(new URL(page.url()).pathname === pages[0][1], 'legacy /admin/models was not canonicalized')
+  assert(await page.locator('.admin-sidebar').count() === 1, 'admin sidebar is missing')
+  assert(await page.locator('.page-tabs').count() === 0, 'duplicated models tab bar is still rendered')
 
   for (const [label, path, heading] of pages) {
-    await page.getByRole('tab', { name: label, exact: true }).click()
+    if (viewport.width <= 980 && !(await page.locator('.admin-sidebar').evaluate((element) => element.classList.contains('mobile-open')))) {
+      await page.getByRole('button', { name: 'Открыть меню админки' }).click()
+    }
+    await page.getByRole('link', { name: label, exact: true }).click()
     await page.getByRole('heading', { name: heading, exact: true }).first().waitFor()
     assert(new URL(page.url()).pathname === path, `${label} did not open its own URL`)
-    assert(await page.getByRole('tab', { name: label, exact: true }).getAttribute('aria-selected') === 'true', `${label} is not selected`)
+    if (viewport.width > 980) assert(await page.getByRole('link', { name: label, exact: true }).getAttribute('aria-current') === 'page', `${label} is not selected`)
   }
 
   await page.goBack()
   await page.getByRole('heading', { name: 'Голосовой ввод', exact: true }).first().waitFor()
   assert(new URL(page.url()).pathname === '/admin/models/voice-input', 'browser Back did not restore the previous models page')
+  if (viewport.width > 980) {
+    await page.screenshot({ path: `${outDir}/admin-sidebar-${viewport.width}.png`, fullPage: true })
+    await page.getByRole('button', { name: 'Свернуть боковую панель' }).click()
+    assert(await page.locator('.admin-shell-layout').evaluate((element) => element.classList.contains('nav-collapsed')), 'desktop sidebar did not collapse')
+    await page.screenshot({ path: `${outDir}/admin-sidebar-${viewport.width}-collapsed.png`, fullPage: true })
+  } else {
+    await page.getByRole('button', { name: 'Открыть меню админки' }).click()
+    await page.screenshot({ path: `${outDir}/admin-sidebar-${viewport.width}.png`, fullPage: true })
+    await page.getByRole('button', { name: 'Закрыть меню', exact: true }).click()
+  }
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1)
   assert(!overflow, `models navigation overflows at ${viewport.width}px`)
   await page.close()

@@ -1,5 +1,9 @@
 import { lazy, Suspense, useCallback, useEffect, useState, type CSSProperties } from 'react'
-import { Lock, WandSparkles } from 'lucide-react'
+import {
+  Bell, Bot, ChevronDown, ChevronLeft, ChevronRight, CreditCard,
+  LayoutDashboard, Layers3, Lock, Mail, Menu, ScrollText, Share2,
+  Tags, Users, WandSparkles, X,
+} from 'lucide-react'
 import {
   AuthV2Modal,
   initAuthV2,
@@ -9,6 +13,7 @@ import { DiagPanel } from './diag'
 import { isDiagMode } from './diagMeta'
 import { adminGet, adminPost } from './adminApi'
 import { DEFAULT_TARIFFS, SERVER_MODEL_OPTION, formatModelCount, modelOptionById, normalizeTariffs, qualityPresetLabels, qualityPresets, resolutionOptions, tariffKeys, type ModelOption, type TariffConfig, type TariffKey } from './profileSupport'
+import { ADMIN_MODELS_PAGES } from './adminModelsRoutes'
 import './index.css'
 
 const AdminAnalyticsV2 = lazy(() => import('./adminAnalytics').then((module) => ({ default: module.AdminAnalyticsV2 })))
@@ -75,22 +80,42 @@ function normalizeTariffTermSettings(value: unknown): TariffTermSettings {
 
 const HOURLY_DASHBOARD_RANGES = new Set<DashboardRange>([1, 6, 12, 24])
 
-const ADMIN_ROUTES: Array<{ tab: AdminTab; label: string; path: string }> = [
-  { tab: 'dashboard', label: 'Дашборд', path: '/admin/dashboard' },
-  { tab: 'crm', label: 'CRM', path: '/admin/crm' },
-  { tab: 'models', label: 'Модели', path: '/admin/models' },
-  { tab: 'notifications', label: 'Уведомления', path: '/admin/notifications' },
-  { tab: 'social', label: 'Соцсети', path: '/admin/social' },
-  { tab: 'tariffs', label: 'Тарифы', path: '/admin/tariffs' },
-  { tab: 'payments', label: 'Платежи', path: '/admin/payments' },
-  { tab: 'mail', label: 'Почта', path: '/admin/mail' },
-  { tab: 'bots', label: 'Боты', path: '/admin/bots' },
-  { tab: 'logs', label: 'Логи', path: '/admin/logs' },
-]
+const ADMIN_ROUTES = [
+  { tab: 'dashboard', label: 'Дашборд', path: '/admin/dashboard', icon: LayoutDashboard },
+  { tab: 'crm', label: 'CRM', path: '/admin/crm', icon: Users },
+  { tab: 'models', label: 'Модели', path: '/admin/models/openrouter', icon: Layers3 },
+  { tab: 'notifications', label: 'Уведомления', path: '/admin/notifications', icon: Bell },
+  { tab: 'social', label: 'Соцсети', path: '/admin/social', icon: Share2 },
+  { tab: 'tariffs', label: 'Тарифы', path: '/admin/tariffs', icon: Tags },
+  { tab: 'payments', label: 'Платежи', path: '/admin/payments', icon: CreditCard },
+  { tab: 'mail', label: 'Почта', path: '/admin/mail', icon: Mail },
+  { tab: 'bots', label: 'Боты', path: '/admin/bots', icon: Bot },
+  { tab: 'logs', label: 'Логи', path: '/admin/logs', icon: ScrollText },
+] satisfies Array<{ tab: AdminTab; label: string; path: string; icon: typeof LayoutDashboard }>
+
+const ADMIN_ROUTE_TITLES: Record<AdminTab, string> = {
+  dashboard: 'Дашборд', crm: 'CRM', models: 'Модели', notifications: 'Уведомления',
+  social: 'Социальные сети', tariffs: 'Тарифы', payments: 'Платежи', mail: 'Почта',
+  bots: 'Боты', logs: 'Логи',
+}
+
+const ADMIN_ROUTE_DESCRIPTIONS: Record<AdminTab, string> = {
+  dashboard: 'Состояние проекта и ключевые показатели',
+  crm: 'Пользователи, активность и экономика',
+  models: 'Провайдеры, локальные модели и инфраструктура',
+  notifications: 'Системные и пользовательские уведомления',
+  social: 'Каналы публикации и доставка материалов',
+  tariffs: 'Токены, лимиты и доступ к моделям',
+  payments: 'Счета, оплаты и возвраты',
+  mail: 'Почтовые шаблоны и доставка',
+  bots: 'Интеграции и служебные боты',
+  logs: 'События, ошибки и аудит',
+}
 
 function adminTabFromPath(pathname: string): AdminTab {
   const normalized = pathname.replace(/\/+$/, '') || '/admin'
   if (normalized === '/admin' || normalized === '/admin/dashboard') return 'dashboard'
+  if (normalized === '/admin/models' || normalized.startsWith('/admin/models/')) return 'models'
   return ADMIN_ROUTES.find((route) => normalized === route.path || normalized.startsWith(`${route.path}/`))?.tab || 'dashboard'
 }
 
@@ -519,13 +544,28 @@ export default function AdminApp() {
   const { status, me } = useAuthV2()
   const [authOpen, setAuthOpen] = useState(false)
   const [tab, setTab] = useState<AdminTab>(() => adminTabFromPath(window.location.pathname))
+  const [pathname, setPathname] = useState(() => window.location.pathname)
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [modelsExpanded, setModelsExpanded] = useState(() => adminTabFromPath(window.location.pathname) === 'models')
+  const [navCollapsed, setNavCollapsed] = useState(() => window.localStorage.getItem('admin.sidebar.collapsed') === '1')
   const [summary, setSummary] = useState<AnyRec | null>(null)
   const [logsData, setLogsData] = useState<AnyRec | null>(null)
   const isAdmin = status === 'authed' && me?.account?.role === 'admin'
 
   useEffect(() => { void initAuthV2() }, [])
   useEffect(() => {
-    const syncRoute = () => setTab(adminTabFromPath(window.location.pathname))
+    const syncRoute = () => {
+      let nextPath = window.location.pathname
+      if (nextPath.replace(/\/+$/, '') === '/admin/models') {
+        nextPath = '/admin/models/openrouter'
+        window.history.replaceState({}, '', nextPath)
+      }
+      const nextTab = adminTabFromPath(nextPath)
+      setPathname(nextPath)
+      setTab(nextTab)
+      if (nextTab === 'models') setModelsExpanded(true)
+    }
+    syncRoute()
     window.addEventListener('popstate', syncRoute)
     return () => window.removeEventListener('popstate', syncRoute)
   }, [])
@@ -563,35 +603,104 @@ export default function AdminApp() {
   const dashboardToday = (((dashboard.periods || {}) as AnyRec).today || {}) as AnyRec
   const dashboardTodayUsers = (dashboardToday.users || {}) as AnyRec
   const dashboardTodayJobs = (dashboardToday.generations || {}) as AnyRec
+  const currentModelPage = ADMIN_MODELS_PAGES.find((page) => page.path === pathname)
+  const currentTitle = currentModelPage?.title || ADMIN_ROUTE_TITLES[tab]
+  const currentDescription = currentModelPage?.description || ADMIN_ROUTE_DESCRIPTIONS[tab]
+  const openAdminPath = (path: string) => {
+    navigateAdmin(path)
+    setMobileNavOpen(false)
+  }
+  const toggleCollapsed = () => setNavCollapsed((current) => {
+    const next = !current
+    window.localStorage.setItem('admin.sidebar.collapsed', next ? '1' : '0')
+    return next
+  })
   return (
     <div className="app-shell admin-route-shell">
       {isDiagMode() && <DiagPanel />}
       <AuthV2Modal open={authOpen} onClose={() => setAuthOpen(false)} />
       <main className="workspace admin-workspace">
-        <section className="admin-page">
-          <div className="admin-kpi-strip admin-kpi-strip-primary" aria-label="Оперативные показатели">
-            <span><b>{String(((dashboard.totals || {}) as AnyRec).users ?? summary?.users ?? '—')}</b> пользователей</span>
-            <span><b>{String(dashboardTodayUsers.active ?? summary?.activeToday ?? '—')}</b> активны сегодня</span>
-            <span><b>{String(dashboard.sessions_active ?? summary?.activeSessions ?? '—')}</b> активных сессий</span>
-            <span><b>{String(dashboardTodayJobs.total ?? summary?.generationsToday ?? '—')}</b> генераций сегодня</span>
-            <span><b>{String(dashboardTodayJobs.failed ?? '—')}</b> ошибок генерации сегодня</span>
-            <span><b>{String(summary?.errors24h ?? '—')}</b> ошибок входа 24ч</span>
-            <span><b>{String(queue.length)}</b> в очереди</span>
+        <div className={`admin-shell-layout${navCollapsed ? ' nav-collapsed' : ''}`}>
+          <button className={`admin-sidebar-backdrop${mobileNavOpen ? ' visible' : ''}`} aria-label="Закрыть меню админки" onClick={() => setMobileNavOpen(false)} />
+          <aside id="admin-sidebar" className={`admin-sidebar${mobileNavOpen ? ' mobile-open' : ''}`} aria-label="Навигация администратора">
+            <header className="admin-sidebar-head">
+              <div className="admin-sidebar-mark"><WandSparkles size={19} /></div>
+              <div className="admin-sidebar-brand"><strong>ИЗО АСА</strong><span>Управление</span></div>
+              <button className="admin-sidebar-mobile-close" aria-label="Закрыть меню" onClick={() => setMobileNavOpen(false)}><X size={19} /></button>
+            </header>
+            <nav className="admin-tabbar admin-sidebar-nav" aria-label="Разделы админки">
+              {ADMIN_ROUTES.map((route) => {
+                const Icon = route.icon
+                const active = tab === route.tab
+                const isModels = route.tab === 'models'
+                return <div className={`admin-nav-group${active ? ' active' : ''}`} key={route.tab}>
+                  <button
+                    className={`admin-nav-primary${active ? ' active' : ''}`}
+                    title={navCollapsed ? route.label : undefined}
+                    aria-current={active ? 'page' : undefined}
+                    aria-expanded={isModels ? modelsExpanded : undefined}
+                    onClick={() => {
+                      if (isModels) {
+                        if (active) setModelsExpanded((current) => !current)
+                        else {
+                          setModelsExpanded(true)
+                          openAdminPath(route.path)
+                        }
+                      } else openAdminPath(route.path)
+                    }}
+                  >
+                    <Icon size={18} />
+                    <span>{route.label}</span>
+                    {isModels && <ChevronDown className={`admin-nav-chevron${modelsExpanded ? ' open' : ''}`} size={16} />}
+                  </button>
+                  {isModels && <div className={`admin-nav-children${modelsExpanded && !navCollapsed ? ' open' : ''}`}>
+                    {ADMIN_MODELS_PAGES.map((page) => <a
+                      key={page.id}
+                      href={page.path}
+                      className={pathname === page.path ? 'active' : ''}
+                      aria-current={pathname === page.path ? 'page' : undefined}
+                      onClick={(event) => { event.preventDefault(); openAdminPath(page.path) }}
+                    ><i />{page.label}</a>)}
+                  </div>}
+                </div>
+              })}
+            </nav>
+            <footer className="admin-sidebar-footer">
+              <button onClick={toggleCollapsed} aria-label={navCollapsed ? 'Развернуть боковую панель' : 'Свернуть боковую панель'}>
+                {navCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+                <span>Свернуть</span>
+              </button>
+            </footer>
+          </aside>
+
+          <div className="admin-content-column">
+            <header className="admin-content-heading">
+              <button className="admin-sidebar-mobile-open" aria-label="Открыть меню админки" aria-controls="admin-sidebar" aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen(true)}><Menu size={21} /></button>
+              <div><h1>{currentTitle}</h1><p>{currentDescription}</p></div>
+            </header>
+            <div className="admin-kpi-strip admin-kpi-strip-primary" aria-label="Оперативные показатели">
+              <span><b>{String(((dashboard.totals || {}) as AnyRec).users ?? summary?.users ?? '—')}</b> пользователей</span>
+              <span><b>{String(dashboardTodayUsers.active ?? summary?.activeToday ?? '—')}</b> активны сегодня</span>
+              <span><b>{String(dashboard.sessions_active ?? summary?.activeSessions ?? '—')}</b> активных сессий</span>
+              <span><b>{String(dashboardTodayJobs.total ?? summary?.generationsToday ?? '—')}</b> генераций сегодня</span>
+              <span><b>{String(dashboardTodayJobs.failed ?? '—')}</b> ошибок генерации сегодня</span>
+              <span><b>{String(summary?.errors24h ?? '—')}</b> ошибок входа 24ч</span>
+              <span><b>{String(queue.length)}</b> в очереди</span>
+            </div>
+            <section className="admin-page admin-content-page">
+              {tab === 'dashboard' && <AdminDashboard summary={summary} />}
+              {tab === 'crm' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем CRM...</div>}><AdminAnalyticsV2 /></Suspense></div>}
+              {tab === 'models' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем модели...</div>}><AdminModelsV2 embeddedInSidebar /></Suspense></div>}
+              {tab === 'notifications' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем уведомления...</div>}><AdminNotifications /></Suspense></div>}
+              {tab === 'social' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем соцсети...</div>}><AdminSocial /></Suspense></div>}
+              {tab === 'tariffs' && <AdminTokens />}
+              {tab === 'payments' && <Suspense fallback={<div className="preview-empty">Загружаем платежи...</div>}><AdminPayments /></Suspense>}
+              {tab === 'mail' && <Suspense fallback={<div className="preview-empty">Загружаем почту...</div>}><AdminMail /></Suspense>}
+              {tab === 'bots' && <Suspense fallback={<div className="preview-empty">Загружаем ботов...</div>}><AdminBots /></Suspense>}
+              {tab === 'logs' && <AdminLogs logsData={logsData} />}
+            </section>
           </div>
-          <nav className="admin-tabbar" aria-label="Разделы админки">
-            {ADMIN_ROUTES.map((route) => <button key={route.tab} className={tab === route.tab ? 'active' : ''} onClick={() => navigateAdmin(route.path)}>{route.label}</button>)}
-          </nav>
-          {tab === 'dashboard' && <AdminDashboard summary={summary} />}
-          {tab === 'crm' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем CRM...</div>}><AdminAnalyticsV2 /></Suspense></div>}
-          {tab === 'models' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем модели...</div>}><AdminModelsV2 /></Suspense></div>}
-          {tab === 'notifications' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем уведомления...</div>}><AdminNotifications /></Suspense></div>}
-          {tab === 'social' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем соцсети...</div>}><AdminSocial /></Suspense></div>}
-          {tab === 'tariffs' && <AdminTokens />}
-          {tab === 'payments' && <Suspense fallback={<div className="preview-empty">Загружаем платежи...</div>}><AdminPayments /></Suspense>}
-          {tab === 'mail' && <Suspense fallback={<div className="preview-empty">Загружаем почту...</div>}><AdminMail /></Suspense>}
-          {tab === 'bots' && <Suspense fallback={<div className="preview-empty">Загружаем ботов...</div>}><AdminBots /></Suspense>}
-          {tab === 'logs' && <AdminLogs logsData={logsData} />}
-        </section>
+        </div>
       </main>
     </div>
   )

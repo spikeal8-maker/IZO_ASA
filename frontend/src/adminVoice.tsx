@@ -66,6 +66,7 @@ const CSS = `
 .voice-hero{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:17px 18px;border:1px solid var(--va-line);border-radius:8px;background:linear-gradient(110deg,rgba(216,239,85,.07),transparent 46%),#101310}
 .voice-title{display:flex;gap:13px;align-items:center}.voice-title-icon{width:42px;height:42px;display:grid;place-items:center;flex:0 0 auto;border:1px solid rgba(216,239,85,.42);border-radius:8px;color:var(--va-lime);background:rgba(216,239,85,.08)}
 .voice-title h2{font-size:20px}.voice-title p{margin-top:5px;max-width:720px;color:var(--va-muted);font-size:12px;line-height:1.45}.voice-current{text-align:right}.voice-current span{display:block;color:var(--va-muted);font-size:10px;text-transform:uppercase}.voice-current strong{display:block;margin-top:4px;color:var(--va-lime);font-size:15px}
+.voice-inline-loading,.voice-embedded-current{display:flex;align-items:center;gap:9px;padding:9px 11px;border:1px solid var(--va-line);border-radius:7px;background:var(--va-panel);color:var(--va-muted);font-size:11px}.voice-embedded-current{justify-content:flex-end}.voice-embedded-current strong{color:var(--va-lime)}
 .voice-section-title h3{font-size:15px}.voice-section-title p{margin-top:4px;color:var(--va-muted);font-size:11px;line-height:1.45}
 .voice-route-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}.voice-route-card{min-width:0;min-height:108px;padding:13px;border:1px solid var(--va-line);border-radius:8px;background:var(--va-panel);color:#f4f6ef;text-align:left;cursor:pointer;box-shadow:inset 0 1px rgba(255,255,255,.035),0 2px 5px rgba(0,0,0,.18);transition:transform .15s,border-color .15s,background .15s}.voice-route-card:hover:not(:disabled){transform:translateY(-2px);border-color:rgba(216,239,85,.42)}.voice-route-card.active{border-color:var(--va-lime);background:linear-gradient(145deg,rgba(216,239,85,.11),rgba(216,239,85,.025)),var(--va-panel);box-shadow:inset 0 1px rgba(255,255,255,.08),0 3px 8px rgba(0,0,0,.28)}.voice-route-card:disabled{opacity:.5;cursor:not-allowed}
 .voice-route-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.voice-route-name{display:flex;align-items:center;gap:7px;font-weight:750}.voice-route-card p{margin-top:9px;color:var(--va-muted);font-size:10px;line-height:1.4}.voice-route-card code{display:block;margin-top:7px;color:#e5eadf;font-size:10px;overflow-wrap:anywhere}.voice-status{display:inline-flex;align-items:center;gap:4px;padding:3px 6px;border:1px solid rgba(255,116,121,.3);border-radius:999px;color:#ff8e92;font-size:9px;white-space:nowrap}.voice-status.ok{color:#77df83;border-color:rgba(119,223,131,.32)}
@@ -81,7 +82,7 @@ const CSS = `
 @media(max-width:560px){.voice-hero{align-items:flex-start;padding:14px}.voice-current{display:none}.voice-title h2{font-size:17px}.voice-route-grid{grid-template-columns:1fr}.voice-route-card{min-height:92px}.voice-test-options,.voice-tech-fields,.voice-catalog-body{grid-template-columns:1fr}.voice-tech-fields .full{grid-column:auto}.voice-upload{width:100%}.voice-recorder{min-height:170px}}
 `
 
-export default function AdminVoice() {
+export default function AdminVoice({ embedded = false }: { embedded?: boolean }) {
   const [data, setData] = useState<VoiceData | null>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
@@ -204,7 +205,9 @@ export default function AdminVoice() {
     }
   }
 
-  if (!data) return <div className="voice-admin"><style>{CSS}</style><div className="voice-hero"><div className="voice-title"><RefreshCw size={20} /><div><h2>Голосовой ввод</h2><p>{message || 'Загружаю статусы моделей...'}</p></div></div></div></div>
+  if (!data) return <div className="voice-admin"><style>{CSS}</style>{embedded
+    ? <div className="voice-inline-loading"><RefreshCw size={18} /><span>{message || 'Загружаю статусы моделей...'}</span></div>
+    : <div className="voice-hero"><div className="voice-title"><RefreshCw size={20} /><div><h2>Голосовой ввод</h2><p>{message || 'Загружаю статусы моделей...'}</p></div></div></div>}</div>
 
   const voice = data.config.voice
   const ollamaModels = data.ollama.models.map((model) => model.name).filter(Boolean) as string[]
@@ -218,10 +221,11 @@ export default function AdminVoice() {
 
   return <div className="voice-admin">
     <style>{CSS}</style>
-    <section className="voice-hero">
+    {!embedded && <section className="voice-hero">
       <div className="voice-title"><div className="voice-title-icon"><Mic2 size={21} /></div><div><h2>Голосовой ввод</h2><p>Выберите основной способ, запишите тестовую фразу и сразу увидите реальный результат.</p></div></div>
       <div className="voice-current"><span>Сейчас используется</span><strong>{LABELS[voice.route]}</strong></div>
-    </section>
+    </section>}
+    {embedded && <div className="voice-embedded-current"><span>Сейчас используется:</span><strong>{LABELS[voice.route]}</strong></div>}
 
     <div className="voice-section-title"><h3>1. Способ распознавания</h3><p>Недоступные сервисы нельзя выбрать. Автоматический режим переключается на резерв только при ошибке.</p></div>
     <section className="voice-route-grid">

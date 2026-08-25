@@ -732,6 +732,8 @@ const CSS = `
 .amv2 .tab-status{grid-column:1/-1;display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:4px 4px 0;border-top:1px solid var(--line);white-space:nowrap}
 .amv2 .models-page-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:12px;padding:11px 13px;border-left:3px solid var(--lime);background:linear-gradient(90deg,rgba(234,255,16,.07),transparent 55%)}
 .amv2 .models-page-head h1{margin:0;font-size:18px;line-height:1.2}.amv2 .models-page-head p{margin:4px 0 0;color:var(--muted);font-size:12px;line-height:1.4}
+.amv2 .models-page-head-status{margin-left:auto}.amv2 .models-page-head-status .tab-status{grid-column:auto;width:auto;padding:0;border:0;justify-content:flex-end}
+.amv2 .models-page-embedded-status{display:flex;justify-content:flex-end;margin-bottom:8px}.amv2 .models-page-embedded-status .tab-status{grid-column:auto;width:auto;padding:6px 8px;border:1px solid var(--line);border-radius:7px;justify-content:flex-end}
 .amv2 .models-page-loading{min-height:220px;display:grid;place-content:center;justify-items:center;gap:10px;padding:24px;border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);text-align:center}
 .amv2 .status-dot{width:9px;height:9px;border-radius:50%;background:var(--red);box-shadow:0 0 0 3px rgba(255,116,121,.12)}
 .amv2 .status-dot.ok{background:var(--green);box-shadow:0 0 0 3px rgba(112,221,120,.12)}
@@ -936,12 +938,12 @@ const CSS = `
 .amv2 .mobile-models{display:none;padding:12px;gap:10px}
 .amv2 .mobile-model{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.035);display:grid;gap:10px}
 @media (max-width:1360px){.amv2 .dashboard,.amv2 .server-layout{grid-template-columns:1fr}.amv2 .metric-grid,.amv2 .lora-grid,.amv2 .status-grid,.amv2 .mode-board{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .api-section-head{grid-template-columns:minmax(220px,1.4fr) repeat(3,minmax(100px,.8fr)) minmax(150px,1fr)}.amv2 .grid-main{grid-template-columns:1fr}.amv2 .side-panel{position:static}}
-@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats,.amv2 .api-section-head,.amv2 .assistant-config{grid-template-columns:1fr}.amv2 .assistant-economy{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .assistant-history-row{grid-template-columns:1fr 70px}.amv2 .assistant-history-row span:nth-child(n+3){grid-column:1/-1}.amv2 .server-command{align-items:stretch;flex-wrap:wrap}.amv2 .server-command .server-title{width:100%}.amv2 .profile-switch{flex:1}.amv2 .lora-columns,.amv2 .config-profiles{grid-template-columns:1fr}.amv2 .lora-row{grid-template-columns:28px 1fr 80px}.amv2 .lora-row>div:nth-child(3),.amv2 .lora-row>div:nth-child(4){grid-column:2 / -1}.amv2 .tab-status{width:100%;justify-content:flex-start;flex-wrap:wrap}.amv2 .page-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .matrix-wrap .api-table.format-table{min-width:1500px}.amv2 .mobile-models{display:grid}}
+@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats,.amv2 .api-section-head,.amv2 .assistant-config{grid-template-columns:1fr}.amv2 .assistant-economy{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .assistant-history-row{grid-template-columns:1fr 70px}.amv2 .assistant-history-row span:nth-child(n+3){grid-column:1/-1}.amv2 .server-command{align-items:stretch;flex-wrap:wrap}.amv2 .server-command .server-title{width:100%}.amv2 .profile-switch{flex:1}.amv2 .lora-columns,.amv2 .config-profiles{grid-template-columns:1fr}.amv2 .lora-row{grid-template-columns:28px 1fr 80px}.amv2 .lora-row>div:nth-child(3),.amv2 .lora-row>div:nth-child(4){grid-column:2 / -1}.amv2 .tab-status{width:100%;justify-content:flex-start;flex-wrap:wrap}.amv2 .models-page-head{display:grid}.amv2 .models-page-head-status{margin-left:0}.amv2 .models-page-head-status .tab-status{justify-content:flex-start}.amv2 .page-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .matrix-wrap .api-table.format-table{min-width:1500px}.amv2 .mobile-models{display:grid}}
 @media (max-width:580px){.amv2 .metric-grid,.amv2 .two-col,.amv2 .price-row,.amv2 .lora-grid,.amv2 .advanced-grid,.amv2 .status-grid,.amv2 .mode-board,.amv2 .or-stats,.amv2 .server-overview,.amv2 .assistant-summary,.amv2 .assistant-economy{grid-template-columns:1fr}.amv2 .profile-switch{width:100%}.amv2 .server-restart{width:100%}}
 @media (max-width:880px){.amv2 .video-catalog-card{width:calc(100vw - 40px);max-width:calc(100vw - 40px)}.amv2 .video-mode-finance-head{grid-template-columns:1fr 1fr}.amv2 .video-mode-finance-head>div:first-child,.amv2 .video-mode-count{grid-column:1 / -1}.amv2 .video-catalog-head{align-items:flex-start;flex-direction:column}.amv2 .video-catalog-meta{width:100%;justify-content:flex-start}.amv2 .video-model-detail{overflow-wrap:anywhere}.amv2 .video-economy-note{display:grid;gap:5px}}
 `
 
-export default function AdminModelsV2() {
+export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedInSidebar?: boolean }) {
   const [data, setData] = useState<PageData | null>(null)
   const [pageTab, setPageTab] = useState<AdminModelsPage>(() => adminModelsPageFromPath(window.location.pathname))
   const [configSection, setConfigSection] = useState<'image' | 'video' | 'text'>('image')
@@ -1475,19 +1477,19 @@ export default function AdminModelsV2() {
 
   if (pageTab === 'energy') return <div className="amv2">
     <style>{CSS}</style>
-    <AdminModelsNavigation active={pageTab} onNavigate={navigateModelsPage} />
+    <AdminModelsNavigation active={pageTab} onNavigate={navigateModelsPage} showTabs={!embeddedInSidebar} showHeader={!embeddedInSidebar} />
     <Suspense fallback={<div className="models-page-loading">Загружаем энергопотребление…</div>}><AdminEnergy /></Suspense>
   </div>
 
   if (pageTab === 'voice') return <div className="amv2">
     <style>{CSS}</style>
-    <AdminModelsNavigation active={pageTab} onNavigate={navigateModelsPage} />
-    <Suspense fallback={<div className="models-page-loading">Загружаем голосовой ввод…</div>}><AdminVoice /></Suspense>
+    <AdminModelsNavigation active={pageTab} onNavigate={navigateModelsPage} showTabs={!embeddedInSidebar} showHeader={!embeddedInSidebar} />
+    <Suspense fallback={<div className="models-page-loading">Загружаем голосовой ввод…</div>}><AdminVoice embedded={embeddedInSidebar} /></Suspense>
   </div>
 
   if (!data) return <div className="amv2">
     <style>{CSS}</style>
-    <AdminModelsNavigation active={pageTab} onNavigate={navigateModelsPage} />
+    <AdminModelsNavigation active={pageTab} onNavigate={navigateModelsPage} showTabs={!embeddedInSidebar} showHeader={!embeddedInSidebar} />
     <div className="models-page-loading">
       <p style={{ color: err ? 'var(--red)' : 'var(--muted)' }}>{err || 'Загружаем данные раздела…'}</p>
       {err && <button className="ghost" style={{ width: 'max-content' }} onClick={() => void load()}>Повторить</button>}
@@ -1570,7 +1572,7 @@ export default function AdminModelsV2() {
   return <div className="amv2">
     <style>{CSS}</style>
     {msg && <p style={{ color: 'var(--lime)', fontSize: 12, margin: '0 0 8px' }}>{msg}</p>}
-    <AdminModelsNavigation active={pageTab} onNavigate={navigateModelsPage} status={pageTab === 'api' ? <div className="tab-status">
+    <AdminModelsNavigation active={pageTab} onNavigate={navigateModelsPage} showTabs={!embeddedInSidebar} showHeader={!embeddedInSidebar} status={pageTab === 'api' ? <div className="tab-status">
         <span className={`status-dot ${orStatus.ok ? 'ok' : data.openrouter.keyConfigured ? 'warn' : ''}`} aria-hidden="true" />
         <span className={`state ${orStatus.ok ? 'ok' : data.openrouter.keyConfigured ? 'warn' : 'bad'}`}>{orStatus.ok ? 'ключ работает' : data.openrouter.keyConfigured ? 'проверить ключ' : 'нет ключа'}</span>
         <span className="state ok">billing: {backendPricedCount} моделей</span>

@@ -53,7 +53,7 @@ async function verify(viewport, screenshotName) {
   await mockAdmin(page)
   await page.goto(`${baseURL}/admin/dashboard`, { waitUntil: 'networkidle', timeout: 40000 })
   try {
-    await page.locator('.admin-generation-chart').waitFor({ timeout: 15000 })
+    await page.locator('.admin-generation-chart').first().waitFor({ timeout: 15000 })
   } catch (error) {
     console.error((await page.locator('body').innerText()).slice(0, 3000))
     console.error(consoleErrors.join(' | '))
@@ -64,17 +64,18 @@ async function verify(viewport, screenshotName) {
   assert(await page.locator('.admin-kpi-strip span').count() === 7, 'operational strip must contain exactly seven indicators')
   assert(await page.locator('.admin-topline').count() === 0, 'legacy top line is still rendered')
   assert(await page.locator('.admin-grid-compact').count() === 0, 'duplicated KPI cards are still rendered')
-  assert(await page.locator('.admin-generation-chart').count() === 1, 'dashboard must contain one combined generation chart')
-  assert(await page.locator('.admin-generation-chart .series').count() === 4, 'combined chart must contain four series')
+  assert(await page.locator('.admin-generation-chart').count() === 4, 'dashboard must contain generation, activity, payment and energy charts')
+  assert(await page.locator('.admin-generation-chart').first().locator('.series').count() === 4, 'combined generation chart must contain four series')
+  assert(await page.locator('.admin-sidebar').count() === 1, 'admin sidebar is missing')
   assert(await page.getByRole('navigation', { name: 'Разделы админки' }).getByRole('button').count() === 10, 'admin navigation tabs are incomplete')
-  const legendText = await page.locator('.admin-generation-legend').innerText()
+  const legendText = await page.locator('.admin-generation-legend').first().innerText()
   for (const label of ['Всего', 'Базовая модель', 'Платные изображения', 'Видео']) {
     assert(legendText.includes(label), `combined chart legend missing ${label}`)
   }
   const pageOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1)
   assert(!pageOverflow, `page overflows horizontally at ${viewport.width}px`)
   if (viewport.width <= 480) {
-    const plotScrolls = await page.locator('.admin-generation-plot').evaluate((element) => element.scrollWidth > element.clientWidth)
+    const plotScrolls = await page.locator('.admin-generation-plot').first().evaluate((element) => element.scrollWidth > element.clientWidth)
     assert(plotScrolls, 'mobile chart must scroll inside its own container')
   }
   assert(consoleErrors.length === 0, `browser console errors: ${consoleErrors.join(' | ')}`)
