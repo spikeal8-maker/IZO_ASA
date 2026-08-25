@@ -64,6 +64,12 @@
     {
       "paths": [
         "/",
+        "/3d",
+        "/3d/",
+        "/audio",
+        "/audio/",
+        "/chat",
+        "/chat/",
         "/paint",
         "/paint/",
         "/profile",

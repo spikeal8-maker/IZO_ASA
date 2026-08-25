@@ -22,7 +22,7 @@ static import closure (components, hooks, `/api/*` literals, CSS, tests).
 - css: —
 - tests: —
 
-## /, /paint, /paint/, /profile, /profile/, /video, /video/ → `frontend/src/newUi.tsx`
+## /, /3d, /3d/, /audio, /audio/, /chat, /chat/, /paint, /paint/, /profile, /profile/, /video, /video/ → `frontend/src/newUi.tsx`
 
 - predicate: `isNewStudioRoute`
 - components (31): `frontend/src/HistoryVideoPreview.tsx`, `frontend/src/PaintWorkbench.tsx`, `frontend/src/ProfilePage.tsx`, `frontend/src/RuntimeBoundary.tsx`, `frontend/src/TopBarV3.tsx`, `frontend/src/VideoStudio.tsx`, `frontend/src/assets/preview-placeholder.jpg`, `frontend/src/authV2.tsx`, `frontend/src/editPrompt.ts`, `frontend/src/newUi.tsx`, `frontend/src/paintTypes.ts`, `frontend/src/profileSupport.ts`, `frontend/src/releaseIdentity.ts`, `frontend/src/resolutionPolicy.ts`, `frontend/src/runtimeContracts.ts`, `frontend/src/runtimeTelemetry.ts`, `frontend/src/seo.ts`, `frontend/src/studio/OfficialSocialLinks.tsx`, `frontend/src/studio/studioApi.ts`, `frontend/src/studio/studioDraft.ts`, `frontend/src/studio/studioHelpers.ts`, `frontend/src/studio/studioImageProcessing.ts`, `frontend/src/studio/studioNavigation.ts`, `frontend/src/studio/studioTypes.ts`, `frontend/src/studio/useStudioState.ts`, `frontend/src/studio/videoFeedHistory.ts`, `frontend/src/studio/videoSourceHandoff.ts`, `frontend/src/stylePresets.ts`, `frontend/src/tokenVisual.ts`, `frontend/src/topbarUtils.ts`, `frontend/src/useProfileAuthNavigation.ts`
