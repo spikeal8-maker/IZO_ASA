@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 
 from app.api.routers.phone_chat import PhoneChatRequest, _resolve_phone_chat_model
-from app.services.chat_billing import charge_chat_tokens, refund_chat_tokens
+from app.services.chat_billing import charge_chat_tokens, normalize_chat_config, refund_chat_tokens
 
 
 def _database() -> sqlite3.Connection:
@@ -87,3 +87,25 @@ def test_chat_model_selection_never_exposes_or_silently_switches_local_model() -
     assert selected == ("local:izo-chat", "local", "gemma4:12b", 0.0, "free")
     selected_api = _resolve_phone_chat_model(PhoneChatRequest(messages=[{"role": "user", "content": "Привет"}], modelId="provider/model"), config)
     assert selected_api == ("provider/model", "api", "provider/model", 0.1, "main")
+
+
+def test_chat_model_tariff_access_is_normalized_and_enforced() -> None:
+    legacy = normalize_chat_config({"enabledApiModels": ["provider/model"]})
+    assert legacy["apiTierAccess"] == {
+        "mini": ["provider/model"], "plus": ["provider/model"],
+        "pro": ["provider/model"], "business": ["provider/model"],
+    }
+    config = normalize_chat_config({
+        "enabledApiModels": ["provider/model", "provider/other"],
+        "apiTierAccess": {"mini": ["provider/model", "not-enabled"], "pro": ["provider/other"]},
+    })
+    assert config["apiTierAccess"]["mini"] == ["provider/model"]
+    assert config["apiTierAccess"]["plus"] == []
+    request = PhoneChatRequest(messages=[{"role": "user", "content": "Привет"}], modelId="provider/model")
+    assert _resolve_phone_chat_model(request, config, "mini")[0] == "provider/model"
+    try:
+        _resolve_phone_chat_model(request, config, "plus")
+    except ValueError as exc:
+        assert "тарифе" in str(exc)
+    else:
+        raise AssertionError("Tariff-blocked model was accepted")

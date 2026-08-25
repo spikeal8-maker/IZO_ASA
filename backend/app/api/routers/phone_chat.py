@@ -135,7 +135,7 @@ def _chat_config(deps: PhoneChatDependencies) -> dict[str, Any]:
     return config.get("chat") if isinstance(config.get("chat"), dict) else config["improve"]
 
 
-def _resolve_phone_chat_model(req: PhoneChatRequest, config: dict[str, Any]) -> tuple[str, str, str, float, str]:
+def _resolve_phone_chat_model(req: PhoneChatRequest, config: dict[str, Any], plan: str | None = None) -> tuple[str, str, str, float, str]:
     enabled_api = [str(value) for value in config.get("enabledApiModels", []) if str(value).strip()]
     selected = str(req.modelId or "").strip()
     if not selected:
@@ -151,6 +151,11 @@ def _resolve_phone_chat_model(req: PhoneChatRequest, config: dict[str, Any]) -> 
         return selected, "local", str(config.get("localModel") or "gemma4:12b"), 0.0, "free"
     if config.get("enabled") is False or selected not in enabled_api:
         raise ValueError("Эта модель чата сейчас недоступна.")
+    if plan is not None:
+        tier_access = config.get("apiTierAccess") if isinstance(config.get("apiTierAccess"), dict) else {}
+        allowed = set(enabled_api) if str(plan).lower() == "admin" else {str(value) for value in tier_access.get(str(plan).lower(), []) if str(value).strip()}
+        if selected not in allowed:
+            raise ValueError("Эта модель недоступна на вашем тарифе. Выберите другую модель.")
     costs = config.get("apiTokenCosts") if isinstance(config.get("apiTokenCosts"), dict) else {}
     return selected, "api", selected, float(costs.get(selected) or 0.1), "main"
 
@@ -542,6 +547,15 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
             raise HTTPException(401, "Требуется вход в аккаунт.")
         return trusted, user_id
 
+    def trusted_user_plan(user_id: str) -> str:
+        if deps.connect_db is None:
+            return "mini"
+        with deps.connect_db() as conn:
+            row = conn.execute("SELECT plan,role FROM users WHERE id = ?", (user_id,)).fetchone()
+        if row and str(row["role"] or "").lower() == "admin":
+            return "admin"
+        return str(row["plan"] or "mini").strip().lower() if row else "mini"
+
     @router.get("/api/phone/chat/threads")
     async def phone_chat_threads(request: Request) -> dict[str, Any]:
         _trusted, user_id = trusted_user_id(request)
@@ -614,7 +628,8 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
 
     @router.get("/api/phone/chat/models")
     async def phone_chat_models(request: Request) -> dict[str, Any]:
-        deps.require_trusted_user(request)
+        _trusted, user_id = trusted_user_id(request)
+        plan = trusted_user_plan(user_id)
         config = _chat_config(deps)
         models: list[dict[str, Any]] = []
         if config.get("enabled") is not False and config.get("localEnabled") is not False:
@@ -629,6 +644,8 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
                 "runtimeContextTokens": int(config.get("localNumCtx") or 16384),
             })
         enabled_api = {str(value) for value in config.get("enabledApiModels", [])}
+        tier_access = config.get("apiTierAccess") if isinstance(config.get("apiTierAccess"), dict) else {}
+        allowed_api = set(enabled_api) if plan == "admin" else {str(value) for value in tier_access.get(plan, []) if str(value).strip()}
         costs = config.get("apiTokenCosts") if isinstance(config.get("apiTokenCosts"), dict) else {}
         try:
             catalog = await deps.openrouter_text_models()
@@ -647,10 +664,16 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
                 "tokenCost": float(costs.get(model_id) or 0.1),
                 "tokenKind": "main",
                 "description": "Облачная текстовая модель",
+                "available": model_id in allowed_api,
+                "unavailableReason": "Недоступна на вашем тарифе" if model_id not in allowed_api else "",
                 "contextLength": int(item.get("contextLength") or 0),
                 "contextChars": min(int(config.get("contextChars") or 60000), max(4000, int(item.get("contextLength") or 15000) * 4)),
             })
-        return {"ok": True, "defaultModel": str(config.get("defaultModel") or "local:izo-chat"), "models": models}
+        default_model = str(config.get("defaultModel") or "local:izo-chat")
+        available_ids = {str(item["id"]) for item in models if item.get("available", True)}
+        if default_model not in available_ids:
+            default_model = "local:izo-chat" if "local:izo-chat" in available_ids else next(iter(available_ids), "")
+        return {"ok": True, "defaultModel": default_model, "plan": plan, "models": models}
 
     @router.post("/api/phone/chat")
     async def phone_chat(req: PhoneChatRequest, request: Request) -> dict[str, Any]:
@@ -671,8 +694,9 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
             messages = [PhoneChatTurn(**item) for item in [*history, req.messages[-1].model_dump()]][-100:]
             routed_req = req.model_copy(update={"messages": messages, "modelId": req.modelId or thread["chatModelId"]})
         config = _chat_config(deps)
+        plan = trusted_user_plan(user_id)
         try:
-            _public_id, selected_provider, selected_model, selected_cost, selected_kind = _resolve_phone_chat_model(routed_req, config)
+            _public_id, selected_provider, selected_model, selected_cost, selected_kind = _resolve_phone_chat_model(routed_req, config, plan)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         charge = deps.charge_tokens(

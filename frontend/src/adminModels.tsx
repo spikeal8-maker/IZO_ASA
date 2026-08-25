@@ -494,11 +494,10 @@ const fallbackReferenceLimit = (model: ApiImageModel) => {
   if (model.id.startsWith('x-ai/')) return 3
   return 0
 }
-
 type AssistantConfig = {
   voice: { localModel: string; qwenModel: string; qwenBaseUrl: string; apiModel: string; route: string; queueTimeoutSeconds: number; requestTimeoutSeconds: number; minRecordingSeconds: number }
   improve: { route: 'local' | 'api' | 'auto'; localModel: string; apiModel: string; localTimeoutSeconds: number; apiTimeoutSeconds: number; systemPrompt: string; modePrompts: Record<string, string> }
-  chat: { enabled: boolean; localEnabled: boolean; localModel: string; localLabel: string; localTokenCost: number; defaultModel: string; enabledApiModels: string[]; apiTokenCosts: Record<string, number>; contextChars: number; localNumCtx: number; localTimeoutSeconds: number; apiTimeoutSeconds: number }
+  chat: { enabled: boolean; localEnabled: boolean; localModel: string; localLabel: string; localTokenCost: number; defaultModel: string; enabledApiModels: string[]; apiTokenCosts: Record<string, number>; apiTierAccess: Partial<Record<Exclude<TariffKey, 'free'>, string[]>>; contextChars: number; localNumCtx: number; localTimeoutSeconds: number; apiTimeoutSeconds: number }
 }
 type AssistantAdminData = {
   ok?: boolean
@@ -1846,11 +1845,12 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
     </>}
 
     {pageTab === 'api' && <>
-      <nav className="openrouter-page-nav" aria-label="Разделы OpenRouter">
-        {ADMIN_OPENROUTER_PAGES.map((page) => <button key={page.id} type="button" className={openrouterPage === page.id ? 'active' : ''} onClick={() => navigateOpenRouterPage(page.id)}>{page.label}</button>)}
-      </nav>
-      {(() => { const page = ADMIN_OPENROUTER_PAGES.find((item) => item.id === openrouterPage) || ADMIN_OPENROUTER_PAGES[0]; return <header className="openrouter-page-title"><div><h2>{page.title}</h2><p>{page.description}</p></div></header> })()}
-
+      {!embeddedInSidebar && <>
+        <nav className="openrouter-page-nav" aria-label="Разделы OpenRouter">
+          {ADMIN_OPENROUTER_PAGES.map((page) => <button key={page.id} type="button" className={openrouterPage === page.id ? 'active' : ''} onClick={() => navigateOpenRouterPage(page.id)}>{page.label}</button>)}
+        </nav>
+        {(() => { const page = ADMIN_OPENROUTER_PAGES.find((item) => item.id === openrouterPage) || ADMIN_OPENROUTER_PAGES[0]; return <header className="openrouter-page-title"><div><h2>{page.title}</h2><p>{page.description}</p></div></header> })()}
+      </>}
       {openrouterPage === 'settings' && <div className="or-stats">
         <div className={`or-stat ${generationStatusClass}`}><span>Доступность генерации</span><strong>{generationStatusText}</strong></div>
         <div className="or-stat"><span>Сгенерировано картинок</span><strong>{data.openrouter.usage?.pricedImages || 0}</strong></div>
@@ -1911,7 +1911,6 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
       {!liveCapabilityCatalog.length ? <p className="hint" style={{ color: 'var(--yellow)' }}>Живой каталог возможностей пока не получен. Модели, цены и управление показаны из проверенного резервного каталога; перезапустите backend для автоматического обновления.</p> : null}
       {data.openrouter.capabilityError ? <p className="hint" style={{ color: 'var(--yellow)' }}>Каталог возможностей OpenRouter не загрузился: {data.openrouter.capabilityError}</p> : null}
       </>}
-
       {openrouterPage === 'text' && <article className="card video-catalog-card">
         <div className="video-catalog-head">
           <div className="video-catalog-title"><div><h2 className="card-title">Каталог текстовых моделей</h2><p className="card-note">Выбор моделей для чата, цена за 1 млн токенов и экономика ответа.</p></div></div>
@@ -1919,7 +1918,7 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
         </div>
         <div className="matrix-wrap">
           {!assistantData ? <p className="hint">Загружаем текстовый каталог…</p> : <>
-            <table className="api-table"><thead><tr><th>Вкл.</th><th>Модель</th><th>Вход / 1M</th><th>Выход / 1M</th><th>Контекст</th><th>Токены проекта</th><th>Пример: 1000 + 500</th><th>По умолчанию</th></tr></thead>
+            <table className="api-table text-model-access-table"><thead><tr><th>Вкл.</th><th>Модель</th><th>Вход / 1M</th><th>Выход / 1M</th><th>Контекст</th><th>Токены проекта</th>{(['mini', 'plus', 'pro', 'business'] as const).map((plan) => <th key={plan}>{plan === 'business' ? 'Бизнес' : plan.toUpperCase()}</th>)}<th>Пример: 1000 + 500</th><th>По умолчанию</th></tr></thead>
               <tbody>{filteredOpenrouterTextModels.map((model) => {
                 const enabled = assistantData.config.chat.enabledApiModels.includes(model.id)
                 const productTokens = Number(assistantData.config.chat.apiTokenCosts[model.id] ?? 0.1)
@@ -1931,15 +1930,21 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
                   <td><input type="checkbox" checked={enabled} onChange={(e) => {
                     const enabledApiModels = e.target.checked ? [...new Set([...assistantData.config.chat.enabledApiModels, model.id])] : assistantData.config.chat.enabledApiModels.filter((id) => id !== model.id)
                     const defaultModel = !e.target.checked && assistantData.config.chat.defaultModel === model.id ? 'local:izo-chat' : assistantData.config.chat.defaultModel
-                    updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, enabledApiModels, defaultModel, apiTokenCosts: { ...assistantData.config.chat.apiTokenCosts, [model.id]: productTokens } } })
+                    const apiTierAccess = Object.fromEntries((['mini', 'plus', 'pro', 'business'] as const).map((plan) => [plan, e.target.checked ? assistantData.config.chat.apiTierAccess?.[plan] || [] : (assistantData.config.chat.apiTierAccess?.[plan] || []).filter((id) => id !== model.id)]))
+                    updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, enabledApiModels, defaultModel, apiTierAccess, apiTokenCosts: { ...assistantData.config.chat.apiTokenCosts, [model.id]: productTokens } } })
                   }} /></td>
                   <td><strong>{model.name}</strong><small className="model-id">{model.id}</small></td>
                   <td>${model.inputPerMillionUsd.toFixed(4)}</td><td>${model.outputPerMillionUsd.toFixed(4)}</td><td>{model.contextLength.toLocaleString('ru-RU')}</td>
                   <td><input style={{ width: 76 }} type="number" min="0.01" max="1000" step="0.01" disabled={!enabled} value={productTokens} onChange={(e) => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, apiTokenCosts: { ...assistantData.config.chat.apiTokenCosts, [model.id]: Number(e.target.value) } } })} /> <span className="state">осн.</span></td>
+                  {(['mini', 'plus', 'pro', 'business'] as const).map((plan) => <td key={plan}><input type="checkbox" disabled={!enabled} checked={enabled && (assistantData.config.chat.apiTierAccess?.[plan] || []).includes(model.id)} aria-label={`${model.name} — ${plan}`} onChange={(e) => {
+                    const current = assistantData.config.chat.apiTierAccess?.[plan] || []
+                    const next = e.target.checked ? [...new Set([...current, model.id])] : current.filter((id) => id !== model.id)
+                    updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, apiTierAccess: { ...assistantData.config.chat.apiTierAccess, [plan]: next } } })
+                  }} /></td>)}
                   <td><strong>${sampleUsd.toFixed(6)}</strong><small>{sampleRub === null ? 'курс не загружен' : `${sampleRub.toFixed(4)} ₽ · выручка ${revenue.toFixed(2)} ₽ · прибыль ${profit?.toFixed(4)} ₽`}</small></td>
                   <td><input type="radio" name="chat-default-model" disabled={!enabled} checked={assistantData.config.chat.defaultModel === model.id} onChange={() => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, defaultModel: model.id } })} /></td>
                 </tr>
-              })}{filteredOpenrouterTextModels.length === 0 && <tr><td colSpan={8}><div className="hint">По выбранному фильтру модели не найдены. <button className="ghost" onClick={() => setQuery('')}>Показать все модели</button></div></td></tr>}</tbody>
+              })}{filteredOpenrouterTextModels.length === 0 && <tr><td colSpan={12}><div className="hint">По выбранному фильтру модели не найдены. <button className="ghost" onClick={() => setQuery('')}>Показать все модели</button></div></td></tr>}</tbody>
             </table>
             <div className="actions" style={{ padding: 12 }}><button className="primary" disabled={assistantBusy} onClick={() => void saveAssistantConfig()}>{assistantBusy ? 'Сохраняю…' : 'Сохранить текстовые модели'}</button><label className="resolution-plan"><input type="radio" name="chat-default-model" checked={assistantData.config.chat.defaultModel === 'local:izo-chat'} onChange={() => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, defaultModel: 'local:izo-chat' } })} /><span>ИЗО Чат по умолчанию</span></label></div>
           </>}

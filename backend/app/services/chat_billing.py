@@ -20,6 +20,7 @@ DEFAULT_CHAT_CONFIG: dict[str, Any] = {
     "defaultModel": "local:izo-chat",
     "enabledApiModels": ["deepseek/deepseek-v4-flash"],
     "apiTokenCosts": {"deepseek/deepseek-v4-flash": 0.1},
+    "apiTierAccess": {},
     "contextChars": 60000,
     "localNumCtx": 16384,
     "localTimeoutSeconds": 60,
@@ -28,16 +29,24 @@ DEFAULT_CHAT_CONFIG: dict[str, Any] = {
 
 
 def normalize_chat_config(value: Any) -> dict[str, Any]:
-    source = {**DEFAULT_CHAT_CONFIG, **(value if isinstance(value, dict) else {})}
+    stored = value if isinstance(value, dict) else {}
+    source = {**DEFAULT_CHAT_CONFIG, **stored}
     bounded = lambda raw, default, low, high: max(low, min(high, int(raw if str(raw).lstrip("+-").isdigit() else default)))
     enabled_api = list(dict.fromkeys(str(item).strip() for item in source.get("enabledApiModels", []) if str(item).strip()))[:100]
     raw_costs = source.get("apiTokenCosts") if isinstance(source.get("apiTokenCosts"), dict) else {}
+    raw_access = stored.get("apiTierAccess") if isinstance(stored.get("apiTierAccess"), dict) else None
     def bounded_cost(raw: Any, default: float = 0.1) -> float:
         try:
             value = float(raw)
         except (TypeError, ValueError):
             value = default
         return round(max(0.01, min(1000.0, value)), 3)
+    tier_access = {
+        tier: [model_id for model_id in enabled_api if raw_access is None or model_id in {
+            str(item).strip() for item in raw_access.get(tier, []) if str(item).strip()
+        }]
+        for tier in ("mini", "plus", "pro", "business")
+    }
     source.update({
         "enabled": bool(source.get("enabled", True)),
         "localEnabled": bool(source.get("localEnabled", True)),
@@ -48,6 +57,7 @@ def normalize_chat_config(value: Any) -> dict[str, Any]:
         "localTokenCost": 0,
         "enabledApiModels": enabled_api,
         "apiTokenCosts": {model_id: bounded_cost(raw_costs.get(model_id)) for model_id in enabled_api},
+        "apiTierAccess": tier_access,
         "contextChars": bounded(source.get("contextChars"), 60000, 4000, 240000),
         "localNumCtx": bounded(source.get("localNumCtx"), 16384, 4096, 32768),
         "localTimeoutSeconds": bounded(source.get("localTimeoutSeconds"), 60, 10, 180),

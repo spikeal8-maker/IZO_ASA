@@ -34,9 +34,24 @@ function assert(condition, message) {
 async function mockAdmin(page) {
   await page.route('**/api/auth/bootstrap-v2', (route) => route.fulfill(json({ installation_id: 'qa-install', anonymous_id: 'qa-anon' })))
   await page.route('**/api/me-v2', (route) => route.fulfill(json(me)))
-  await page.route('**/api/admin/models-page**', (route) => route.fulfill(json({ detail: 'isolated navigation test' }, 503)))
+  await page.route('**/api/admin/models-page**', (route) => route.fulfill(json({
+    economy: { activeModels: 0, routesAssigned: '', expensiveRoutes: 0, priceConflicts: 0 }, routes: [], matrix: [], catalog: [], loras: [],
+    userChoice: { simple: [], pro: [] }, comfyuiAvailable: false, comfyFiles: {}, profiles: [],
+    openrouter: { keyConfigured: true, usage: {}, config: {}, exchange: { rate: 90 }, economy: { minMarginPercent: 40, tokenRub: 5 }, backendPricing: [], capabilityCatalog: [], videoCatalog: [], videoConfig: {}, videoUsage: {} },
+  })))
   await page.route('**/api/admin/energy**', (route) => route.fulfill(json({ detail: 'isolated navigation test' }, 503)))
   await page.route('**/api/admin/voice**', (route) => route.fulfill(json({ detail: 'isolated navigation test' }, 503)))
+  await page.route('**/api/admin/assistants', (route) => route.fulfill(json({
+    config: {
+      voice: { localModel: 'gemma4:12b', qwenModel: '', qwenBaseUrl: '', apiModel: '', route: 'local', queueTimeoutSeconds: 1, requestTimeoutSeconds: 45, minRecordingSeconds: 1 },
+      improve: { route: 'local', localModel: 'gemma4:12b', apiModel: '', localTimeoutSeconds: 30, apiTimeoutSeconds: 10, systemPrompt: '', modePrompts: {} },
+      chat: { enabled: true, localEnabled: true, localModel: 'gemma4:12b', localLabel: 'ИЗО Чат', localTokenCost: 0, defaultModel: 'provider/chat', enabledApiModels: ['provider/chat'], apiTokenCosts: { 'provider/chat': 0.2 }, apiTierAccess: { mini: ['provider/chat'], plus: [], pro: ['provider/chat'], business: [] }, contextChars: 60000, localNumCtx: 16384, localTimeoutSeconds: 60, apiTimeoutSeconds: 60 },
+    },
+    ollama: { ok: true, baseUrl: '', models: [] }, ollamaResidency: { ok: true, models: [] }, openrouterConfigured: true,
+    usage: { periodDays: 30, totals: { successful: 0, failed: 0, fallbacks: 0, cost_usd: 0, cost_rub: 0, energy_wh: 0, energy_cost_rub: 0 }, recent: [] },
+    openrouterModels: [{ id: 'provider/chat', name: 'Test Chat Model', inputPerMillionUsd: 1, outputPerMillionUsd: 2, contextLength: 64000 }],
+    openrouterAudioModels: [],
+  })))
 }
 
 async function verify(viewport) {
@@ -56,6 +71,11 @@ async function verify(viewport) {
   assert(new URL(page.url()).pathname === pages[0][1], 'legacy /admin/models was not canonicalized')
   assert(await page.locator('.admin-sidebar').count() === 1, 'admin sidebar is missing')
   assert(await page.locator('.page-tabs').count() === 0, 'duplicated models tab bar is still rendered')
+  assert(await page.locator('.openrouter-page-nav').count() === 0, 'duplicated OpenRouter tab bar is still rendered')
+  assert(await page.locator('.openrouter-page-title').count() === 0, 'duplicated OpenRouter page title is still rendered')
+  await page.getByLabel('Test Chat Model — mini').waitFor()
+  assert(await page.getByLabel('Test Chat Model — mini').isChecked(), 'MINI tariff access was not restored')
+  assert(!(await page.getByLabel('Test Chat Model — plus').isChecked()), 'PLUS tariff access was incorrectly enabled')
   if (viewport.width <= 980) assert(await page.getByRole('link', { name: 'OpenRouter', exact: true }).isVisible(), 'saved desktop collapse hides mobile model pages')
 
   for (const [label, path, heading] of openrouterPages) {

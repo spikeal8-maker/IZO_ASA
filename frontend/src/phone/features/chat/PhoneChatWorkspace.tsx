@@ -153,6 +153,7 @@ export default function PhoneChatWorkspace({ offline }: { offline: boolean }) {
   }
 
   const selectModel = async (model: PhoneChatModel) => {
+    if (model.available === false) return
     setModelId(model.id)
     setModelOpen(false)
     if (!current) return
@@ -268,6 +269,6 @@ export default function PhoneChatWorkspace({ offline }: { offline: boolean }) {
       </div>
     </footer>
 
-    {modelOpen && <div className="phone-chat-sheet-backdrop" onPointerDown={(event) => { if (event.target === event.currentTarget) setModelOpen(false) }}><section className="phone-chat-model-sheet" role="dialog" aria-modal="true" aria-label="Модель чата"><header><div><small>Ответы и стоимость</small><b>Модель чата</b></div><button type="button" aria-label="Закрыть" onClick={() => setModelOpen(false)}><X /></button></header>{models.map((model) => <button className={model.id === modelId ? 'active' : ''} type="button" key={model.id} onClick={() => void selectModel(model)}><span><b>{model.name}</b><small>{model.description} · контекст {Math.round(model.contextChars / 1000)} тыс.</small></span><em className={phoneTokenClass(model.tokenKind)}>{model.tokenCost} ток.</em>{model.id === modelId && <Check />}</button>)}</section></div>}
+    {modelOpen && <div className="phone-chat-sheet-backdrop" onPointerDown={(event) => { if (event.target === event.currentTarget) setModelOpen(false) }}><section className="phone-chat-model-sheet" role="dialog" aria-modal="true" aria-label="Модель чата"><header><div><small>Ответы и стоимость</small><b>Модель чата</b></div><button type="button" aria-label="Закрыть" onClick={() => setModelOpen(false)}><X /></button></header>{models.map((model) => <button className={`${model.id === modelId ? 'active ' : ''}${model.available === false ? 'unavailable' : ''}`.trim()} type="button" key={model.id} disabled={model.available === false} onClick={() => void selectModel(model)}><span><b>{model.name}</b><small>{model.available === false ? model.unavailableReason : model.description} · контекст {Math.round(model.contextChars / 1000)} тыс.</small></span><em className={phoneTokenClass(model.tokenKind === 'main' ? 'main' : 'daily')}>{model.tokenCost > 0 ? `${model.tokenCost} ток.` : 'Базовая'}</em>{model.id === modelId && <Check />}</button>)}</section></div>}
   </section>
 }

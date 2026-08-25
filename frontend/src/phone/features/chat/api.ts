@@ -44,9 +44,11 @@ export type PhoneChatModel = {
   name: string
   provider: 'local' | 'api'
   tokenCost: number
-  tokenKind: 'daily' | 'main'
+  tokenKind: 'free' | 'daily' | 'main'
   description: string
   contextChars: number
+  available?: boolean
+  unavailableReason?: string
 }
 
 export async function listChatThreads(signal?: AbortSignal): Promise<PhoneChatThread[]> {

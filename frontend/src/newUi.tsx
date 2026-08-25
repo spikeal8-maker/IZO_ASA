@@ -139,6 +139,7 @@ import type {
 import { useModelPreferences, useStudioBackendData, useStudioDraftAutosave } from './studio/useStudioState'
 const PaintWorkbench = lazy(() => import('./PaintWorkbench'))
 const VideoStudio = lazy(() => import('./VideoStudio'))
+const DesktopChatWorkspace = lazy(() => import('./desktopChat/DesktopChatWorkspace'))
 
 const IMAGE_MODE_TABS: Array<{ id: StudioMode; label: string; note: string }> = [
   { id: 'text', label: 'По тексту', note: 'Создать по описанию' },
@@ -3676,7 +3677,7 @@ export default function NewStudio(): ReactElement {
           ) : tab === '3d' ? (
             placeholderStudio('3D', 'Создание 3D-моделей появится в этом разделе.')
           ) : tab === 'chat' ? (
-            placeholderStudio('Чат', 'Чат с инструментами ИЗО АСА появится в этом разделе.')
+            <Suspense fallback={<div className="iv3-content"><div className="preview-empty">Открываем чат…</div></div>}><DesktopChatWorkspace authed={authStatus === 'authed'} onRequireAuth={() => setAuthOpen(true)} onNavigate={(path) => setTab(path === '/video' ? 'video' : path === '/audio' ? 'audio' : '3d')} /></Suspense>
           ) : (
             placeholderStudio('Изображение', 'Выберите способ работы с изображением.')
           )}

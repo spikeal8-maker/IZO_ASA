@@ -880,10 +880,10 @@
       "remaining": 100
     },
     {
-      "lines": 2295,
+      "lines": 2300,
       "max_lines": 2300,
       "path": "frontend/src/adminModels.tsx",
-      "remaining": 5
+      "remaining": 0
     },
     {
       "lines": 2501,
@@ -904,10 +904,10 @@
       "remaining": 257
     },
     {
-      "lines": 3695,
+      "lines": 3696,
       "max_lines": 3950,
       "path": "frontend/src/newUi.tsx",
-      "remaining": 255
+      "remaining": 254
     }
   ],
   "frontend": {
@@ -1506,9 +1506,9 @@
     "auth_counts": {
       "REVIEW: admin route without detected gate": 8,
       "admin": 94,
-      "public/optional/review": 87,
+      "public/optional/review": 88,
       "session": 1,
-      "user": 58,
+      "user": 57,
       "webhook: MAX secret conditional": 1,
       "webhook: telegram secret required": 1
     },
@@ -3054,15 +3054,15 @@
       {
         "auth": "public/optional/review",
         "handler": "phone_chat",
-        "line": 656,
+        "line": 679,
         "method": "POST",
         "path": "/api/phone/chat",
         "process_role": "all-dev-current-monolith"
       },
       {
-        "auth": "user",
+        "auth": "public/optional/review",
         "handler": "phone_chat_models",
-        "line": 616,
+        "line": 630,
         "method": "GET",
         "path": "/api/phone/chat/models",
         "process_role": "all-dev-current-monolith"
@@ -3070,7 +3070,7 @@
       {
         "auth": "public/optional/review",
         "handler": "phone_chat_threads",
-        "line": 546,
+        "line": 560,
         "method": "GET",
         "path": "/api/phone/chat/threads",
         "process_role": "all-dev-current-monolith"
@@ -3078,7 +3078,7 @@
       {
         "auth": "public/optional/review",
         "handler": "phone_chat_thread_create",
-        "line": 554,
+        "line": 568,
         "method": "POST",
         "path": "/api/phone/chat/threads",
         "process_role": "all-dev-current-monolith"
@@ -3086,7 +3086,7 @@
       {
         "auth": "public/optional/review",
         "handler": "phone_chat_thread_delete",
-        "line": 580,
+        "line": 594,
         "method": "DELETE",
         "path": "/api/phone/chat/threads/{thread_id}",
         "process_role": "all-dev-current-monolith"
@@ -3094,7 +3094,7 @@
       {
         "auth": "public/optional/review",
         "handler": "phone_chat_thread_update",
-        "line": 568,
+        "line": 582,
         "method": "PATCH",
         "path": "/api/phone/chat/threads/{thread_id}",
         "process_role": "all-dev-current-monolith"
@@ -3102,7 +3102,7 @@
       {
         "auth": "public/optional/review",
         "handler": "phone_chat_thread_messages",
-        "line": 592,
+        "line": 606,
         "method": "GET",
         "path": "/api/phone/chat/threads/{thread_id}/messages",
         "process_role": "all-dev-current-monolith"
@@ -3110,7 +3110,7 @@
       {
         "auth": "public/optional/review",
         "handler": "phone_chat_message_tools",
-        "line": 604,
+        "line": 618,
         "method": "PATCH",
         "path": "/api/phone/chat/threads/{thread_id}/messages/{message_id}/tools",
         "process_role": "all-dev-current-monolith"
