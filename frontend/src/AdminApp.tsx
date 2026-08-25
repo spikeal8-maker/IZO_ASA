@@ -598,7 +598,6 @@ export default function AdminApp() {
     )
   }
 
-  const queue = Array.isArray(summary?.queue) ? summary.queue : []
   const dashboard = (summary?.dashboard || {}) as AnyRec
   const dashboardToday = (((dashboard.periods || {}) as AnyRec).today || {}) as AnyRec
   const dashboardTodayUsers = (dashboardToday.users || {}) as AnyRec
@@ -676,17 +675,14 @@ export default function AdminApp() {
           <div className="admin-content-column">
             <header className="admin-content-heading">
               <button className="admin-sidebar-mobile-open" aria-label="Открыть меню админки" aria-controls="admin-sidebar" aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen(true)}><Menu size={21} /></button>
-              <div><h1>{currentTitle}</h1><p>{currentDescription}</p></div>
+              <div className="admin-current-section"><h1>{currentTitle}</h1><p>{currentDescription}</p></div>
+              <div className="admin-kpi-strip admin-kpi-strip-primary" aria-label="Оперативные показатели">
+                <span><b>{String(((dashboard.totals || {}) as AnyRec).users ?? summary?.users ?? '—')}</b> пользователей</span>
+                <span><b>{String(dashboardTodayUsers.active ?? summary?.activeToday ?? '—')}</b> активны сегодня</span>
+                <span><b>{String(dashboard.sessions_active ?? summary?.activeSessions ?? '—')}</b> активных сессий</span>
+                <span><b>{String(dashboardTodayJobs.total ?? summary?.generationsToday ?? '—')}</b> генераций сегодня</span>
+              </div>
             </header>
-            <div className="admin-kpi-strip admin-kpi-strip-primary" aria-label="Оперативные показатели">
-              <span><b>{String(((dashboard.totals || {}) as AnyRec).users ?? summary?.users ?? '—')}</b> пользователей</span>
-              <span><b>{String(dashboardTodayUsers.active ?? summary?.activeToday ?? '—')}</b> активны сегодня</span>
-              <span><b>{String(dashboard.sessions_active ?? summary?.activeSessions ?? '—')}</b> активных сессий</span>
-              <span><b>{String(dashboardTodayJobs.total ?? summary?.generationsToday ?? '—')}</b> генераций сегодня</span>
-              <span><b>{String(dashboardTodayJobs.failed ?? '—')}</b> ошибок генерации сегодня</span>
-              <span><b>{String(summary?.errors24h ?? '—')}</b> ошибок входа 24ч</span>
-              <span><b>{String(queue.length)}</b> в очереди</span>
-            </div>
             <section className="admin-page admin-content-page">
               {tab === 'dashboard' && <AdminDashboard summary={summary} />}
               {tab === 'crm' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем CRM...</div>}><AdminAnalyticsV2 /></Suspense></div>}

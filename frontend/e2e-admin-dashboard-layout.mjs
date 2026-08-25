@@ -61,12 +61,14 @@ async function verify(viewport, screenshotName) {
     throw error
   }
 
-  assert(await page.locator('.admin-kpi-strip span').count() === 7, 'operational strip must contain exactly seven indicators')
+  assert(await page.locator('.admin-content-heading > .admin-kpi-strip span').count() === 4, 'header must contain exactly four key indicators')
   assert(await page.locator('.admin-topline').count() === 0, 'legacy top line is still rendered')
   assert(await page.locator('.admin-grid-compact').count() === 0, 'duplicated KPI cards are still rendered')
   assert(await page.locator('.admin-generation-chart').count() === 4, 'dashboard must contain generation, activity, payment and energy charts')
   assert(await page.locator('.admin-generation-chart').first().locator('.series').count() === 4, 'combined generation chart must contain four series')
   assert(await page.locator('.admin-sidebar').count() === 1, 'admin sidebar is missing')
+  assert(await page.locator('.admin-sidebar').evaluate((element) => getComputedStyle(element).borderRadius) === '0px', 'sidebar must not use a rounded container')
+  assert(await page.locator('.admin-generation-chart').first().evaluate((element) => getComputedStyle(element).borderRadius) === '0px', 'dashboard charts must use strict square geometry')
   assert(await page.getByRole('navigation', { name: 'Разделы админки' }).getByRole('button').count() === 10, 'admin navigation tabs are incomplete')
   const legendText = await page.locator('.admin-generation-legend').first().innerText()
   for (const label of ['Всего', 'Базовая модель', 'Платные изображения', 'Видео']) {
