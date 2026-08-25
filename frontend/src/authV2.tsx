@@ -498,6 +498,14 @@ export interface MeV2 {
       social_verification_blocks_generation?: boolean
       should_prompt_social_verification?: boolean
       social_verification_delete_after_at?: string | null
+      trial_generation_limit?: number
+      trial_generations_consumed?: number
+      trial_generations_reserved?: number
+      trial_generations_remaining?: number
+      trial_reminder_at?: string | null
+      trial_expires_at?: string | null
+      trial_reminder_due?: boolean
+      trial_generation_blocked?: boolean
     } | null
   } | null
   identities?: Array<{ provider?: string; provider_user_id?: string | null; provider_username?: string | null; provider_email?: string | null; provider_first_name?: string | null; provider_last_name?: string | null; provider_avatar_url?: string | null; verified_at?: string | null }>
@@ -792,7 +800,8 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
   useEffect(() => {
     if (!open || phase !== 'form') return
     const verification = currentMe?.account?.social_verification
-    if (!verification?.social_verification_pending) return
+    if (!verification?.social_verification_pending
+      || (!verification.should_prompt_social_verification && !verification.trial_generation_blocked)) return
     let cancelled = false
     queueMicrotask(() => {
       if (cancelled) return
@@ -1114,7 +1123,7 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
               Подтвердите регистрацию через MAX или Telegram.
             </div>
             <p className="auth-modal-sub">
-              Аккаунт создан, но генерация включится только после подтверждения настоящего пользователя.
+              До подтверждения доступны первые 5 генераций на базовой модели. После них продолжить можно через MAX или Telegram.
               Без привязки мессенджера аккаунт будет удалён
               {socialDeleteDate ? ` ${socialDeleteDate}` : ' через 30 дней'}.
             </p>
@@ -1127,11 +1136,11 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
               </button>
             </div>
             {!socialOptions.max && !socialOptions.telegram && (
-              <p className="auth-modal-hint">Оба способа сейчас недоступны. Генерация останется заблокирована — попробуйте позже.</p>
+              <p className="auth-modal-hint">Оба способа сейчас недоступны. Попробуйте привязать мессенджер позже.</p>
             )}
             <button className="auth-modal-back" onClick={async () => {
               if (!(await finishAuthentication())) setError('Не удалось открыть аккаунт. Обновите страницу и попробуйте снова.')
-            }}>Продолжить без генерации</button>
+            }}>Продолжить</button>
           </>
         ) : phase === 'verify' ? (
           <>

@@ -15,6 +15,7 @@ from app.database import (
     ADMIN_NOTIFICATIONS_MIGRATION,
     BASE_SCHEMA_SQL,
     IDENTITY_SCHEMA_SQL,
+    GENERATION_TRIAL_MIGRATION,
     IMAGE_ADDITIVE_COLUMNS,
     IMAGE_SEARCH_SCHEMA_SQL,
     LEGACY_BASELINE_MIGRATION,
@@ -601,10 +602,15 @@ def test_init_db_records_legacy_baseline_once(tmp_path, monkeypatch):
                 "name": PHONE_CHAT_HISTORY_MIGRATION.name,
                 "checksum": PHONE_CHAT_HISTORY_MIGRATION.checksum,
             },
+            {
+                "version": GENERATION_TRIAL_MIGRATION.version,
+                "name": GENERATION_TRIAL_MIGRATION.name,
+                "checksum": GENERATION_TRIAL_MIGRATION.checksum,
+            },
         ]
         assert (
             sqlite_user_version(conn)
-            == PHONE_CHAT_HISTORY_MIGRATION.version
+            == GENERATION_TRIAL_MIGRATION.version
         )
         assert conn.execute(
             "SELECT COUNT(*) FROM admin_notifications"
@@ -614,7 +620,7 @@ def test_init_db_records_legacy_baseline_once(tmp_path, monkeypatch):
 def test_init_db_rejects_newer_database_before_schema_mutation(tmp_path, monkeypatch):
     path = tmp_path / "newer-init.sqlite3"
     with open_sqlite(path) as conn:
-        conn.execute("PRAGMA user_version = 6")
+        conn.execute("PRAGMA user_version = 7")
     monkeypatch.setattr(main, "DB_PATH", path)
 
     with pytest.raises(RuntimeError, match="DATABASE_SCHEMA_VERSION_UNSUPPORTED"):
@@ -627,4 +633,4 @@ def test_init_db_rejects_newer_database_before_schema_mutation(tmp_path, monkeyp
         }
         assert "schema_migrations" not in tables
         assert "users" not in tables
-        assert sqlite_user_version(conn) == 6
+        assert sqlite_user_version(conn) == 7

@@ -199,6 +199,10 @@ export default function NewStudio(): ReactElement {
   }, [])
   const { status: authStatus, me } = useAuthV2()
   const isAdmin = authStatus === 'authed' && me?.account?.role === 'admin'
+  const socialTrial = me?.account?.social_verification
+  const trialPending = authStatus === 'authed' && !!socialTrial?.social_verification_pending
+  const trialRemaining = Math.max(0, Number(socialTrial?.trial_generations_remaining ?? 0))
+  const trialNeedsAttention = !!socialTrial?.trial_reminder_due || !!socialTrial?.trial_generation_blocked
   const [authOpen, setAuthOpen] = useState(false)
   const ensureAuthed = useCallback(async () => {
     if (authStatus === 'authed') return true
@@ -1226,6 +1230,7 @@ export default function NewStudio(): ReactElement {
         setNotice('Сервер не подтвердил создание задачи. Токены не списываются без подтверждённой задачи.')
         return
       }
+      if (trialPending) void refreshAuthStateV2()
       if (mode === 'text') {
         lastTextSubmittedRef.current = { prompt: textPrompt, model: selectedModel.id, width: requestSize.width, height: requestSize.height }
       } else if (mode === 'i2i') {
@@ -3251,6 +3256,17 @@ export default function NewStudio(): ReactElement {
   return (
     <div className="n2">
       <AuthV2Modal open={authOpen} onClose={() => setAuthOpen(false)} />
+      {trialPending && (
+        <div className={`n2-trial-notice${trialNeedsAttention ? ' needs-attention' : ''}`} role="status">
+          <span>
+            {socialTrial?.trial_generation_blocked
+              ? 'Пробные генерации закончились.'
+              : `Осталось пробных генераций: ${trialRemaining} из ${socialTrial?.trial_generation_limit ?? 5}.`}
+            {' '}Подтвердите аккаунт через MAX или Telegram.
+          </span>
+          <button type="button" onClick={() => setAuthOpen(true)}>Подтвердить</button>
+        </div>
+      )}
       {toastText && tab === 'feed' && (
         <div className="n2-toast" role="status">
           {toastText}

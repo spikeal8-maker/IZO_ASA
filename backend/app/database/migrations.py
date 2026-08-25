@@ -71,6 +71,12 @@ PHONE_CHAT_HISTORY_MIGRATION = MigrationDefinition(
     checksum="sha256:cb56d0bb48cb8062fdf7e2f71ca6a2ea62de880f48b347339729e324648f939e",
 )
 
+GENERATION_TRIAL_MIGRATION = MigrationDefinition(
+    version=6,
+    name="generation_trial_reservations",
+    checksum="sha256:5785d5521fc23d241dbeaf89cfa509fc89d02c430e27a63d02c685315c8fd830",
+)
+
 
 ADMIN_NOTIFICATIONS_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS admin_notifications (
@@ -181,6 +187,19 @@ CREATE INDEX IF NOT EXISTS idx_phone_chat_messages_thread_created
     ON phone_chat_messages(thread_id, created_at, id);
 """
 
+GENERATION_TRIAL_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS generation_trial_reservations (
+    job_id TEXT PRIMARY KEY,
+    internal_user_id TEXT NOT NULL,
+    source TEXT NOT NULL CHECK (source IN ('guest', 'registered')),
+    state TEXT NOT NULL CHECK (state IN ('reserved', 'consumed', 'released')),
+    reserved_at TEXT NOT NULL,
+    settled_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_generation_trial_user_state
+    ON generation_trial_reservations(internal_user_id, state, reserved_at);
+"""
+
 
 def apply_admin_notifications_migration(
     conn: sqlite3.Connection,
@@ -236,6 +255,20 @@ def apply_phone_chat_history_migration(
     return record_applied_migration(
         conn,
         PHONE_CHAT_HISTORY_MIGRATION,
+        applied_at=applied_at,
+    )
+
+
+def apply_generation_trial_migration(
+    conn: sqlite3.Connection,
+    *,
+    applied_at: str,
+) -> bool:
+    """Apply the idempotent trial reservation ledger exactly once."""
+    conn.executescript(GENERATION_TRIAL_SCHEMA_SQL)
+    return record_applied_migration(
+        conn,
+        GENERATION_TRIAL_MIGRATION,
         applied_at=applied_at,
     )
 

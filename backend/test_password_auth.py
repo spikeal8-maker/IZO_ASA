@@ -278,7 +278,8 @@ def test_production_without_email_provider_password_register_creates_session(tem
     assert r.status_code == 200
     assert r.json()["requires_email_verification"] is False
     assert r.json()["social_verification_pending"] is True
-    assert r.json()["social_verification_blocks_generation"] is True
+    assert r.json()["social_verification_blocks_generation"] is False
+    assert r.json()["trial_generations_remaining"] == 5
     assert "onenode_session=" in set_cookies(r)
     assert me.status_code == 200
 

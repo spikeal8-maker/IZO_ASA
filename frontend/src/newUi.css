@@ -2618,6 +2618,52 @@
   box-shadow: 0 16px 44px rgba(0, 0, 0, 0.5);
 }
 
+.n2-trial-notice {
+  position: fixed;
+  top: 72px;
+  left: 50%;
+  z-index: 86;
+  transform: translateX(-50%);
+  width: min(680px, calc(100vw - 28px));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid rgba(234, 255, 16, 0.34);
+  border-radius: 12px;
+  padding: 10px 12px 10px 15px;
+  background: rgba(10, 12, 10, 0.96);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.42);
+  color: var(--n2-text);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.n2-trial-notice.needs-attention {
+  border-color: rgba(234, 255, 16, 0.72);
+}
+
+.n2-trial-notice button {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: var(--n2-lime);
+  color: #10120d;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+@media (max-width: 560px) {
+  .n2-trial-notice {
+    top: 62px;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+}
+
 /* Profile page: local styles, independent from legacy index.css rules. */
 .profile-page {
   min-height: auto;

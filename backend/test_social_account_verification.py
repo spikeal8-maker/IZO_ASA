@@ -6,6 +6,8 @@ All provider operations are fake and every test uses a temporary SQLite file.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -13,6 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
+from app.security.trial_access import TrialAccessDenied, reserve_trial_generation, settle_trial_generation
 from test_support.browser_origin import BROWSER_ORIGIN
 
 
@@ -85,7 +88,8 @@ def test_registration_is_limited_until_real_social_proof(production_db):
     assert created.status_code == 200
     payload = created.json()
     assert payload["social_verification_pending"] is True
-    assert payload["social_verification_blocks_generation"] is True
+    assert payload["social_verification_blocks_generation"] is False
+    assert payload["trial_generations_remaining"] == 5
     assert payload["should_prompt_social_verification"] is False
     assert payload["social_verification_options"] == {"telegram": True, "max": True}
 
@@ -98,7 +102,7 @@ def test_registration_is_limited_until_real_social_proof(production_db):
             "SELECT verified_at FROM auth_identities WHERE internal_user_id=? AND provider='web_email'",
             (payload["internal_user_id"],),
         ).fetchone()
-    assert dict(user) == {"plan": "free", "token_balance": 0, "gallery_enabled": 0}
+    assert dict(user) == {"plan": "free", "token_balance": 0, "gallery_enabled": 1}
     assert identity["verified_at"] is None
 
     me = client.get("/api/me-v2")
@@ -107,11 +111,11 @@ def test_registration_is_limited_until_real_social_proof(production_db):
 
     image = client.post(
         "/api/generate",
-        json={"mode": "text_to_image", "provider": "comfyui", "prompt": "must not run"},
+        json={"mode": "text_to_image", "provider": "comfyui", "prompt": "trial run", "width": 704, "height": 704, "resolutionId": "sq-sd"},
         headers=BROWSER_ORIGIN,
     )
-    assert image.status_code == 403
-    assert image.json()["detail"]["code"] == "social_verification_required"
+    assert image.status_code == 200, image.text
+    assert image.json()["trialAccess"]["trial_generations_remaining"] == 4
 
     video = client.post(
         "/api/video/generate",
@@ -125,7 +129,7 @@ def test_registration_is_limited_until_real_social_proof(production_db):
     assert video.json()["detail"]["code"] == "social_verification_required"
 
 
-def test_next_login_prompts_only_after_24_hours(production_db):
+def test_next_login_reminds_after_two_hours_without_blocking_remaining_trial(production_db):
     created = register(TestClient(main.app), "reminder@example.com").json()
     before = login(TestClient(main.app), "reminder@example.com")
     assert before.status_code == 200
@@ -141,6 +145,44 @@ def test_next_login_prompts_only_after_24_hours(production_db):
     after = login(TestClient(main.app), "reminder@example.com")
     assert after.status_code == 200
     assert after.json()["should_prompt_social_verification"] is True
+    assert after.json()["social_verification_blocks_generation"] is False
+
+
+def test_trial_reservations_enforce_five_and_release_failures(production_db):
+    created = register(TestClient(main.app), "quota@example.com").json()
+    iuid = created["internal_user_id"]
+    now = datetime.now(timezone.utc).isoformat()
+    with main.db() as conn:
+        for index in range(5):
+            reserve_trial_generation(conn, iuid, f"trial-{index}", now=now)
+        with pytest.raises(TrialAccessDenied):
+            reserve_trial_generation(conn, iuid, "trial-overflow", now=now)
+        assert settle_trial_generation(conn, "trial-0", job_status="failed", now=now) is True
+        state = reserve_trial_generation(conn, iuid, "trial-replacement", now=now)
+        assert state and state["trial_generations_remaining"] == 0
+
+
+def test_trial_reservation_limit_is_atomic_across_connections(production_db):
+    created = register(TestClient(main.app), "quota-race@example.com").json()
+    iuid = created["internal_user_id"]
+    now = datetime.now(timezone.utc).isoformat()
+    barrier = threading.Barrier(6)
+
+    def attempt(index: int) -> bool:
+        barrier.wait(timeout=5)
+        try:
+            with main.db() as conn:
+                state = reserve_trial_generation(conn, iuid, f"race-{index}", now=now)
+            return state is not None
+        except TrialAccessDenied:
+            return False
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        accepted = list(pool.map(attempt, range(6)))
+    with main.db() as conn:
+        stored = conn.execute("SELECT COUNT(*) FROM generation_trial_reservations WHERE internal_user_id=?", (iuid,)).fetchone()[0]
+    assert accepted.count(True) == 5, (accepted, stored)
+    assert accepted.count(False) == 1
 
 
 @pytest.mark.parametrize("provider", ["max", "telegram"])
@@ -231,7 +273,7 @@ def test_migration_is_idempotent(production_db):
     main.init_db()
     main.init_db()
     with main.db() as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 6
         assert conn.execute(
             "SELECT COUNT(*) FROM schema_migrations WHERE name='social_account_verification'"
         ).fetchone()[0] == 1

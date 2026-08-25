@@ -15,8 +15,10 @@ from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
+from .trial_access import TRIAL_REMINDER_SECONDS, trial_payload
 
-SOCIAL_VERIFICATION_REMINDER_SECONDS = 24 * 60 * 60
+
+SOCIAL_VERIFICATION_REMINDER_SECONDS = TRIAL_REMINDER_SECONDS
 SOCIAL_VERIFICATION_DELETE_SECONDS = 30 * 24 * 60 * 60
 SocialProvider = Literal["max", "telegram"]
 
@@ -67,7 +69,7 @@ def upsert_web_email_identity(
             VALUES (?, ?, 'ru', 'user', ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (legacy_user_id, email_norm, "mini" if initialize_intro else "free",
-             50 if initialize_intro else 0, 1 if initialize_intro else 0, avatar_url,
+             50 if initialize_intro else 0, 1, avatar_url,
              avatar_preset, now, now, internal_user_id),
         )
     else:
@@ -181,7 +183,9 @@ def require_social_verification(
     ).fetchone()
     if row is None:  # pragma: no cover - defensive invariant
         raise RuntimeError("ACCOUNT_VERIFICATION_STATE_MISSING")
-    return verification_payload(row, now=now)
+    base = verification_payload(row, now=now)
+    trial = trial_payload(conn, internal_user_id, required_at=row["required_at"], pending=base["social_verification_pending"], now=now)
+    return {**base, **trial, "social_verification_blocks_generation": trial["trial_generation_blocked"]}
 
 
 def get_social_verification(
@@ -197,7 +201,11 @@ def get_social_verification(
         """,
         (internal_user_id,),
     ).fetchone()
-    return verification_payload(row, now=now) if row is not None else None
+    if row is None:
+        return None
+    base = verification_payload(row, now=now)
+    trial = trial_payload(conn, internal_user_id, required_at=row["required_at"], pending=base["social_verification_pending"], now=now)
+    return {**base, **trial, "social_verification_blocks_generation": trial["trial_generation_blocked"]}
 
 
 def mark_social_verified(
@@ -231,7 +239,7 @@ def verification_payload(row: Any, *, now: str) -> dict[str, Any]:
     return {
         "social_verification_status": status,
         "social_verification_pending": status == "pending",
-        "social_verification_blocks_generation": status == "pending",
+        "social_verification_blocks_generation": False,
         "should_prompt_social_verification": (
             status == "pending" and now_dt >= _as_utc(remind_after_at)
         ),

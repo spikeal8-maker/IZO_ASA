@@ -241,6 +241,25 @@ live gate remains blocked only by the pre-existing missing
 bypassed or fabricated. `DEPLOYED` and provider-level verification remain
 separate release/operational gates.
 
+## Package `AUTH-SOCIAL-TRIAL-20260825`
+
+Status: **CODE COMPLETE; RELEASE GATES PENDING**. Email/password registration
+does not require email delivery. A newly registered account may submit five
+zero-token `text_to_image` jobs through the local base model during its first
+24 hours. Each attempt is reserved atomically with the job; completion consumes
+it, while failure or cancellation releases it. MAX or Telegram proof removes
+the restriction. Other providers, modes and video remain unavailable before
+proof. The UI shows the remaining count, starts a non-blocking reminder after
+two hours, and opens the existing bot-link flow when the allowance or time
+window is exhausted. The existing 30-day anonymizing cleanup remains the final
+unverified-account retention boundary.
+
+Acceptance: additive migration v6, six-way concurrent quota test repeated five
+times, auth/generation regression tests, generated maps, frontend lint/build,
+Quick and one clean exact-SHA Full before promotion. Guest generation without
+registration is deliberately not part of this package: it needs a separate
+server-signed entitlement and IP-abuse design rather than trusting browser IDs.
+
 Availability follow-up `IMG-WATCHDOG-P0-20260723`: an image-edit prompt could
 fill VRAM, outlive an application-side history request timeout and leave
 ComfyUI running while the application queue advanced. The corrective package

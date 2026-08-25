@@ -7,6 +7,8 @@ import re
 from collections.abc import Callable, Mapping
 from typing import Any, Protocol
 
+from ..security.trial_access import settle_trial_generation
+
 
 PERSISTED_JOB_SETTINGS_KEYS = (
     "tokenCost",
@@ -200,4 +202,20 @@ def persist_job(
             job.get("startedAt"),
             job.get("completedAt"),
         ),
+    )
+def persist_runtime_job(
+    conn: JobConnection,
+    job: dict[str, Any],
+    *,
+    request_data: dict[str, Any],
+    now_iso: str,
+) -> None:
+    persist_job(
+        conn, job, request_data=request_data,
+        request_mode=str(request_data.get("mode") or ""),
+        request_provider=str(request_data.get("provider") or ""),
+        request_prompt=str(request_data.get("prompt") or ""), now_iso=now_iso,
+    )
+    settle_trial_generation(
+        conn, str(job["id"]), job_status=str(job.get("status") or ""), now=now_iso,
     )

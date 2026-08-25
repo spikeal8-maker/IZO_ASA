@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.app.database.migrations import PHONE_CHAT_HISTORY_MIGRATION
+from backend.app.database.migrations import GENERATION_TRIAL_MIGRATION
 from backend.app.release_identity import frontend_asset_manifest as runtime_asset_manifest
 from tools.build_release_manifest import (
     build_manifest,
@@ -33,7 +33,7 @@ def test_release_contract_covers_current_database_schema() -> None:
 
     assert (
         contract["release_contract"]["schema_compatibility"]["max_version"]
-        == PHONE_CHAT_HISTORY_MIGRATION.version
+        == GENERATION_TRIAL_MIGRATION.version
     )
 
 

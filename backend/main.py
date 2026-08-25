@@ -160,11 +160,13 @@ except ImportError:  # Direct `python backend/main.py` execution.
 
 try:
     from .app.security.account_verification import complete_social_verification, ensure_social_requirement, generation_block_detail, get_social_verification, upsert_web_email_identity
+    from .app.security.trial_access import gate_detail as trial_gate_detail, reserve_or_charge_generation
     from .app.security.bot_login import BotLoginAccessError, BotLoginRateLimits, BotLoginRuntime, bot_login_approval_retry_result, create_bot_login_challenge as security_create_bot_login_challenge, pending_bot_login_challenges_count
     from .app.security.http_requests import AvatarImageError, compress_allowlisted_avatar
     from .app.security.http_middleware import install_http_security_middleware
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.security.account_verification import complete_social_verification, ensure_social_requirement, generation_block_detail, get_social_verification, upsert_web_email_identity
+    from app.security.trial_access import gate_detail as trial_gate_detail, reserve_or_charge_generation
     from app.security.bot_login import BotLoginAccessError, BotLoginRateLimits, BotLoginRuntime, bot_login_approval_retry_result, create_bot_login_challenge as security_create_bot_login_challenge, pending_bot_login_challenges_count
     from app.security.http_requests import AvatarImageError, compress_allowlisted_avatar
     from app.security.http_middleware import install_http_security_middleware
@@ -517,8 +519,8 @@ try:
         ADMIN_NOTIFICATION_DELIVERY_MIGRATION, ADMIN_NOTIFICATIONS_MIGRATION,
         DbGuardError,
         LEGACY_BASELINE_MIGRATION,
-        PHONE_CHAT_HISTORY_MIGRATION,
-        apply_account_verification_migration, apply_admin_notification_delivery_migration, apply_admin_notifications_migration, apply_phone_chat_history_migration,
+        PHONE_CHAT_HISTORY_MIGRATION, GENERATION_TRIAL_MIGRATION,
+        apply_account_verification_migration, apply_admin_notification_delivery_migration, apply_admin_notifications_migration, apply_phone_chat_history_migration, apply_generation_trial_migration,
         backfill_identity_core,
         collect_sqlite_guard_status,
         database_size_mb,
@@ -543,8 +545,8 @@ except ImportError:  # Direct `python backend/main.py` execution.
         ADMIN_NOTIFICATION_DELIVERY_MIGRATION, ADMIN_NOTIFICATIONS_MIGRATION,
         DbGuardError,
         LEGACY_BASELINE_MIGRATION,
-        PHONE_CHAT_HISTORY_MIGRATION,
-        apply_account_verification_migration, apply_admin_notification_delivery_migration, apply_admin_notifications_migration, apply_phone_chat_history_migration,
+        PHONE_CHAT_HISTORY_MIGRATION, GENERATION_TRIAL_MIGRATION,
+        apply_account_verification_migration, apply_admin_notification_delivery_migration, apply_admin_notifications_migration, apply_phone_chat_history_migration, apply_generation_trial_migration,
         backfill_identity_core,
         collect_sqlite_guard_status,
         database_size_mb,
@@ -1867,7 +1869,7 @@ def init_db() -> None:
     with db() as conn:
         ensure_migration_ledger(
             conn,
-            supported_version=PHONE_CHAT_HISTORY_MIGRATION.version,
+            supported_version=GENERATION_TRIAL_MIGRATION.version,
         )
         prepare_core_schema_group(conn)
         ensure_outbox_schema(conn)
@@ -1893,6 +1895,7 @@ def init_db() -> None:
         apply_admin_notification_delivery_migration(conn, applied_at=now)
         apply_account_verification_migration(conn, applied_at=now)
         apply_phone_chat_history_migration(conn, applied_at=now)
+        apply_generation_trial_migration(conn, applied_at=now)
 
 PROVIDER_CODE_PREFIX = {"web_email": "WEB", "telegram": "TG", "max": "MAX"}
 
@@ -3601,9 +3604,10 @@ def require_trusted_user(request: Request) -> dict[str, Any]:
     return trusted
 
 
-def require_generation_social_verification(trusted: dict[str, Any]) -> None:
+def require_generation_social_verification(trusted: dict[str, Any], req: GenerateRequest | None = None) -> None:
     with db() as conn:  # Resource-consuming routes share the same social-proof gate.
-        detail = generation_block_detail(conn, trusted["internal_user_id"], now=datetime.now(timezone.utc).isoformat())
+        now = datetime.now(timezone.utc).isoformat()
+        detail = trial_gate_detail(conn, trusted["internal_user_id"], now=now, mode=req.mode, provider=req.provider, model_profile=req.modelProfile) if req else generation_block_detail(conn, trusted["internal_user_id"], now=now)
     if detail: raise HTTPException(403, detail=detail)
 
 
@@ -4343,20 +4347,8 @@ def get_persisted_job_response(job_id: str, user_id: str) -> dict[str, Any] | No
 
 def persist_job(job: dict[str, Any], request: GenerateRequest | None = None, conn: sqlite3.Connection | None = None) -> None:
     request_data = request.model_dump() if request else job.get("request", {})
-    request_mode = request.mode if request else ""
-    request_provider = request.provider if request else ""
-    request_prompt = request.prompt if request else request_data.get("prompt", "")
-
     def write(target_conn: sqlite3.Connection) -> None:
-        generation_jobs.persist_job(
-            target_conn,
-            job,
-            request_data=request_data,
-            request_mode=request_mode,
-            request_provider=request_provider,
-            request_prompt=request_prompt,
-            now_iso=datetime.now(timezone.utc).isoformat(),
-        )
+        generation_jobs.persist_runtime_job(target_conn, job, request_data=request_data, now_iso=datetime.now(timezone.utc).isoformat())
     if conn is not None:
         write(conn)
         return
@@ -8172,7 +8164,7 @@ async def transcribe_audio(
 async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
     req = normalize_generation_request(req)
     trusted = require_trusted_user(request)
-    require_generation_social_verification(trusted)
+    require_generation_social_verification(trusted, req)
     user_id = trusted["legacy_user_id"]
     internal_user_id = trusted["internal_user_id"]
     session_id = trusted.get("session_id")
@@ -8267,7 +8259,11 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
         "createdAt": datetime.now(timezone.utc).isoformat(),
     }
     with db() as conn:
-        token_charge = charge_generation_tokens(conn, user_id, token_cost, job_id, req, openrouter_billing)
+        token_charge = reserve_or_charge_generation(
+            conn, internal_user_id, job_id, now=datetime.now(timezone.utc).isoformat(), job=job,
+            charge=lambda: charge_generation_tokens(conn, user_id, token_cost, job_id, req, openrouter_billing),
+            denied=lambda detail: HTTPException(403, detail=detail),
+        )
         persist_job(job, req, conn=conn)
     jobs[job_id] = job
     await queue.put(job_id)
