@@ -8,15 +8,15 @@
 
 import { Gem, LogIn, SunMedium } from 'lucide-react'
 
-export type V3Mode = 'text' | 'i2i' | 'edit' | 'paint' | 'video'
+export type V3Mode = 'image' | 'video' | 'audio' | '3d' | 'chat'
 export type V3Section = V3Mode | 'feed' | 'gallery' | 'profile' | 'admin'
 
 const MODE_TABS: Array<{ id: V3Mode; label: string; hint: string }> = [
-  { id: 'text', label: 'По тексту', hint: 'Изображение по тексту' },
-  { id: 'i2i', label: 'По фото', hint: 'Изменить изображение по фото' },
-  { id: 'edit', label: 'Сборка', hint: 'Собрать изображение из нескольких фото' },
-  { id: 'paint', label: 'Редактор', hint: 'Правки изображения' },
+  { id: 'image', label: 'Изображение', hint: 'Создание и редактирование изображений' },
   { id: 'video', label: 'Видео', hint: 'Генерация видео' },
+  { id: 'audio', label: 'Звук', hint: 'Создание и обработка звука' },
+  { id: '3d', label: '3D', hint: 'Создание 3D-моделей' },
+  { id: 'chat', label: 'Чат', hint: 'Чат с ИЗО АСА' },
 ]
 
 function goto(path: string) {
@@ -61,7 +61,7 @@ export default function TopBarV3({
   const balance = Math.max(0, Math.floor(Number(tokenBalance) || 0))
   const selectMode = (mode: V3Mode) => {
     if (onSelectMode) onSelectMode(mode)
-    else goto(mode === 'paint' ? '/paint' : mode === 'video' ? '/video' : '/')
+    else goto(mode === 'image' ? '/' : `/${mode}`)
   }
   return (
     <header className="topbar">

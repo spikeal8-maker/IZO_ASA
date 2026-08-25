@@ -2483,9 +2483,12 @@
     padding: 16px 16px calc(96px + env(safe-area-inset-bottom, 0px));
   }
 
-  .video-composer-title,
-  .video-mode-tabs {
+  .video-composer-title {
     display: none;
+  }
+
+  .video-mode-tabs {
+    display: grid;
   }
 
   .video-composer-title h1 {

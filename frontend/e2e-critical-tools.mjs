@@ -20,7 +20,7 @@ async function openApp(viewport, suffix) {
 }
 
 async function clickMode(page, label) {
-  await page.locator('.mode').filter({ hasText: label }).first().click()
+  await page.locator('.image-mode-tabs button').filter({ hasText: label }).first().click()
   await page.waitForTimeout(200)
 }
 

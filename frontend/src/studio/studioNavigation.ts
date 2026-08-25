@@ -19,6 +19,9 @@ export function initialViewFromPath(): { view: N2View; tab: N2Tab } {
   if (h === '#text-to-image') return { view: 'tabs', tab: 'text' }
   if (p === '/paint' || p.startsWith('/paint/') || p === '/new/paint' || p.startsWith('/new/paint/')) return { view: 'tabs', tab: 'paint' }
   if (p === '/video' || p.startsWith('/video/') || p === '/new/video' || p.startsWith('/new/video/')) return { view: 'tabs', tab: 'video' }
+  if (p === '/audio' || p.startsWith('/audio/')) return { view: 'tabs', tab: 'audio' }
+  if (p === '/3d' || p.startsWith('/3d/')) return { view: 'tabs', tab: '3d' }
+  if (p === '/chat' || p.startsWith('/chat/')) return { view: 'tabs', tab: 'chat' }
   // /feed is owned by backend/static/feed/index.html. If the SPA is ever served
   // for that path by a stale build or broken proxy, do not revive the old React feed.
   return { view: 'tabs', tab: 'text' }
@@ -33,7 +36,7 @@ export function initialProfileTabFromPath(): 'profile' | 'tariffs' | 'earn' | 'm
 
 export function studioSeoMeta(tab: N2Tab, view: N2View): SeoMeta {
   const locale = currentSeoLocale()
-  const path = view === 'profile' ? '/profile' : tab === 'paint' ? '/paint' : tab === 'video' ? '/video' : '/'
+  const path = view === 'profile' ? '/profile' : tab === 'paint' ? '/paint' : tab === 'video' ? '/video' : tab === 'audio' ? '/audio' : tab === '3d' ? '/3d' : tab === 'chat' ? '/chat' : '/'
   const canonical = `https://izo.alikinas.ru${path}`
 
   if (view === 'profile') {
@@ -83,6 +86,21 @@ export function studioSeoMeta(tab: N2Tab, view: N2View): SeoMeta {
       description: 'Создавайте видео по тексту, изображению, начальному и конечному кадру или набору референсов.',
       canonical,
     },
+    audio: {
+      title: 'Звук — ИЗО АСА',
+      description: 'Раздел создания и обработки звука в ИЗО АСА.',
+      canonical,
+    },
+    '3d': {
+      title: '3D — ИЗО АСА',
+      description: 'Раздел создания 3D-моделей в ИЗО АСА.',
+      canonical,
+    },
+    chat: {
+      title: 'Чат — ИЗО АСА',
+      description: 'Чат с инструментами ИЗО АСА.',
+      canonical,
+    },
   }
   const en: Record<N2Tab, SeoMeta> = {
     feed: {
@@ -113,6 +131,21 @@ export function studioSeoMeta(tab: N2Tab, view: N2View): SeoMeta {
     video: {
       title: 'Video — IZO ASA',
       description: 'Create videos from text, images, first and last frames, or visual references.',
+      canonical,
+    },
+    audio: {
+      title: 'Audio — IZO ASA',
+      description: 'Create and process audio with IZO ASA.',
+      canonical,
+    },
+    '3d': {
+      title: '3D — IZO ASA',
+      description: 'Create 3D models with IZO ASA.',
+      canonical,
+    },
+    chat: {
+      title: 'Chat — IZO ASA',
+      description: 'Chat with IZO ASA tools.',
       canonical,
     },
   }

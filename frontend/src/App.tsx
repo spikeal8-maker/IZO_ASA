@@ -12,6 +12,9 @@ function isNewStudioRoute(path: string) {
   if (path === '/') return true
   if (path === '/paint' || path.startsWith('/paint/')) return true
   if (path === '/video' || path.startsWith('/video/')) return true
+  if (path === '/audio' || path.startsWith('/audio/')) return true
+  if (path === '/3d' || path.startsWith('/3d/')) return true
+  if (path === '/chat' || path.startsWith('/chat/')) return true
   if (path === '/profile' || path.startsWith('/profile/')) return true
   return false
 }

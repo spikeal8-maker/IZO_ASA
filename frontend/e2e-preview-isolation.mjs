@@ -11,7 +11,7 @@ function assert(condition, message) {
 }
 
 async function selectMode(page, label) {
-  await page.locator('.mode-tabs .tab').filter({ hasText: label }).first().click()
+  await page.locator('.image-mode-tabs button').filter({ hasText: label }).first().click()
 }
 
 async function run() {

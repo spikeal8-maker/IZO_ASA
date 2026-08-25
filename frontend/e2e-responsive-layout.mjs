@@ -106,7 +106,8 @@ async function runViewport(browser, viewport) {
   const page = await context.newPage()
   page.setDefaultTimeout(15000)
   await page.goto(`${base}_${viewport.name}`, { waitUntil: 'networkidle' })
-  await page.getByRole('button', { name: 'Изображение по тексту' }).waitFor()
+  await page.getByRole('button', { name: 'Создание и редактирование изображений' }).waitFor()
+  await page.getByRole('tab', { name: /^По тексту/ }).waitFor()
   await page.locator('.preview-panel').waitFor()
 
   await assertNoBrokenLayout(page, `${viewport.name}: studio`)
@@ -114,20 +115,22 @@ async function runViewport(browser, viewport) {
     const navState = await page.evaluate(() => ({
       visibleTopbars: Array.from(document.querySelectorAll('.topbar')).filter((node) => node instanceof HTMLElement && node.offsetParent !== null).length,
       visibleModeTabs: Array.from(document.querySelectorAll('.mode-tabs')).filter((node) => node instanceof HTMLElement && node.offsetParent !== null).length,
+      imageModeTabs: Array.from(document.querySelectorAll('.image-mode-tabs button')).filter((node) => node instanceof HTMLElement && node.offsetParent !== null).length,
       visibleTopActions: Array.from(document.querySelectorAll('.top-actions button')).filter((button) => button instanceof HTMLElement && button.offsetParent !== null).length,
       visibleLegacyBottomNavs: Array.from(document.querySelectorAll('.bottom-nav')).filter((node) => node instanceof HTMLElement && node.offsetParent !== null).length,
     }))
     assert(navState.visibleTopbars === 1, `${viewport.name}: expected one visible product topbar`)
     assert(navState.visibleModeTabs === 1, `${viewport.name}: generator mode navigation is missing or duplicated`)
+    assert(navState.imageModeTabs === 4, `${viewport.name}: image mode navigation must expose four modes`)
     assert(navState.visibleTopActions > 0, `${viewport.name}: product actions are missing from the mobile topbar`)
     assert(navState.visibleLegacyBottomNavs === 0, `${viewport.name}: legacy bottom navigation must not overlap the product topbar`)
   }
 
-  for (const name of ['Изменить изображение по фото', 'Собрать изображение из нескольких фото', 'Правки изображения']) {
-    await page.getByRole('button', { name }).click()
+  for (const name of ['По фото', 'Сборка', 'Редактор']) {
+    await page.getByRole('tab', { name: new RegExp(`^${name}`) }).click()
     await page.locator('.preview-panel').waitFor()
     await assertNoBrokenLayout(page, `${viewport.name}: ${name}`)
-    if (name === 'Правки изображения') {
+    if (name === 'Редактор') {
       await page.locator('.paint-workbench').waitFor()
       const canvas = page.locator('.paint-stage canvas').first()
       await canvas.waitFor()
@@ -164,11 +167,11 @@ async function runViewport(browser, viewport) {
   }
 
   await page.getByRole('button', { name: 'Войти' }).first().click()
-  await page.locator('.profile-page').waitFor()
-  await assertNoBrokenLayout(page, `${viewport.name}: profile`)
-  await page.getByRole('button', { name: 'Изображение по тексту' }).click()
+  await page.locator('.auth-modal').waitFor()
+  await assertNoBrokenLayout(page, `${viewport.name}: auth`)
+  await page.getByRole('button', { name: 'Закрыть' }).click()
   await page.locator('.layout').waitFor()
-  await assertNoBrokenLayout(page, `${viewport.name}: profile-back`)
+  await assertNoBrokenLayout(page, `${viewport.name}: auth-back`)
 
   await page.screenshot({ path: join(screenshotDir, `layout-${viewport.name}.png`), fullPage: fullPageScreenshots })
   await context.close()

@@ -6,7 +6,7 @@ import type { ModelModeKey, TariffModelDefaults } from '../profileSupport'
 import type { ImageResolution } from '../resolutionPolicy'
 import type { GalleryContractItem, GenerationContract } from '../runtimeContracts'
 
-export type N2Tab = 'feed' | 'text' | 'i2i' | 'edit' | 'paint' | 'video'
+export type N2Tab = 'feed' | 'text' | 'i2i' | 'edit' | 'paint' | 'video' | 'audio' | '3d' | 'chat'
 // tabs — генератор/лента; gallery и profile — отдельные канонические страницы.
 export type N2View = 'tabs' | 'profile'
 export type StudioMode = 'text' | 'i2i' | 'edit' | 'paint'

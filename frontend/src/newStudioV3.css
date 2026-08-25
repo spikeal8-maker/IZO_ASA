@@ -407,6 +407,60 @@ line-height: 1.05;
 font-weight: 720;
 letter-spacing: -.025em;
 }
+
+.iv3 .image-mode-tabs {
+display: grid;
+grid-template-columns: repeat(2, minmax(0, 1fr));
+flex: 0 0 auto;
+margin-bottom: clamp(16px, 1vw, 20px);
+overflow: hidden;
+border: 1px solid var(--line);
+border-radius: 10px;
+background: var(--field);
+}
+.iv3 .image-mode-tabs button {
+min-width: 0;
+min-height: clamp(60px, 4vw, 72px);
+padding: 9px 10px;
+border: 0;
+border-right: 1px solid var(--line);
+border-bottom: 1px solid var(--line);
+color: var(--muted);
+background: transparent;
+cursor: pointer;
+}
+.iv3 .image-mode-tabs button:nth-child(2n) {
+border-right: 0;
+}
+.iv3 .image-mode-tabs button:nth-child(n + 3) {
+border-bottom: 0;
+}
+.iv3 .image-mode-tabs strong,
+.iv3 .image-mode-tabs small {
+display: block;
+color: inherit;
+}
+.iv3 .image-mode-tabs strong {
+font-size: .9em;
+font-weight: 570;
+line-height: 1.2;
+}
+.iv3 .image-mode-tabs small {
+margin-top: 4px;
+font-size: .75em;
+font-weight: 450;
+line-height: 1.2;
+opacity: .76;
+}
+.iv3 .image-mode-tabs button.active,
+.iv3 .image-mode-tabs button.active:hover,
+.iv3 .image-mode-tabs button.active:focus-visible {
+color: #080b05;
+background: linear-gradient(180deg, #c5dc27, #b6cf12);
+box-shadow:
+  inset 0 1px 0 rgba(255, 255, 255, .5),
+  inset 0 -8px 15px rgba(67, 84, 3, .16);
+}
 .iv3 .pro-button {
 display: inline-flex;
 align-items: center;
@@ -3412,6 +3466,22 @@ display: contents;
 .iv3 .sidebar-head {
 display: none;
 }
+.iv3 .image-mode-tabs {
+order: 1;
+width: 100%;
+max-width: 100%;
+margin-bottom: 0;
+}
+.iv3 .image-mode-tabs button {
+min-height: clamp(52px, 14vw, 60px);
+padding: 7px 5px;
+}
+.iv3 .image-mode-tabs strong {
+font-size: clamp(11px, 3.3vw, 13px);
+}
+.iv3 .image-mode-tabs small {
+font-size: clamp(9px, 2.55vw, 10.5px);
+}
 .iv3 .mobile-title-row {
 order: 0;
 display: flex;
@@ -3511,7 +3581,7 @@ background: rgba(16, 17, 17, .46);
 font-size: 12px;
 }
 .iv3 .prompt-section {
-order: 3;
+order: 4;
 width: 100%;
 max-width: 100%;
 border-color: rgba(182, 207, 18, .86);
@@ -3521,7 +3591,7 @@ box-shadow:
           inset 0 1px 0 rgba(182, 207, 18, .12);
 }
 .iv3 .i2i-source-section {
-order: 2;
+order: 3;
 width: 100%;
 max-width: 100%;
 --i2i-card-h: clamp(190px, 58cqw, 204px);
@@ -3559,16 +3629,16 @@ box-shadow:
           inset 0 1px 0 rgba(182, 207, 18, .1);
 }
 .iv3 .style-section {
-order: 4;
+order: 5;
 width: 100%;
 max-width: 100%;
 }
 .iv3 .result-dock {
-order: 5;
+order: 6;
 display: contents;
 }
 .iv3 .history {
-order: 5;
+order: 6;
 width: 100%;
 max-width: 100%;
 padding: 9px;
@@ -3580,12 +3650,12 @@ background: rgba(14, 18, 17, .74);
 display: none;
 }
 .iv3 .format-section {
-order: 6;
+order: 7;
 width: 100%;
 max-width: 100%;
 }
 .iv3 .quality-section {
-order: 7;
+order: 8;
 width: 100%;
 max-width: 100%;
 }
@@ -4040,7 +4110,8 @@ min-width: 0;
 width: 100%;
 min-height: 28px;
 padding: 0 2px;
-font-size: clamp(10.8px, 3.2vw, 12px);
+font-size: clamp(9.8px, 2.55vw, 11.2px);
+letter-spacing: -.12px;
 line-height: 1;
 white-space: nowrap;
 overflow: hidden;
@@ -4291,7 +4362,8 @@ grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 .iv3 .tab {
 min-height: 31px;
-font-size: clamp(10.8px, 3.12vw, 11.4px);
+font-size: clamp(9.4px, 2.6vw, 10.2px);
+letter-spacing: -.15px;
 padding: 0 2px;
 white-space: nowrap;
 overflow: hidden;

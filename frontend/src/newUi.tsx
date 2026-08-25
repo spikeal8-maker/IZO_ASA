@@ -140,6 +140,13 @@ import { useModelPreferences, useStudioBackendData, useStudioDraftAutosave } fro
 const PaintWorkbench = lazy(() => import('./PaintWorkbench'))
 const VideoStudio = lazy(() => import('./VideoStudio'))
 
+const IMAGE_MODE_TABS: Array<{ id: StudioMode; label: string; note: string }> = [
+  { id: 'text', label: 'По тексту', note: 'Создать по описанию' },
+  { id: 'i2i', label: 'По фото', note: 'Изменить изображение' },
+  { id: 'edit', label: 'Сборка', note: 'Объединить изображения' },
+  { id: 'paint', label: 'Редактор', note: 'Маска и расширение' },
+]
+
 export default function NewStudio(): ReactElement {
   // Route: /paint — отдельная страница режима «Редактор»; остальные режимы генератора
   // пока живут на /new. Это URL-изоляция, физический split компонента ниже в TODO.
@@ -161,13 +168,24 @@ export default function NewStudio(): ReactElement {
       }
       setView('tabs')
       setTabState(next)
-      navTo(next === 'paint' ? '/paint' : next === 'video' ? '/video' : '/')
+      const route = next === 'paint'
+        ? '/paint'
+        : next === 'video'
+          ? '/video'
+          : next === 'audio'
+            ? '/audio'
+            : next === '3d'
+              ? '/3d'
+              : next === 'chat'
+                ? '/chat'
+                : '/'
+      navTo(route)
     },
     [navTo],
   )
   const selectStudioMode = useCallback(
     (next: V3Mode) => {
-      setTab(next)
+      setTab(next === 'image' ? 'text' : next)
     },
     [setTab],
   )
@@ -2316,6 +2334,22 @@ export default function NewStudio(): ReactElement {
           <h1>{studioTitle}</h1>
         </div>
 
+        <div className="image-mode-tabs" role="tablist" aria-label="Способ работы с изображением">
+          {IMAGE_MODE_TABS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={studioMode === item.id}
+              className={studioMode === item.id ? 'active' : ''}
+              onClick={() => setTab(item.id)}
+            >
+              <strong>{item.label}</strong>
+              <small>{item.note}</small>
+            </button>
+          ))}
+        </div>
+
         {isI2IStudio && (
           <section className="form-section i2i-source-section">
             <div className="section-title">
@@ -3251,7 +3285,13 @@ export default function NewStudio(): ReactElement {
       onLinkBot={(providerName) => void onLinkBot(providerName)}
     />
   )
-  const topActive: V3Section = view === 'profile' ? 'profile' : tab === 'feed' ? 'feed' : (tab as V3Section)
+  const topActive: V3Section = view === 'profile'
+    ? 'profile'
+    : tab === 'feed'
+      ? 'feed'
+      : tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'paint'
+        ? 'image'
+        : (tab as V3Section)
 
   return (
     <div className="n2">
@@ -3631,8 +3671,14 @@ export default function NewStudio(): ReactElement {
             studio
           ) : tab === 'video' ? (
             <Suspense fallback={<div className="iv3-content"><div className="preview-empty">Загружаем видеостудию…</div></div>}><VideoStudio authStatus={authStatus} onTokenBalanceChange={() => { void refreshAuthStateV2() }} /></Suspense>
+          ) : tab === 'audio' ? (
+            placeholderStudio('Звук', 'Создание и обработка звука появятся в этом разделе.')
+          ) : tab === '3d' ? (
+            placeholderStudio('3D', 'Создание 3D-моделей появится в этом разделе.')
+          ) : tab === 'chat' ? (
+            placeholderStudio('Чат', 'Чат с инструментами ИЗО АСА появится в этом разделе.')
           ) : (
-            placeholderStudio('Видео', 'Выберите режим и доступную вашему тарифу видеомодель.')
+            placeholderStudio('Изображение', 'Выберите способ работы с изображением.')
           )}
         </div>
         {view === 'tabs' && (tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'paint') && (
