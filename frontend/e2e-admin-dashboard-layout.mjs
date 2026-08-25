@@ -27,6 +27,15 @@ const dashboard = {
     totals: { users: 44 },
     sessions_active: 2,
     periods: { today: { users: { active: 2 }, generations: { total: 14, failed: 1 } } },
+    ranges: {
+      '1h': { users: { active: 1 }, generations: { total: 3 } },
+      '6h': { users: { active: 4 }, generations: { total: 9 } },
+      '12h': { users: { active: 5 }, generations: { total: 11 } },
+      '24h': { users: { active: 6 }, generations: { total: 14 } },
+      '7d': { users: { active: 15 }, generations: { total: 40 } },
+      '30d': { users: { active: 27 }, generations: { total: 80 } },
+      '90d': { users: { active: 38 }, generations: { total: 120 } },
+    },
   },
 }
 const me = {
@@ -61,7 +70,14 @@ async function verify(viewport, screenshotName) {
     throw error
   }
 
-  assert(await page.locator('.admin-content-heading > .admin-kpi-strip span').count() === 4, 'header must contain exactly four key indicators')
+  assert(await page.locator('.admin-content-heading > .admin-kpi-strip span').count() === 6, 'header must contain four live and two financial indicators')
+  assert(await page.getByLabel('Период показателей').inputValue() === '24', 'dashboard header period must default to 24 hours')
+  assert((await page.locator('.admin-kpi-strip').innerText()).includes('—\nпотрачено'), 'spent placeholder is missing')
+  assert((await page.locator('.admin-kpi-strip').innerText()).includes('—\nзаработано'), 'earned placeholder is missing')
+  await page.getByLabel('Период показателей').selectOption('7')
+  const periodKpis = await page.locator('.admin-kpi-strip').innerText()
+  assert(periodKpis.includes('15\nактивны за 7 дн.'), 'active users did not follow selected period')
+  assert(periodKpis.includes('40\nгенераций за 7 дн.'), 'generation count did not follow selected period')
   assert(await page.locator('.admin-topline').count() === 0, 'legacy top line is still rendered')
   assert(await page.locator('.admin-grid-compact').count() === 0, 'duplicated KPI cards are still rendered')
   assert(await page.locator('.admin-generation-chart').count() === 4, 'dashboard must contain generation, activity, payment and energy charts')

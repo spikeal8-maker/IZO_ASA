@@ -13,7 +13,7 @@ import { DiagPanel } from './diag'
 import { isDiagMode } from './diagMeta'
 import { adminGet, adminPost } from './adminApi'
 import { DEFAULT_TARIFFS, SERVER_MODEL_OPTION, formatModelCount, modelOptionById, normalizeTariffs, qualityPresetLabels, qualityPresets, resolutionOptions, tariffKeys, type ModelOption, type TariffConfig, type TariffKey } from './profileSupport'
-import { ADMIN_MODELS_PAGES } from './adminModelsRoutes'
+import { ADMIN_MODELS_PAGES, ADMIN_OPENROUTER_PAGES, adminModelsRouteDefinition } from './adminModelsRoutes'
 import './index.css'
 
 const AdminAnalyticsV2 = lazy(() => import('./adminAnalytics').then((module) => ({ default: module.AdminAnalyticsV2 })))
@@ -79,11 +79,20 @@ function normalizeTariffTermSettings(value: unknown): TariffTermSettings {
 }
 
 const HOURLY_DASHBOARD_RANGES = new Set<DashboardRange>([1, 6, 12, 24])
+const DASHBOARD_RANGE_OPTIONS: Array<{ value: DashboardRange; label: string; short: string }> = [
+  { value: 1, label: '1 час', short: '1 ч.' },
+  { value: 6, label: '6 часов', short: '6 ч.' },
+  { value: 12, label: '12 часов', short: '12 ч.' },
+  { value: 24, label: '24 часа', short: '24 ч.' },
+  { value: 7, label: '7 дней', short: '7 дн.' },
+  { value: 30, label: '30 дней', short: '30 дн.' },
+  { value: 90, label: '90 дней', short: '90 дн.' },
+]
 
 const ADMIN_ROUTES = [
   { tab: 'dashboard', label: 'Дашборд', path: '/admin/dashboard', icon: LayoutDashboard },
   { tab: 'crm', label: 'CRM', path: '/admin/crm', icon: Users },
-  { tab: 'models', label: 'Модели', path: '/admin/models/openrouter', icon: Layers3 },
+  { tab: 'models', label: 'Модели', path: '/admin/models/openrouter/text', icon: Layers3 },
   { tab: 'notifications', label: 'Уведомления', path: '/admin/notifications', icon: Bell },
   { tab: 'social', label: 'Соцсети', path: '/admin/social', icon: Share2 },
   { tab: 'tariffs', label: 'Тарифы', path: '/admin/tariffs', icon: Tags },
@@ -255,9 +264,8 @@ function AdminAccessPage({ status, onOpenAuth }: { status: 'loading' | 'denied';
   )
 }
 
-function AdminDashboard({ summary }: { summary: AnyRec | null }) {
+function AdminDashboard({ summary, range }: { summary: AnyRec | null; range: DashboardRange }) {
   const timeline = (summary?.timeline || {}) as AnyRec
-  const [range, setRange] = useState<DashboardRange>(24)
   const isHourlyRange = HOURLY_DASHBOARD_RANGES.has(range)
   const sliceSeries = (key: string): SeriesPoint[] => {
     const sourceKey = isHourlyRange ? `${key}_${range}h` : key
@@ -288,25 +296,13 @@ function AdminDashboard({ summary }: { summary: AnyRec | null }) {
   }] : []
   return (
     <div className="admin-section admin-dashboard-v2">
-      <div className="admin-dashboard-toolbar">
-        <strong>Период графика</strong>
-        {[
-          [1, '1 час'],
-          [6, '6 часов'],
-          [12, '12 часов'],
-          [24, 'сутки'],
-          [7, '7 дней'],
-          [30, '30 дней'],
-          [90, '90 дней'],
-        ].map(([value, label]) => <button key={value} className={range === value ? 'active' : ''} onClick={() => setRange(value as DashboardRange)}>{label}</button>)}
-      </div>
       <div className="admin-dashboard-chart-grid">
         <AdminGenerationChart series={generationSeries} range={range} />
         <AdminTimeSeriesChart title="Активность пользователей" description="Пользователи онлайн, входы и регистрации" series={activitySeries} range={range} />
         <AdminTimeSeriesChart title="Оплаты" description={`${Number(paymentSummary.paid_count || 0).toLocaleString('ru-RU')} успешных · ${Number(paymentSummary.revenue_rub || 0).toLocaleString('ru-RU')} ₽ получено`} series={paymentSeries} range={range} />
         <AdminTimeSeriesChart title="Энергопотребление" description={power.available ? `${String(power.source || 'PowerPanel')} · ${String(power.model || 'ИБП')} · среднее ${Number(power.average_watts || 0).toLocaleString('ru-RU', { maximumFractionDigits: 1 })} Вт · ${Number(power.energy_kwh || 0).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} кВт·ч` : 'PowerPanel не передал телеметрию'} series={powerSeries} range={range} emptyText="Данные PowerPanel пока недоступны." />
       </div>
-      <p className="admin-dashboard-period-note">Показатель «сегодня» в верхней строке считается по Москве. Периоды 1–24 часа на графике являются скользящими.</p>
+      <p className="admin-dashboard-period-note">Верхняя строка и графики используют выбранный период. Периоды 1–24 часа являются скользящими; активные сессии показываются на текущий момент.</p>
     </div>
   )
 }
@@ -548,6 +544,7 @@ export default function AdminApp() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [modelsExpanded, setModelsExpanded] = useState(() => adminTabFromPath(window.location.pathname) === 'models')
   const [navCollapsed, setNavCollapsed] = useState(() => window.localStorage.getItem('admin.sidebar.collapsed') === '1')
+  const [dashboardRange, setDashboardRange] = useState<DashboardRange>(24)
   const [summary, setSummary] = useState<AnyRec | null>(null)
   const [logsData, setLogsData] = useState<AnyRec | null>(null)
   const isAdmin = status === 'authed' && me?.account?.role === 'admin'
@@ -556,8 +553,8 @@ export default function AdminApp() {
   useEffect(() => {
     const syncRoute = () => {
       let nextPath = window.location.pathname
-      if (nextPath.replace(/\/+$/, '') === '/admin/models') {
-        nextPath = '/admin/models/openrouter'
+      if (['/admin/models', '/admin/models/openrouter'].includes(nextPath.replace(/\/+$/, ''))) {
+        nextPath = '/admin/models/openrouter/text'
         window.history.replaceState({}, '', nextPath)
       }
       const nextTab = adminTabFromPath(nextPath)
@@ -599,10 +596,12 @@ export default function AdminApp() {
   }
 
   const dashboard = (summary?.dashboard || {}) as AnyRec
-  const dashboardToday = (((dashboard.periods || {}) as AnyRec).today || {}) as AnyRec
-  const dashboardTodayUsers = (dashboardToday.users || {}) as AnyRec
-  const dashboardTodayJobs = (dashboardToday.generations || {}) as AnyRec
-  const currentModelPage = ADMIN_MODELS_PAGES.find((page) => page.path === pathname)
+  const dashboardRangeKey = `${dashboardRange}${HOURLY_DASHBOARD_RANGES.has(dashboardRange) ? 'h' : 'd'}`
+  const dashboardRangeData = ((((dashboard.ranges || {}) as AnyRec)[dashboardRangeKey]) || (((dashboard.periods || {}) as AnyRec).today) || {}) as AnyRec
+  const dashboardRangeUsers = (dashboardRangeData.users || {}) as AnyRec
+  const dashboardRangeJobs = (dashboardRangeData.generations || {}) as AnyRec
+  const dashboardRangeLabel = DASHBOARD_RANGE_OPTIONS.find((option) => option.value === dashboardRange)?.short || ''
+  const currentModelPage = tab === 'models' ? adminModelsRouteDefinition(pathname) : undefined
   const currentTitle = currentModelPage?.title || ADMIN_ROUTE_TITLES[tab]
   const currentDescription = currentModelPage?.description || ADMIN_ROUTE_DESCRIPTIONS[tab]
   const openAdminPath = (path: string) => {
@@ -653,13 +652,17 @@ export default function AdminApp() {
                     {isModels && <ChevronDown className={`admin-nav-chevron${modelsExpanded ? ' open' : ''}`} size={16} />}
                   </button>
                   {isModels && <div className={`admin-nav-children${modelsExpanded ? ' open' : ''}`}>
-                    {ADMIN_MODELS_PAGES.map((page) => <a
-                      key={page.id}
-                      href={page.path}
-                      className={pathname === page.path ? 'active' : ''}
-                      aria-current={pathname === page.path ? 'page' : undefined}
-                      onClick={(event) => { event.preventDefault(); openAdminPath(page.path) }}
-                    ><i />{page.label}</a>)}
+                    {ADMIN_MODELS_PAGES.map((page) => <div className="admin-nav-model-page" key={page.id}>
+                      <a
+                        href={page.path}
+                        className={page.id === 'api' ? (pathname.startsWith('/admin/models/openrouter') ? 'active' : '') : (pathname === page.path ? 'active' : '')}
+                        aria-current={pathname === page.path ? 'page' : undefined}
+                        onClick={(event) => { event.preventDefault(); openAdminPath(page.path) }}
+                      ><i />{page.label}</a>
+                      {page.id === 'api' && pathname.startsWith('/admin/models/openrouter') && <div className="admin-nav-grandchildren">
+                        {ADMIN_OPENROUTER_PAGES.map((child) => <a key={child.id} href={child.path} className={pathname === child.path ? 'active' : ''} aria-current={pathname === child.path ? 'page' : undefined} onClick={(event) => { event.preventDefault(); openAdminPath(child.path) }}>{child.label}</a>)}
+                      </div>}
+                    </div>)}
                   </div>}
                 </div>
               })}
@@ -676,15 +679,18 @@ export default function AdminApp() {
             <header className="admin-content-heading">
               <button className="admin-sidebar-mobile-open" aria-label="Открыть меню админки" aria-controls="admin-sidebar" aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen(true)}><Menu size={21} /></button>
               <div className="admin-current-section"><h1>{currentTitle}</h1><p>{currentDescription}</p></div>
+              <label className="admin-kpi-period">Период<select aria-label="Период показателей" value={dashboardRange} onChange={(event) => setDashboardRange(Number(event.target.value) as DashboardRange)}>{DASHBOARD_RANGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
               <div className="admin-kpi-strip admin-kpi-strip-primary" aria-label="Оперативные показатели">
                 <span><b>{String(((dashboard.totals || {}) as AnyRec).users ?? summary?.users ?? '—')}</b> пользователей</span>
-                <span><b>{String(dashboardTodayUsers.active ?? summary?.activeToday ?? '—')}</b> активны сегодня</span>
+                <span><b>{String(dashboardRangeUsers.active ?? summary?.activeToday ?? '—')}</b> активны за {dashboardRangeLabel}</span>
                 <span><b>{String(dashboard.sessions_active ?? summary?.activeSessions ?? '—')}</b> активных сессий</span>
-                <span><b>{String(dashboardTodayJobs.total ?? summary?.generationsToday ?? '—')}</b> генераций сегодня</span>
+                <span><b>{String(dashboardRangeJobs.total ?? summary?.generationsToday ?? '—')}</b> генераций за {dashboardRangeLabel}</span>
+                <span className="pending"><b>—</b> потрачено</span>
+                <span className="pending"><b>—</b> заработано</span>
               </div>
             </header>
             <section className="admin-page admin-content-page">
-              {tab === 'dashboard' && <AdminDashboard summary={summary} />}
+              {tab === 'dashboard' && <AdminDashboard summary={summary} range={dashboardRange} />}
               {tab === 'crm' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем CRM...</div>}><AdminAnalyticsV2 /></Suspense></div>}
               {tab === 'models' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем модели...</div>}><AdminModelsV2 embeddedInSidebar /></Suspense></div>}
               {tab === 'notifications' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем уведомления...</div>}><AdminNotifications /></Suspense></div>}

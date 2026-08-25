@@ -382,6 +382,7 @@ def dashboard_projection(conn: sqlite3.Connection, now: datetime | None = None) 
     yesterday = periods["yesterday_start"]
     last_24h = periods["last_24h_start"]
     now_iso = periods["generated_at"]
+    current = datetime.fromisoformat(now_iso)
     login_names = "('login_succeeded','password_login_succeeded','password_register_succeeded')"
 
     def user_metrics(start: str, end: str | None = None) -> dict[str, int]:
@@ -401,6 +402,16 @@ def dashboard_projection(conn: sqlite3.Connection, now: datetime | None = None) 
             "tokens": token_metrics(conn, start, end),
         }
 
+    rolling_ranges = {
+        "1h": period((current - timedelta(hours=1)).isoformat()),
+        "6h": period((current - timedelta(hours=6)).isoformat()),
+        "12h": period((current - timedelta(hours=12)).isoformat()),
+        "24h": period((current - timedelta(hours=24)).isoformat()),
+        "7d": period((current - timedelta(days=7)).isoformat()),
+        "30d": period((current - timedelta(days=30)).isoformat()),
+        "90d": period((current - timedelta(days=90)).isoformat()),
+    }
+
     providers = {
         str(row["provider"]): int(row["count"])
         for row in conn.execute(
@@ -415,6 +426,7 @@ def dashboard_projection(conn: sqlite3.Connection, now: datetime | None = None) 
             "yesterday": period(yesterday, today),
             "last_24h": period(last_24h),
         },
+        "ranges": rolling_ranges,
         "totals": {
             "users": _scalar(conn, "SELECT COUNT(*) FROM users WHERE internal_user_id IS NOT NULL"),
             "generations": _scalar(conn, "SELECT COUNT(*) FROM jobs"),

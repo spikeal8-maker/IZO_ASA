@@ -144,6 +144,8 @@ def test_dashboard_counts(temp_db):
     assert d["sessions_active"] >= 1
     assert d["timezone"] == "Europe/Moscow"
     assert set(d["periods"]) == {"today", "yesterday", "last_24h"}
+    assert set(d["ranges"]) == {"1h", "6h", "12h", "24h", "7d", "30d", "90d"}
+    assert all(set(value) == {"users", "generations", "tokens"} for value in d["ranges"].values())
     assert set(d["periods"]["today"]["tokens"]) == {"total", "daily", "main", "refunds"}
 
 

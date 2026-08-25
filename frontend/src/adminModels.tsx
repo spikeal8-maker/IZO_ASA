@@ -4,7 +4,16 @@
 // маршруты и user-choice сохраняются через /api/admin/settings/{key}.
 import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { AdminModelsNavigation } from './adminModelsNavigation'
-import { adminModelsPageFromPath, adminModelsPath, type AdminModelsPage } from './adminModelsRoutes'
+import { OpenRouterAudioPage, OpenRouterThreeDPage } from './adminOpenRouterAuxPages'
+import {
+  ADMIN_OPENROUTER_PAGES,
+  adminModelsPageFromPath,
+  adminModelsPath,
+  adminOpenRouterPageFromPath,
+  adminOpenRouterPath,
+  type AdminModelsPage,
+  type AdminOpenRouterPage,
+} from './adminModelsRoutes'
 import { ensureSessionRefreshedV2 } from './authV2'
 import { normalizeTariffs, tariffKeys, type TariffConfig, type TariffKey } from './profileSupport'
 import { IMAGE_RESOLUTIONS, normalizeResolutionIds, resolutionLabel, type ResolutionFormat, type ResolutionTier } from './resolutionPolicy'
@@ -499,6 +508,8 @@ type AssistantAdminData = {
   openrouterConfigured: boolean
   openrouterModels: Array<{ id: string; name: string; inputPerMillionUsd: number; outputPerMillionUsd: number; contextLength: number }>
   openrouterModelsError?: string | null
+  openrouterAudioModels: Array<{ id: string; name: string; inputPerMillionUsd: number; outputPerMillionUsd: number; contextLength: number }>
+  openrouterAudioModelsError?: string | null
   usage: { periodDays: number; totals: { successful: number; failed: number; fallbacks: number; cost_usd: number; cost_rub: number; energy_wh: number; energy_cost_rub: number }; recent: Array<{ createdAt: string; ok: boolean; route?: string; provider?: string; model?: string; mode?: string; latencyMs?: number; fallbackUsed?: boolean; costUsd?: number; costRub?: number; energyWh?: number; energyCostRub?: number }> }
 }
 type AssistantTestResult = { ok?: boolean; provider?: string; model?: string; improvedPrompt?: string; latencyMs?: number; costUsd?: number; costRub?: number; energyWh?: number; detail?: string }
@@ -729,6 +740,11 @@ const CSS = `
 .amv2 .page-tabs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin-bottom:10px;padding:6px;border:1px solid var(--line);border-radius:10px;background:rgba(9,12,9,.72)}
 .amv2 .page-tabs>button[role="tab"]{min-height:38px;border:1px solid transparent;border-radius:7px;padding:0 12px;background:transparent;color:var(--muted);font-weight:650;white-space:nowrap}
 .amv2 .page-tabs button.active{background:var(--lime);border-color:var(--lime);color:#080a07}
+.amv2 .openrouter-page-nav{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));margin:0 0 12px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.amv2 .openrouter-page-nav button{min-height:42px;border:0;border-left:1px solid var(--line);border-radius:0;background:transparent;color:var(--muted);font-weight:750}
+.amv2 .openrouter-page-nav button:first-child{border-left:0}.amv2 .openrouter-page-nav button.active{background:rgba(234,255,16,.08);box-shadow:inset 0 -2px var(--lime);color:#fff}
+.amv2 .openrouter-page-title{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin:0 0 12px;padding:0 0 10px;border-bottom:1px solid var(--line)}
+.amv2 .openrouter-page-title h2{margin:0;color:#fff;font-size:18px}.amv2 .openrouter-page-title p{margin:4px 0 0;color:var(--muted);font-size:12px}
 .amv2 .tab-status{grid-column:1/-1;display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:4px 4px 0;border-top:1px solid var(--line);white-space:nowrap}
 .amv2 .models-page-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:12px;padding:11px 13px;border-left:3px solid var(--lime);background:linear-gradient(90deg,rgba(234,255,16,.07),transparent 55%)}
 .amv2 .models-page-head h1{margin:0;font-size:18px;line-height:1.2}.amv2 .models-page-head p{margin:4px 0 0;color:var(--muted);font-size:12px;line-height:1.4}
@@ -938,7 +954,7 @@ const CSS = `
 .amv2 .mobile-models{display:none;padding:12px;gap:10px}
 .amv2 .mobile-model{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.035);display:grid;gap:10px}
 @media (max-width:1360px){.amv2 .dashboard,.amv2 .server-layout{grid-template-columns:1fr}.amv2 .metric-grid,.amv2 .lora-grid,.amv2 .status-grid,.amv2 .mode-board{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .api-section-head{grid-template-columns:minmax(220px,1.4fr) repeat(3,minmax(100px,.8fr)) minmax(150px,1fr)}.amv2 .grid-main{grid-template-columns:1fr}.amv2 .side-panel{position:static}}
-@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats,.amv2 .api-section-head,.amv2 .assistant-config{grid-template-columns:1fr}.amv2 .assistant-economy{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .assistant-history-row{grid-template-columns:1fr 70px}.amv2 .assistant-history-row span:nth-child(n+3){grid-column:1/-1}.amv2 .server-command{align-items:stretch;flex-wrap:wrap}.amv2 .server-command .server-title{width:100%}.amv2 .profile-switch{flex:1}.amv2 .lora-columns,.amv2 .config-profiles{grid-template-columns:1fr}.amv2 .lora-row{grid-template-columns:28px 1fr 80px}.amv2 .lora-row>div:nth-child(3),.amv2 .lora-row>div:nth-child(4){grid-column:2 / -1}.amv2 .tab-status{width:100%;justify-content:flex-start;flex-wrap:wrap}.amv2 .models-page-head{display:grid}.amv2 .models-page-head-status{margin-left:0}.amv2 .models-page-head-status .tab-status{justify-content:flex-start}.amv2 .page-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .matrix-wrap .api-table.format-table{min-width:1500px}.amv2 .mobile-models{display:grid}}
+@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats,.amv2 .api-section-head,.amv2 .assistant-config{grid-template-columns:1fr}.amv2 .assistant-economy{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .assistant-history-row{grid-template-columns:1fr 70px}.amv2 .assistant-history-row span:nth-child(n+3){grid-column:1/-1}.amv2 .server-command{align-items:stretch;flex-wrap:wrap}.amv2 .server-command .server-title{width:100%}.amv2 .profile-switch{flex:1}.amv2 .lora-columns,.amv2 .config-profiles{grid-template-columns:1fr}.amv2 .lora-row{grid-template-columns:28px 1fr 80px}.amv2 .lora-row>div:nth-child(3),.amv2 .lora-row>div:nth-child(4){grid-column:2 / -1}.amv2 .tab-status{width:100%;justify-content:flex-start;flex-wrap:wrap}.amv2 .models-page-head{display:grid}.amv2 .models-page-head-status{margin-left:0}.amv2 .models-page-head-status .tab-status{justify-content:flex-start}.amv2 .page-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .openrouter-page-nav{display:flex;overflow-x:auto}.amv2 .openrouter-page-nav button{flex:0 0 auto;min-width:112px}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .matrix-wrap .api-table.format-table{min-width:1500px}.amv2 .mobile-models{display:grid}}
 @media (max-width:580px){.amv2 .metric-grid,.amv2 .two-col,.amv2 .price-row,.amv2 .lora-grid,.amv2 .advanced-grid,.amv2 .status-grid,.amv2 .mode-board,.amv2 .or-stats,.amv2 .server-overview,.amv2 .assistant-summary,.amv2 .assistant-economy{grid-template-columns:1fr}.amv2 .profile-switch{width:100%}.amv2 .server-restart{width:100%}}
 @media (max-width:880px){.amv2 .video-catalog-card{width:calc(100vw - 40px);max-width:calc(100vw - 40px)}.amv2 .video-mode-finance-head{grid-template-columns:1fr 1fr}.amv2 .video-mode-finance-head>div:first-child,.amv2 .video-mode-count{grid-column:1 / -1}.amv2 .video-catalog-head{align-items:flex-start;flex-direction:column}.amv2 .video-catalog-meta{width:100%;justify-content:flex-start}.amv2 .video-model-detail{overflow-wrap:anywhere}.amv2 .video-economy-note{display:grid;gap:5px}}
 `
@@ -946,6 +962,7 @@ const CSS = `
 export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedInSidebar?: boolean }) {
   const [data, setData] = useState<PageData | null>(null)
   const [pageTab, setPageTab] = useState<AdminModelsPage>(() => adminModelsPageFromPath(window.location.pathname))
+  const [openrouterPage, setOpenrouterPage] = useState<AdminOpenRouterPage>(() => adminOpenRouterPageFromPath(window.location.pathname))
   const [configSection, setConfigSection] = useState<'image' | 'video' | 'text'>('image')
   const [configRuntime, setConfigRuntime] = useState({ imageEnabled: true, videoEnabled: true, videoProfile: 'local/ltx-2.3-fast-q3' })
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null)
@@ -956,9 +973,6 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
   const [apiSorts, setApiSorts] = useState<Record<string, ApiSortState>>({})
   const [apiSectionsOpen, setApiSectionsOpen] = useState<Record<string, boolean>>({})
   const [apiExpandedRows, setApiExpandedRows] = useState<Record<string, boolean>>({})
-  const [textCatalogOpen, setTextCatalogOpen] = useState(false)
-  const [imageCatalogOpen, setImageCatalogOpen] = useState(false)
-  const [videoCatalogOpen, setVideoCatalogOpen] = useState(false)
   const [videoSectionsOpen, setVideoSectionsOpen] = useState<Record<string, boolean>>({})
   const [videoExpandedRows, setVideoExpandedRows] = useState<Record<string, boolean>>({})
   const [videoConfigBusy, setVideoConfigBusy] = useState(false)
@@ -993,12 +1007,23 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
     }
   }, [])
 
+  const navigateOpenRouterPage = useCallback((next: AdminOpenRouterPage) => {
+    const path = adminOpenRouterPath(next)
+    setOpenrouterPage(next)
+    setMsg('')
+    if (window.location.pathname !== path) {
+      window.history.pushState({}, '', path)
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    }
+  }, [])
+
   useEffect(() => {
     const syncFromLocation = () => {
-      if (window.location.pathname.replace(/\/+$/, '') === '/admin/models') {
+      if (['/admin/models', '/admin/models/openrouter'].includes(window.location.pathname.replace(/\/+$/, ''))) {
         window.history.replaceState({}, '', adminModelsPath('api'))
       }
       setPageTab(adminModelsPageFromPath(window.location.pathname))
+      setOpenrouterPage(adminOpenRouterPageFromPath(window.location.pathname))
     }
     syncFromLocation()
     window.addEventListener('popstate', syncFromLocation)
@@ -1083,7 +1108,11 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
 
   const loadAssistants = useCallback(async () => {
     const result = await amvFetch('/admin/assistants').then((r) => r.ok ? r.json() : null).catch(() => null) as AssistantAdminData | null
-    if (result?.config) setAssistantData({ ...result, openrouterModels: Array.isArray(result.openrouterModels) ? result.openrouterModels : [] })
+    if (result?.config) setAssistantData({
+      ...result,
+      openrouterModels: Array.isArray(result.openrouterModels) ? result.openrouterModels : [],
+      openrouterAudioModels: Array.isArray(result.openrouterAudioModels) ? result.openrouterAudioModels : [],
+    })
     else setMsg('Не удалось загрузить настройки голосового ввода и улучшения')
   }, [])
 
@@ -1817,7 +1846,12 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
     </>}
 
     {pageTab === 'api' && <>
-      <div className="or-stats">
+      <nav className="openrouter-page-nav" aria-label="Разделы OpenRouter">
+        {ADMIN_OPENROUTER_PAGES.map((page) => <button key={page.id} type="button" className={openrouterPage === page.id ? 'active' : ''} onClick={() => navigateOpenRouterPage(page.id)}>{page.label}</button>)}
+      </nav>
+      {(() => { const page = ADMIN_OPENROUTER_PAGES.find((item) => item.id === openrouterPage) || ADMIN_OPENROUTER_PAGES[0]; return <header className="openrouter-page-title"><div><h2>{page.title}</h2><p>{page.description}</p></div></header> })()}
+
+      {openrouterPage === 'settings' && <div className="or-stats">
         <div className={`or-stat ${generationStatusClass}`}><span>Доступность генерации</span><strong>{generationStatusText}</strong></div>
         <div className="or-stat"><span>Сгенерировано картинок</span><strong>{data.openrouter.usage?.pricedImages || 0}</strong></div>
         <div className="or-stat"><span>Потрачено всего</span><strong>{totalSpentPair}</strong></div>
@@ -1849,9 +1883,9 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
             onKeyDown={(e) => { if (e.key === 'Enter') { e.currentTarget.blur() } }}
           />
         </div>
-      </div>
+      </div>}
 
-      <div className="toolbar">
+      {(['text', 'images', 'video'] as AdminOpenRouterPage[]).includes(openrouterPage) && <><div className="toolbar">
         <input
           type="search"
           name="openrouter-model-catalog-filter"
@@ -1876,13 +1910,14 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
       </p>
       {!liveCapabilityCatalog.length ? <p className="hint" style={{ color: 'var(--yellow)' }}>Живой каталог возможностей пока не получен. Модели, цены и управление показаны из проверенного резервного каталога; перезапустите backend для автоматического обновления.</p> : null}
       {data.openrouter.capabilityError ? <p className="hint" style={{ color: 'var(--yellow)' }}>Каталог возможностей OpenRouter не загрузился: {data.openrouter.capabilityError}</p> : null}
+      </>}
 
-      <article className="card video-catalog-card">
-        <button className="video-catalog-head" onClick={() => setTextCatalogOpen((open) => !open)} aria-expanded={textCatalogOpen}>
-          <div className="video-catalog-title"><span aria-hidden="true">▶</span><div><h2 className="card-title">Текстовые модели OpenRouter</h2><p className="card-note">Выбор моделей для чата, цена за 1 млн токенов и экономика ответа.</p></div></div>
-          <div className="video-catalog-meta"><span className="state ok">{assistantData?.openrouterModels.length || 0} моделей</span><span className="mini">{textCatalogOpen ? 'Свернуть' : 'Раскрыть'}</span></div>
-        </button>
-        {textCatalogOpen && <div className="matrix-wrap">
+      {openrouterPage === 'text' && <article className="card video-catalog-card">
+        <div className="video-catalog-head">
+          <div className="video-catalog-title"><div><h2 className="card-title">Каталог текстовых моделей</h2><p className="card-note">Выбор моделей для чата, цена за 1 млн токенов и экономика ответа.</p></div></div>
+          <div className="video-catalog-meta"><span className="state ok">{assistantData?.openrouterModels.length || 0} моделей</span></div>
+        </div>
+        <div className="matrix-wrap">
           {!assistantData ? <p className="hint">Загружаем текстовый каталог…</p> : <>
             <table className="api-table"><thead><tr><th>Вкл.</th><th>Модель</th><th>Вход / 1M</th><th>Выход / 1M</th><th>Контекст</th><th>Токены проекта</th><th>Пример: 1000 + 500</th><th>По умолчанию</th></tr></thead>
               <tbody>{filteredOpenrouterTextModels.map((model) => {
@@ -1908,18 +1943,18 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
             </table>
             <div className="actions" style={{ padding: 12 }}><button className="primary" disabled={assistantBusy} onClick={() => void saveAssistantConfig()}>{assistantBusy ? 'Сохраняю…' : 'Сохранить текстовые модели'}</button><label className="resolution-plan"><input type="radio" name="chat-default-model" checked={assistantData.config.chat.defaultModel === 'local:izo-chat'} onChange={() => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, defaultModel: 'local:izo-chat' } })} /><span>ИЗО Чат по умолчанию</span></label></div>
           </>}
-        </div>}
-      </article>
+        </div>
+      </article>}
 
-      <article className="card video-catalog-card">
-        <button className="video-catalog-head" onClick={() => setVideoCatalogOpen((open) => !open)} aria-expanded={videoCatalogOpen}>
+      {openrouterPage === 'video' && <article className="card video-catalog-card">
+        <div className="video-catalog-head">
           <div className="video-catalog-title">
             <span aria-hidden="true">▶</span>
             <div><h2 className="card-title">Видео OpenRouter</h2><p className="card-note">Модели, тарифный доступ и полная экономика каждого поддерживаемого варианта.</p></div>
           </div>
-          <div className="video-catalog-meta"><span className="state ok">{data.openrouter.videoCatalog?.length || 0} моделей</span><span className="mini">{videoCatalogOpen ? 'Свернуть' : 'Раскрыть'}</span></div>
-        </button>
-        {videoCatalogOpen && <div className="video-mode-list">
+          <div className="video-catalog-meta"><span className="state ok">{data.openrouter.videoCatalog?.length || 0} моделей</span></div>
+        </div>
+        <div className="video-mode-list">
           <div className="video-economy-note">
             <strong>Формула продажи</strong>
             <span>Курс: {usdRubBase === null ? 'не загружен' : `${usdRubBase.toFixed(2)} ₽/$`} + {Math.round(USD_FEE_RATE * 100)}% резерв = {usdRubEffective === null ? '—' : `${usdRubEffective.toFixed(2)} ₽/$`}</span>
@@ -2027,17 +2062,17 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
             </section>
           })}
           <p className="hint">Источник: {data.openrouter.videoCatalogSource || 'OpenRouter video models API'}. Список обновляется вместе с кешем каталога моделей.</p>
-        </div>}
-      </article>
+        </div>
+      </article>}
 
-      <article className="card video-catalog-card">
-        <button className="video-catalog-head" onClick={() => setImageCatalogOpen((open) => !open)} aria-expanded={imageCatalogOpen}>
-          <div className="video-catalog-title"><span aria-hidden="true">▶</span><div><h2 className="card-title">Модели изображений OpenRouter</h2><p className="card-note">Генерация, редактирование, сборка и экономика форматов.</p></div></div>
-          <div className="video-catalog-meta"><span className="state ok">{capabilityModels.length} моделей</span><span className="mini">{imageCatalogOpen ? 'Свернуть' : 'Раскрыть'}</span></div>
-        </button>
-      </article>
+      {openrouterPage === 'images' && <article className="card video-catalog-card">
+        <div className="video-catalog-head">
+          <div className="video-catalog-title"><div><h2 className="card-title">Каталог моделей изображений</h2><p className="card-note">Генерация, редактирование, сборка и экономика форматов.</p></div></div>
+          <div className="video-catalog-meta"><span className="state ok">{capabilityModels.length} моделей</span></div>
+        </div>
+      </article>}
 
-      {imageCatalogOpen && API_MODE_SECTIONS.map((section) => {
+      {openrouterPage === 'images' && API_MODE_SECTIONS.map((section) => {
         const sort = apiSorts[section.id] || { key: 'price' as const, dir: 'asc' as const }
         const sectionOpen = apiSectionsOpen[section.id] ?? false
         const enabledForSection = data.openrouter.config?.enabled?.[section.id] || []
@@ -2195,7 +2230,10 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
         </article>
       })}
 
-      <article className="card">
+      {openrouterPage === 'audio' && (assistantData ? <OpenRouterAudioPage models={assistantData.openrouterAudioModels} error={assistantData.openrouterAudioModelsError} selectedModel={assistantData.config.voice.apiModel} usdRub={usdRubEffective} /> : <div className="models-page-loading">Загружаем каталог звуковых моделей…</div>)}
+      {openrouterPage === '3d' && <OpenRouterThreeDPage />}
+
+      {openrouterPage === 'settings' && <article className="card">
         <div className="card-head">
           <div><h2 className="card-title">Ключ и тест OpenRouter</h2><p className="card-note">Меняется редко, поэтому живет внизу страницы.</p></div>
           <span className={`state ${orStatus.ok ? 'ok' : orStatus.configured ? 'warn' : 'bad'}`}>{orStatusText}</span>
@@ -2251,7 +2289,7 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
             </div> : null}
           </div>
         </div>
-      </article>
+      </article>}
     </>}
   </div>
 }

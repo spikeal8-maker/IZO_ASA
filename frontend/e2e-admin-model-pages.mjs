@@ -5,11 +5,19 @@ const baseURL = process.env.QA_ADMIN_BASE_URL || 'http://127.0.0.1:5175'
 const outDir = process.env.QA_ARTIFACT_DIR || 'visual-out'
 mkdirSync(outDir, { recursive: true })
 const pages = [
-  ['OpenRouter', '/admin/models/openrouter', 'Модели OpenRouter'],
+  ['OpenRouter', '/admin/models/openrouter/text', 'Текстовые модели OpenRouter'],
   ['Config UI', '/admin/models/config-ui', 'Локальные модели Config UI'],
   ['Энергопотребление', '/admin/models/energy', 'Энергопотребление'],
   ['Голосовой ввод', '/admin/models/voice-input', 'Голосовой ввод'],
   ['Улучшение промпта', '/admin/models/prompt-improvement', 'Улучшение промпта'],
+]
+const openrouterPages = [
+  ['Текст', '/admin/models/openrouter/text', 'Текстовые модели OpenRouter'],
+  ['Изображения', '/admin/models/openrouter/images', 'Модели изображений OpenRouter'],
+  ['Видео', '/admin/models/openrouter/video', 'Видеомодели OpenRouter'],
+  ['Звук', '/admin/models/openrouter/audio', 'Звуковые модели OpenRouter'],
+  ['3D', '/admin/models/openrouter/3d', '3D-модели OpenRouter'],
+  ['Настройки', '/admin/models/openrouter/settings', 'Настройки OpenRouter'],
 ]
 
 const json = (body, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
@@ -49,6 +57,15 @@ async function verify(viewport) {
   assert(await page.locator('.admin-sidebar').count() === 1, 'admin sidebar is missing')
   assert(await page.locator('.page-tabs').count() === 0, 'duplicated models tab bar is still rendered')
   if (viewport.width <= 980) assert(await page.getByRole('link', { name: 'OpenRouter', exact: true }).isVisible(), 'saved desktop collapse hides mobile model pages')
+
+  for (const [label, path, heading] of openrouterPages) {
+    if (viewport.width <= 980 && !(await page.locator('.admin-sidebar').evaluate((element) => element.classList.contains('mobile-open')))) {
+      await page.getByRole('button', { name: 'Открыть меню админки' }).click()
+    }
+    await page.getByRole('link', { name: label, exact: true }).click()
+    await page.getByRole('heading', { name: heading, exact: true }).first().waitFor()
+    assert(new URL(page.url()).pathname === path, `${label} OpenRouter page did not open its own URL`)
+  }
 
   for (const [label, path, heading] of pages) {
     if (viewport.width <= 980 && !(await page.locator('.admin-sidebar').evaluate((element) => element.classList.contains('mobile-open')))) {
