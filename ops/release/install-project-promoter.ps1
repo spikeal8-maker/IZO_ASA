@@ -29,8 +29,13 @@ function Get-NormalizedSha256 {
 
     $text = [IO.File]::ReadAllText($Path).Replace("`r`n", "`n")
     $bytes = [Text.Encoding]::UTF8.GetBytes($text)
-    $hash = [Security.Cryptography.SHA256]::HashData($bytes)
-    return 'sha256:' + [Convert]::ToHexString($hash).ToLowerInvariant()
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try {
+        $hash = $algorithm.ComputeHash($bytes)
+    } finally {
+        $algorithm.Dispose()
+    }
+    return 'sha256:' + ([BitConverter]::ToString($hash)).Replace('-', '').ToLowerInvariant()
 }
 
 $resolvedRepo = (Resolve-Path -LiteralPath $RepoRoot).Path
