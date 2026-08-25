@@ -892,10 +892,10 @@
       "remaining": 228
     },
     {
-      "lines": 5999,
+      "lines": 6071,
       "max_lines": 6400,
       "path": "frontend/src/newStudioV3.css",
-      "remaining": 401
+      "remaining": 329
     },
     {
       "lines": 3143,
@@ -904,10 +904,10 @@
       "remaining": 257
     },
     {
-      "lines": 3649,
+      "lines": 3695,
       "max_lines": 3950,
       "path": "frontend/src/newUi.tsx",
-      "remaining": 301
+      "remaining": 255
     }
   ],
   "frontend": {

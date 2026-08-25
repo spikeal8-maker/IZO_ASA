@@ -153,9 +153,9 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | `frontend/src/LegacyApp.tsx` | 3600 | 3700 | 100 |
 | `frontend/src/adminModels.tsx` | 2213 | 2300 | 87 |
 | `frontend/src/index.css` | 2422 | 2650 | 228 |
-| `frontend/src/newStudioV3.css` | 5999 | 6400 | 401 |
+| `frontend/src/newStudioV3.css` | 6071 | 6400 | 329 |
 | `frontend/src/newUi.css` | 3143 | 3400 | 257 |
-| `frontend/src/newUi.tsx` | 3649 | 3950 | 301 |
+| `frontend/src/newUi.tsx` | 3695 | 3950 | 255 |
 
 ## Symbol budgets
 
