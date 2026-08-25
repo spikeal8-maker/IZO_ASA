@@ -34,6 +34,9 @@ async function mockAdmin(page) {
 async function verify(viewport) {
   const page = await browser.newPage({ viewport })
   await mockAdmin(page)
+  if (viewport.width <= 980) {
+    await page.addInitScript(() => window.localStorage.setItem('admin.sidebar.collapsed', '1'))
+  }
   await page.goto(`${baseURL}/admin/models`, { waitUntil: 'networkidle', timeout: 40000 })
   try {
     if (viewport.width <= 980) await page.getByRole('button', { name: 'Открыть меню админки' }).click()
@@ -45,6 +48,7 @@ async function verify(viewport) {
   assert(new URL(page.url()).pathname === pages[0][1], 'legacy /admin/models was not canonicalized')
   assert(await page.locator('.admin-sidebar').count() === 1, 'admin sidebar is missing')
   assert(await page.locator('.page-tabs').count() === 0, 'duplicated models tab bar is still rendered')
+  if (viewport.width <= 980) assert(await page.getByRole('link', { name: 'OpenRouter', exact: true }).isVisible(), 'saved desktop collapse hides mobile model pages')
 
   for (const [label, path, heading] of pages) {
     if (viewport.width <= 980 && !(await page.locator('.admin-sidebar').evaluate((element) => element.classList.contains('mobile-open')))) {
@@ -66,6 +70,8 @@ async function verify(viewport) {
     await page.screenshot({ path: `${outDir}/admin-sidebar-${viewport.width}-collapsed.png`, fullPage: true })
   } else {
     await page.getByRole('button', { name: 'Открыть меню админки' }).click()
+    await page.locator('.admin-sidebar.mobile-open').waitFor()
+    await page.waitForTimeout(250)
     await page.screenshot({ path: `${outDir}/admin-sidebar-${viewport.width}.png`, fullPage: true })
     await page.getByRole('button', { name: 'Закрыть меню', exact: true }).click()
   }

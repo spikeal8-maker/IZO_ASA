@@ -653,7 +653,7 @@ export default function AdminApp() {
                     <span>{route.label}</span>
                     {isModels && <ChevronDown className={`admin-nav-chevron${modelsExpanded ? ' open' : ''}`} size={16} />}
                   </button>
-                  {isModels && <div className={`admin-nav-children${modelsExpanded && !navCollapsed ? ' open' : ''}`}>
+                  {isModels && <div className={`admin-nav-children${modelsExpanded ? ' open' : ''}`}>
                     {ADMIN_MODELS_PAGES.map((page) => <a
                       key={page.id}
                       href={page.path}
