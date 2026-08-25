@@ -880,10 +880,10 @@
       "remaining": 100
     },
     {
-      "lines": 2213,
+      "lines": 2255,
       "max_lines": 2300,
       "path": "frontend/src/adminModels.tsx",
-      "remaining": 87
+      "remaining": 45
     },
     {
       "lines": 2422,

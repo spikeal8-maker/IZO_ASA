@@ -2,12 +2,15 @@
 // OpenRouter и серверной моделью. Структура по референсу admin-models-v2.html.
 // Реальные данные приходят из GET /api/admin/models-page (см. backend). Тарифная матрица,
 // маршруты и user-choice сохраняются через /api/admin/settings/{key}.
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
-import AdminEnergy from './adminEnergy'
-import AdminVoice from './adminVoice'
+import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { AdminModelsNavigation } from './adminModelsNavigation'
+import { adminModelsPageFromPath, adminModelsPath, type AdminModelsPage } from './adminModelsRoutes'
 import { ensureSessionRefreshedV2 } from './authV2'
 import { normalizeTariffs, tariffKeys, type TariffConfig, type TariffKey } from './profileSupport'
 import { IMAGE_RESOLUTIONS, normalizeResolutionIds, resolutionLabel, type ResolutionFormat, type ResolutionTier } from './resolutionPolicy'
+
+const AdminEnergy = lazy(() => import('./adminEnergy'))
+const AdminVoice = lazy(() => import('./adminVoice'))
 
 const API = (import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL || '/api'
 async function amvFetch(path: string, init: RequestInit = {}) {
@@ -723,10 +726,13 @@ const CSS = `
 .amv2 .card-head{min-height:54px;padding:14px;display:flex;justify-content:space-between;align-items:flex-start;gap:14px;border-bottom:1px solid var(--line)}
 .amv2 .card-title{font-size:15px;line-height:1.2}
 .amv2 .card-note{margin-top:5px;color:var(--muted);font-size:12px;line-height:1.35}
-.amv2 .page-tabs{display:flex;gap:8px;margin-bottom:12px;overflow-x:auto}
-.amv2 .page-tabs button{min-height:38px;border:1px solid var(--line-strong);border-radius:var(--radius);padding:0 14px;background:rgba(255,255,255,.04);color:var(--muted);font-weight:650;white-space:nowrap}
+.amv2 .page-tabs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin-bottom:10px;padding:6px;border:1px solid var(--line);border-radius:10px;background:rgba(9,12,9,.72)}
+.amv2 .page-tabs>button[role="tab"]{min-height:38px;border:1px solid transparent;border-radius:7px;padding:0 12px;background:transparent;color:var(--muted);font-weight:650;white-space:nowrap}
 .amv2 .page-tabs button.active{background:var(--lime);border-color:var(--lime);color:#080a07}
-.amv2 .tab-status{margin-left:auto;display:flex;align-items:center;gap:8px;white-space:nowrap}
+.amv2 .tab-status{grid-column:1/-1;display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:4px 4px 0;border-top:1px solid var(--line);white-space:nowrap}
+.amv2 .models-page-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:12px;padding:11px 13px;border-left:3px solid var(--lime);background:linear-gradient(90deg,rgba(234,255,16,.07),transparent 55%)}
+.amv2 .models-page-head h1{margin:0;font-size:18px;line-height:1.2}.amv2 .models-page-head p{margin:4px 0 0;color:var(--muted);font-size:12px;line-height:1.4}
+.amv2 .models-page-loading{min-height:220px;display:grid;place-content:center;justify-items:center;gap:10px;padding:24px;border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);text-align:center}
 .amv2 .status-dot{width:9px;height:9px;border-radius:50%;background:var(--red);box-shadow:0 0 0 3px rgba(255,116,121,.12)}
 .amv2 .status-dot.ok{background:var(--green);box-shadow:0 0 0 3px rgba(112,221,120,.12)}
 .amv2 .status-dot.warn{background:var(--yellow);box-shadow:0 0 0 3px rgba(216,187,97,.12)}
@@ -930,14 +936,14 @@ const CSS = `
 .amv2 .mobile-models{display:none;padding:12px;gap:10px}
 .amv2 .mobile-model{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.035);display:grid;gap:10px}
 @media (max-width:1360px){.amv2 .dashboard,.amv2 .server-layout{grid-template-columns:1fr}.amv2 .metric-grid,.amv2 .lora-grid,.amv2 .status-grid,.amv2 .mode-board{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .api-section-head{grid-template-columns:minmax(220px,1.4fr) repeat(3,minmax(100px,.8fr)) minmax(150px,1fr)}.amv2 .grid-main{grid-template-columns:1fr}.amv2 .side-panel{position:static}}
-@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats,.amv2 .api-section-head,.amv2 .assistant-config{grid-template-columns:1fr}.amv2 .assistant-economy{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .assistant-history-row{grid-template-columns:1fr 70px}.amv2 .assistant-history-row span:nth-child(n+3){grid-column:1/-1}.amv2 .server-command{align-items:stretch;flex-wrap:wrap}.amv2 .server-command .server-title{width:100%}.amv2 .profile-switch{flex:1}.amv2 .lora-columns,.amv2 .config-profiles{grid-template-columns:1fr}.amv2 .lora-row{grid-template-columns:28px 1fr 80px}.amv2 .lora-row>div:nth-child(3),.amv2 .lora-row>div:nth-child(4){grid-column:2 / -1}.amv2 .tab-status{margin-left:0;width:100%;flex-wrap:wrap}.amv2 .page-tabs{flex-wrap:wrap}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .matrix-wrap .api-table.format-table{min-width:1500px}.amv2 .mobile-models{display:grid}}
+@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats,.amv2 .api-section-head,.amv2 .assistant-config{grid-template-columns:1fr}.amv2 .assistant-economy{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .assistant-history-row{grid-template-columns:1fr 70px}.amv2 .assistant-history-row span:nth-child(n+3){grid-column:1/-1}.amv2 .server-command{align-items:stretch;flex-wrap:wrap}.amv2 .server-command .server-title{width:100%}.amv2 .profile-switch{flex:1}.amv2 .lora-columns,.amv2 .config-profiles{grid-template-columns:1fr}.amv2 .lora-row{grid-template-columns:28px 1fr 80px}.amv2 .lora-row>div:nth-child(3),.amv2 .lora-row>div:nth-child(4){grid-column:2 / -1}.amv2 .tab-status{width:100%;justify-content:flex-start;flex-wrap:wrap}.amv2 .page-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .matrix-wrap .api-table.format-table{min-width:1500px}.amv2 .mobile-models{display:grid}}
 @media (max-width:580px){.amv2 .metric-grid,.amv2 .two-col,.amv2 .price-row,.amv2 .lora-grid,.amv2 .advanced-grid,.amv2 .status-grid,.amv2 .mode-board,.amv2 .or-stats,.amv2 .server-overview,.amv2 .assistant-summary,.amv2 .assistant-economy{grid-template-columns:1fr}.amv2 .profile-switch{width:100%}.amv2 .server-restart{width:100%}}
 @media (max-width:880px){.amv2 .video-catalog-card{width:calc(100vw - 40px);max-width:calc(100vw - 40px)}.amv2 .video-mode-finance-head{grid-template-columns:1fr 1fr}.amv2 .video-mode-finance-head>div:first-child,.amv2 .video-mode-count{grid-column:1 / -1}.amv2 .video-catalog-head{align-items:flex-start;flex-direction:column}.amv2 .video-catalog-meta{width:100%;justify-content:flex-start}.amv2 .video-model-detail{overflow-wrap:anywhere}.amv2 .video-economy-note{display:grid;gap:5px}}
 `
 
 export default function AdminModelsV2() {
   const [data, setData] = useState<PageData | null>(null)
-  const [pageTab, setPageTab] = useState<'config' | 'api' | 'voice' | 'improve' | 'energy'>('api')
+  const [pageTab, setPageTab] = useState<AdminModelsPage>(() => adminModelsPageFromPath(window.location.pathname))
   const [configSection, setConfigSection] = useState<'image' | 'video' | 'text'>('image')
   const [configRuntime, setConfigRuntime] = useState({ imageEnabled: true, videoEnabled: true, videoProfile: 'local/ltx-2.3-fast-q3' })
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null)
@@ -975,6 +981,28 @@ export default function AdminModelsV2() {
   const [assistantPreviewMode, setAssistantPreviewMode] = useState('text')
   const [assistantTestResult, setAssistantTestResult] = useState<AssistantTestResult | null>(null)
 
+  const navigateModelsPage = useCallback((next: AdminModelsPage) => {
+    const path = adminModelsPath(next)
+    setPageTab(next)
+    setMsg('')
+    if (window.location.pathname !== path) {
+      window.history.pushState({}, '', path)
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    }
+  }, [])
+
+  useEffect(() => {
+    const syncFromLocation = () => {
+      if (window.location.pathname.replace(/\/+$/, '') === '/admin/models') {
+        window.history.replaceState({}, '', adminModelsPath('api'))
+      }
+      setPageTab(adminModelsPageFromPath(window.location.pathname))
+    }
+    syncFromLocation()
+    window.addEventListener('popstate', syncFromLocation)
+    return () => window.removeEventListener('popstate', syncFromLocation)
+  }, [])
+
   const load = useCallback(async () => {
     const d = await amvFetch('/admin/models-page?local=0').then((r) => (r.ok ? r.json() : null)).catch(() => null) as PageData | null
     // Принимаем ответ только полной формы. Иначе — сообщение об ошибке, а не падение:
@@ -1005,7 +1033,11 @@ export default function AdminModelsV2() {
       setErr('Не удалось загрузить страницу моделей. Нужен доступ администратора и обновлённый backend (/api/admin/models-page).')
     }
   }, [])
-  useEffect(() => { queueMicrotask(() => { void load() }) }, [load])
+  useEffect(() => {
+    if ((pageTab === 'api' || pageTab === 'config' || pageTab === 'improve') && !data) {
+      queueMicrotask(() => { void load() })
+    }
+  }, [data, load, pageTab])
 
   const loadLocalModelData = useCallback(async () => {
     const d = await amvFetch('/admin/models-page?local=1').then((r) => (r.ok ? r.json() : null)).catch(() => null) as PageData | null
@@ -1441,7 +1473,26 @@ export default function AdminModelsV2() {
   const fmtState = (ok?: boolean) => configErr ? 'unknown' : ok ? 'ok' : 'fail'
   const statusColor = (ok?: boolean) => configErr ? 'var(--yellow)' : ok ? 'var(--green)' : 'var(--red)'
 
-  if (!data) return <div className="amv2"><style>{CSS}</style><div style={{ padding: 12, display: 'grid', gap: 10 }}><p style={{ color: err ? 'var(--red)' : 'var(--muted)' }}>{err || 'Загрузка страницы моделей…'}</p>{err && <button className="ghost" style={{ width: 'max-content' }} onClick={() => void load()}>Повторить</button>}</div></div>
+  if (pageTab === 'energy') return <div className="amv2">
+    <style>{CSS}</style>
+    <AdminModelsNavigation active={pageTab} onNavigate={navigateModelsPage} />
+    <Suspense fallback={<div className="models-page-loading">Загружаем энергопотребление…</div>}><AdminEnergy /></Suspense>
+  </div>
+
+  if (pageTab === 'voice') return <div className="amv2">
+    <style>{CSS}</style>
+    <AdminModelsNavigation active={pageTab} onNavigate={navigateModelsPage} />
+    <Suspense fallback={<div className="models-page-loading">Загружаем голосовой ввод…</div>}><AdminVoice /></Suspense>
+  </div>
+
+  if (!data) return <div className="amv2">
+    <style>{CSS}</style>
+    <AdminModelsNavigation active={pageTab} onNavigate={navigateModelsPage} />
+    <div className="models-page-loading">
+      <p style={{ color: err ? 'var(--red)' : 'var(--muted)' }}>{err || 'Загружаем данные раздела…'}</p>
+      {err && <button className="ghost" style={{ width: 'max-content' }} onClick={() => void load()}>Повторить</button>}
+    </div>
+  </div>
 
   const orStatus = data.openrouter.status || {}
   const orData = orStatus.data || {}
@@ -1519,23 +1570,14 @@ export default function AdminModelsV2() {
   return <div className="amv2">
     <style>{CSS}</style>
     {msg && <p style={{ color: 'var(--lime)', fontSize: 12, margin: '0 0 8px' }}>{msg}</p>}
-    <div className="page-tabs" aria-label="Разделы моделей">
-      <button className={pageTab === 'api' ? 'active' : ''} onClick={() => setPageTab('api')}>OpenRouter</button>
-      <button className={pageTab === 'config' ? 'active' : ''} onClick={() => setPageTab('config')}>Config UI</button>
-      <button className={pageTab === 'energy' ? 'active' : ''} onClick={() => setPageTab('energy')}>Энергопотребление</button>
-      <button className={pageTab === 'voice' ? 'active' : ''} onClick={() => setPageTab('voice')}>Голосовой ввод</button>
-      <button className={pageTab === 'improve' ? 'active' : ''} onClick={() => setPageTab('improve')}>Улучшение промпта</button>
-      {pageTab === 'api' && <div className="tab-status">
+    <AdminModelsNavigation active={pageTab} onNavigate={navigateModelsPage} status={pageTab === 'api' ? <div className="tab-status">
         <span className={`status-dot ${orStatus.ok ? 'ok' : data.openrouter.keyConfigured ? 'warn' : ''}`} aria-hidden="true" />
         <span className={`state ${orStatus.ok ? 'ok' : data.openrouter.keyConfigured ? 'warn' : 'bad'}`}>{orStatus.ok ? 'ключ работает' : data.openrouter.keyConfigured ? 'проверить ключ' : 'нет ключа'}</span>
         <span className="state ok">billing: {backendPricedCount} моделей</span>
         <button className={`state ${exchangeStateClass}`} disabled={exchangeBusy} onClick={refreshExchange}>{exchangeBusy ? 'обновляю курс…' : `${exchangeStateText}: ${effectiveRateText}`}</button>
-      </div>}
-    </div>
+      </div> : undefined} />
 
-    {pageTab === 'energy' && <AdminEnergy />}
-
-    {pageTab === 'voice' && <AdminVoice />}
+    {pageTab === 'improve' && !assistantData && <div className="models-page-loading">Загружаем настройки улучшения промпта…</div>}
 
     {pageTab === 'improve' && assistantData && <>
       <section className="assistant-summary">
