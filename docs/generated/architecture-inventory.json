@@ -3054,7 +3054,7 @@
       {
         "auth": "public/optional/review",
         "handler": "phone_chat",
-        "line": 679,
+        "line": 701,
         "method": "POST",
         "path": "/api/phone/chat",
         "process_role": "all-dev-current-monolith"
@@ -3062,7 +3062,7 @@
       {
         "auth": "public/optional/review",
         "handler": "phone_chat_models",
-        "line": 630,
+        "line": 633,
         "method": "GET",
         "path": "/api/phone/chat/models",
         "process_role": "all-dev-current-monolith"
@@ -3070,7 +3070,7 @@
       {
         "auth": "public/optional/review",
         "handler": "phone_chat_threads",
-        "line": 560,
+        "line": 563,
         "method": "GET",
         "path": "/api/phone/chat/threads",
         "process_role": "all-dev-current-monolith"
@@ -3078,7 +3078,7 @@
       {
         "auth": "public/optional/review",
         "handler": "phone_chat_thread_create",
-        "line": 568,
+        "line": 571,
         "method": "POST",
         "path": "/api/phone/chat/threads",
         "process_role": "all-dev-current-monolith"
@@ -3086,7 +3086,7 @@
       {
         "auth": "public/optional/review",
         "handler": "phone_chat_thread_delete",
-        "line": 594,
+        "line": 597,
         "method": "DELETE",
         "path": "/api/phone/chat/threads/{thread_id}",
         "process_role": "all-dev-current-monolith"
@@ -3094,7 +3094,7 @@
       {
         "auth": "public/optional/review",
         "handler": "phone_chat_thread_update",
-        "line": 582,
+        "line": 585,
         "method": "PATCH",
         "path": "/api/phone/chat/threads/{thread_id}",
         "process_role": "all-dev-current-monolith"
@@ -3102,7 +3102,7 @@
       {
         "auth": "public/optional/review",
         "handler": "phone_chat_thread_messages",
-        "line": 606,
+        "line": 609,
         "method": "GET",
         "path": "/api/phone/chat/threads/{thread_id}/messages",
         "process_role": "all-dev-current-monolith"
@@ -3110,7 +3110,7 @@
       {
         "auth": "public/optional/review",
         "handler": "phone_chat_message_tools",
-        "line": 618,
+        "line": 621,
         "method": "PATCH",
         "path": "/api/phone/chat/threads/{thread_id}/messages/{message_id}/tools",
         "process_role": "all-dev-current-monolith"
