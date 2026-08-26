@@ -13,6 +13,21 @@ function assert(condition, message) { if (!condition) throw new Error(message) }
 const browser = await chromium.launch({ headless: true })
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
+  await page.addInitScript(() => {
+    window.__chatMicTest = { requested: 0, started: 0, stoppedTracks: 0 }
+    const stream = () => ({ getTracks: () => [{ stop: () => { window.__chatMicTest.stoppedTracks += 1 } }] })
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: () => {
+      window.__chatMicTest.requested += 1
+      return new Promise((resolve) => setTimeout(() => resolve(stream()), 80))
+    } } })
+    class FakeMediaRecorder extends EventTarget {
+      static isTypeSupported() { return true }
+      constructor(mediaStream, options = {}) { super(); this.stream = mediaStream; this.mimeType = options.mimeType || 'audio/webm'; this.state = 'inactive' }
+      start() { this.state = 'recording'; window.__chatMicTest.started += 1 }
+      stop() { this.state = 'inactive'; queueMicrotask(() => this.dispatchEvent(new Event('stop'))) }
+    }
+    Object.defineProperty(window, 'MediaRecorder', { configurable: true, value: FakeMediaRecorder })
+  })
   const errors = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.route('**/api/**', async (route) => {
@@ -74,7 +89,7 @@ try {
   await page.getByRole('button', { name: /ИЗО Чат/ }).last().click()
   const unavailable = page.getByRole('button', { name: /Профессиональная модель/ })
   assert(await unavailable.isDisabled(), 'tariff-blocked model is selectable')
-  await page.getByRole('button', { name: 'Закрыть' }).click()
+  await page.getByRole('button', { name: 'Закрыть', exact: true }).click()
   await page.getByPlaceholder('Сообщение…').fill('Найди погоду и создай изображение Москвы')
   await page.getByRole('button', { name: 'Отправить' }).click()
   await page.getByText('Нашёл свежую информацию и подготовил изображение.').waitFor()
@@ -107,8 +122,51 @@ try {
   assert(!compactLayout.horizontalOverflow && compactLayout.pageY === 0, 'compact chat overflows or scrolls the page shell')
   await page.getByRole('button', { name: 'Закрыть предпросмотр' }).click()
   assert(!(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 2)), 'desktop chat overflows horizontally')
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.getByRole('heading', { name: 'Что хотите сделать?' }).waitFor()
+  const mobileLayout = await page.evaluate(() => ({
+    bodyOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+    pageY: window.scrollY,
+    sidebarTransform: getComputedStyle(document.querySelector('.dc-sidebar')).transform,
+    composer: document.querySelector('.dc-composer')?.getBoundingClientRect(),
+    messages: document.querySelector('.dc-messages')?.getBoundingClientRect(),
+  }))
+  assert(!mobileLayout.bodyOverflow && mobileLayout.pageY === 0, 'mobile page shell scrolls or overflows horizontally')
+  assert(mobileLayout.sidebarTransform !== 'none' && mobileLayout.sidebarTransform.includes('-'), 'mobile history is not initially hidden')
+  assert(mobileLayout.composer && mobileLayout.messages && mobileLayout.composer.bottom <= 844 && mobileLayout.messages.bottom <= mobileLayout.composer.top, 'mobile composer overlaps the message scroll area')
+  await page.getByRole('button', { name: 'Показать историю' }).click()
+  assert(await page.locator('.dc-sidebar-backdrop').isVisible(), 'mobile history backdrop is missing')
+  await page.mouse.click(375, 420)
+  await page.getByRole('button', { name: /ИЗО Чат/ }).last().click()
+  const modelSheet = page.getByRole('dialog', { name: 'Выбор модели' })
+  await modelSheet.waitFor()
+  const sheetBox = await modelSheet.boundingBox()
+  assert(sheetBox && sheetBox.x >= 0 && sheetBox.x + sheetBox.width <= 390 && sheetBox.y + sheetBox.height <= 844, 'mobile model sheet is clipped')
+  for (const label of ['Чат', 'Изображение', 'Видео', 'Звук', '3D']) assert(await modelSheet.getByRole('button', { name: label, exact: true }).count() === 1, `model category is missing: ${label}`)
+  const modelSheetLayout = await page.evaluate(() => ({ nav: document.querySelector('.dc-model-popover > nav')?.getBoundingClientRect(), list: document.querySelector('.dc-model-list')?.getBoundingClientRect() }))
+  assert(modelSheetLayout.nav && modelSheetLayout.list && modelSheetLayout.nav.height >= 40 && modelSheetLayout.list.top >= modelSheetLayout.nav.bottom - 1, 'model categories are collapsed or covered by the model list')
+  await page.getByRole('button', { name: 'Закрыть', exact: true }).click()
+
+  const mic = page.getByRole('button', { name: 'Удерживайте, чтобы говорить' })
+  const micBox = await mic.boundingBox()
+  assert(micBox, 'microphone button is missing')
+  await page.mouse.move(micBox.x + micBox.width / 2, micBox.y + micBox.height / 2)
+  await page.mouse.down(); await page.waitForTimeout(20); await page.mouse.up(); await page.waitForTimeout(140)
+  const quickMic = await page.evaluate(() => window.__chatMicTest)
+  assert(quickMic.requested === 1 && quickMic.started === 0 && quickMic.stoppedTracks === 1, 'quick microphone release left a recorder or stream active')
+  await page.mouse.down(); await page.waitForTimeout(120); await page.mouse.up(); await page.waitForTimeout(80)
+  const heldMic = await page.evaluate(() => window.__chatMicTest)
+  assert(heldMic.requested === 2 && heldMic.started === 1 && heldMic.stoppedTracks === 2, 'held microphone did not start and release cleanly')
+  await page.getByPlaceholder('Сообщение…').fill('Создай изображение для проверки мобильного предпросмотра')
+  await page.getByRole('button', { name: 'Отправить' }).click()
+  await page.locator('.dc-artifact').waitFor()
+  const mobileArtifactLayout = await page.evaluate(() => ({ chat: document.querySelector('.desktop-chat')?.getBoundingClientRect(), artifact: document.querySelector('.dc-artifact')?.getBoundingClientRect(), bodyHeight: document.documentElement.scrollHeight, viewport: innerHeight }))
+  assert(mobileArtifactLayout.chat && mobileArtifactLayout.artifact && mobileArtifactLayout.chat.bottom <= mobileArtifactLayout.viewport + 1 && mobileArtifactLayout.artifact.bottom <= mobileArtifactLayout.viewport + 1, 'mobile artifact stretches beyond the viewport')
+  assert(mobileArtifactLayout.bodyHeight <= mobileArtifactLayout.viewport + 1, 'mobile artifact makes the document scroll')
   assert(errors.length === 0, `page errors: ${errors.join('; ')}`)
-  console.log('DESKTOP_CHAT_E2E_OK persistence=true webSearch=true imageTool=true tariffGuard=true')
+  console.log('DESKTOP_CHAT_E2E_OK persistence=true webSearch=true imageTool=true tariffGuard=true mobileScroll=true modelSheet=true microphoneState=true')
 } finally {
   await browser.close()
 }

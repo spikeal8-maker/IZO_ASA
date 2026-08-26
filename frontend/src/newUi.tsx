@@ -3677,7 +3677,7 @@ export default function NewStudio(): ReactElement {
           ) : tab === '3d' ? (
             placeholderStudio('3D', 'Создание 3D-моделей появится в этом разделе.')
           ) : tab === 'chat' ? (
-            <Suspense fallback={<div className="iv3-content"><div className="preview-empty">Открываем чат…</div></div>}><DesktopChatWorkspace authed={authStatus === 'authed'} onRequireAuth={() => setAuthOpen(true)} onNavigate={(path) => setTab(path === '/video' ? 'video' : path === '/audio' ? 'audio' : '3d')} /></Suspense>
+            <Suspense fallback={<div className="iv3-content"><div className="preview-empty">Открываем чат…</div></div>}><DesktopChatWorkspace authed={authStatus === 'authed'} onRequireAuth={() => setAuthOpen(true)} onNavigate={(path) => setTab(path === '/image' ? 'text' : path === '/video' ? 'video' : path === '/audio' ? 'audio' : '3d')} /></Suspense>
           ) : (
             placeholderStudio('Изображение', 'Выберите способ работы с изображением.')
           )}

@@ -20,7 +20,8 @@ import {
 import { cleanAssistantText } from '../phone/features/chat/format.ts'
 import './desktopChat.css'
 
-type Props = { authed: boolean; onRequireAuth: () => void; onNavigate: (path: '/video' | '/audio' | '/3d') => void }
+type Props = { authed: boolean; onRequireAuth: () => void; onNavigate: (path: '/image' | '/video' | '/audio' | '/3d') => void }
+type VoicePhase = 'idle' | 'requesting' | 'recording' | 'transcribing' | 'error'
 
 const suggestions = [
   { icon: Search, label: 'Найти информацию', prompt: 'Найди в интернете актуальную информацию о ' },
@@ -74,9 +75,11 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
   const [images, setImages] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [threadQuery, setThreadQuery] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 900)
   const [modelOpen, setModelOpen] = useState(false)
-  const [recording, setRecording] = useState(false)
+  const [voicePhase, setVoicePhase] = useState<VoicePhase>('idle')
+  const [voiceSeconds, setVoiceSeconds] = useState(0)
   const [artifact, setArtifact] = useState<PhoneChatTool | null>(null)
   const [artifactWidth, setArtifactWidth] = useState(() => Math.round(Math.min(920, Math.max(420, window.innerWidth * .48))))
   const [resizingArtifact, setResizingArtifact] = useState(false)
@@ -85,15 +88,30 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
   const messagesRef = useRef<HTMLDivElement>(null)
   const workspaceRef = useRef<HTMLElement>(null)
   const threadLoadSequence = useRef(0)
-  const recorderRef = useRef<{ recorder: MediaRecorder; stream: MediaStream; chunks: Blob[]; startedAt: number } | null>(null)
+  const currentIdRef = useRef('')
+  const recorderRef = useRef<{ recorder: MediaRecorder; stream: MediaStream; chunks: Blob[]; startedAt: number; cancelled: boolean } | null>(null)
+  const voiceGestureRef = useRef({ pressed: false, pointerId: -1, requestId: 0 })
+  const scrollPositionsRef = useRef<Record<string, number>>({})
+  const restoreScrollRef = useRef<number | null>(null)
+  const stickToBottomRef = useRef(true)
 
   const current = useMemo(() => threads.find((item) => item.id === currentId) || null, [threads, currentId])
   const selectedModel = models.find((item) => item.id === modelId) || models.find((item) => item.available !== false) || null
+  const visibleThreads = useMemo(() => {
+    const query = threadQuery.trim().toLocaleLowerCase('ru')
+    return query ? threads.filter((item) => (item.title || 'Новый чат').toLocaleLowerCase('ru').includes(query)) : threads
+  }, [threadQuery, threads])
+
+  useEffect(() => { currentIdRef.current = currentId }, [currentId])
 
   const openThread = useCallback(async (thread: PhoneChatThread, signal?: AbortSignal) => {
+    const previousId = currentIdRef.current
+    if (previousId && messagesRef.current) scrollPositionsRef.current[previousId] = messagesRef.current.scrollTop
     const sequence = ++threadLoadSequence.current
     const loaded = await loadChatMessages(thread.id, signal)
     if (sequence !== threadLoadSequence.current) return
+    restoreScrollRef.current = scrollPositionsRef.current[thread.id] ?? Number.POSITIVE_INFINITY
+    stickToBottomRef.current = restoreScrollRef.current === Number.POSITIVE_INFINITY
     setCurrentId(thread.id)
     setMessages(loaded.messages)
     setModelId(thread.chatModelId)
@@ -116,11 +134,36 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       const node = messagesRef.current
-      if (node) node.scrollTop = node.scrollHeight
+      if (!node) return
+      if (restoreScrollRef.current !== null) {
+        node.scrollTop = restoreScrollRef.current === Number.POSITIVE_INFINITY ? node.scrollHeight : restoreScrollRef.current
+        restoreScrollRef.current = null
+      } else if (stickToBottomRef.current) node.scrollTop = node.scrollHeight
     })
     return () => window.cancelAnimationFrame(frame)
   }, [messages, busy, currentId])
-  useEffect(() => () => recorderRef.current?.stream.getTracks().forEach((track) => track.stop()), [])
+  useEffect(() => {
+    if (voicePhase !== 'recording') { setVoiceSeconds(0); return }
+    const tick = () => setVoiceSeconds(Math.max(1, Math.floor((Date.now() - (recorderRef.current?.startedAt || Date.now())) / 1000) + 1))
+    tick()
+    const timer = window.setInterval(tick, 250)
+    return () => window.clearInterval(timer)
+  }, [voicePhase])
+  useEffect(() => {
+    const cancel = () => {
+      voiceGestureRef.current.pressed = false
+      voiceGestureRef.current.requestId += 1
+      const active = recorderRef.current
+      if (active) { active.cancelled = true; if (active.recorder.state !== 'inactive') active.recorder.stop() }
+    }
+    const hidden = () => { if (document.hidden) cancel() }
+    window.addEventListener('blur', cancel)
+    document.addEventListener('visibilitychange', hidden)
+    return () => {
+      window.removeEventListener('blur', cancel); document.removeEventListener('visibilitychange', hidden)
+      cancel(); recorderRef.current?.stream.getTracks().forEach((track) => track.stop())
+    }
+  }, [])
   useEffect(() => {
     if (!resizingArtifact) return
     const resize = (event: PointerEvent) => {
@@ -212,24 +255,60 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
     } finally { setBusy(false) }
   }
 
-  const startVoice = async () => {
+  const finishVoice = (cancelled = false) => {
+    voiceGestureRef.current.pressed = false
+    voiceGestureRef.current.requestId += 1
+    const active = recorderRef.current
+    if (!active) {
+      if (voicePhase === 'requesting') setVoicePhase('idle')
+      return
+    }
+    active.cancelled ||= cancelled
+    if (active.recorder.state !== 'inactive') active.recorder.stop()
+  }
+
+  const startVoice = async (pointerId: number) => {
     if (!authed) return onRequireAuth()
-    if (recording || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') return
+    if (voicePhase !== 'idle' || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+        setVoicePhase('error'); setError('Этот браузер не поддерживает запись голоса.')
+      }
+      return
+    }
+    const requestId = voiceGestureRef.current.requestId + 1
+    voiceGestureRef.current = { pressed: true, pointerId, requestId }
+    setVoicePhase('requesting'); setError('')
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      if (!voiceGestureRef.current.pressed || voiceGestureRef.current.requestId !== requestId) {
+        stream.getTracks().forEach((track) => track.stop()); setVoicePhase('idle'); return
+      }
       const mime = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/webm'].find((item) => MediaRecorder.isTypeSupported(item)) || ''
       const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined)
-      const active = { recorder, stream, chunks: [] as Blob[], startedAt: Date.now() }; recorderRef.current = active
+      const active = { recorder, stream, chunks: [] as Blob[], startedAt: 0, cancelled: false }; recorderRef.current = active
       recorder.addEventListener('dataavailable', (event) => { if (event.data.size) active.chunks.push(event.data) })
       recorder.addEventListener('stop', async () => {
-        setRecording(false); stream.getTracks().forEach((track) => track.stop()); recorderRef.current = null
+        stream.getTracks().forEach((track) => track.stop()); recorderRef.current = null
         const duration = Date.now() - active.startedAt
-        if (duration < 700) return
-        try { const value = await transcribePhoneVoice(new Blob(active.chunks, { type: recorder.mimeType || 'audio/webm' }), duration); setText((old) => `${old}${old ? ' ' : ''}${value}`) }
-        catch (caught) { setError(caught instanceof Error ? caught.message : 'Не удалось распознать голос.') }
+        if (active.cancelled || duration < 700 || !active.chunks.length) { setVoicePhase('idle'); return }
+        setVoicePhase('transcribing')
+        try {
+          const value = await transcribePhoneVoice(new Blob(active.chunks, { type: recorder.mimeType || 'audio/webm' }), duration)
+          if (!value) throw new Error('Речь не распознана. Попробуйте ещё раз.')
+          setText((old) => `${old}${old ? ' ' : ''}${value}`); setVoicePhase('idle'); inputRef.current?.focus()
+        } catch (caught) {
+          setVoicePhase('error'); setError(caught instanceof Error ? caught.message : 'Не удалось распознать голос.')
+          window.setTimeout(() => setVoicePhase((phase) => phase === 'error' ? 'idle' : phase), 1800)
+        }
       }, { once: true })
-      recorder.start(250); setRecording(true)
-    } catch { setError('Разрешите доступ к микрофону в браузере.') }
+      active.startedAt = Date.now(); recorder.start(250); setVoicePhase('recording')
+    } catch (caught) {
+      if (voiceGestureRef.current.requestId === requestId) {
+        voiceGestureRef.current.pressed = false; setVoicePhase('error')
+        setError(caught instanceof DOMException && caught.name === 'NotAllowedError' ? 'Разрешите доступ к микрофону в настройках браузера.' : 'Не удалось включить микрофон.')
+        window.setTimeout(() => setVoicePhase((phase) => phase === 'error' ? 'idle' : phase), 1800)
+      }
+    }
   }
 
   const workspaceStyle = artifact?.resultUrl ? { '--dc-artifact-width': `${artifactWidth}px` } as CSSProperties : undefined
@@ -237,23 +316,29 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
   return <section ref={workspaceRef} style={workspaceStyle} className={`desktop-chat${sidebarOpen ? '' : ' sidebar-closed'}${artifact?.resultUrl ? ' artifact-open' : ''}${resizingArtifact ? ' is-resizing' : ''}`}>
     <aside className="dc-sidebar">
       <header><b>Чаты</b><button type="button" onClick={() => void newThread()}><Plus />Новый чат</button></header>
-      <div className="dc-thread-list">{threads.map((thread) => <div className={thread.id === currentId ? 'active' : ''} key={thread.id}><button type="button" onClick={() => void openThread(thread)}>{thread.title || 'Новый чат'}</button><button type="button" aria-label="Удалить чат" onClick={() => void removeThread(thread)}><Trash2 /></button></div>)}</div>
+      <label className="dc-thread-search"><Search /><input value={threadQuery} onChange={(event) => setThreadQuery(event.target.value)} placeholder="Найти чат" /></label>
+      <div className="dc-thread-list">{visibleThreads.map((thread) => <div className={thread.id === currentId ? 'active' : ''} key={thread.id}><button type="button" onClick={() => { void openThread(thread); if (window.innerWidth <= 900) setSidebarOpen(false) }}>{thread.title || 'Новый чат'}</button><button type="button" aria-label="Удалить чат" onClick={() => void removeThread(thread)}><Trash2 /></button></div>)}{!visibleThreads.length && <p>Ничего не найдено</p>}</div>
     </aside>
+    {sidebarOpen && <button className="dc-sidebar-backdrop" type="button" aria-label="Закрыть историю" onClick={() => setSidebarOpen(false)} />}
     <main className="dc-main">
-      <header className="dc-toolbar"><button type="button" aria-label={sidebarOpen ? 'Скрыть историю' : 'Показать историю'} onClick={() => setSidebarOpen((value) => !value)}>{sidebarOpen ? <PanelLeftClose /> : <PanelLeftOpen />}</button><span>{current?.title || 'Новый чат'}</span><button type="button" aria-label="Новый чат" onClick={() => void newThread()}><Plus /></button></header>
-      <div ref={messagesRef} className="dc-messages">
+      <div className="dc-workspace-actions"><button type="button" aria-label={sidebarOpen ? 'Скрыть историю' : 'Показать историю'} onClick={() => setSidebarOpen((value) => !value)}>{sidebarOpen ? <PanelLeftClose /> : <PanelLeftOpen />}</button><button type="button" aria-label="Новый чат" onClick={() => void newThread()}><Plus /></button></div>
+      <div ref={messagesRef} className="dc-messages" onScroll={(event) => {
+        const node = event.currentTarget
+        stickToBottomRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 96
+        if (currentId) scrollPositionsRef.current[currentId] = node.scrollTop
+      }}>
         {!authed ? <div className="dc-empty"><h1>Чат ИЗО АСА</h1><p>Войдите, чтобы сохранять диалоги и использовать инструменты.</p><button type="button" onClick={onRequireAuth}>Войти</button></div> : !messages.length ? <div className="dc-empty"><h1>Что хотите сделать?</h1><p>Спросите что угодно, найдите свежую информацию или создайте изображение.</p><div>{suggestions.map(({ icon: Icon, label, prompt }) => <button type="button" key={label} onClick={() => { setText(prompt); inputRef.current?.focus() }}><Icon />{label}</button>)}<button type="button" onClick={() => onNavigate('/video')}>Создать видео</button><button type="button" onClick={() => onNavigate('/audio')}>Создать звук</button><button type="button" onClick={() => onNavigate('/3d')}>Создать 3D</button></div></div> : messages.map((message, index) => {
           const clean = message.role === 'assistant' ? cleanAssistantText(message.content, message.tools || []) : message.content
           return <article className={`dc-message ${message.role} ${message.status}`} key={message.id || index}><div className="dc-message-head"><b>{message.role === 'user' ? 'Вы' : 'ИЗО Чат'}</b><button type="button" aria-label="Копировать" onClick={() => void navigator.clipboard.writeText(clean)}><Copy /></button></div>{message.status === 'pending' ? <span className="dc-thinking"><i /><i /><i /></span> : message.role === 'assistant' ? <FormattedText value={clean} /> : <p>{clean}</p>}{(message.tools || []).filter((tool) => tool.name === 'web_search').map((tool, toolIndex) => <div className="dc-search-result" key={toolIndex}><Search /><span>Поиск в интернете</span>{tool.sources?.map((source) => <a href={source.url} target="_blank" rel="noreferrer" key={source.url}>{source.title}</a>)}</div>)}{(message.tools || []).filter((tool) => tool.name === 'generate_image').map((tool, toolIndex) => <button type="button" className="dc-image-result" key={toolIndex} onClick={() => tool.resultUrl && setArtifact(tool)}>{tool.resultUrl ? <img src={tool.resultUrl} alt="Созданное изображение" /> : <ImagePlus />}<span>{tool.status === 'running' ? 'Создаём изображение…' : tool.error || 'Открыть изображение'}</span></button>)}</article>
         })}<div className="dc-scroll-anchor" /></div>
-      {error && <div className="dc-error" role="status">{error}<button type="button" onClick={() => setError('')}><X /></button></div>}
       <footer className="dc-composer">
+        {(voicePhase !== 'idle' || error) && <div className={`dc-composer-status ${voicePhase === 'error' || error ? 'is-error' : ''}`} role="status">{voicePhase === 'requesting' ? <><span className="dc-status-spinner" />Подключаем микрофон…</> : voicePhase === 'recording' ? <><span className="dc-voice-wave"><i /><i /><i /><i /></span>Говорите · {voiceSeconds} с</> : voicePhase === 'transcribing' ? <><span className="dc-status-spinner" />Распознаём речь…</> : error}<button type="button" aria-label="Закрыть сообщение" onClick={() => { setError(''); if (voicePhase === 'error') setVoicePhase('idle') }}><X /></button></div>}
         {images.length > 0 && <div className="dc-attachments">{images.map((src, index) => <span key={index}><img src={src} alt="Вложение" /><button type="button" onClick={() => setImages((items) => items.filter((_, itemIndex) => itemIndex !== index))}><X /></button></span>)}</div>}
-        <textarea ref={inputRef} rows={1} maxLength={4000} value={text} placeholder="Сообщение…" onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() } }} />
-        <div><input ref={fileRef} hidden multiple type="file" accept="image/jpeg,image/png,image/webp" onChange={async (event) => { try { const selected = await Promise.all(Array.from(event.target.files || []).slice(0, Math.max(0, 4 - images.length)).map(readImage)); setImages((items) => [...items, ...selected].slice(0, 4)) } catch (caught) { setError(caught instanceof Error ? caught.message : 'Не удалось добавить изображение.') } event.target.value = '' }} /><button type="button" aria-label="Добавить изображение" onClick={() => fileRef.current?.click()}><Plus /></button><button className="dc-model-button" type="button" onClick={() => setModelOpen((value) => !value)}><span>{selectedModel?.name || 'ИЗО Чат'}</span><ChevronDown /></button><button className={recording ? 'recording' : ''} type="button" aria-label="Удерживайте, чтобы говорить" onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); void startVoice() }} onPointerUp={() => recorderRef.current?.recorder.stop()} onPointerCancel={() => recorderRef.current?.recorder.stop()}><Mic /></button><button className="dc-send" type="button" aria-label="Отправить" disabled={busy || (!text.trim() && !images.length)} onClick={() => void submit()}><Send /></button></div>
-        {modelOpen && <section className="dc-model-popover"><header><b>Модель чата</b><button type="button" aria-label="Закрыть" onClick={() => setModelOpen(false)}><X /></button></header>{models.map((model) => <button type="button" key={model.id} disabled={model.available === false} className={`${model.id === modelId ? 'active ' : ''}${model.available === false ? 'unavailable' : ''}`} onClick={() => void chooseModel(model)}><span><b>{model.name}</b><small>{model.available === false ? model.unavailableReason : model.description}</small></span><TokenPrice model={model} />{model.id === modelId && <Check />}</button>)}</section>}
+        <textarea ref={inputRef} rows={1} maxLength={4000} value={text} placeholder="Сообщение…" onChange={(event) => { setText(event.target.value); event.currentTarget.style.height = '0'; event.currentTarget.style.height = `${Math.min(132, event.currentTarget.scrollHeight)}px` }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() } }} />
+        <div><input ref={fileRef} hidden multiple type="file" accept="image/jpeg,image/png,image/webp" onChange={async (event) => { try { const selected = await Promise.all(Array.from(event.target.files || []).slice(0, Math.max(0, 4 - images.length)).map(readImage)); setImages((items) => [...items, ...selected].slice(0, 4)) } catch (caught) { setError(caught instanceof Error ? caught.message : 'Не удалось добавить изображение.') } event.target.value = '' }} /><button type="button" aria-label="Добавить изображение" onClick={() => fileRef.current?.click()}><Plus /></button><button className="dc-model-button" type="button" aria-expanded={modelOpen} onClick={() => setModelOpen((value) => !value)}><span>{selectedModel?.name || 'ИЗО Чат'}</span><ChevronDown /></button><button className={voicePhase === 'recording' || voicePhase === 'requesting' ? 'recording' : ''} type="button" aria-label="Удерживайте, чтобы говорить" onPointerDown={(event) => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); void startVoice(event.pointerId) }} onPointerUp={() => finishVoice(false)} onPointerCancel={() => finishVoice(true)}><Mic /></button><button className="dc-send" type="button" aria-label="Отправить" disabled={busy || (!text.trim() && !images.length)} onClick={() => void submit()}><Send /></button></div>
       </footer>
     </main>
+    {modelOpen && <><button className="dc-model-backdrop" type="button" aria-label="Закрыть выбор модели" onClick={() => setModelOpen(false)} /><section className="dc-model-popover" role="dialog" aria-modal="true" aria-label="Выбор модели"><header><div><small>Настройки диалога</small><b>Модель чата</b></div><button type="button" aria-label="Закрыть" onClick={() => setModelOpen(false)}><X /></button></header><nav aria-label="Тип модели"><button type="button" className="active">Чат</button><button type="button" onClick={() => onNavigate('/image')}>Изображение</button><button type="button" onClick={() => onNavigate('/video')}>Видео</button><button type="button" onClick={() => onNavigate('/audio')}>Звук</button><button type="button" onClick={() => onNavigate('/3d')}>3D</button></nav><div className="dc-model-list">{models.map((model) => <button type="button" key={model.id} disabled={model.available === false} className={`${model.id === modelId ? 'active ' : ''}${model.available === false ? 'unavailable' : ''}`} onClick={() => void chooseModel(model)}><span><b>{model.name}</b><small>{model.available === false ? model.unavailableReason : model.description}</small></span><TokenPrice model={model} />{model.id === modelId && <Check />}</button>)}</div></section></>}
     {artifact?.resultUrl && <><div className="dc-artifact-resizer" role="separator" aria-label="Изменить ширину предпросмотра" aria-orientation="vertical" tabIndex={0} onPointerDown={(event) => { event.preventDefault(); setResizingArtifact(true) }} onKeyDown={(event) => { if (event.key === 'ArrowLeft') { event.preventDefault(); setArtifactWidth((value) => Math.min(960, value + 24)) } else if (event.key === 'ArrowRight') { event.preventDefault(); setArtifactWidth((value) => Math.max(340, value - 24)) } }}><span /></div><aside className="dc-artifact"><header><div><small>Результат</small><b>Изображение</b></div><button type="button" aria-label="Закрыть предпросмотр" onClick={() => setArtifact(null)}><X /></button></header><div><img src={artifact.resultUrl} alt="Созданное изображение" /></div><footer><a href={artifact.resultUrl} download="izo-asa-image.png"><Download />Скачать</a><button type="button" onClick={() => { sessionStorage.setItem('izo.video.source', artifact.resultUrl || ''); onNavigate('/video') }}>Оживить</button></footer></aside></>}
   </section>
 }
