@@ -48,13 +48,14 @@ try {
     if (/\/api\/phone\/chat\/threads\/[^/]+\/messages$/.test(url.pathname)) return route.fulfill(json({ ok: true, thread, messages: [] }))
     if (url.pathname === '/api/phone/chat/models') return route.fulfill(json({ ok: true, defaultModel: 'local:izo-chat', models: [
       { id: 'local:izo-chat', name: 'ИЗО Чат', provider: 'local', tokenCost: 0, tokenKind: 'free', description: 'Базовая модель', contextChars: 60000, available: true },
-      { id: 'provider/pro', name: 'Профессиональная модель', provider: 'api', tokenCost: .2, tokenKind: 'main', description: 'Облачная модель', contextChars: 60000, available: false, unavailableReason: 'Недоступна на вашем тарифе' },
+      { id: 'provider/pro', name: 'Профессиональная модель', provider: 'api', tokenCost: .2, tokenKind: 'main', description: 'Облачная модель', contextChars: 60000, inputPerMillionUsd: .12, outputPerMillionUsd: .34, available: false, unavailableReason: 'Недоступна на вашем тарифе' },
     ] }))
     if (url.pathname === '/api/phone/chat') return route.fulfill(json({ ok: true, reply: 'Нашёл свежую информацию и подготовил изображение.', modelId: 'local:izo-chat', chargedTokens: 0, tokenKind: 'free', messageId: 'assistant-1', tools: [
       { name: 'web_search', ok: true, query: 'Москва', sources: [{ title: 'Источник погоды', url: 'https://example.test/weather' }] },
       { name: 'generate_image', status: 'requested', prompt: 'Москва после дождя', aspectRatio: '1:1' },
     ] }))
-    if (url.pathname === '/api/model-access') return route.fulfill(json({ modes: { text_to_image: { models: [{ id: 'server:local_flux_klein', provider: 'comfyui', modelProfile: 'local_flux_klein' }], presets: { fast: 'server:local_flux_klein' } } } }))
+    if (url.pathname === '/api/model-access') return route.fulfill(json({ modes: { text_to_image: { models: [{ id: 'server:local_flux_klein', label: 'ИЗО Base', provider: 'comfyui', modelProfile: 'local_flux_klein', tokenHint: 1, supportedResolutionIds: ['sq-hd'] }], presets: { fast: 'server:local_flux_klein' } } } }))
+    if (url.pathname === '/api/video/config') return route.fulfill(json({ modes: { text_to_video: [{ id: 'video/test', provider: 'openrouter', name: 'Видео Тест', description: 'Тестовая видеомодель', supportedResolutions: ['720p'], supportedAspectRatios: ['16:9'], supportedDurations: [4], generateAudio: true, publicPricing: { fromTokens: 3 } }], image_to_video: [], first_last_frame: [], reference_to_video: [] }, videoSlots: 1 }))
     if (url.pathname === '/api/generate') return route.fulfill(json({ id: 'desktop-image-job' }))
     if (url.pathname === '/api/phone/v1/jobs/desktop-image-job') return route.fulfill(json({ job: { id: 'desktop-image-job', modality: 'image', operation: 'text_to_image', status: 'completed', phase: 'terminal', progress: 100, message: '', createdAt: null, startedAt: null, completedAt: null, terminal: true, result: { id: 'image-1', type: 'image', url: image, thumbnailUrl: null, width: 1024, height: 1024, durationSeconds: null, aspectRatio: '1:1' }, billing: { chargedTokens: 1, tokenKind: 'daily', refunded: false } } }))
     if (url.pathname.includes('/tools')) return route.fulfill(json({ ok: true }))
@@ -76,9 +77,9 @@ try {
     const workspace = document.querySelector('.desktop-chat')?.getBoundingClientRect()
     const composer = document.querySelector('.dc-composer')?.getBoundingClientRect()
     const actions = document.querySelector('.dc-empty > div')?.getBoundingClientRect()
-    const chatToolbar = document.querySelector('.dc-chat-toolbar')?.getBoundingClientRect()
+    const themeButton = document.querySelector('.dc-floating-theme')?.getBoundingClientRect()
     const threadRows = [...document.querySelectorAll('.thread-item')].map((node) => node.getBoundingClientRect().height)
-    return { topbar, workspace, composer, actions, chatToolbar, threadRows, pageY: window.scrollY, bodyY: document.documentElement.scrollTop }
+    return { topbar, workspace, composer, actions, themeButton, threadRows, pageY: window.scrollY, bodyY: document.documentElement.scrollTop }
   })
   assert(initialLayout.topbar && initialLayout.topbar.top >= 0 && initialLayout.topbar.bottom <= 90, 'site header is outside viewport')
   assert(initialLayout.workspace && initialLayout.workspace.bottom <= 901 && initialLayout.workspace.height > 700, 'chat workspace does not fill the available viewport')
@@ -86,7 +87,8 @@ try {
   assert(initialLayout.composer && initialLayout.composer.height <= 130, 'composer is not compact')
   assert(initialLayout.workspace && initialLayout.composer && Math.abs((initialLayout.composer.top + initialLayout.composer.height / 2) - (initialLayout.workspace.top + initialLayout.workspace.height / 2)) <= 12, 'empty composer is not centered in the chat viewport')
   assert(initialLayout.actions && initialLayout.composer && initialLayout.composer.top - initialLayout.actions.bottom >= 0 && initialLayout.composer.top - initialLayout.actions.bottom <= 90, 'empty composer is not directly below quick actions')
-  assert(initialLayout.workspace && initialLayout.chatToolbar && initialLayout.chatToolbar.top >= initialLayout.workspace.top && initialLayout.chatToolbar.height >= 40, 'chat upper toolbar disappeared in empty state')
+  assert(await page.locator('.dc-chat-toolbar').count() === 0, 'empty toolbar still consumes a full row above chat')
+  assert(initialLayout.workspace && initialLayout.themeButton && initialLayout.themeButton.top >= initialLayout.workspace.top && initialLayout.themeButton.height <= 36, 'theme control is not a compact floating button')
   assert(initialLayout.threadRows.every((height) => height <= 42), 'chat history rows are not compact')
   assert(initialLayout.pageY === 0 && initialLayout.bodyY === 0, 'document scrolled during chat initialization')
   await page.getByRole('button', { name: longThread.title }).click()
@@ -110,6 +112,15 @@ try {
   const unavailable = page.getByRole('button', { name: /Профессиональная модель/ })
   assert(await unavailable.isDisabled(), 'tariff-blocked model is selectable')
   await page.getByRole('button', { name: 'Закрыть', exact: true }).click()
+  await page.getByPlaceholder('Сообщение…').fill('Длинный текст для проверки полного поля ввода. '.repeat(18))
+  const promptLayout = await page.evaluate(() => ({ prompt: document.querySelector('.dc-composer textarea')?.getBoundingClientRect(), composer: document.querySelector('.dc-composer')?.getBoundingClientRect() }))
+  assert(promptLayout.prompt && promptLayout.composer && promptLayout.prompt.width >= promptLayout.composer.width * .9 && promptLayout.prompt.height >= 100, 'long prompt is clipped to half of the composer')
+  await page.getByPlaceholder('Сообщение…').fill('')
+  await page.getByRole('button', { name: 'Добавить файл или выбрать инструмент' }).click()
+  for (const label of ['Добавить файл', 'Найти в интернете', 'Создать изображение', 'Погода', 'Создать видео', 'Создать звук', 'Создать 3D']) assert(await page.getByRole('menuitem', { name: new RegExp(label) }).count() === 1, `attachment/tool action is missing: ${label}`)
+  await page.getByRole('menuitem', { name: /Найти в интернете/ }).click()
+  assert(await page.getByRole('button', { name: 'Убрать обязательный инструмент' }).count() === 1, 'forced chat tool was not selected')
+  await page.getByRole('button', { name: 'Убрать обязательный инструмент' }).click()
   await page.getByPlaceholder('Сообщение…').focus()
   await page.evaluate(() => {
     const transfer = new DataTransfer()
@@ -175,6 +186,11 @@ try {
   const sheetBox = await modelSheet.boundingBox()
   assert(sheetBox && sheetBox.x >= 0 && sheetBox.x + sheetBox.width <= 390 && sheetBox.y + sheetBox.height <= 844, 'mobile model sheet is clipped')
   for (const label of ['Чат', 'Изображение', 'Видео', 'Звук', '3D']) assert(await modelSheet.getByRole('button', { name: label, exact: true }).count() === 1, `model category is missing: ${label}`)
+  assert(await modelSheet.getByText('$0.12/$0.34 · 1M').count() === 1, 'chat model still shows a fixed per-message fraction instead of 1M pricing')
+  await modelSheet.getByRole('button', { name: 'Изображение', exact: true }).click()
+  assert(await modelSheet.getByText('ИЗО Base', { exact: true }).count() === 1, 'image model tab does not show image models')
+  await modelSheet.getByRole('button', { name: 'Видео', exact: true }).click()
+  assert(await modelSheet.getByText('Видео Тест', { exact: true }).count() === 1, 'video model tab does not show video models')
   const modelSheetLayout = await page.evaluate(() => ({ nav: document.querySelector('.dc-model-popover > nav')?.getBoundingClientRect(), list: document.querySelector('.dc-model-list')?.getBoundingClientRect() }))
   assert(modelSheetLayout.nav && modelSheetLayout.list && modelSheetLayout.nav.height >= 32 && modelSheetLayout.list.top >= modelSheetLayout.nav.bottom - 1, 'model categories are collapsed or covered by the model list')
   await page.getByRole('button', { name: 'Закрыть', exact: true }).click()
@@ -189,6 +205,7 @@ try {
   await page.mouse.down(); await page.waitForTimeout(220)
   assert(await page.locator('.dc-live-wave').isVisible(), 'live microphone waveform is not shown while holding')
   assert(await page.locator('.dc-live-wave i').evaluateAll((bars) => bars.some((bar) => Number.parseFloat(getComputedStyle(bar).height) > 3)), 'microphone waveform does not react to audio amplitude')
+  assert(await page.locator('.dc-live-wave').evaluate((wave) => { const bars = [...wave.querySelectorAll('i')]; const first = bars[0]?.getBoundingClientRect(); const last = bars.at(-1)?.getBoundingClientRect(); return Boolean(first && last && last.right - first.left >= wave.getBoundingClientRect().width * .92) }), 'microphone waveform occupies only part of the composer')
   assert(await page.getByRole('button', { name: /ИЗО Чат/ }).last().count() === 0, 'model chooser remains visible during voice recording')
   await page.mouse.up(); await page.waitForTimeout(80)
   const heldMic = await page.evaluate(() => window.__chatMicTest)
@@ -229,7 +246,7 @@ try {
   await verifyChatAuthReturn('login')
   await verifyChatAuthReturn('register')
   assert(errors.length === 0, `page errors: ${errors.join('; ')}`)
-  console.log('DESKTOP_CHAT_E2E_OK persistence=true webSearch=true imageTool=true clipboardImage=true tariffGuard=true compactHistory=true centeredComposer=true mobileScroll=true modelSheet=true microphoneWaveform=true microphoneState=true loginReturn=true registrationReturn=true')
+  console.log('DESKTOP_CHAT_E2E_OK persistence=true webSearch=true imageTool=true toolMenu=true clipboardImage=true tariffGuard=true compactHistory=true centeredComposer=true floatingTheme=true fullPrompt=true modelTabs=true millionPricing=true mobileScroll=true modelSheet=true microphoneWaveform=true microphoneState=true loginReturn=true registrationReturn=true')
 } finally {
   await browser.close()
 }

@@ -667,6 +667,8 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
                 "available": model_id in allowed_api,
                 "unavailableReason": "Недоступна на вашем тарифе" if model_id not in allowed_api else "",
                 "contextLength": int(item.get("contextLength") or 0),
+                "inputPerMillionUsd": float(item.get("inputPerMillionUsd") or 0),
+                "outputPerMillionUsd": float(item.get("outputPerMillionUsd") or 0),
                 "contextChars": min(int(config.get("contextChars") or 60000), max(4000, int(item.get("contextLength") or 15000) * 4)),
             })
         default_model = str(config.get("defaultModel") or "local:izo-chat")

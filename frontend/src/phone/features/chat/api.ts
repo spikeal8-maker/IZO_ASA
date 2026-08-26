@@ -47,6 +47,8 @@ export type PhoneChatModel = {
   tokenKind: 'free' | 'daily' | 'main'
   description: string
   contextChars: number
+  inputPerMillionUsd?: number
+  outputPerMillionUsd?: number
   available?: boolean
   unavailableReason?: string
 }
@@ -114,7 +116,7 @@ export async function saveChatTools(threadId: string, messageId: string, tools: 
   })
 }
 
-export async function runChatImageTool(tool: PhoneChatTool, onChange: (tool: PhoneChatTool) => void): Promise<PhoneChatTool> {
+export async function runChatImageTool(tool: PhoneChatTool, onChange: (tool: PhoneChatTool) => void, preferredModelId?: string | null): Promise<PhoneChatTool> {
   const sizes: Record<string, [string, number, number]> = {
     '1:1': ['sq-hd', 1024, 1024], '9:16': ['v-hd', 720, 1280],
     '16:9': ['h-hd', 1280, 720], '3:2': ['p-hd', 1152, 768],
@@ -122,7 +124,7 @@ export async function runChatImageTool(tool: PhoneChatTool, onChange: (tool: Pho
   const access = await phoneFetch<{ modes?: Record<string, { models?: Array<{ id: string; provider: 'comfyui' | 'openrouter'; modelProfile: string }>; presets?: { fast?: string } }> }>('/api/model-access')
   const row = access.modes?.text_to_image
   const models = row?.models || []
-  const selected = models.find((item) => item.id === row?.presets?.fast) || models[0] || { id: 'server:local_flux_klein', provider: 'comfyui' as const, modelProfile: 'local_flux_klein' }
+  const selected = models.find((item) => item.id === preferredModelId) || models.find((item) => item.id === row?.presets?.fast) || models[0] || { id: 'server:local_flux_klein', provider: 'comfyui' as const, modelProfile: 'local_flux_klein' }
   const [resolutionId, width, height] = sizes[tool.aspectRatio || '1:1'] || sizes['1:1']
   const started = await phoneFetch<{ id?: string; jobId?: string }>('/api/generate', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },

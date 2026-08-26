@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { Check, ChevronDown, Copy, Download, ImagePlus, MessageCircle, Mic, Moon, PanelLeftClose, PanelLeftOpen, Plus, Search, Send, Sparkles, Sun, Trash2, X } from 'lucide-react'
+import { Box, Check, ChevronDown, Copy, Download, FileUp, ImagePlus, MessageCircle, Mic, Moon, PanelLeftClose, PanelLeftOpen, Plus, Search, Send, Sparkles, Sun, Trash2, Video, Volume2, X } from 'lucide-react'
 
 import {
   createChatThread,
@@ -18,11 +18,15 @@ import {
   type PhoneChatTool,
 } from '../phone/features/chat/api.ts'
 import { cleanAssistantText } from '../phone/features/chat/format.ts'
+import { loadImageModels, type PhoneImageModel } from '../phone/features/image/api.ts'
+import { loadPhoneVideoConfig, type PhoneVideoModel } from '../phone/features/video/api.ts'
 import './desktopChat.css'
 
 type Props = { authed: boolean; onRequireAuth: () => void; onNavigate: (path: '/image' | '/video' | '/audio' | '/3d') => void }
 type VoicePhase = 'idle' | 'requesting' | 'recording' | 'transcribing' | 'error'
 type ChatTheme = 'dark' | 'light'
+type ModelCategory = 'chat' | 'image' | 'video' | 'audio' | '3d'
+type ForcedTool = 'auto' | 'web_search' | 'generate_image'
 type VoiceRecorder = { recorder: MediaRecorder; stream: MediaStream; chunks: Blob[]; startedAt: number; cancelled: boolean; audioContext?: AudioContext; animationFrame?: number }
 
 const suggestions = [
@@ -44,8 +48,10 @@ function readImage(file: File): Promise<string> {
 }
 
 function TokenPrice({ model }: { model: PhoneChatModel }) {
-  if (model.tokenKind === 'free' || model.tokenCost <= 0) return <em className="dc-free">Базовая</em>
-  return <em className="dc-main-token">{model.tokenCost} ток.</em>
+  if (model.tokenKind === 'free' || model.tokenCost <= 0) return <em className="dc-daily-token">Базовая</em>
+  const input = Number(model.inputPerMillionUsd || 0)
+  const output = Number(model.outputPerMillionUsd || 0)
+  return <em className="dc-main-token" title="Стоимость OpenRouter за один миллион токенов">{input || output ? `$${input}/$${output} · 1M` : 'Основные токены'}</em>
 }
 
 function InlineText({ value }: { value: string }) {
@@ -82,6 +88,10 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
   const [theme, setTheme] = useState<ChatTheme>(() => localStorage.getItem('izo.desktop-chat.theme') === 'light' ? 'light' : 'dark')
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 900)
   const [modelOpen, setModelOpen] = useState(false)
+  const [modelCategory, setModelCategory] = useState<ModelCategory>('chat')
+  const [imageModels, setImageModels] = useState<PhoneImageModel[]>([])
+  const [videoModels, setVideoModels] = useState<PhoneVideoModel[]>([])
+  const [forcedTool, setForcedTool] = useState<ForcedTool>('auto')
   const [attachOpen, setAttachOpen] = useState(false)
   const [voicePhase, setVoicePhase] = useState<VoicePhase>('idle')
   const [voiceSeconds, setVoiceSeconds] = useState(0)
@@ -113,6 +123,14 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
     const filtered = query ? models.filter((model) => `${model.name} ${model.description || ''}`.toLocaleLowerCase('ru').includes(query)) : models
     return [...filtered].sort((left, right) => Number(left.available === false) - Number(right.available === false))
   }, [modelQuery, models])
+  const visibleImageModels = useMemo(() => {
+    const query = modelQuery.trim().toLocaleLowerCase('ru')
+    return imageModels.filter((model) => !query || `${model.label} ${model.modelProfile}`.toLocaleLowerCase('ru').includes(query))
+  }, [imageModels, modelQuery])
+  const visibleVideoModels = useMemo(() => {
+    const query = modelQuery.trim().toLocaleLowerCase('ru')
+    return videoModels.filter((model) => !query || `${model.name} ${model.description}`.toLocaleLowerCase('ru').includes(query))
+  }, [videoModels, modelQuery])
 
   useEffect(() => { currentIdRef.current = currentId }, [currentId])
   useEffect(() => { localStorage.setItem('izo.desktop-chat.theme', theme) }, [theme])
@@ -148,14 +166,35 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
   useEffect(() => {
     if (!authed) return
     const controller = new AbortController()
-    void Promise.all([listChatThreads(controller.signal), loadChatModels(controller.signal)]).then(async ([saved, catalog]) => {
+    void Promise.all([
+      listChatThreads(controller.signal),
+      loadChatModels(controller.signal),
+      loadImageModels(controller.signal).catch(() => null),
+      loadPhoneVideoConfig(controller.signal).catch(() => null),
+    ]).then(async ([saved, catalog, imageCatalog, videoCatalog]) => {
       setThreads(saved)
       setModels(catalog.models)
+      if (imageCatalog) {
+        const unique = new Map<string, PhoneImageModel>()
+        Object.values(imageCatalog.modes || {}).forEach((mode) => (mode.models || []).forEach((model) => unique.set(model.id, model)))
+        setImageModels([...unique.values()])
+      }
+      if (videoCatalog) {
+        const unique = new Map<string, PhoneVideoModel>()
+        Object.values(videoCatalog.modes || {}).forEach((items) => (items || []).forEach((model) => unique.set(model.id, model)))
+        setVideoModels([...unique.values()])
+      }
       setModelId(catalog.defaultModel)
       if (saved[0]) await openThread(saved[0], controller.signal)
     }).catch((caught) => { if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : 'Не удалось открыть чат.') })
     return () => controller.abort()
   }, [authed, openThread])
+  useLayoutEffect(() => {
+    const node = inputRef.current
+    if (!node) return
+    node.style.height = '0'
+    node.style.height = `${Math.min(132, Math.max(40, node.scrollHeight))}px`
+  }, [text])
 
   useLayoutEffect(() => {
     const node = messagesRef.current
@@ -250,20 +289,34 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Не удалось сменить модель.') }
   }
 
+  const chooseMediaModel = async (category: 'image' | 'video', id: string) => {
+    if (!current) { setModelOpen(false); return }
+    try {
+      const updated = await updateChatThread(current.id, category === 'image' ? { imageModelId: id } : { videoModelId: id })
+      setThreads((items) => items.map((item) => item.id === updated.id ? updated : item))
+      setModelOpen(false)
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Не удалось сменить модель.') }
+  }
+
   const submit = async () => {
     if (!authed) return onRequireAuth()
-    const content = text.trim() || (images.length ? 'Опиши прикреплённое изображение.' : '')
-    if (!content || busy || selectedModel?.available === false) return
+    const rawContent = text.trim() || (images.length ? 'Опиши прикреплённое изображение.' : '')
+    const content = forcedTool === 'web_search'
+      ? `Обязательно используй инструмент web_search для этого запроса. ${rawContent}`
+      : forcedTool === 'generate_image'
+        ? `Обязательно используй инструмент generate_image для этого запроса. ${rawContent}`
+        : rawContent
+    if (!rawContent || busy || selectedModel?.available === false) return
     let thread = current
     try {
       if (!thread) {
         thread = await createChatThread(modelId)
         setThreads((items) => [thread!, ...items]); setCurrentId(thread.id)
       }
-      const user: PhoneChatMessage = { id: `user-${makeId()}`, role: 'user', content, provider: '', model: modelId, tools: [], chargedTokens: 0, tokenKind: '', createdAt: new Date().toISOString(), status: 'done' }
+      const user: PhoneChatMessage = { id: `user-${makeId()}`, role: 'user', content: rawContent, provider: '', model: modelId, tools: [], chargedTokens: 0, tokenKind: '', createdAt: new Date().toISOString(), status: 'done' }
       const pendingId = `pending-${makeId()}`
       const pending: PhoneChatMessage = { ...user, id: pendingId, role: 'assistant', content: '', status: 'pending' }
-      setMessages((items) => [...items, user, pending]); setText(''); const attached = [...images]; setImages([]); setBusy(true); setError('')
+      setMessages((items) => [...items, user, pending]); setText(''); setForcedTool('auto'); const attached = [...images]; setImages([]); setBusy(true); setError('')
       const answer = await sendChatMessage({ threadId: thread.id, content, modelId, images: attached, requestId: makeId() })
       const assistantId = answer.messageId || pendingId
       let tools = answer.tools || []
@@ -277,7 +330,7 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
           if (next.resultUrl) setArtifact(next)
           if (answer.messageId) void saveChatTools(thread!.id, answer.messageId, tools).catch(() => undefined)
         }
-        try { await runChatImageTool(tools[index], replace) }
+        try { await runChatImageTool(tools[index], replace, thread.imageModelId) }
         catch (caught) { replace({ ...tools[index], status: 'error', error: caught instanceof Error ? caught.message : 'Изображение не создано.' }) }
       }
       setThreads(await listChatThreads())
@@ -311,7 +364,7 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
       const paint = (now: number) => {
         if (recorderRef.current !== active) return
         active.animationFrame = window.requestAnimationFrame(paint)
-        if (now - lastPaint < 45) return
+        if (now - lastPaint < 90) return
         lastPaint = now
         analyser.getByteTimeDomainData(samples)
         let peak = 0
@@ -392,7 +445,8 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
     </aside>
     {sidebarOpen && <button className="dc-sidebar-backdrop" type="button" aria-label="Закрыть историю" onClick={() => setSidebarOpen(false)} />}
     <main className={`dc-main chat-main${!messages.length ? ' is-empty' : ''}`}>
-      <div className="dc-chat-toolbar"><div>{!sidebarOpen && <button type="button" aria-label="Показать историю" onClick={() => setSidebarOpen(true)}><PanelLeftOpen /></button>}</div><button type="button" aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'} title={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'} onClick={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? <Sun /> : <Moon />}</button></div>
+      {!sidebarOpen && <button className="dc-floating-sidebar" type="button" aria-label="Показать историю" onClick={() => setSidebarOpen(true)}><PanelLeftOpen /></button>}
+      <button className="dc-floating-theme" type="button" aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'} title={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'} onClick={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? <Sun /> : <Moon />}</button>
       <div ref={messagesRef} className="dc-messages conversation" onScroll={(event) => {
         const node = event.currentTarget
         stickToBottomRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 96
@@ -405,12 +459,12 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
       <footer className="dc-composer-area composer-area"><div className={`dc-composer composer is-${voicePhase}`}>
         {(voicePhase === 'error' || error) && <div className="dc-composer-status is-error" role="status">{error || 'Не удалось записать голос.'}<button type="button" aria-label="Закрыть сообщение" onClick={() => { setError(''); if (voicePhase === 'error') setVoicePhase('idle') }}><X /></button></div>}
         {images.length > 0 && <div className="dc-attachments">{images.map((src, index) => <span key={index}><img src={src} alt="Вложение" /><button type="button" onClick={() => setImages((items) => items.filter((_, itemIndex) => itemIndex !== index))}><X /></button></span>)}</div>}
-        <textarea ref={inputRef} rows={1} maxLength={4000} value={text} placeholder="Сообщение…" onPaste={(event) => { const pasted = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith('image/')); if (pasted.length) { event.preventDefault(); void appendImages(pasted) } }} onChange={(event) => { setText(event.target.value); event.currentTarget.style.height = '0'; event.currentTarget.style.height = `${Math.min(132, event.currentTarget.scrollHeight)}px` }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() } }} />
-        <div><input ref={fileRef} hidden multiple type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { void appendImages(Array.from(event.target.files || [])); event.target.value = '' }} /><span className="dc-attach-wrap"><button type="button" aria-label="Добавить" aria-expanded={attachOpen} onClick={() => setAttachOpen((value) => !value)}><Plus /></button>{attachOpen && <span className="dc-attach-menu" role="menu"><button type="button" role="menuitem" onClick={() => { setAttachOpen(false); fileRef.current?.click() }}><ImagePlus /><span><b>Изображение</b><small>PNG, JPG или WebP</small></span></button><small>Также можно вставить через Ctrl+V</small></span>}</span>{voicePhase === 'recording' ? <span className="dc-live-voice" role="status"><button type="button" aria-label="Отменить запись" onPointerDown={(event) => { event.preventDefault(); finishVoice(true) }}><X /></button><span className="dc-live-wave" aria-hidden="true">{voiceLevels.map((level, index) => <i key={index} style={{ height: `${level}px` }} />)}</span><small>{voiceSeconds} с</small></span> : <><button className="dc-model-button" type="button" aria-expanded={modelOpen} onClick={() => { setModelQuery(''); setModelOpen(true) }}><span>{selectedModel?.name || 'ИЗО Чат'}</span><ChevronDown /></button>{voicePhase !== 'idle' && voicePhase !== 'error' && <span className={`dc-inline-voice is-${voicePhase}`} role="status"><span className="dc-status-spinner" /><small>{voicePhase === 'requesting' ? 'Микрофон' : 'Текст'}</small></span>}</>}<button className={voicePhase === 'recording' || voicePhase === 'requesting' ? 'recording' : ''} type="button" aria-label="Удерживайте, чтобы говорить" onPointerDown={(event) => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); void startVoice(event.pointerId) }} onPointerUp={() => finishVoice(false)} onPointerCancel={() => finishVoice(true)} onLostPointerCapture={() => finishVoice(false)}><Mic /></button><button className="dc-send" type="button" aria-label="Отправить" disabled={busy || (!text.trim() && !images.length)} onClick={() => void submit()}><Send /></button></div>
+        <textarea ref={inputRef} rows={1} maxLength={4000} value={text} placeholder="Сообщение…" onPaste={(event) => { const pasted = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith('image/')); if (pasted.length) { event.preventDefault(); void appendImages(pasted) } }} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() } }} />
+        <div><input ref={fileRef} hidden multiple type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { void appendImages(Array.from(event.target.files || [])); event.target.value = '' }} /><span className="dc-attach-wrap"><button type="button" aria-label="Добавить файл или выбрать инструмент" aria-expanded={attachOpen} onClick={() => setAttachOpen((value) => !value)}><Plus /></button>{attachOpen && <span className="dc-attach-menu" role="menu"><button type="button" role="menuitem" onClick={() => { setAttachOpen(false); fileRef.current?.click() }}><FileUp /><span><b>Добавить файл</b><small>Изображение или вставка Ctrl+V</small></span></button><span className="dc-tool-menu-title">Инструменты</span><button type="button" role="menuitem" onClick={() => { setForcedTool('web_search'); setAttachOpen(false); inputRef.current?.focus() }}><Search /><span><b>Найти в интернете</b><small>Обязательный поиск по запросу</small></span></button><button type="button" role="menuitem" onClick={() => { setForcedTool('generate_image'); setAttachOpen(false); inputRef.current?.focus() }}><ImagePlus /><span><b>Создать изображение</b><small>Обязательная генерация в чате</small></span></button><button type="button" role="menuitem" onClick={() => { setForcedTool('web_search'); setText('Какая сейчас погода в '); setAttachOpen(false); inputRef.current?.focus() }}><Sun /><span><b>Погода</b><small>Актуальные данные из интернета</small></span></button><button type="button" role="menuitem" onClick={() => onNavigate('/video')}><Video /><span><b>Создать видео</b><small>Открыть видеогенератор</small></span></button><button type="button" role="menuitem" onClick={() => onNavigate('/audio')}><Volume2 /><span><b>Создать звук</b><small>Открыть работу со звуком</small></span></button><button type="button" role="menuitem" onClick={() => onNavigate('/3d')}><Box /><span><b>Создать 3D</b><small>Открыть 3D-раздел</small></span></button></span>}</span>{forcedTool !== 'auto' && voicePhase !== 'recording' && <button className="dc-forced-tool" type="button" aria-label="Убрать обязательный инструмент" title="Убрать обязательный инструмент" onClick={() => setForcedTool('auto')}>{forcedTool === 'web_search' ? <Search /> : <ImagePlus />}</button>}{voicePhase === 'recording' ? <span className="dc-live-voice" role="status"><button type="button" aria-label="Отменить запись" onPointerDown={(event) => { event.preventDefault(); finishVoice(true) }}><X /></button><span className="dc-live-wave" aria-hidden="true">{voiceLevels.map((level, index) => <i key={index} style={{ height: `${level}px` }} />)}</span><small>{voiceSeconds} с</small></span> : <><button className="dc-model-button" type="button" aria-expanded={modelOpen} onClick={() => { setModelQuery(''); setModelCategory('chat'); setModelOpen(true) }}><span>{selectedModel?.name || 'ИЗО Чат'}</span><ChevronDown /></button>{voicePhase !== 'idle' && voicePhase !== 'error' && <span className={`dc-inline-voice is-${voicePhase}`} role="status"><span className="dc-status-spinner" /><small>{voicePhase === 'requesting' ? 'Микрофон' : 'Текст'}</small></span>}</>}<button className={voicePhase === 'recording' || voicePhase === 'requesting' ? 'recording' : ''} type="button" aria-label="Удерживайте, чтобы говорить" onPointerDown={(event) => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); void startVoice(event.pointerId) }} onPointerUp={() => finishVoice(false)} onPointerCancel={() => finishVoice(true)} onLostPointerCapture={() => finishVoice(false)}><Mic /></button><button className="dc-send" type="button" aria-label="Отправить" disabled={busy || (!text.trim() && !images.length)} onClick={() => void submit()}><Send /></button></div>
       </div></footer>
       <div className="dc-empty-bottom-spacer" aria-hidden="true" />
     </main>
-    {modelOpen && <><button className="dc-model-backdrop" type="button" aria-label="Закрыть выбор модели" onClick={() => setModelOpen(false)} /><section className="dc-model-popover model-popover" role="dialog" aria-modal="true" aria-label="Выбор модели"><header className="model-popover-head"><div><b>Выбор модели</b><small>Доступные вашему тарифу модели показаны первыми</small></div><button type="button" aria-label="Закрыть" onClick={() => setModelOpen(false)}><X /></button></header><nav className="model-filter" aria-label="Тип модели"><button type="button" className="active">Чат</button><button type="button" onClick={() => onNavigate('/image')}>Изображение</button><button type="button" onClick={() => onNavigate('/video')}>Видео</button><button type="button" onClick={() => onNavigate('/audio')}>Звук</button><button type="button" onClick={() => onNavigate('/3d')}>3D</button></nav><label className="dc-model-search model-search"><Search /><input value={modelQuery} onChange={(event) => setModelQuery(event.target.value)} placeholder="Найти модель" /></label><div className="dc-model-list model-list">{visibleModels.length ? visibleModels.map((model) => <button type="button" key={model.id} disabled={model.available === false} className={`model-item${model.id === modelId ? ' selected active' : ''}${model.available === false ? ' unavailable' : ''}`} onClick={() => void chooseModel(model)}><span className="dc-model-icon model-item-icon"><Sparkles /></span><span className="model-item-copy"><b>{model.name}</b><small>{model.available === false ? model.unavailableReason : model.description}</small></span><TokenPrice model={model} />{model.id === modelId && <Check />}</button>) : <p className="dc-model-empty">Модели не найдены. Очистите поиск.</p>}</div></section></>}
+    {modelOpen && <><button className="dc-model-backdrop" type="button" aria-label="Закрыть выбор модели" onClick={() => setModelOpen(false)} /><section className="dc-model-popover model-popover" role="dialog" aria-modal="true" aria-label="Выбор модели"><header className="model-popover-head"><div><b>Выбор модели</b><small>Выберите модель для нужного инструмента</small></div><button type="button" aria-label="Закрыть" onClick={() => setModelOpen(false)}><X /></button></header><nav className="model-filter" aria-label="Тип модели">{([['chat','Чат'],['image','Изображение'],['video','Видео'],['audio','Звук'],['3d','3D']] as const).map(([id,label]) => <button type="button" className={modelCategory === id ? 'active' : ''} key={id} onClick={() => { setModelCategory(id); setModelQuery('') }}>{label}</button>)}</nav><label className="dc-model-search model-search"><Search /><input value={modelQuery} onChange={(event) => setModelQuery(event.target.value)} placeholder="Найти модель" /></label><div className="dc-model-list model-list">{modelCategory === 'chat' ? (visibleModels.length ? visibleModels.map((model) => <button type="button" key={model.id} disabled={model.available === false} className={`model-item${model.id === modelId ? ' selected active' : ''}${model.available === false ? ' unavailable' : ''}`} onClick={() => void chooseModel(model)}><span className="dc-model-icon model-item-icon"><Sparkles /></span><span className="model-item-copy"><b>{model.name}</b><small>{model.available === false ? model.unavailableReason : model.description}</small></span><TokenPrice model={model} />{model.id === modelId && <Check />}</button>) : <p className="dc-model-empty">Модели не найдены.</p>) : modelCategory === 'image' ? (visibleImageModels.length ? visibleImageModels.map((model) => <button type="button" key={model.id} className={`model-item${current?.imageModelId === model.id ? ' selected active' : ''}`} onClick={() => void chooseMediaModel('image', model.id)}><span className="dc-model-icon model-item-icon"><ImagePlus /></span><span className="model-item-copy"><b>{model.label}</b><small>{model.provider === 'comfyui' ? 'Базовая модель изображений' : 'Облачная модель изображений'}</small></span><em className={model.provider === 'comfyui' ? 'dc-daily-token' : 'dc-main-token'}>{model.tokenHint} ток.</em>{current?.imageModelId === model.id && <Check />}</button>) : <p className="dc-model-empty">Нет доступных моделей изображений.</p>) : modelCategory === 'video' ? (visibleVideoModels.length ? visibleVideoModels.map((model) => <button type="button" key={model.id} className={`model-item${current?.videoModelId === model.id ? ' selected active' : ''}`} onClick={() => void chooseMediaModel('video', model.id)}><span className="dc-model-icon model-item-icon"><Video /></span><span className="model-item-copy"><b>{model.name}</b><small>{model.description}</small></span><em className={model.provider === 'local_ltx' ? 'dc-daily-token' : 'dc-main-token'}>{model.publicPricing?.fromTokens || 0} ток.</em>{current?.videoModelId === model.id && <Check />}</button>) : <p className="dc-model-empty">Нет доступных видеомоделей.</p>) : <div className="dc-model-empty"><p>{modelCategory === 'audio' ? 'Модели звука выбираются в разделе звука.' : '3D-модели будут доступны после подключения генератора.'}</p>{modelCategory === 'audio' && <button type="button" onClick={() => onNavigate('/audio')}>Открыть звук</button>}</div>}</div></section></>}
     {artifact?.resultUrl && <><div className="dc-artifact-resizer" role="separator" aria-label="Изменить ширину предпросмотра" aria-orientation="vertical" tabIndex={0} onPointerDown={(event) => { event.preventDefault(); setResizingArtifact(true) }} onKeyDown={(event) => { if (event.key === 'ArrowLeft') { event.preventDefault(); setArtifactWidth((value) => Math.min(960, value + 24)) } else if (event.key === 'ArrowRight') { event.preventDefault(); setArtifactWidth((value) => Math.max(340, value - 24)) } }}><span /></div><aside className="dc-artifact"><header><div><small>Результат</small><b>Изображение</b></div><button type="button" aria-label="Закрыть предпросмотр" onClick={() => setArtifact(null)}><X /></button></header><div><img src={artifact.resultUrl} alt="Созданное изображение" /></div><footer><a href={artifact.resultUrl} download="izo-asa-image.png"><Download />Скачать</a><button type="button" onClick={() => { sessionStorage.setItem('izo.video.source', artifact.resultUrl || ''); onNavigate('/video') }}>Оживить</button></footer></aside></>}
   </section>
 }
