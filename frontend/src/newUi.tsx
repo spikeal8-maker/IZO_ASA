@@ -3297,7 +3297,7 @@ export default function NewStudio(): ReactElement {
   return (
     <div className="n2">
       <AuthV2Modal open={authOpen} onClose={() => setAuthOpen(false)} stayOnCurrentPage={tab === 'chat'} />
-      {trialPending && (
+      {trialPending && tab !== 'chat' && (
         <div className={`n2-trial-notice${trialNeedsAttention ? ' needs-attention' : ''}`} role="status">
           <span>
             {socialTrial?.trial_generation_blocked
