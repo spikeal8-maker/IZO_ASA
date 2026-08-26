@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Check, ChevronDown, Copy, Download, ImagePlus, Mic, PanelLeftClose, PanelLeftOpen, Plus, Search, Send, Trash2, X } from 'lucide-react'
 
 import {
@@ -45,6 +45,25 @@ function TokenPrice({ model }: { model: PhoneChatModel }) {
   return <em className="dc-main-token">{model.tokenCost} ток.</em>
 }
 
+function InlineText({ value }: { value: string }) {
+  const parts = value.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean)
+  return <>{parts.map((part, index) => part.startsWith('**') && part.endsWith('**')
+    ? <strong key={index}>{part.slice(2, -2)}</strong>
+    : part.startsWith('`') && part.endsWith('`')
+      ? <code key={index}>{part.slice(1, -1)}</code>
+      : <span key={index}>{part}</span>)}</>
+}
+
+function FormattedText({ value }: { value: string }) {
+  const blocks = value.replace(/\r/g, '').split(/\n{2,}/).filter((block) => block.trim())
+  return <div className="dc-rich-text">{blocks.map((block, blockIndex) => {
+    const lines = block.split('\n')
+    const list = lines.length > 0 && lines.every((line) => /^\s*[-*]\s+/.test(line))
+    if (list) return <ul key={blockIndex}>{lines.map((line, lineIndex) => <li key={lineIndex}><InlineText value={line.replace(/^\s*[-*]\s+/, '')} /></li>)}</ul>
+    return <p key={blockIndex}>{lines.map((line, lineIndex) => <span key={lineIndex}><InlineText value={line} />{lineIndex < lines.length - 1 && <br />}</span>)}</p>
+  })}</div>
+}
+
 export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate }: Props) {
   const [threads, setThreads] = useState<PhoneChatThread[]>([])
   const [currentId, setCurrentId] = useState('')
@@ -55,20 +74,26 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
   const [images, setImages] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 900)
   const [modelOpen, setModelOpen] = useState(false)
   const [recording, setRecording] = useState(false)
   const [artifact, setArtifact] = useState<PhoneChatTool | null>(null)
+  const [artifactWidth, setArtifactWidth] = useState(() => Math.round(Math.min(920, Math.max(420, window.innerWidth * .48))))
+  const [resizingArtifact, setResizingArtifact] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
-  const endRef = useRef<HTMLDivElement>(null)
+  const messagesRef = useRef<HTMLDivElement>(null)
+  const workspaceRef = useRef<HTMLElement>(null)
+  const threadLoadSequence = useRef(0)
   const recorderRef = useRef<{ recorder: MediaRecorder; stream: MediaStream; chunks: Blob[]; startedAt: number } | null>(null)
 
   const current = useMemo(() => threads.find((item) => item.id === currentId) || null, [threads, currentId])
   const selectedModel = models.find((item) => item.id === modelId) || models.find((item) => item.available !== false) || null
 
   const openThread = useCallback(async (thread: PhoneChatThread, signal?: AbortSignal) => {
+    const sequence = ++threadLoadSequence.current
     const loaded = await loadChatMessages(thread.id, signal)
+    if (sequence !== threadLoadSequence.current) return
     setCurrentId(thread.id)
     setMessages(loaded.messages)
     setModelId(thread.chatModelId)
@@ -88,8 +113,35 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
     return () => controller.abort()
   }, [authed, openThread])
 
-  useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }) }, [messages, busy])
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      const node = messagesRef.current
+      if (node) node.scrollTop = node.scrollHeight
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [messages, busy, currentId])
   useEffect(() => () => recorderRef.current?.stream.getTracks().forEach((track) => track.stop()), [])
+  useEffect(() => {
+    if (!resizingArtifact) return
+    const resize = (event: PointerEvent) => {
+      const rect = workspaceRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const sidebar = sidebarOpen ? 260 : 0
+      const maximum = Math.max(360, rect.width - sidebar - 420 - 6)
+      setArtifactWidth(Math.round(Math.min(maximum, Math.max(340, rect.right - event.clientX))))
+    }
+    const stop = () => setResizingArtifact(false)
+    document.body.classList.add('dc-resizing')
+    window.addEventListener('pointermove', resize)
+    window.addEventListener('pointerup', stop, { once: true })
+    window.addEventListener('pointercancel', stop, { once: true })
+    return () => {
+      document.body.classList.remove('dc-resizing')
+      window.removeEventListener('pointermove', resize)
+      window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', stop)
+    }
+  }, [resizingArtifact, sidebarOpen])
 
   const newThread = async () => {
     if (!authed) return onRequireAuth()
@@ -180,18 +232,20 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
     } catch { setError('Разрешите доступ к микрофону в браузере.') }
   }
 
-  return <section className={`desktop-chat${sidebarOpen ? '' : ' sidebar-closed'}${artifact?.resultUrl ? ' artifact-open' : ''}`}>
+  const workspaceStyle = artifact?.resultUrl ? { '--dc-artifact-width': `${artifactWidth}px` } as CSSProperties : undefined
+
+  return <section ref={workspaceRef} style={workspaceStyle} className={`desktop-chat${sidebarOpen ? '' : ' sidebar-closed'}${artifact?.resultUrl ? ' artifact-open' : ''}${resizingArtifact ? ' is-resizing' : ''}`}>
     <aside className="dc-sidebar">
       <header><b>Чаты</b><button type="button" onClick={() => void newThread()}><Plus />Новый чат</button></header>
       <div className="dc-thread-list">{threads.map((thread) => <div className={thread.id === currentId ? 'active' : ''} key={thread.id}><button type="button" onClick={() => void openThread(thread)}>{thread.title || 'Новый чат'}</button><button type="button" aria-label="Удалить чат" onClick={() => void removeThread(thread)}><Trash2 /></button></div>)}</div>
     </aside>
     <main className="dc-main">
       <header className="dc-toolbar"><button type="button" aria-label={sidebarOpen ? 'Скрыть историю' : 'Показать историю'} onClick={() => setSidebarOpen((value) => !value)}>{sidebarOpen ? <PanelLeftClose /> : <PanelLeftOpen />}</button><span>{current?.title || 'Новый чат'}</span><button type="button" aria-label="Новый чат" onClick={() => void newThread()}><Plus /></button></header>
-      <div className="dc-messages">
+      <div ref={messagesRef} className="dc-messages">
         {!authed ? <div className="dc-empty"><h1>Чат ИЗО АСА</h1><p>Войдите, чтобы сохранять диалоги и использовать инструменты.</p><button type="button" onClick={onRequireAuth}>Войти</button></div> : !messages.length ? <div className="dc-empty"><h1>Что хотите сделать?</h1><p>Спросите что угодно, найдите свежую информацию или создайте изображение.</p><div>{suggestions.map(({ icon: Icon, label, prompt }) => <button type="button" key={label} onClick={() => { setText(prompt); inputRef.current?.focus() }}><Icon />{label}</button>)}<button type="button" onClick={() => onNavigate('/video')}>Создать видео</button><button type="button" onClick={() => onNavigate('/audio')}>Создать звук</button><button type="button" onClick={() => onNavigate('/3d')}>Создать 3D</button></div></div> : messages.map((message, index) => {
           const clean = message.role === 'assistant' ? cleanAssistantText(message.content, message.tools || []) : message.content
-          return <article className={`dc-message ${message.role} ${message.status}`} key={message.id || index}><div className="dc-message-head"><b>{message.role === 'user' ? 'Вы' : 'ИЗО Чат'}</b><button type="button" aria-label="Копировать" onClick={() => void navigator.clipboard.writeText(clean)}><Copy /></button></div>{message.status === 'pending' ? <span className="dc-thinking"><i /><i /><i /></span> : <p>{clean}</p>}{(message.tools || []).filter((tool) => tool.name === 'web_search').map((tool, toolIndex) => <div className="dc-search-result" key={toolIndex}><Search /><span>Поиск в интернете</span>{tool.sources?.map((source) => <a href={source.url} target="_blank" rel="noreferrer" key={source.url}>{source.title}</a>)}</div>)}{(message.tools || []).filter((tool) => tool.name === 'generate_image').map((tool, toolIndex) => <button type="button" className="dc-image-result" key={toolIndex} onClick={() => tool.resultUrl && setArtifact(tool)}>{tool.resultUrl ? <img src={tool.resultUrl} alt="Созданное изображение" /> : <ImagePlus />}<span>{tool.status === 'running' ? 'Создаём изображение…' : tool.error || 'Открыть изображение'}</span></button>)}</article>
-        })}<div ref={endRef} /></div>
+          return <article className={`dc-message ${message.role} ${message.status}`} key={message.id || index}><div className="dc-message-head"><b>{message.role === 'user' ? 'Вы' : 'ИЗО Чат'}</b><button type="button" aria-label="Копировать" onClick={() => void navigator.clipboard.writeText(clean)}><Copy /></button></div>{message.status === 'pending' ? <span className="dc-thinking"><i /><i /><i /></span> : message.role === 'assistant' ? <FormattedText value={clean} /> : <p>{clean}</p>}{(message.tools || []).filter((tool) => tool.name === 'web_search').map((tool, toolIndex) => <div className="dc-search-result" key={toolIndex}><Search /><span>Поиск в интернете</span>{tool.sources?.map((source) => <a href={source.url} target="_blank" rel="noreferrer" key={source.url}>{source.title}</a>)}</div>)}{(message.tools || []).filter((tool) => tool.name === 'generate_image').map((tool, toolIndex) => <button type="button" className="dc-image-result" key={toolIndex} onClick={() => tool.resultUrl && setArtifact(tool)}>{tool.resultUrl ? <img src={tool.resultUrl} alt="Созданное изображение" /> : <ImagePlus />}<span>{tool.status === 'running' ? 'Создаём изображение…' : tool.error || 'Открыть изображение'}</span></button>)}</article>
+        })}<div className="dc-scroll-anchor" /></div>
       {error && <div className="dc-error" role="status">{error}<button type="button" onClick={() => setError('')}><X /></button></div>}
       <footer className="dc-composer">
         {images.length > 0 && <div className="dc-attachments">{images.map((src, index) => <span key={index}><img src={src} alt="Вложение" /><button type="button" onClick={() => setImages((items) => items.filter((_, itemIndex) => itemIndex !== index))}><X /></button></span>)}</div>}
@@ -200,6 +254,6 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
         {modelOpen && <section className="dc-model-popover"><header><b>Модель чата</b><button type="button" aria-label="Закрыть" onClick={() => setModelOpen(false)}><X /></button></header>{models.map((model) => <button type="button" key={model.id} disabled={model.available === false} className={`${model.id === modelId ? 'active ' : ''}${model.available === false ? 'unavailable' : ''}`} onClick={() => void chooseModel(model)}><span><b>{model.name}</b><small>{model.available === false ? model.unavailableReason : model.description}</small></span><TokenPrice model={model} />{model.id === modelId && <Check />}</button>)}</section>}
       </footer>
     </main>
-    {artifact?.resultUrl && <aside className="dc-artifact"><header><div><small>Результат</small><b>Изображение</b></div><button type="button" onClick={() => setArtifact(null)}><X /></button></header><div><img src={artifact.resultUrl} alt="Созданное изображение" /></div><footer><a href={artifact.resultUrl} download="izo-asa-image.png"><Download />Скачать</a><button type="button" onClick={() => { sessionStorage.setItem('izo.video.source', artifact.resultUrl || ''); onNavigate('/video') }}>Оживить</button></footer></aside>}
+    {artifact?.resultUrl && <><div className="dc-artifact-resizer" role="separator" aria-label="Изменить ширину предпросмотра" aria-orientation="vertical" tabIndex={0} onPointerDown={(event) => { event.preventDefault(); setResizingArtifact(true) }} onKeyDown={(event) => { if (event.key === 'ArrowLeft') { event.preventDefault(); setArtifactWidth((value) => Math.min(960, value + 24)) } else if (event.key === 'ArrowRight') { event.preventDefault(); setArtifactWidth((value) => Math.max(340, value - 24)) } }}><span /></div><aside className="dc-artifact"><header><div><small>Результат</small><b>Изображение</b></div><button type="button" aria-label="Закрыть предпросмотр" onClick={() => setArtifact(null)}><X /></button></header><div><img src={artifact.resultUrl} alt="Созданное изображение" /></div><footer><a href={artifact.resultUrl} download="izo-asa-image.png"><Download />Скачать</a><button type="button" onClick={() => { sessionStorage.setItem('izo.video.source', artifact.resultUrl || ''); onNavigate('/video') }}>Оживить</button></footer></aside></>}
   </section>
 }

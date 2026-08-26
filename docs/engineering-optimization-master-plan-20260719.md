@@ -52,6 +52,25 @@ ACTIVE FRONTEND MANIFEST; NOT DEPLOYED**.
   Playwright на `390×844` и `430×932`, Quick, один Full на clean SHA, затем
   мобильная browser-проверка точного production release.
 
+## Пакет `DESKTOP-CHAT-LAYOUT-20260826`
+
+Статус: **CODE COMPLETE; TARGETED FRONTEND CHECKS GREEN; RELEASE VERIFICATION PENDING**.
+
+- `/chat` занимает только выделенную ему строку App Shell: верхняя шапка сайта,
+  список диалогов, переписка и композер больше не участвуют в одном внешнем
+  скролле;
+- переход между длинными сохранёнными чатами прокручивает только контейнер
+  сообщений и не вызывает `scrollIntoView` для всей страницы;
+- список диалогов скрывается независимо и имеет собственную прокрутку;
+- результат инструмента открывается в правой панели, которая на широком экране
+  по умолчанию шире переписки и меняется разделителем, а на компактном экране
+  становится безопасным overlay без горизонтального переполнения;
+- markdown ответа отображается без сырых маркеров `**` и обратных кавычек;
+- acceptance: frontend lint/build, Playwright с 20 чатами и 36 сообщениями,
+  проверка фиксированной шапки/композера, resize/close предпросмотра на
+  `1440×900` и compact layout на `1024×720`, Quick, один Full на clean SHA,
+  затем desktop browser-проверка exact production release.
+
 ## Пакет `AUTH-SOCIAL-PROOF-20260822`
 
 Статус: **CODE COMPLETE; QUICK AND FOCUSED TESTS GREEN; NOT DEPLOYED**.
