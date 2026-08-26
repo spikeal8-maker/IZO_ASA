@@ -672,6 +672,8 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
             if model_id not in enabled_api:
                 continue
             item = by_id.get(model_id, {})
+            input_per_million = product_tokens_per_million(float(item.get("inputPerMillionUsd") or 0))
+            output_per_million = product_tokens_per_million(float(item.get("outputPerMillionUsd") or 0))
             models.append({
                 "id": model_id,
                 "name": str(item.get("name") or model_id.rsplit("/", 1)[-1]),
@@ -684,8 +686,9 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
                 "contextLength": int(item.get("contextLength") or 0),
                 "inputPerMillionUsd": float(item.get("inputPerMillionUsd") or 0),
                 "outputPerMillionUsd": float(item.get("outputPerMillionUsd") or 0),
-                "inputPerMillionProductTokens": product_tokens_per_million(float(item.get("inputPerMillionUsd") or 0)),
-                "outputPerMillionProductTokens": product_tokens_per_million(float(item.get("outputPerMillionUsd") or 0)),
+                "inputPerMillionProductTokens": input_per_million,
+                "outputPerMillionProductTokens": output_per_million,
+                "retailPerMillionProductTokens": math.ceil(max(input_per_million, output_per_million) * 100) / 100,
                 "contextChars": min(int(config.get("contextChars") or 60000), max(4000, int(item.get("contextLength") or 15000) * 4)),
             })
         default_model = str(config.get("defaultModel") or "local:izo-chat")

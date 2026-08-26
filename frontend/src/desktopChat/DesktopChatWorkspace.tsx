@@ -53,13 +53,11 @@ function readImage(file: File): Promise<string> {
 }
 
 function TokenPrice({ model }: { model: PhoneChatModel }) {
-  if (model.tokenKind === 'free' || model.tokenCost <= 0) return <em className="dc-daily-token">0 дневных</em>
-  const input = Number(model.inputPerMillionProductTokens || 0)
-  const output = Number(model.outputPerMillionProductTokens || 0)
-  const format = (value: number) => (value > 0 && value < 0.01 ? '<0,01' : value.toLocaleString('ru-RU', { maximumFractionDigits: 2 }))
+  if (model.tokenKind === 'free' || model.tokenCost <= 0) return <em className="dc-daily-token">0 ток. / 1 млн</em>
+  const retail = Number(model.retailPerMillionProductTokens || 0)
   return (
-    <em className="dc-main-token" title="Наши токены за один миллион токенов OpenRouter">
-      {input || output ? `вх. ${format(input)} · вых. ${format(output)} / 1 млн` : `${model.tokenCost.toLocaleString('ru-RU')} осн.`}
+    <em className="dc-main-token" title="Наша розничная цена за один миллион текстовых токенов">
+      {retail > 0 ? `${retail.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} осн. / 1 млн` : 'Цена уточняется'}
     </em>
   )
 }

@@ -48,7 +48,7 @@ try {
     if (/\/api\/phone\/chat\/threads\/[^/]+\/messages$/.test(url.pathname)) return route.fulfill(json({ ok: true, thread, messages: [] }))
     if (url.pathname === '/api/phone/chat/models') return route.fulfill(json({ ok: true, defaultModel: 'local:izo-chat', models: [
       { id: 'local:izo-chat', name: 'ИЗО Чат', provider: 'local', tokenCost: 0, tokenKind: 'free', description: 'Базовая модель', contextChars: 60000, available: true },
-      { id: 'provider/pro', name: 'Профессиональная модель', provider: 'api', tokenCost: .2, tokenKind: 'main', description: 'Облачная модель', contextChars: 60000, inputPerMillionUsd: .12, outputPerMillionUsd: .34, inputPerMillionProductTokens: 2.34, outputPerMillionProductTokens: 6.63, available: false, unavailableReason: 'Недоступна на вашем тарифе' },
+      { id: 'provider/pro', name: 'Профессиональная модель', provider: 'api', tokenCost: .2, tokenKind: 'main', description: 'Облачная модель', contextChars: 60000, inputPerMillionUsd: .12, outputPerMillionUsd: .34, inputPerMillionProductTokens: 2.34, outputPerMillionProductTokens: 6.63, retailPerMillionProductTokens: 6.63, available: false, unavailableReason: 'Недоступна на вашем тарифе' },
     ] }))
     if (url.pathname === '/api/phone/chat') return route.fulfill(json({ ok: true, reply: 'Нашёл свежую информацию и подготовил изображение.', modelId: 'local:izo-chat', chargedTokens: 0, tokenKind: 'free', messageId: 'assistant-1', tools: [
       { name: 'web_search', ok: true, query: 'Москва', sources: [{ title: 'Источник погоды', url: 'https://example.test/weather' }] },
@@ -191,7 +191,7 @@ try {
   const sheetBox = await modelSheet.boundingBox()
   assert(sheetBox && sheetBox.x >= 0 && sheetBox.x + sheetBox.width <= 390 && sheetBox.y + sheetBox.height <= 844, 'mobile model sheet is clipped')
   for (const label of ['Чат', 'Изображение', 'Видео', 'Звук', '3D']) assert(await modelSheet.getByRole('button', { name: label, exact: true }).count() === 1, `model category is missing: ${label}`)
-  assert(await modelSheet.getByText('вх. 2,34 · вых. 6,63 / 1 млн').count() === 1, 'chat model does not show converted project-token pricing for 1M provider tokens')
+  assert(await modelSheet.getByText('6,63 осн. / 1 млн').count() === 1, 'chat model does not show one retail project-token price for 1M text tokens')
   await modelSheet.getByRole('button', { name: 'Изображение', exact: true }).click()
   assert(await modelSheet.getByText('ИЗО Base', { exact: true }).count() === 1, 'image model tab does not show image models')
   await modelSheet.getByRole('button', { name: 'Видео', exact: true }).click()

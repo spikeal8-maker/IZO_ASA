@@ -51,6 +51,7 @@ export type PhoneChatModel = {
   outputPerMillionUsd?: number
   inputPerMillionProductTokens?: number
   outputPerMillionProductTokens?: number
+  retailPerMillionProductTokens?: number
   available?: boolean
   unavailableReason?: string
 }
