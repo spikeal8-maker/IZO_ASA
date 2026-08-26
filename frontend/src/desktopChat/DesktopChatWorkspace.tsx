@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { Check, ChevronDown, Copy, Download, ImagePlus, Mic, PanelLeftClose, PanelLeftOpen, Plus, Search, Send, Trash2, X } from 'lucide-react'
+import { Check, ChevronDown, Copy, Download, ImagePlus, MessageCircle, Mic, PanelLeftClose, PanelLeftOpen, Plus, Search, Send, Sparkles, Trash2, X } from 'lucide-react'
 
 import {
   createChatThread,
@@ -76,6 +76,7 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [threadQuery, setThreadQuery] = useState('')
+  const [modelQuery, setModelQuery] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 900)
   const [modelOpen, setModelOpen] = useState(false)
   const [voicePhase, setVoicePhase] = useState<VoicePhase>('idle')
@@ -101,8 +102,25 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
     const query = threadQuery.trim().toLocaleLowerCase('ru')
     return query ? threads.filter((item) => (item.title || 'Новый чат').toLocaleLowerCase('ru').includes(query)) : threads
   }, [threadQuery, threads])
+  const visibleModels = useMemo(() => {
+    const query = modelQuery.trim().toLocaleLowerCase('ru')
+    if (!query) return models
+    return models.filter((model) => `${model.name} ${model.description || ''}`.toLocaleLowerCase('ru').includes(query))
+  }, [modelQuery, models])
 
   useEffect(() => { currentIdRef.current = currentId }, [currentId])
+  useEffect(() => {
+    let mobile = window.innerWidth <= 900
+    const syncLayout = () => {
+      const nextMobile = window.innerWidth <= 900
+      if (nextMobile !== mobile) {
+        mobile = nextMobile
+        setSidebarOpen(!nextMobile)
+      }
+    }
+    window.addEventListener('resize', syncLayout)
+    return () => window.removeEventListener('resize', syncLayout)
+  }, [])
 
   const openThread = useCallback(async (thread: PhoneChatThread, signal?: AbortSignal) => {
     const previousId = currentIdRef.current
@@ -169,8 +187,8 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
     const resize = (event: PointerEvent) => {
       const rect = workspaceRef.current?.getBoundingClientRect()
       if (!rect) return
-      const sidebar = sidebarOpen ? 260 : 0
-      const maximum = Math.max(360, rect.width - sidebar - 420 - 6)
+      const sidebar = sidebarOpen ? (workspaceRef.current?.querySelector<HTMLElement>('.dc-sidebar')?.getBoundingClientRect().width || 292) : 72
+      const maximum = Math.max(360, rect.width - sidebar - 280 - 6)
       setArtifactWidth(Math.round(Math.min(maximum, Math.max(340, rect.right - event.clientX))))
     }
     const stop = () => setResizingArtifact(false)
@@ -314,31 +332,32 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
   const workspaceStyle = artifact?.resultUrl ? { '--dc-artifact-width': `${artifactWidth}px` } as CSSProperties : undefined
 
   return <section ref={workspaceRef} style={workspaceStyle} className={`desktop-chat${sidebarOpen ? '' : ' sidebar-closed'}${artifact?.resultUrl ? ' artifact-open' : ''}${resizingArtifact ? ' is-resizing' : ''}`}>
-    <aside className="dc-sidebar">
-      <header><b>Чаты</b><button type="button" onClick={() => void newThread()}><Plus />Новый чат</button></header>
-      <label className="dc-thread-search"><Search /><input value={threadQuery} onChange={(event) => setThreadQuery(event.target.value)} placeholder="Найти чат" /></label>
-      <div className="dc-thread-list">{visibleThreads.map((thread) => <div className={thread.id === currentId ? 'active' : ''} key={thread.id}><button type="button" onClick={() => { void openThread(thread); if (window.innerWidth <= 900) setSidebarOpen(false) }}>{thread.title || 'Новый чат'}</button><button type="button" aria-label="Удалить чат" onClick={() => void removeThread(thread)}><Trash2 /></button></div>)}{!visibleThreads.length && <p>Ничего не найдено</p>}</div>
+    <aside className="dc-sidebar sidebar">
+      <header className="sidebar-head"><b>История</b><button type="button" aria-label="Скрыть историю" onClick={() => setSidebarOpen(false)}><PanelLeftClose /></button></header>
+      <button className="dc-new-chat new-chat" type="button" onClick={() => void newThread()}><Plus /><span>Новый чат</span></button>
+      <label className="dc-thread-search search-field"><Search /><input value={threadQuery} onChange={(event) => setThreadQuery(event.target.value)} placeholder="Найти чат" /></label>
+      <div className="dc-thread-list thread-group"><div className="thread-group-title">Недавние</div>{visibleThreads.map((thread) => <div className={`thread-item${thread.id === currentId ? ' active' : ''}`} key={thread.id}><button className="thread-open" type="button" onClick={() => { void openThread(thread); if (window.innerWidth <= 900) setSidebarOpen(false) }}><span className="dc-thread-icon thread-thumb"><MessageCircle /></span><span className="thread-copy"><b>{thread.title || 'Новый чат'}</b><small>{new Date(thread.updatedAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</small></span></button><button className="thread-delete" type="button" aria-label="Удалить чат" onClick={() => void removeThread(thread)}><Trash2 /></button></div>)}{!visibleThreads.length && <p>Ничего не найдено</p>}</div>
     </aside>
     {sidebarOpen && <button className="dc-sidebar-backdrop" type="button" aria-label="Закрыть историю" onClick={() => setSidebarOpen(false)} />}
-    <main className="dc-main">
-      <div className="dc-workspace-actions"><button type="button" aria-label={sidebarOpen ? 'Скрыть историю' : 'Показать историю'} onClick={() => setSidebarOpen((value) => !value)}>{sidebarOpen ? <PanelLeftClose /> : <PanelLeftOpen />}</button><button type="button" aria-label="Новый чат" onClick={() => void newThread()}><Plus /></button></div>
-      <div ref={messagesRef} className="dc-messages" onScroll={(event) => {
+    <main className={`dc-main chat-main${!messages.length ? ' is-empty' : ''}`}>
+      {!sidebarOpen && <div className="dc-workspace-actions"><button type="button" aria-label="Показать историю" onClick={() => setSidebarOpen(true)}><PanelLeftOpen /></button></div>}
+      <div ref={messagesRef} className="dc-messages conversation" onScroll={(event) => {
         const node = event.currentTarget
         stickToBottomRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 96
         if (currentId) scrollPositionsRef.current[currentId] = node.scrollTop
-      }}>
-        {!authed ? <div className="dc-empty"><h1>Чат ИЗО АСА</h1><p>Войдите, чтобы сохранять диалоги и использовать инструменты.</p><button type="button" onClick={onRequireAuth}>Войти</button></div> : !messages.length ? <div className="dc-empty"><h1>Что хотите сделать?</h1><p>Спросите что угодно, найдите свежую информацию или создайте изображение.</p><div>{suggestions.map(({ icon: Icon, label, prompt }) => <button type="button" key={label} onClick={() => { setText(prompt); inputRef.current?.focus() }}><Icon />{label}</button>)}<button type="button" onClick={() => onNavigate('/video')}>Создать видео</button><button type="button" onClick={() => onNavigate('/audio')}>Создать звук</button><button type="button" onClick={() => onNavigate('/3d')}>Создать 3D</button></div></div> : messages.map((message, index) => {
+      }}><div className="conversation-column">
+        {!authed ? <div className="dc-empty"><span className="dc-empty-mark"><Sparkles /></span><h1>Чат ИЗО АСА</h1><p>Войдите, чтобы сохранять диалоги и использовать инструменты.</p><button type="button" onClick={onRequireAuth}>Войти</button></div> : !messages.length ? <div className="dc-empty"><span className="dc-empty-mark"><Sparkles /></span><h1>Что хотите сделать?</h1><p>Задайте вопрос, найдите свежую информацию или создайте новый материал.</p><div>{suggestions.map(({ icon: Icon, label, prompt }) => <button type="button" key={label} onClick={() => { setText(prompt); inputRef.current?.focus() }}><Icon />{label}</button>)}<button type="button" onClick={() => onNavigate('/video')}>Создать видео</button><button type="button" onClick={() => onNavigate('/audio')}>Создать звук</button><button type="button" onClick={() => onNavigate('/3d')}>Создать 3D</button></div></div> : messages.map((message, index) => {
           const clean = message.role === 'assistant' ? cleanAssistantText(message.content, message.tools || []) : message.content
-          return <article className={`dc-message ${message.role} ${message.status}`} key={message.id || index}><div className="dc-message-head"><b>{message.role === 'user' ? 'Вы' : 'ИЗО Чат'}</b><button type="button" aria-label="Копировать" onClick={() => void navigator.clipboard.writeText(clean)}><Copy /></button></div>{message.status === 'pending' ? <span className="dc-thinking"><i /><i /><i /></span> : message.role === 'assistant' ? <FormattedText value={clean} /> : <p>{clean}</p>}{(message.tools || []).filter((tool) => tool.name === 'web_search').map((tool, toolIndex) => <div className="dc-search-result" key={toolIndex}><Search /><span>Поиск в интернете</span>{tool.sources?.map((source) => <a href={source.url} target="_blank" rel="noreferrer" key={source.url}>{source.title}</a>)}</div>)}{(message.tools || []).filter((tool) => tool.name === 'generate_image').map((tool, toolIndex) => <button type="button" className="dc-image-result" key={toolIndex} onClick={() => tool.resultUrl && setArtifact(tool)}>{tool.resultUrl ? <img src={tool.resultUrl} alt="Созданное изображение" /> : <ImagePlus />}<span>{tool.status === 'running' ? 'Создаём изображение…' : tool.error || 'Открыть изображение'}</span></button>)}</article>
-        })}<div className="dc-scroll-anchor" /></div>
-      <footer className="dc-composer">
+          return <article className={`dc-message turn turn-${message.role} ${message.role} ${message.status}`} key={message.id || index}><div className="dc-message-head asa-head">{message.role === 'assistant' && <span className="asa-icon"><Sparkles /></span>}<b>{message.role === 'user' ? 'Вы' : 'ИЗО Чат'}</b><button type="button" aria-label="Копировать" onClick={() => void navigator.clipboard.writeText(clean)}><Copy /></button></div>{message.status === 'pending' ? <span className="dc-thinking status-block"><i /><i /><i /></span> : message.role === 'assistant' ? <div className="assistant-body"><FormattedText value={clean} /></div> : <p>{clean}</p>}{(message.tools || []).filter((tool) => tool.name === 'web_search').map((tool, toolIndex) => <div className="dc-search-result sources" key={toolIndex}><Search /><span>Источники</span>{tool.sources?.map((source) => <a href={source.url} target="_blank" rel="noreferrer" key={source.url}>{source.title}</a>)}</div>)}{(message.tools || []).filter((tool) => tool.name === 'generate_image').map((tool, toolIndex) => <button type="button" className="dc-image-result artifact-block" key={toolIndex} onClick={() => tool.resultUrl && setArtifact(tool)}>{tool.resultUrl ? <img src={tool.resultUrl} alt="Созданное изображение" /> : <ImagePlus />}<span>{tool.status === 'running' ? 'Создаём изображение…' : tool.error || 'Открыть изображение'}</span></button>)}</article>
+        })}<div className="dc-scroll-anchor" /></div></div>
+      <footer className="dc-composer-area composer-area"><div className="dc-composer composer">
         {(voicePhase !== 'idle' || error) && <div className={`dc-composer-status ${voicePhase === 'error' || error ? 'is-error' : ''}`} role="status">{voicePhase === 'requesting' ? <><span className="dc-status-spinner" />Подключаем микрофон…</> : voicePhase === 'recording' ? <><span className="dc-voice-wave"><i /><i /><i /><i /></span>Говорите · {voiceSeconds} с</> : voicePhase === 'transcribing' ? <><span className="dc-status-spinner" />Распознаём речь…</> : error}<button type="button" aria-label="Закрыть сообщение" onClick={() => { setError(''); if (voicePhase === 'error') setVoicePhase('idle') }}><X /></button></div>}
         {images.length > 0 && <div className="dc-attachments">{images.map((src, index) => <span key={index}><img src={src} alt="Вложение" /><button type="button" onClick={() => setImages((items) => items.filter((_, itemIndex) => itemIndex !== index))}><X /></button></span>)}</div>}
         <textarea ref={inputRef} rows={1} maxLength={4000} value={text} placeholder="Сообщение…" onChange={(event) => { setText(event.target.value); event.currentTarget.style.height = '0'; event.currentTarget.style.height = `${Math.min(132, event.currentTarget.scrollHeight)}px` }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() } }} />
         <div><input ref={fileRef} hidden multiple type="file" accept="image/jpeg,image/png,image/webp" onChange={async (event) => { try { const selected = await Promise.all(Array.from(event.target.files || []).slice(0, Math.max(0, 4 - images.length)).map(readImage)); setImages((items) => [...items, ...selected].slice(0, 4)) } catch (caught) { setError(caught instanceof Error ? caught.message : 'Не удалось добавить изображение.') } event.target.value = '' }} /><button type="button" aria-label="Добавить изображение" onClick={() => fileRef.current?.click()}><Plus /></button><button className="dc-model-button" type="button" aria-expanded={modelOpen} onClick={() => setModelOpen((value) => !value)}><span>{selectedModel?.name || 'ИЗО Чат'}</span><ChevronDown /></button><button className={voicePhase === 'recording' || voicePhase === 'requesting' ? 'recording' : ''} type="button" aria-label="Удерживайте, чтобы говорить" onPointerDown={(event) => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); void startVoice(event.pointerId) }} onPointerUp={() => finishVoice(false)} onPointerCancel={() => finishVoice(true)}><Mic /></button><button className="dc-send" type="button" aria-label="Отправить" disabled={busy || (!text.trim() && !images.length)} onClick={() => void submit()}><Send /></button></div>
-      </footer>
+      </div></footer>
     </main>
-    {modelOpen && <><button className="dc-model-backdrop" type="button" aria-label="Закрыть выбор модели" onClick={() => setModelOpen(false)} /><section className="dc-model-popover" role="dialog" aria-modal="true" aria-label="Выбор модели"><header><div><small>Настройки диалога</small><b>Модель чата</b></div><button type="button" aria-label="Закрыть" onClick={() => setModelOpen(false)}><X /></button></header><nav aria-label="Тип модели"><button type="button" className="active">Чат</button><button type="button" onClick={() => onNavigate('/image')}>Изображение</button><button type="button" onClick={() => onNavigate('/video')}>Видео</button><button type="button" onClick={() => onNavigate('/audio')}>Звук</button><button type="button" onClick={() => onNavigate('/3d')}>3D</button></nav><div className="dc-model-list">{models.map((model) => <button type="button" key={model.id} disabled={model.available === false} className={`${model.id === modelId ? 'active ' : ''}${model.available === false ? 'unavailable' : ''}`} onClick={() => void chooseModel(model)}><span><b>{model.name}</b><small>{model.available === false ? model.unavailableReason : model.description}</small></span><TokenPrice model={model} />{model.id === modelId && <Check />}</button>)}</div></section></>}
+    {modelOpen && <><button className="dc-model-backdrop" type="button" aria-label="Закрыть выбор модели" onClick={() => setModelOpen(false)} /><section className="dc-model-popover model-popover" role="dialog" aria-modal="true" aria-label="Выбор модели"><header className="model-popover-head"><div><b>Выбор модели</b><small>Модель применяется только к этому диалогу</small></div><button type="button" aria-label="Закрыть" onClick={() => setModelOpen(false)}><X /></button></header><nav className="model-filter" aria-label="Тип модели"><button type="button" className="active">Чат</button><button type="button" onClick={() => onNavigate('/image')}>Изображение</button><button type="button" onClick={() => onNavigate('/video')}>Видео</button><button type="button" onClick={() => onNavigate('/audio')}>Звук</button><button type="button" onClick={() => onNavigate('/3d')}>3D</button></nav><label className="dc-model-search model-search"><Search /><input value={modelQuery} onChange={(event) => setModelQuery(event.target.value)} placeholder="Найти модель" /></label><div className="dc-model-list model-list">{visibleModels.map((model) => <button type="button" key={model.id} disabled={model.available === false} className={`model-item${model.id === modelId ? ' selected active' : ''}${model.available === false ? ' unavailable' : ''}`} onClick={() => void chooseModel(model)}><span className="dc-model-icon model-item-icon"><Sparkles /></span><span className="model-item-copy"><b>{model.name}</b><small>{model.available === false ? model.unavailableReason : model.description}</small></span><TokenPrice model={model} />{model.id === modelId && <Check />}</button>)}</div></section></>}
     {artifact?.resultUrl && <><div className="dc-artifact-resizer" role="separator" aria-label="Изменить ширину предпросмотра" aria-orientation="vertical" tabIndex={0} onPointerDown={(event) => { event.preventDefault(); setResizingArtifact(true) }} onKeyDown={(event) => { if (event.key === 'ArrowLeft') { event.preventDefault(); setArtifactWidth((value) => Math.min(960, value + 24)) } else if (event.key === 'ArrowRight') { event.preventDefault(); setArtifactWidth((value) => Math.max(340, value - 24)) } }}><span /></div><aside className="dc-artifact"><header><div><small>Результат</small><b>Изображение</b></div><button type="button" aria-label="Закрыть предпросмотр" onClick={() => setArtifact(null)}><X /></button></header><div><img src={artifact.resultUrl} alt="Созданное изображение" /></div><footer><a href={artifact.resultUrl} download="izo-asa-image.png"><Download />Скачать</a><button type="button" onClick={() => { sessionStorage.setItem('izo.video.source', artifact.resultUrl || ''); onNavigate('/video') }}>Оживить</button></footer></aside></>}
   </section>
 }

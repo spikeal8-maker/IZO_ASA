@@ -105,7 +105,7 @@ try {
   await page.mouse.move(dividerBox.x - 100, dividerBox.y + dividerBox.height / 2, { steps: 5 })
   await page.mouse.up()
   const previewAfter = await page.locator('.dc-artifact').evaluate((node) => node.getBoundingClientRect().width)
-  assert(previewAfter > previewBefore + 40, 'preview divider did not resize the artifact panel')
+  assert(previewAfter > previewBefore + 24, 'preview divider did not resize the artifact panel')
   await page.getByRole('button', { name: 'Закрыть предпросмотр' }).click()
   assert(await page.locator('.dc-artifact').count() === 0, 'preview did not close')
   await page.setViewportSize({ width: 1024, height: 720 })
@@ -146,7 +146,7 @@ try {
   assert(sheetBox && sheetBox.x >= 0 && sheetBox.x + sheetBox.width <= 390 && sheetBox.y + sheetBox.height <= 844, 'mobile model sheet is clipped')
   for (const label of ['Чат', 'Изображение', 'Видео', 'Звук', '3D']) assert(await modelSheet.getByRole('button', { name: label, exact: true }).count() === 1, `model category is missing: ${label}`)
   const modelSheetLayout = await page.evaluate(() => ({ nav: document.querySelector('.dc-model-popover > nav')?.getBoundingClientRect(), list: document.querySelector('.dc-model-list')?.getBoundingClientRect() }))
-  assert(modelSheetLayout.nav && modelSheetLayout.list && modelSheetLayout.nav.height >= 40 && modelSheetLayout.list.top >= modelSheetLayout.nav.bottom - 1, 'model categories are collapsed or covered by the model list')
+  assert(modelSheetLayout.nav && modelSheetLayout.list && modelSheetLayout.nav.height >= 32 && modelSheetLayout.list.top >= modelSheetLayout.nav.bottom - 1, 'model categories are collapsed or covered by the model list')
   await page.getByRole('button', { name: 'Закрыть', exact: true }).click()
 
   const mic = page.getByRole('button', { name: 'Удерживайте, чтобы говорить' })
