@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { Check, ChevronDown, Copy, Download, ImagePlus, MessageCircle, Mic, PanelLeftClose, PanelLeftOpen, Plus, Search, Send, Sparkles, Trash2, X } from 'lucide-react'
+import { Check, ChevronDown, Copy, Download, ImagePlus, MessageCircle, Mic, Moon, PanelLeftClose, PanelLeftOpen, Plus, Search, Send, Sparkles, Sun, Trash2, X } from 'lucide-react'
 
 import {
   createChatThread,
@@ -22,6 +22,7 @@ import './desktopChat.css'
 
 type Props = { authed: boolean; onRequireAuth: () => void; onNavigate: (path: '/image' | '/video' | '/audio' | '/3d') => void }
 type VoicePhase = 'idle' | 'requesting' | 'recording' | 'transcribing' | 'error'
+type ChatTheme = 'dark' | 'light'
 
 const suggestions = [
   { icon: Search, label: 'Найти информацию', prompt: 'Найди в интернете актуальную информацию о ' },
@@ -77,6 +78,7 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
   const [error, setError] = useState('')
   const [threadQuery, setThreadQuery] = useState('')
   const [modelQuery, setModelQuery] = useState('')
+  const [theme, setTheme] = useState<ChatTheme>(() => localStorage.getItem('izo.desktop-chat.theme') === 'light' ? 'light' : 'dark')
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 900)
   const [modelOpen, setModelOpen] = useState(false)
   const [voicePhase, setVoicePhase] = useState<VoicePhase>('idle')
@@ -109,6 +111,7 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
   }, [modelQuery, models])
 
   useEffect(() => { currentIdRef.current = currentId }, [currentId])
+  useEffect(() => { localStorage.setItem('izo.desktop-chat.theme', theme) }, [theme])
   useEffect(() => {
     let mobile = window.innerWidth <= 900
     const syncLayout = () => {
@@ -331,7 +334,9 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
 
   const workspaceStyle = artifact?.resultUrl ? { '--dc-artifact-width': `${artifactWidth}px` } as CSSProperties : undefined
 
-  return <section ref={workspaceRef} style={workspaceStyle} className={`desktop-chat${sidebarOpen ? '' : ' sidebar-closed'}${artifact?.resultUrl ? ' artifact-open' : ''}${resizingArtifact ? ' is-resizing' : ''}`}>
+  const localPreview = location.hostname === '127.0.0.1' || location.hostname === 'localhost'
+
+  return <section ref={workspaceRef} style={workspaceStyle} className={`desktop-chat theme-${theme}${sidebarOpen ? '' : ' sidebar-closed'}${artifact?.resultUrl ? ' artifact-open' : ''}${resizingArtifact ? ' is-resizing' : ''}`}>
     <aside className="dc-sidebar sidebar">
       <header className="sidebar-head"><b>История</b><button type="button" aria-label="Скрыть историю" onClick={() => setSidebarOpen(false)}><PanelLeftClose /></button></header>
       <button className="dc-new-chat new-chat" type="button" onClick={() => void newThread()}><Plus /><span>Новый чат</span></button>
@@ -340,13 +345,13 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
     </aside>
     {sidebarOpen && <button className="dc-sidebar-backdrop" type="button" aria-label="Закрыть историю" onClick={() => setSidebarOpen(false)} />}
     <main className={`dc-main chat-main${!messages.length ? ' is-empty' : ''}`}>
-      {!sidebarOpen && <div className="dc-workspace-actions"><button type="button" aria-label="Показать историю" onClick={() => setSidebarOpen(true)}><PanelLeftOpen /></button></div>}
+      <div className="dc-chat-toolbar"><div>{!sidebarOpen && <button type="button" aria-label="Показать историю" onClick={() => setSidebarOpen(true)}><PanelLeftOpen /></button>}</div><button type="button" aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'} title={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'} onClick={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? <Sun /> : <Moon />}</button></div>
       <div ref={messagesRef} className="dc-messages conversation" onScroll={(event) => {
         const node = event.currentTarget
         stickToBottomRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 96
         if (currentId) scrollPositionsRef.current[currentId] = node.scrollTop
       }}><div className="conversation-column">
-        {!authed ? <div className="dc-empty"><span className="dc-empty-mark"><Sparkles /></span><h1>Чат ИЗО АСА</h1><p>Войдите, чтобы сохранять диалоги и использовать инструменты.</p><button type="button" onClick={onRequireAuth}>Войти</button></div> : !messages.length ? <div className="dc-empty"><span className="dc-empty-mark"><Sparkles /></span><h1>Что хотите сделать?</h1><p>Задайте вопрос, найдите свежую информацию или создайте новый материал.</p><div>{suggestions.map(({ icon: Icon, label, prompt }) => <button type="button" key={label} onClick={() => { setText(prompt); inputRef.current?.focus() }}><Icon />{label}</button>)}<button type="button" onClick={() => onNavigate('/video')}>Создать видео</button><button type="button" onClick={() => onNavigate('/audio')}>Создать звук</button><button type="button" onClick={() => onNavigate('/3d')}>Создать 3D</button></div></div> : messages.map((message, index) => {
+        {!authed ? <div className="dc-empty"><span className="dc-empty-mark"><Sparkles /></span><h1>Чат ИЗО АСА</h1><p>{localPreview ? 'Локальная страница использует отдельный вход. Авторизуйтесь здесь один раз.' : 'Войдите, чтобы сохранять диалоги и использовать инструменты.'}</p><button type="button" onClick={onRequireAuth}>{localPreview ? 'Войти для проверки' : 'Войти'}</button></div> : !messages.length ? <div className="dc-empty"><span className="dc-empty-mark"><Sparkles /></span><h1>Что хотите сделать?</h1><p>Задайте вопрос, найдите свежую информацию или создайте новый материал.</p><div>{suggestions.map(({ icon: Icon, label, prompt }) => <button type="button" key={label} onClick={() => { setText(prompt); inputRef.current?.focus() }}><Icon />{label}</button>)}<button type="button" onClick={() => onNavigate('/video')}>Создать видео</button><button type="button" onClick={() => onNavigate('/audio')}>Создать звук</button><button type="button" onClick={() => onNavigate('/3d')}>Создать 3D</button></div></div> : messages.map((message, index) => {
           const clean = message.role === 'assistant' ? cleanAssistantText(message.content, message.tools || []) : message.content
           return <article className={`dc-message turn turn-${message.role} ${message.role} ${message.status}`} key={message.id || index}><div className="dc-message-head asa-head">{message.role === 'assistant' && <span className="asa-icon"><Sparkles /></span>}<b>{message.role === 'user' ? 'Вы' : 'ИЗО Чат'}</b><button type="button" aria-label="Копировать" onClick={() => void navigator.clipboard.writeText(clean)}><Copy /></button></div>{message.status === 'pending' ? <span className="dc-thinking status-block"><i /><i /><i /></span> : message.role === 'assistant' ? <div className="assistant-body"><FormattedText value={clean} /></div> : <p>{clean}</p>}{(message.tools || []).filter((tool) => tool.name === 'web_search').map((tool, toolIndex) => <div className="dc-search-result sources" key={toolIndex}><Search /><span>Источники</span>{tool.sources?.map((source) => <a href={source.url} target="_blank" rel="noreferrer" key={source.url}>{source.title}</a>)}</div>)}{(message.tools || []).filter((tool) => tool.name === 'generate_image').map((tool, toolIndex) => <button type="button" className="dc-image-result artifact-block" key={toolIndex} onClick={() => tool.resultUrl && setArtifact(tool)}>{tool.resultUrl ? <img src={tool.resultUrl} alt="Созданное изображение" /> : <ImagePlus />}<span>{tool.status === 'running' ? 'Создаём изображение…' : tool.error || 'Открыть изображение'}</span></button>)}</article>
         })}<div className="dc-scroll-anchor" /></div></div>
