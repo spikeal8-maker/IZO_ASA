@@ -39,6 +39,18 @@ const suggestions = [
   },
 ]
 
+const defaultChatModels: PhoneChatModel[] = [
+  {
+    id: 'local:izo-chat',
+    name: 'ИЗО Чат',
+    provider: 'local',
+    tokenCost: 0,
+    tokenKind: 'free',
+    description: 'Базовая локальная модель',
+    contextChars: 60000,
+  },
+]
+
 const makeId = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`
 
 function readImage(file: File): Promise<string> {
@@ -106,8 +118,8 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
   const [threads, setThreads] = useState<PhoneChatThread[]>([])
   const [currentId, setCurrentId] = useState('')
   const [messages, setMessages] = useState<PhoneChatMessage[]>([])
-  const [models, setModels] = useState<PhoneChatModel[]>([])
-  const [modelsLoading, setModelsLoading] = useState(false)
+  const [models, setModels] = useState<PhoneChatModel[]>(defaultChatModels)
+  const [modelsLoading, setModelsLoading] = useState(true)
   const [modelId, setModelId] = useState('local:izo-chat')
   const [text, setText] = useState('')
   const [images, setImages] = useState<string[]>([])
@@ -205,18 +217,6 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
   useEffect(() => {
     if (!authed) return
     const controller = new AbortController()
-    setModels([
-      {
-        id: 'local:izo-chat',
-        name: 'ИЗО Чат',
-        provider: 'local',
-        tokenCost: 0,
-        tokenKind: 'free',
-        description: 'Базовая локальная модель',
-        contextChars: 60000,
-      },
-    ])
-    setModelsLoading(true)
     void listChatThreads(controller.signal)
       .then(async (saved) => {
         setThreads(saved)
@@ -280,10 +280,7 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
     } else if (stickToBottomRef.current) node.scrollTop = node.scrollHeight
   }, [messages, busy, currentId])
   useEffect(() => {
-    if (voicePhase !== 'recording') {
-      setVoiceSeconds(0)
-      return
-    }
+    if (voicePhase !== 'recording') return
     const tick = () => setVoiceSeconds(Math.max(1, Math.floor((Date.now() - (recorderRef.current?.startedAt || Date.now())) / 1000) + 1))
     tick()
     const timer = window.setInterval(tick, 250)
@@ -628,6 +625,7 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
           void active.audioContext?.close().catch(() => undefined)
           stream.getTracks().forEach((track) => track.stop())
           recorderRef.current = null
+          setVoiceSeconds(0)
           setVoiceLevels(Array.from({ length: 58 }, () => 3))
           const duration = Date.now() - active.startedAt
           if (active.cancelled || duration < 700 || !active.chunks.length) {
@@ -657,6 +655,7 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
       active.startedAt = Date.now()
       recorder.start(250)
       startVoiceMeter(stream, active)
+      setVoiceSeconds(0)
       setVoicePhase('recording')
     } catch (caught) {
       if (voiceGestureRef.current.requestId === requestId) {
