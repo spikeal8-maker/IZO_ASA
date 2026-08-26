@@ -171,8 +171,37 @@ try {
   const mobileArtifactLayout = await page.evaluate(() => ({ chat: document.querySelector('.desktop-chat')?.getBoundingClientRect(), artifact: document.querySelector('.dc-artifact')?.getBoundingClientRect(), bodyHeight: document.documentElement.scrollHeight, viewport: innerHeight }))
   assert(mobileArtifactLayout.chat && mobileArtifactLayout.artifact && mobileArtifactLayout.chat.bottom <= mobileArtifactLayout.viewport + 1 && mobileArtifactLayout.artifact.bottom <= mobileArtifactLayout.viewport + 1, 'mobile artifact stretches beyond the viewport')
   assert(mobileArtifactLayout.bodyHeight <= mobileArtifactLayout.viewport + 1, 'mobile artifact makes the document scroll')
+
+  const verifyChatAuthReturn = async (mode) => {
+    const context = await browser.newContext({ viewport: { width: 1280, height: 800 } })
+    const authPage = await context.newPage()
+    let authenticated = false
+    await authPage.route('**/api/**', async (route) => {
+      const url = new URL(route.request().url())
+      if (url.pathname === '/api/auth/bootstrap-v2') return route.fulfill(json({ installation_id: `desktop-chat-${mode}`, anonymous_id: `desktop-chat-${mode}` }))
+      if (url.pathname === '/api/auth/capabilities-v2') return route.fulfill(json({ password_login_available: true, password_register_available: true, email_otp_available: false }))
+      if (url.pathname === '/api/auth/session/refresh-v2') return route.fulfill(json(authenticated ? { ok: true } : { detail: 'unauthorized' }, authenticated ? 200 : 401))
+      if (url.pathname === '/api/me-v2') return route.fulfill(json(authenticated ? { internal_user_id: `desktop-chat-${mode}`, profile: { display_name: 'Проверка входа' }, account: { role: 'user', plan: 'mini', token_balance: 20, daily_tokens_limit: 25, daily_tokens_remaining: 24 } } : { detail: 'unauthorized' }, authenticated ? 200 : 401))
+      if (url.pathname === `/api/auth/password/${mode}-v2`) { authenticated = true; return route.fulfill(json({ ok: true, requires_email_verification: false })) }
+      if (url.pathname === '/api/phone/chat/threads') return route.fulfill(json({ ok: true, threads: [] }))
+      if (url.pathname === '/api/phone/chat/models') return route.fulfill(json({ ok: true, defaultModel: 'local:izo-chat', models: [{ id: 'local:izo-chat', name: 'ИЗО Чат', provider: 'local', tokenCost: 0, tokenKind: 'free', description: 'Базовая модель', contextChars: 60000, available: true }] }))
+      return route.fulfill(json({ ok: true, items: [] }))
+    })
+    await authPage.goto(`${baseURL}/chat`, { waitUntil: 'networkidle' })
+    await authPage.getByRole('button', { name: 'Войти для проверки' }).click()
+    if (mode === 'register') await authPage.getByRole('button', { name: 'Регистрация' }).click()
+    await authPage.getByLabel('Email').fill(`${mode}@example.test`)
+    await authPage.getByLabel('Пароль', { exact: true }).fill('Password!123')
+    if (mode === 'register') await authPage.getByLabel('Повторите пароль').fill('Password!123')
+    await authPage.getByRole('button', { name: mode === 'login' ? 'Войти' : 'Создать аккаунт', exact: true }).last().click()
+    await authPage.getByRole('heading', { name: 'Что хотите сделать?' }).waitFor()
+    assert(new URL(authPage.url()).pathname === '/chat', `${mode} redirected away from the chat`)
+    await context.close()
+  }
+  await verifyChatAuthReturn('login')
+  await verifyChatAuthReturn('register')
   assert(errors.length === 0, `page errors: ${errors.join('; ')}`)
-  console.log('DESKTOP_CHAT_E2E_OK persistence=true webSearch=true imageTool=true tariffGuard=true mobileScroll=true modelSheet=true microphoneState=true')
+  console.log('DESKTOP_CHAT_E2E_OK persistence=true webSearch=true imageTool=true tariffGuard=true mobileScroll=true modelSheet=true microphoneState=true loginReturn=true registrationReturn=true')
 } finally {
   await browser.close()
 }

@@ -698,7 +698,7 @@ export async function refreshAuthStateV2(): Promise<MeV2 | null> {
 
 // Modal login surface opened by the locked generation CTA. Cookie-only auth; no
 // tokens stored in JS. role="dialog", closes on X / overlay / Esc.
-export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => void }): ReactElement | null {
+export function AuthV2Modal({ open, onClose, stayOnCurrentPage = false }: { open: boolean; onClose: () => void; stayOnCurrentPage?: boolean }): ReactElement | null {
   const { me: currentMe } = useAuthV2()
   const [tab, setTab] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
@@ -738,9 +738,9 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
     const me = await refreshAuthStateV2()
     if (!me) return false
     handleClose()
-    window.location.assign('/#text-to-image')
+    if (!stayOnCurrentPage) window.location.assign('/#text-to-image')
     return true
-  }, [handleClose])
+  }, [handleClose, stayOnCurrentPage])
 
   useEffect(() => {
     if (!open) return
