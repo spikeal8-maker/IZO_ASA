@@ -255,14 +255,14 @@ Auth policy is a conservative static hint. Every `REVIEW` row must be checked in
 | POST | `/api/telegram/webhook` | `telegram_webhook` | 248 | webhook: telegram secret required |
 | POST | `/api/max/webhook` | `max_webhook` | 284 | webhook: MAX secret conditional |
 | POST | `/speech` | `generate_speech` | 79 | public/optional/review |
-| GET | `/api/phone/chat/threads` | `phone_chat_threads` | 560 | public/optional/review |
-| POST | `/api/phone/chat/threads` | `phone_chat_thread_create` | 568 | public/optional/review |
-| PATCH | `/api/phone/chat/threads/{thread_id}` | `phone_chat_thread_update` | 582 | public/optional/review |
-| DELETE | `/api/phone/chat/threads/{thread_id}` | `phone_chat_thread_delete` | 594 | public/optional/review |
-| GET | `/api/phone/chat/threads/{thread_id}/messages` | `phone_chat_thread_messages` | 606 | public/optional/review |
-| PATCH | `/api/phone/chat/threads/{thread_id}/messages/{message_id}/tools` | `phone_chat_message_tools` | 618 | public/optional/review |
-| GET | `/api/phone/chat/models` | `phone_chat_models` | 630 | public/optional/review |
-| POST | `/api/phone/chat` | `phone_chat` | 679 | public/optional/review |
+| GET | `/api/phone/chat/threads` | `phone_chat_threads` | 563 | public/optional/review |
+| POST | `/api/phone/chat/threads` | `phone_chat_thread_create` | 571 | public/optional/review |
+| PATCH | `/api/phone/chat/threads/{thread_id}` | `phone_chat_thread_update` | 585 | public/optional/review |
+| DELETE | `/api/phone/chat/threads/{thread_id}` | `phone_chat_thread_delete` | 597 | public/optional/review |
+| GET | `/api/phone/chat/threads/{thread_id}/messages` | `phone_chat_thread_messages` | 609 | public/optional/review |
+| PATCH | `/api/phone/chat/threads/{thread_id}/messages/{message_id}/tools` | `phone_chat_message_tools` | 621 | public/optional/review |
+| GET | `/api/phone/chat/models` | `phone_chat_models` | 633 | public/optional/review |
+| POST | `/api/phone/chat` | `phone_chat` | 701 | public/optional/review |
 | GET | `` | `phone_jobs` | 31 | user |
 | GET | `/{job_id}` | `phone_job` | 44 | user |
 | GET | `/platform` | `phone_platform` | 23 | user |
