@@ -23,6 +23,7 @@ import './desktopChat.css'
 type Props = { authed: boolean; onRequireAuth: () => void; onNavigate: (path: '/image' | '/video' | '/audio' | '/3d') => void }
 type VoicePhase = 'idle' | 'requesting' | 'recording' | 'transcribing' | 'error'
 type ChatTheme = 'dark' | 'light'
+type VoiceRecorder = { recorder: MediaRecorder; stream: MediaStream; chunks: Blob[]; startedAt: number; cancelled: boolean; audioContext?: AudioContext; animationFrame?: number }
 
 const suggestions = [
   { icon: Search, label: 'Найти информацию', prompt: 'Найди в интернете актуальную информацию о ' },
@@ -81,8 +82,11 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
   const [theme, setTheme] = useState<ChatTheme>(() => localStorage.getItem('izo.desktop-chat.theme') === 'light' ? 'light' : 'dark')
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 900)
   const [modelOpen, setModelOpen] = useState(false)
+  const [attachOpen, setAttachOpen] = useState(false)
   const [voicePhase, setVoicePhase] = useState<VoicePhase>('idle')
   const [voiceSeconds, setVoiceSeconds] = useState(0)
+  const [voiceLevels, setVoiceLevels] = useState<number[]>(() => Array.from({ length: 42 }, () => 3))
+  const [threadKinds, setThreadKinds] = useState<Record<string, 'chat' | 'image'>>({})
   const [artifact, setArtifact] = useState<PhoneChatTool | null>(null)
   const [artifactWidth, setArtifactWidth] = useState(() => Math.round(Math.min(920, Math.max(420, window.innerWidth * .48))))
   const [resizingArtifact, setResizingArtifact] = useState(false)
@@ -92,7 +96,7 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
   const workspaceRef = useRef<HTMLElement>(null)
   const threadLoadSequence = useRef(0)
   const currentIdRef = useRef('')
-  const recorderRef = useRef<{ recorder: MediaRecorder; stream: MediaStream; chunks: Blob[]; startedAt: number; cancelled: boolean } | null>(null)
+  const recorderRef = useRef<VoiceRecorder | null>(null)
   const voiceGestureRef = useRef({ pressed: false, pointerId: -1, requestId: 0 })
   const scrollPositionsRef = useRef<Record<string, number>>({})
   const restoreScrollRef = useRef<number | null>(null)
@@ -135,6 +139,7 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
     stickToBottomRef.current = restoreScrollRef.current === Number.POSITIVE_INFINITY
     setCurrentId(thread.id)
     setMessages(loaded.messages)
+    if (loaded.messages.some((message) => (message.tools || []).some((tool) => tool.name === 'generate_image'))) setThreadKinds((items) => ({ ...items, [thread.id]: 'image' }))
     setModelId(thread.chatModelId)
     setArtifact([...loaded.messages].reverse().flatMap((message) => message.tools || []).find((tool) => tool.resultUrl) || null)
     setError('')
@@ -215,6 +220,14 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Не удалось создать чат.') }
   }
 
+  const appendImages = async (files: File[]) => {
+    try {
+      const selected = await Promise.all(files.filter((file) => file.type.startsWith('image/')).slice(0, Math.max(0, 4 - images.length)).map(readImage))
+      if (!selected.length) throw new Error('Выберите изображение JPEG, PNG или WebP.')
+      setImages((items) => [...items, ...selected].slice(0, 4)); setError('')
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Не удалось добавить изображение.') }
+  }
+
   const removeThread = async (thread: PhoneChatThread) => {
     try {
       await deleteChatThread(thread.id)
@@ -257,6 +270,7 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
       setMessages((items) => items.map((item) => item.id === pendingId ? { ...item, id: assistantId, content: answer.reply, model: answer.modelId, chargedTokens: answer.chargedTokens, tokenKind: answer.tokenKind, tools, status: 'done' } : item))
       for (let index = 0; index < tools.length; index += 1) {
         if (tools[index].name !== 'generate_image' || tools[index].status !== 'requested') continue
+        setThreadKinds((items) => ({ ...items, [thread!.id]: 'image' }))
         const replace = (next: PhoneChatTool) => {
           tools = tools.map((tool, toolIndex) => toolIndex === index ? next : tool)
           setMessages((items) => items.map((item) => item.id === assistantId ? { ...item, tools } : item))
@@ -285,6 +299,36 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
     if (active.recorder.state !== 'inactive') active.recorder.stop()
   }
 
+  const startVoiceMeter = (stream: MediaStream, active: VoiceRecorder) => {
+    if (typeof AudioContext === 'undefined') return
+    try {
+      const audioContext = new AudioContext()
+      const analyser = audioContext.createAnalyser()
+      analyser.fftSize = 256
+      audioContext.createMediaStreamSource(stream).connect(analyser)
+      const samples = new Uint8Array(analyser.frequencyBinCount)
+      let lastPaint = 0
+      const paint = (now: number) => {
+        if (recorderRef.current !== active) return
+        active.animationFrame = window.requestAnimationFrame(paint)
+        if (now - lastPaint < 45) return
+        lastPaint = now
+        analyser.getByteTimeDomainData(samples)
+        const bars = 42
+        const step = Math.max(1, Math.floor(samples.length / bars))
+        setVoiceLevels(Array.from({ length: bars }, (_, index) => {
+          let peak = 0
+          for (let sample = index * step; sample < Math.min(samples.length, (index + 1) * step); sample += 1) peak = Math.max(peak, Math.abs(samples[sample] - 128) / 128)
+          return Math.max(3, Math.min(25, Math.round(3 + peak * 30)))
+        }))
+      }
+      active.audioContext = audioContext
+      active.animationFrame = window.requestAnimationFrame(paint)
+    } catch {
+      void active.audioContext?.close().catch(() => undefined)
+    }
+  }
+
   const startVoice = async (pointerId: number) => {
     if (!authed) return onRequireAuth()
     if (voicePhase !== 'idle' || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
@@ -303,10 +347,13 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
       }
       const mime = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/webm'].find((item) => MediaRecorder.isTypeSupported(item)) || ''
       const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined)
-      const active = { recorder, stream, chunks: [] as Blob[], startedAt: 0, cancelled: false }; recorderRef.current = active
+      const active: VoiceRecorder = { recorder, stream, chunks: [], startedAt: 0, cancelled: false }; recorderRef.current = active
       recorder.addEventListener('dataavailable', (event) => { if (event.data.size) active.chunks.push(event.data) })
       recorder.addEventListener('stop', async () => {
+        if (active.animationFrame) window.cancelAnimationFrame(active.animationFrame)
+        void active.audioContext?.close().catch(() => undefined)
         stream.getTracks().forEach((track) => track.stop()); recorderRef.current = null
+        setVoiceLevels(Array.from({ length: 42 }, () => 3))
         const duration = Date.now() - active.startedAt
         if (active.cancelled || duration < 700 || !active.chunks.length) { setVoicePhase('idle'); return }
         setVoicePhase('transcribing')
@@ -319,7 +366,7 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
           window.setTimeout(() => setVoicePhase((phase) => phase === 'error' ? 'idle' : phase), 1800)
         }
       }, { once: true })
-      active.startedAt = Date.now(); recorder.start(250); setVoicePhase('recording')
+      active.startedAt = Date.now(); recorder.start(250); startVoiceMeter(stream, active); setVoicePhase('recording')
     } catch (caught) {
       if (voiceGestureRef.current.requestId === requestId) {
         voiceGestureRef.current.pressed = false; setVoicePhase('error')
@@ -338,7 +385,7 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
       <header className="sidebar-head"><b>История</b><button type="button" aria-label="Скрыть историю" onClick={() => setSidebarOpen(false)}><PanelLeftClose /></button></header>
       <button className="dc-new-chat new-chat" type="button" onClick={() => void newThread()}><Plus /><span>Новый чат</span></button>
       <label className="dc-thread-search search-field"><Search /><input value={threadQuery} onChange={(event) => setThreadQuery(event.target.value)} placeholder="Найти чат" /></label>
-      <div className="dc-thread-list thread-group"><div className="thread-group-title">Недавние</div>{visibleThreads.map((thread) => <div className={`thread-item${thread.id === currentId ? ' active' : ''}`} key={thread.id}><button className="thread-open" type="button" onClick={() => { void openThread(thread); if (window.innerWidth <= 900) setSidebarOpen(false) }}><span className="dc-thread-icon thread-thumb"><MessageCircle /></span><span className="thread-copy"><b>{thread.title || 'Новый чат'}</b><small>{new Date(thread.updatedAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</small></span></button><button className="thread-delete" type="button" aria-label="Удалить чат" onClick={() => void removeThread(thread)}><Trash2 /></button></div>)}{!visibleThreads.length && <p>Ничего не найдено</p>}</div>
+      <div className="dc-thread-list thread-group"><div className="thread-group-title">Недавние</div>{visibleThreads.map((thread) => { const imageThread = threadKinds[thread.id] === 'image'; const ThreadIcon = imageThread ? ImagePlus : MessageCircle; return <div className={`thread-item${thread.id === currentId ? ' active' : ''}${imageThread ? ' kind-image' : ''}`} key={thread.id}><button className="thread-open" type="button" onClick={() => { void openThread(thread); if (window.innerWidth <= 900) setSidebarOpen(false) }}><span className="dc-thread-icon thread-thumb"><ThreadIcon /></span><span className="thread-copy"><b>{thread.title || 'Новый чат'}</b></span></button><button className="thread-delete" type="button" aria-label="Удалить чат" onClick={() => void removeThread(thread)}><Trash2 /></button></div> })}{!visibleThreads.length && <p>Ничего не найдено</p>}</div>
     </aside>
     {sidebarOpen && <button className="dc-sidebar-backdrop" type="button" aria-label="Закрыть историю" onClick={() => setSidebarOpen(false)} />}
     <main className={`dc-main chat-main${!messages.length ? ' is-empty' : ''}`}>
@@ -352,11 +399,11 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
           const clean = message.role === 'assistant' ? cleanAssistantText(message.content, message.tools || []) : message.content
           return <article className={`dc-message turn turn-${message.role} ${message.role} ${message.status}`} key={message.id || index}><div className="dc-message-head asa-head">{message.role === 'assistant' && <span className="asa-icon"><Sparkles /></span>}<b>{message.role === 'user' ? 'Вы' : 'ИЗО Чат'}</b><button type="button" aria-label="Копировать" onClick={() => void navigator.clipboard.writeText(clean)}><Copy /></button></div>{message.status === 'pending' ? <span className="dc-thinking status-block"><i /><i /><i /></span> : message.role === 'assistant' ? <div className="assistant-body"><FormattedText value={clean} /></div> : <p>{clean}</p>}{(message.tools || []).filter((tool) => tool.name === 'web_search').map((tool, toolIndex) => <div className="dc-search-result sources" key={toolIndex}><Search /><span>Источники</span>{tool.sources?.map((source) => <a href={source.url} target="_blank" rel="noreferrer" key={source.url}>{source.title}</a>)}</div>)}{(message.tools || []).filter((tool) => tool.name === 'generate_image').map((tool, toolIndex) => <button type="button" className="dc-image-result artifact-block" key={toolIndex} onClick={() => tool.resultUrl && setArtifact(tool)}>{tool.resultUrl ? <img src={tool.resultUrl} alt="Созданное изображение" /> : <ImagePlus />}<span>{tool.status === 'running' ? 'Создаём изображение…' : tool.error || 'Открыть изображение'}</span></button>)}</article>
         })}<div className="dc-scroll-anchor" /></div></div>
-      <footer className="dc-composer-area composer-area"><div className="dc-composer composer">
+      <footer className="dc-composer-area composer-area"><div className={`dc-composer composer is-${voicePhase}`}>
         {(voicePhase === 'error' || error) && <div className="dc-composer-status is-error" role="status">{error || 'Не удалось записать голос.'}<button type="button" aria-label="Закрыть сообщение" onClick={() => { setError(''); if (voicePhase === 'error') setVoicePhase('idle') }}><X /></button></div>}
         {images.length > 0 && <div className="dc-attachments">{images.map((src, index) => <span key={index}><img src={src} alt="Вложение" /><button type="button" onClick={() => setImages((items) => items.filter((_, itemIndex) => itemIndex !== index))}><X /></button></span>)}</div>}
-        <textarea ref={inputRef} rows={1} maxLength={4000} value={text} placeholder="Сообщение…" onChange={(event) => { setText(event.target.value); event.currentTarget.style.height = '0'; event.currentTarget.style.height = `${Math.min(132, event.currentTarget.scrollHeight)}px` }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() } }} />
-        <div><input ref={fileRef} hidden multiple type="file" accept="image/jpeg,image/png,image/webp" onChange={async (event) => { try { const selected = await Promise.all(Array.from(event.target.files || []).slice(0, Math.max(0, 4 - images.length)).map(readImage)); setImages((items) => [...items, ...selected].slice(0, 4)) } catch (caught) { setError(caught instanceof Error ? caught.message : 'Не удалось добавить изображение.') } event.target.value = '' }} /><button type="button" aria-label="Добавить изображение" onClick={() => fileRef.current?.click()}><Plus /></button><button className="dc-model-button" type="button" aria-expanded={modelOpen} onClick={() => { setModelQuery(''); setModelOpen(true) }}><span>{selectedModel?.name || 'ИЗО Чат'}</span><ChevronDown /></button>{voicePhase !== 'idle' && voicePhase !== 'error' && <span className={`dc-inline-voice is-${voicePhase}`} role="status">{voicePhase === 'recording' ? <><span className="dc-voice-wave" aria-hidden="true"><i /><i /><i /><i /><i /><i /></span><small>{voiceSeconds} с</small></> : <><span className="dc-status-spinner" /><small>{voicePhase === 'requesting' ? 'Микрофон' : 'Текст'}</small></>}</span>}<button className={voicePhase === 'recording' || voicePhase === 'requesting' ? 'recording' : ''} type="button" aria-label="Удерживайте, чтобы говорить" onPointerDown={(event) => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); void startVoice(event.pointerId) }} onPointerUp={() => finishVoice(false)} onPointerCancel={() => finishVoice(true)} onLostPointerCapture={() => finishVoice(false)}><Mic /></button><button className="dc-send" type="button" aria-label="Отправить" disabled={busy || (!text.trim() && !images.length)} onClick={() => void submit()}><Send /></button></div>
+        <textarea ref={inputRef} rows={1} maxLength={4000} value={text} placeholder="Сообщение…" onPaste={(event) => { const pasted = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith('image/')); if (pasted.length) { event.preventDefault(); void appendImages(pasted) } }} onChange={(event) => { setText(event.target.value); event.currentTarget.style.height = '0'; event.currentTarget.style.height = `${Math.min(132, event.currentTarget.scrollHeight)}px` }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() } }} />
+        <div><input ref={fileRef} hidden multiple type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { void appendImages(Array.from(event.target.files || [])); event.target.value = '' }} /><span className="dc-attach-wrap"><button type="button" aria-label="Добавить" aria-expanded={attachOpen} onClick={() => setAttachOpen((value) => !value)}><Plus /></button>{attachOpen && <span className="dc-attach-menu" role="menu"><button type="button" role="menuitem" onClick={() => { setAttachOpen(false); fileRef.current?.click() }}><ImagePlus /><span><b>Изображение</b><small>PNG, JPG или WebP</small></span></button><small>Также можно вставить через Ctrl+V</small></span>}</span>{voicePhase === 'recording' ? <span className="dc-live-voice" role="status"><button type="button" aria-label="Отменить запись" onPointerDown={(event) => { event.preventDefault(); finishVoice(true) }}><X /></button><span className="dc-live-wave" aria-hidden="true">{voiceLevels.map((level, index) => <i key={index} style={{ height: `${level}px` }} />)}</span><small>{voiceSeconds} с</small></span> : <><button className="dc-model-button" type="button" aria-expanded={modelOpen} onClick={() => { setModelQuery(''); setModelOpen(true) }}><span>{selectedModel?.name || 'ИЗО Чат'}</span><ChevronDown /></button>{voicePhase !== 'idle' && voicePhase !== 'error' && <span className={`dc-inline-voice is-${voicePhase}`} role="status"><span className="dc-status-spinner" /><small>{voicePhase === 'requesting' ? 'Микрофон' : 'Текст'}</small></span>}</>}<button className={voicePhase === 'recording' || voicePhase === 'requesting' ? 'recording' : ''} type="button" aria-label="Удерживайте, чтобы говорить" onPointerDown={(event) => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); void startVoice(event.pointerId) }} onPointerUp={() => finishVoice(false)} onPointerCancel={() => finishVoice(true)} onLostPointerCapture={() => finishVoice(false)}><Mic /></button><button className="dc-send" type="button" aria-label="Отправить" disabled={busy || (!text.trim() && !images.length)} onClick={() => void submit()}><Send /></button></div>
       </div></footer>
       <div className="dc-empty-bottom-spacer" aria-hidden="true" />
     </main>
