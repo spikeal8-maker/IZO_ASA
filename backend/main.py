@@ -17022,7 +17022,7 @@ app.include_router(create_phone_chat_router(PhoneChatDependencies(
     OPENROUTER_AVAILABILITY.record, record_event_log, openrouter_text_models,
     lambda **kwargs: chat_billing.charge_chat_tokens_for_user(connect=db, get_tariffs=get_tariff_config, reconcile_tariff=_reconcile_user_tariff, **kwargs),
     lambda **kwargs: chat_billing.refund_chat_tokens_for_user(connect=db, **kwargs),
-    db,
+    db, usd_rub_rate_snapshot, openrouter_economy_settings,
 )))
 app.include_router(create_phone_audio_router(PhoneAudioDependencies(require_trusted_user)))
 app.include_router(create_phone_platform_router(PhonePlatformDependencies(require_trusted_user)))

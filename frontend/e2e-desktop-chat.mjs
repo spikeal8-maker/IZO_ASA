@@ -48,7 +48,7 @@ try {
     if (/\/api\/phone\/chat\/threads\/[^/]+\/messages$/.test(url.pathname)) return route.fulfill(json({ ok: true, thread, messages: [] }))
     if (url.pathname === '/api/phone/chat/models') return route.fulfill(json({ ok: true, defaultModel: 'local:izo-chat', models: [
       { id: 'local:izo-chat', name: 'ИЗО Чат', provider: 'local', tokenCost: 0, tokenKind: 'free', description: 'Базовая модель', contextChars: 60000, available: true },
-      { id: 'provider/pro', name: 'Профессиональная модель', provider: 'api', tokenCost: .2, tokenKind: 'main', description: 'Облачная модель', contextChars: 60000, inputPerMillionUsd: .12, outputPerMillionUsd: .34, available: false, unavailableReason: 'Недоступна на вашем тарифе' },
+      { id: 'provider/pro', name: 'Профессиональная модель', provider: 'api', tokenCost: .2, tokenKind: 'main', description: 'Облачная модель', contextChars: 60000, inputPerMillionUsd: .12, outputPerMillionUsd: .34, inputPerMillionProductTokens: 2.34, outputPerMillionProductTokens: 6.63, available: false, unavailableReason: 'Недоступна на вашем тарифе' },
     ] }))
     if (url.pathname === '/api/phone/chat') return route.fulfill(json({ ok: true, reply: 'Нашёл свежую информацию и подготовил изображение.', modelId: 'local:izo-chat', chargedTokens: 0, tokenKind: 'free', messageId: 'assistant-1', tools: [
       { name: 'web_search', ok: true, query: 'Москва', sources: [{ title: 'Источник погоды', url: 'https://example.test/weather' }] },
@@ -118,6 +118,9 @@ try {
   await page.getByPlaceholder('Сообщение…').fill('')
   await page.getByRole('button', { name: 'Добавить файл или выбрать инструмент' }).click()
   for (const label of ['Добавить файл', 'Найти в интернете', 'Создать изображение', 'Погода', 'Создать видео', 'Создать звук', 'Создать 3D']) assert(await page.getByRole('menuitem', { name: new RegExp(label) }).count() === 1, `attachment/tool action is missing: ${label}`)
+  await page.locator('.dc-main').click({ position: { x: 540, y: 240 } })
+  assert(await page.getByRole('menuitem').count() === 0, 'attachment/tool menu stays open after clicking outside')
+  await page.getByRole('button', { name: 'Добавить файл или выбрать инструмент' }).click()
   await page.getByRole('menuitem', { name: /Найти в интернете/ }).click()
   assert(await page.getByRole('button', { name: 'Убрать обязательный инструмент' }).count() === 1, 'forced chat tool was not selected')
   await page.getByRole('button', { name: 'Убрать обязательный инструмент' }).click()
@@ -136,6 +139,8 @@ try {
   await page.getByText('Источник погоды').waitFor()
   await page.getByAltText('Созданное изображение').first().waitFor()
   assert(await page.locator('.thread-item.active.kind-image').count() === 1, 'image chat is missing its image marker in history')
+  assert(await page.locator('.dc-artifact').count() === 0, 'generated image opened the side preview without a user click')
+  await page.getByRole('button', { name: 'Открыть изображение в предпросмотре' }).click()
   await page.getByText('Результат').waitFor()
   const previewBefore = await page.locator('.dc-artifact').evaluate((node) => node.getBoundingClientRect().width)
   const divider = page.getByRole('separator', { name: 'Изменить ширину предпросмотра' })
@@ -150,7 +155,7 @@ try {
   await page.getByRole('button', { name: 'Закрыть предпросмотр' }).click()
   assert(await page.locator('.dc-artifact').count() === 0, 'preview did not close')
   await page.setViewportSize({ width: 1024, height: 720 })
-  await page.locator('.dc-image-result').click()
+  await page.getByRole('button', { name: 'Открыть изображение в предпросмотре' }).click()
   await page.locator('.dc-artifact').waitFor()
   const compactLayout = await page.evaluate(() => ({
     topbar: document.querySelector('.iv3 .topbar')?.getBoundingClientRect(),
@@ -186,12 +191,12 @@ try {
   const sheetBox = await modelSheet.boundingBox()
   assert(sheetBox && sheetBox.x >= 0 && sheetBox.x + sheetBox.width <= 390 && sheetBox.y + sheetBox.height <= 844, 'mobile model sheet is clipped')
   for (const label of ['Чат', 'Изображение', 'Видео', 'Звук', '3D']) assert(await modelSheet.getByRole('button', { name: label, exact: true }).count() === 1, `model category is missing: ${label}`)
-  assert(await modelSheet.getByText('$0.12/$0.34 · 1M').count() === 1, 'chat model still shows a fixed per-message fraction instead of 1M pricing')
+  assert(await modelSheet.getByText('вх. 2,34 · вых. 6,63 / 1 млн').count() === 1, 'chat model does not show converted project-token pricing for 1M provider tokens')
   await modelSheet.getByRole('button', { name: 'Изображение', exact: true }).click()
   assert(await modelSheet.getByText('ИЗО Base', { exact: true }).count() === 1, 'image model tab does not show image models')
   await modelSheet.getByRole('button', { name: 'Видео', exact: true }).click()
   assert(await modelSheet.getByText('Видео Тест', { exact: true }).count() === 1, 'video model tab does not show video models')
-  const modelSheetLayout = await page.evaluate(() => ({ nav: document.querySelector('.dc-model-popover > nav')?.getBoundingClientRect(), list: document.querySelector('.dc-model-list')?.getBoundingClientRect() }))
+  const modelSheetLayout = await page.evaluate(() => ({ nav: document.querySelector('.dc-model-controls .model-filter')?.getBoundingClientRect(), list: document.querySelector('.dc-model-list')?.getBoundingClientRect() }))
   assert(modelSheetLayout.nav && modelSheetLayout.list && modelSheetLayout.nav.height >= 32 && modelSheetLayout.list.top >= modelSheetLayout.nav.bottom - 1, 'model categories are collapsed or covered by the model list')
   await page.getByRole('button', { name: 'Закрыть', exact: true }).click()
 
@@ -212,6 +217,8 @@ try {
   assert(heldMic.requested === 2 && heldMic.started === 1 && heldMic.stoppedTracks === 2, 'held microphone did not start and release cleanly')
   await page.getByPlaceholder('Сообщение…').fill('Создай изображение для проверки мобильного предпросмотра')
   await page.getByRole('button', { name: 'Отправить' }).click()
+  assert(await page.locator('.dc-artifact').count() === 0, 'mobile image opened the preview without a tap')
+  await page.getByRole('button', { name: 'Открыть изображение в предпросмотре' }).click()
   await page.locator('.dc-artifact').waitFor()
   const mobileArtifactLayout = await page.evaluate(() => ({ chat: document.querySelector('.desktop-chat')?.getBoundingClientRect(), artifact: document.querySelector('.dc-artifact')?.getBoundingClientRect(), bodyHeight: document.documentElement.scrollHeight, viewport: innerHeight }))
   assert(mobileArtifactLayout.chat && mobileArtifactLayout.artifact && mobileArtifactLayout.chat.bottom <= mobileArtifactLayout.viewport + 1 && mobileArtifactLayout.artifact.bottom <= mobileArtifactLayout.viewport + 1, 'mobile artifact stretches beyond the viewport')

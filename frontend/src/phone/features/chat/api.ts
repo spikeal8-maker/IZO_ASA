@@ -49,6 +49,8 @@ export type PhoneChatModel = {
   contextChars: number
   inputPerMillionUsd?: number
   outputPerMillionUsd?: number
+  inputPerMillionProductTokens?: number
+  outputPerMillionProductTokens?: number
   available?: boolean
   unavailableReason?: string
 }

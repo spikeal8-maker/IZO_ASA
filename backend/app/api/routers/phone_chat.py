@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import re
 import time
@@ -128,6 +129,8 @@ class PhoneChatDependencies:
     charge_tokens: Callable[..., dict[str, Any]]
     refund_tokens: Callable[..., bool]
     connect_db: Callable[[], Any] | None = None
+    usd_rub_snapshot: Callable[[], dict[str, Any]] | None = None
+    openrouter_economy: Callable[[], dict[str, float]] | None = None
 
 
 def _chat_config(deps: PhoneChatDependencies) -> dict[str, Any]:
@@ -652,6 +655,18 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
         except Exception:
             catalog = []
         by_id = {str(item.get("id")): item for item in catalog if isinstance(item, dict) and item.get("id")}
+        exchange = deps.usd_rub_snapshot() if deps.usd_rub_snapshot is not None else {}
+        economy = deps.openrouter_economy() if deps.openrouter_economy is not None else {}
+        usd_rub = float(exchange.get("rate") or 0)
+        token_rub = max(0.01, float(economy.get("tokenRub") or 5))
+        usd_fee_factor = 1 + max(0.0, float(economy.get("usdFeePercent") or 0)) / 100
+        margin_factor = max(0.05, 1 - max(0.0, float(economy.get("minMarginPercent") or 0)) / 100)
+
+        def product_tokens_per_million(usd: float) -> float:
+            if usd <= 0 or usd_rub <= 0:
+                return 0
+            return round(max(0.001, usd * usd_rub * usd_fee_factor / token_rub / margin_factor), 3)
+
         for model_id in config.get("enabledApiModels", []):
             model_id = str(model_id)
             if model_id not in enabled_api:
@@ -669,6 +684,8 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
                 "contextLength": int(item.get("contextLength") or 0),
                 "inputPerMillionUsd": float(item.get("inputPerMillionUsd") or 0),
                 "outputPerMillionUsd": float(item.get("outputPerMillionUsd") or 0),
+                "inputPerMillionProductTokens": product_tokens_per_million(float(item.get("inputPerMillionUsd") or 0)),
+                "outputPerMillionProductTokens": product_tokens_per_million(float(item.get("outputPerMillionUsd") or 0)),
                 "contextChars": min(int(config.get("contextChars") or 60000), max(4000, int(item.get("contextLength") or 15000) * 4)),
             })
         default_model = str(config.get("defaultModel") or "local:izo-chat")
