@@ -37,6 +37,12 @@ export default defineConfig({
       '/api': {
         target: apiProxyTarget,
         changeOrigin: true,
+        configure(proxy) {
+          // The backend accepts the canonical local development origin for
+          // cookie-authenticated mutations. Keep arbitrary browser origins out
+          // of the CSRF allowlist while making custom Vite ports work locally.
+          proxy.on('proxyReq', (proxyRequest) => proxyRequest.setHeader('origin', 'http://127.0.0.1:5173'))
+        },
       },
       '/media': {
         target: apiProxyTarget,
