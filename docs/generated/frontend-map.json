@@ -96,6 +96,8 @@
         "frontend/src/phone/core/jobs.ts",
         "frontend/src/phone/features/chat/api.ts",
         "frontend/src/phone/features/chat/format.ts",
+        "frontend/src/phone/features/image/api.ts",
+        "frontend/src/phone/features/video/api.ts",
         "frontend/src/profileSupport.ts",
         "frontend/src/releaseIdentity.ts",
         "frontend/src/resolutionPolicy.ts",
@@ -124,6 +126,7 @@
         "useCurrentPreviewInPaint",
         "useEffect",
         "useImperativeHandle",
+        "useLayoutEffect",
         "useMemo",
         "useModelPreferences",
         "useNextExample",
@@ -148,6 +151,7 @@
         "/api/feed/publications/",
         "/api/gallery/",
         "/api/gallery/items",
+        "/api/gallery/items?limit=20&filter=image",
         "/api/gallery/secondary",
         "/api/gallery/videos/",
         "/api/generate",
@@ -166,7 +170,8 @@
         "/api/video/config",
         "/api/video/estimate",
         "/api/video/generate",
-        "/api/video/history"
+        "/api/video/history",
+        "/api/video/history?limit=30"
       ],
       "css": [
         "frontend/src/authV2.css",
@@ -280,6 +285,8 @@
         "frontend/src/phone/core/jobs.ts",
         "frontend/src/phone/features/chat/api.ts",
         "frontend/src/phone/features/chat/format.ts",
+        "frontend/src/phone/features/image/api.ts",
+        "frontend/src/phone/features/video/api.ts",
         "frontend/src/profileSupport.ts",
         "frontend/src/releaseIdentity.ts",
         "frontend/src/resolutionPolicy.ts",
@@ -322,6 +329,7 @@
         "useImageAs",
         "useImperativeHandle",
         "useLast",
+        "useLayoutEffect",
         "useMemo",
         "useModelPreferences",
         "useNextExample",
@@ -363,6 +371,7 @@
         "/api/gallery",
         "/api/gallery/",
         "/api/gallery/items",
+        "/api/gallery/items?limit=20&filter=image",
         "/api/gallery/secondary",
         "/api/gallery/videos/",
         "/api/generate",
@@ -383,7 +392,8 @@
         "/api/video/config",
         "/api/video/estimate",
         "/api/video/generate",
-        "/api/video/history"
+        "/api/video/history",
+        "/api/video/history?limit=30"
       ],
       "css": [
         "frontend/src/authV2.css",
