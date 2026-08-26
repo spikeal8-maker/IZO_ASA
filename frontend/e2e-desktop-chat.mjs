@@ -27,6 +27,12 @@ try {
       stop() { this.state = 'inactive'; queueMicrotask(() => this.dispatchEvent(new Event('stop'))) }
     }
     Object.defineProperty(window, 'MediaRecorder', { configurable: true, value: FakeMediaRecorder })
+    class FakeAudioContext {
+      createAnalyser() { return { fftSize: 256, frequencyBinCount: 128, getByteTimeDomainData: (data) => { data.fill(128); data[0] = 196; data[1] = 72 } } }
+      createMediaStreamSource() { return { connect() {} } }
+      close() { return Promise.resolve() }
+    }
+    Object.defineProperty(window, 'AudioContext', { configurable: true, value: FakeAudioContext })
   })
   const errors = []
   page.on('pageerror', (error) => errors.push(error.message))
@@ -69,14 +75,17 @@ try {
     const workspace = document.querySelector('.desktop-chat')?.getBoundingClientRect()
     const composer = document.querySelector('.dc-composer')?.getBoundingClientRect()
     const actions = document.querySelector('.dc-empty > div')?.getBoundingClientRect()
+    const chatToolbar = document.querySelector('.dc-chat-toolbar')?.getBoundingClientRect()
     const threadRows = [...document.querySelectorAll('.thread-item')].map((node) => node.getBoundingClientRect().height)
-    return { topbar, workspace, composer, actions, threadRows, pageY: window.scrollY, bodyY: document.documentElement.scrollTop }
+    return { topbar, workspace, composer, actions, chatToolbar, threadRows, pageY: window.scrollY, bodyY: document.documentElement.scrollTop }
   })
   assert(initialLayout.topbar && initialLayout.topbar.top >= 0 && initialLayout.topbar.bottom <= 90, 'site header is outside viewport')
   assert(initialLayout.workspace && initialLayout.workspace.bottom <= 901 && initialLayout.workspace.height > 700, 'chat workspace does not fill the available viewport')
   assert(initialLayout.composer && initialLayout.composer.bottom <= 900, 'composer is outside viewport')
   assert(initialLayout.composer && initialLayout.composer.height <= 130, 'composer is not compact')
+  assert(initialLayout.workspace && initialLayout.composer && Math.abs((initialLayout.composer.top + initialLayout.composer.height / 2) - (initialLayout.workspace.top + initialLayout.workspace.height / 2)) <= 12, 'empty composer is not centered in the chat viewport')
   assert(initialLayout.actions && initialLayout.composer && initialLayout.composer.top - initialLayout.actions.bottom >= 0 && initialLayout.composer.top - initialLayout.actions.bottom <= 90, 'empty composer is not directly below quick actions')
+  assert(initialLayout.workspace && initialLayout.chatToolbar && initialLayout.chatToolbar.top >= initialLayout.workspace.top && initialLayout.chatToolbar.height >= 40, 'chat upper toolbar disappeared in empty state')
   assert(initialLayout.threadRows.every((height) => height <= 42), 'chat history rows are not compact')
   assert(initialLayout.pageY === 0 && initialLayout.bodyY === 0, 'document scrolled during chat initialization')
   await page.getByRole('button', { name: longThread.title }).click()
@@ -178,6 +187,7 @@ try {
   assert(quickMic.requested === 1 && quickMic.started === 0 && quickMic.stoppedTracks === 1, 'quick microphone release left a recorder or stream active')
   await page.mouse.down(); await page.waitForTimeout(220)
   assert(await page.locator('.dc-live-wave').isVisible(), 'live microphone waveform is not shown while holding')
+  assert(await page.locator('.dc-live-wave i').evaluateAll((bars) => bars.some((bar) => Number.parseFloat(getComputedStyle(bar).height) > 3)), 'microphone waveform does not react to audio amplitude')
   assert(await page.getByRole('button', { name: /ИЗО Чат/ }).last().count() === 0, 'model chooser remains visible during voice recording')
   await page.mouse.up(); await page.waitForTimeout(80)
   const heldMic = await page.evaluate(() => window.__chatMicTest)

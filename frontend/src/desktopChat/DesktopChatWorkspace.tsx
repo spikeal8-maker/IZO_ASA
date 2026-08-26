@@ -85,7 +85,7 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
   const [attachOpen, setAttachOpen] = useState(false)
   const [voicePhase, setVoicePhase] = useState<VoicePhase>('idle')
   const [voiceSeconds, setVoiceSeconds] = useState(0)
-  const [voiceLevels, setVoiceLevels] = useState<number[]>(() => Array.from({ length: 42 }, () => 3))
+  const [voiceLevels, setVoiceLevels] = useState<number[]>(() => Array.from({ length: 58 }, () => 3))
   const [threadKinds, setThreadKinds] = useState<Record<string, 'chat' | 'image'>>({})
   const [artifact, setArtifact] = useState<PhoneChatTool | null>(null)
   const [artifactWidth, setArtifactWidth] = useState(() => Math.round(Math.min(920, Math.max(420, window.innerWidth * .48))))
@@ -314,13 +314,16 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
         if (now - lastPaint < 45) return
         lastPaint = now
         analyser.getByteTimeDomainData(samples)
-        const bars = 42
-        const step = Math.max(1, Math.floor(samples.length / bars))
-        setVoiceLevels(Array.from({ length: bars }, (_, index) => {
-          let peak = 0
-          for (let sample = index * step; sample < Math.min(samples.length, (index + 1) * step); sample += 1) peak = Math.max(peak, Math.abs(samples[sample] - 128) / 128)
-          return Math.max(3, Math.min(25, Math.round(3 + peak * 30)))
-        }))
+        let peak = 0
+        let energy = 0
+        for (let sample = 0; sample < samples.length; sample += 1) {
+          const amplitude = Math.abs(samples[sample] - 128) / 128
+          peak = Math.max(peak, amplitude)
+          energy += amplitude * amplitude
+        }
+        const rms = Math.sqrt(energy / samples.length)
+        const height = Math.max(3, Math.min(25, Math.round(3 + Math.max(peak * .68, rms * 1.8) * 31)))
+        setVoiceLevels((levels) => [...levels.slice(1), height])
       }
       active.audioContext = audioContext
       active.animationFrame = window.requestAnimationFrame(paint)
@@ -353,7 +356,7 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
         if (active.animationFrame) window.cancelAnimationFrame(active.animationFrame)
         void active.audioContext?.close().catch(() => undefined)
         stream.getTracks().forEach((track) => track.stop()); recorderRef.current = null
-        setVoiceLevels(Array.from({ length: 42 }, () => 3))
+        setVoiceLevels(Array.from({ length: 58 }, () => 3))
         const duration = Date.now() - active.startedAt
         if (active.cancelled || duration < 700 || !active.chunks.length) { setVoicePhase('idle'); return }
         setVoicePhase('transcribing')
