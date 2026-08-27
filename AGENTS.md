@@ -171,6 +171,24 @@ deployed or a provider is operational. Use these exact states:
 
 ## 10. Release and live verification
 
+- The mandatory production procedure for this computer is
+  `docs/production-release-runbook.md`. Every agent must read it before preparing,
+  installing, rolling back or diagnosing a production release.
+- Detect the deployment topology from installed runtime evidence, not from the
+  first launcher found in the repository. When
+  `C:\IZO_ASA\runtime\services\backend\IZOBackend.xml`,
+  `C:\IZO_ASA\ops\scripts\check-project-update.ps1` and
+  `C:\IZO_ASA\runtime\promote-project-release.ps1` exist, this host uses the
+  installed Windows-service updater/promoter workflow.
+- On that installed topology, do not use `start-public.bat`,
+  `tools/publish-frontend-release.ps1` or `tools/restart-backend.ps1` to promote
+  production. They describe the repository-local bootstrap/manual stack and may
+  disagree with the installed service paths, database and release identity.
+- Promotion and automatic health recovery must coordinate through
+  `C:\IZO_ASA\runtime\project-release-maintenance.flag`. The promoter owns the
+  flag for the full mutable window; the watchdog must not auto-start
+  `IZOBackend` or `IZOCaddy` while it exists. Do not stop the watchdog or change
+  AdGuard VPN/FRP as a release workaround.
 - Deploy only clean canonical `main` when `HEAD == origin/main` and the receipt
   names that exact SHA. Never deploy uncommitted WIP.
 - A successful publisher must bind frontend/backend release identity and retain

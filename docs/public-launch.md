@@ -1,8 +1,15 @@
 # IZO_ASA public launch and release identity
 
-This is the operational contract for the current Windows single-computer
-production. The domain transport uses the existing FRP path through the VPS. The
-scripts in this repository do not modify the VPS configuration.
+> **Topology warning:** this document describes the repository-local
+> bootstrap/manual stack. The current server uses installed Windows services
+> under `C:\IZO_ASA`; agents must follow
+> [`production-release-runbook.md`](production-release-runbook.md) for its live
+> site. Do not run `start-public.bat` or the repository-local publisher against
+> that installed production topology.
+
+This is the repository-local bootstrap/manual operational contract. The domain
+transport uses the existing FRP path through the VPS. The scripts in this
+repository do not modify the VPS configuration.
 
 ## Development and public launchers
 

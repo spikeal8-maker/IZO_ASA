@@ -102,6 +102,13 @@ def test_project_promoter_keeps_backend_online_during_rollback_snapshot() -> Non
     assert "Copy-Item -LiteralPath $databaseRollback -Destination $database" not in script
     assert "Start-Service -Name $serviceName" in script
     assert "Global\\IZO_ASA_ProjectReleasePromotion" in script
+    maintenance_path = "C:\\IZO_ASA\\runtime\\project-release-maintenance.flag"
+    assert maintenance_path in script
+    assert "Production health check does not honor the project release maintenance flag." in script
+    maintenance_create = "Set-Content -LiteralPath $releaseMaintenancePath"
+    maintenance_remove = "Remove-Item -LiteralPath $releaseMaintenancePath"
+    assert script.index(maintenance_create) < script.index(backend_stop)
+    assert script.rindex(maintenance_remove) > script.index("} finally {")
     assert "check_frontend_release_identity.mjs" in script
     assert "ensure_service_python_runtime.py" in script
     assert "C:\\IZO_ASA\\runtime\\python311\\python.exe" in script

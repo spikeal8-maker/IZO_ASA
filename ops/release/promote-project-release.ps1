@@ -13,6 +13,8 @@ $caddyExe = 'C:\IZO_ASA\runtime\services\caddy\IZOCaddy.exe'
 $operationsPath = 'C:\IZO_ASA\config\backup-operations.json'
 $promotionStatusPath = 'C:\IZO_ASA\health\promotion-current.json'
 $updateStatusPath = 'C:\IZO_ASA\health\update-current.json'
+$releaseMaintenancePath = 'C:\IZO_ASA\runtime\project-release-maintenance.flag'
+$healthCheckPath = 'C:\IZO_ASA\ops\scripts\server-health-check.ps1'
 $git = 'C:\Users\admins\AppData\Local\Programs\Git\cmd\git.exe'
 $nodeDirectory = 'C:\Users\admins\AppData\Local\Programs\nodejs'
 $node = Join-Path $nodeDirectory 'node.exe'
@@ -212,7 +214,8 @@ try {
         "$newRelease\frontend\dist\index.html",
         $hotBackupTool, $servicePythonTool, $serviceBasePython,
         $ltxLauncherSource,
-        $backendXml, $backendExe, $caddyFile, $caddyExe, $database, $git
+        $backendXml, $backendExe, $caddyFile, $caddyExe, $database, $git,
+        $healthCheckPath
     )) {
         if (-not (Test-Path -LiteralPath $required)) {
             throw "Required promotion input is missing: $required"
@@ -326,6 +329,18 @@ try {
             throw 'Generated release manifest identity is invalid.'
         }
     }
+
+    $healthCheckText = Get-Content -LiteralPath $healthCheckPath -Raw -Encoding UTF8
+    if ($healthCheckText -notmatch [regex]::Escape($releaseMaintenancePath)) {
+        throw 'Production health check does not honor the project release maintenance flag.'
+    }
+    [ordered]@{
+        StartedAt = (Get-Date).ToString('o')
+        ProcessId = $PID
+        PreviousSha = $oldSha
+        NewSha = $newSha
+        Owner = 'promote-project-release.ps1'
+    } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $releaseMaintenancePath -Encoding UTF8
 } catch {
     $failure = $_.Exception.Message
     Write-PromotionStatus -Ok $false -Stage 'preparation_failed' -Message $failure `
@@ -531,6 +546,7 @@ try {
             }
         } catch {}
     }
+    Remove-Item -LiteralPath $releaseMaintenancePath -Force -ErrorAction SilentlyContinue
     if ($promotionLockAcquired) {
         try { $promotionMutex.ReleaseMutex() } catch {}
     }

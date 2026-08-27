@@ -6,6 +6,11 @@
 Availability invariants:
 
 - the global promotion mutex permits one release owner;
+- the promoter fails closed unless the installed health check recognizes
+  `C:\IZO_ASA\runtime\project-release-maintenance.flag`;
+- the promoter creates that flag before the rollback snapshot/service switch and
+  removes it from its outer cleanup; while present, health recovery must not
+  auto-start `IZOBackend` or `IZOCaddy`;
 - the rollback database is created through `tools/sqlite_hot_backup.py` while
   the current backend is still serving;
 - only the short service/config switch happens after the online snapshot;
@@ -14,6 +19,11 @@ Availability invariants:
 - the outer cleanup attempts to leave backend and Caddy running;
 - production installation must compare the normalized tracked and runtime
   scripts and record the exact release SHA.
+
+The complete operator and agent procedure is
+[`docs/production-release-runbook.md`](../../docs/production-release-runbook.md).
+Do not install this promoter until the runtime health check has the maintenance
+guard and its previous version has been backed up.
 
 Install the promoter only from an exact clean commit. The installer creates a
 rollback copy and a machine-readable receipt, and it does not restart services:
