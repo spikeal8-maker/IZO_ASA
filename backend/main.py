@@ -330,7 +330,7 @@ try:
         generation_recovery,
         generation_results,
         generation_worker,
-        generation_queue, openrouter_availability, openrouter_image_economics,
+        generation_queue, image_model_publication, openrouter_availability, openrouter_image_economics,
         gallery_policy,
         gallery_eviction,
         gallery_query,
@@ -382,7 +382,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         generation_recovery,
         generation_results,
         generation_worker,
-        generation_queue, openrouter_availability, openrouter_image_economics,
+        generation_queue, image_model_publication, openrouter_availability, openrouter_image_economics,
         gallery_policy,
         gallery_eviction,
         gallery_query,
@@ -16738,56 +16738,12 @@ OPENROUTER_QUALITY_PRESETS = {"fast", "standard", "max"}
 
 
 def normalize_openrouter_config(config: dict[str, Any]) -> dict[str, Any]:
-    raw_enabled = config.get("enabled") if isinstance(config.get("enabled"), dict) else {}
-    raw_defaults = config.get("defaults") if isinstance(config.get("defaults"), dict) else {}
-    raw_access = config.get("access") if isinstance(config.get("access"), dict) else {}
-    raw_quality = config.get("qualityDefaults") if isinstance(config.get("qualityDefaults"), dict) else {}
-    enabled: dict[str, list[str]] = {}
-    defaults: dict[str, str] = {}
-    access: dict[str, dict[str, list[str]]] = {}
-    quality_defaults: dict[str, dict[str, str]] = {}
-    for mode in OPENROUTER_ADMIN_MODES:
-        values = raw_enabled.get(mode)
-        if isinstance(values, list):
-            clean = sorted({str(v).strip() for v in values if isinstance(v, str) and "/" in v and len(v.strip()) <= 160})
-            if clean:
-                enabled[mode] = clean
-        default = raw_defaults.get(mode)
-        if isinstance(default, str) and "/" in default and default.strip() in enabled.get(mode, []):
-            defaults[mode] = default.strip()
-        mode_access_raw = raw_access.get(mode) if isinstance(raw_access.get(mode), dict) else {}
-        mode_access: dict[str, list[str]] = {}
-        for tier in OPENROUTER_ACCESS_TIERS:
-            tier_values = mode_access_raw.get(tier)
-            if tier == "mini" and not isinstance(tier_values, list):
-                tier_values = mode_access_raw.get("basic")
-            if isinstance(tier_values, list):
-                clean_tier = sorted({
-                    str(v).strip()
-                    for v in tier_values
-                    if isinstance(v, str) and str(v).strip() in enabled.get(mode, [])
-                })
-                if clean_tier:
-                    mode_access[tier] = clean_tier
-        if mode_access:
-            access[mode] = mode_access
-        mode_quality_raw = raw_quality.get(mode) if isinstance(raw_quality.get(mode), dict) else {}
-        mode_quality: dict[str, str] = {}
-        for preset in OPENROUTER_QUALITY_PRESETS:
-            preset_value = mode_quality_raw.get(preset)
-            if isinstance(preset_value, str) and preset_value.strip() in enabled.get(mode, []):
-                mode_quality[preset] = preset_value.strip()
-        if mode_quality:
-            quality_defaults[mode] = mode_quality
-    for mode, values in enabled.items():
-        if mode not in defaults and values:
-            defaults[mode] = values[0]
-        if defaults.get(mode):
-            quality_defaults.setdefault(mode, {})
-            quality_defaults[mode].setdefault("fast", defaults[mode])
-            quality_defaults[mode].setdefault("standard", defaults[mode])
-            quality_defaults[mode].setdefault("max", defaults[mode])
-    return {"enabled": enabled, "defaults": defaults, "access": access, "qualityDefaults": quality_defaults}
+    return image_model_publication.normalize_config(
+        config,
+        modes=OPENROUTER_ADMIN_MODES,
+        tiers=OPENROUTER_ACCESS_TIERS,
+        quality_presets=OPENROUTER_QUALITY_PRESETS,
+    )
 
 
 def get_openrouter_config() -> dict[str, Any]:
@@ -16856,6 +16812,10 @@ def tariff_config_with_model_counts(
 
 def filter_openrouter_config_by_capabilities(config: dict[str, Any], catalog: list[dict[str, Any]]) -> dict[str, Any]:
     normalized = normalize_openrouter_config(config)
+    catalog_ids = {str(model.get("id")) for model in catalog if model.get("id")}
+    normalized["published"] = [
+        model_id for model_id in normalized.get("published", []) if model_id in catalog_ids
+    ]
     allowed = {
         mode: {str(model.get("id")) for model in catalog if mode in (model.get("modes") or [])}
         for mode in OPENROUTER_ADMIN_MODES
@@ -16880,10 +16840,7 @@ def filter_openrouter_config_by_capabilities(config: dict[str, Any], catalog: li
 
 
 def openrouter_model_allowed(config: dict[str, Any], mode: str, tier: str, model_id: str) -> bool:
-    access = config.get("access") if isinstance(config.get("access"), dict) else {}
-    mode_access = access.get(mode) if isinstance(access.get(mode), dict) else {}
-    values = mode_access.get(tier) if isinstance(mode_access.get(tier), list) else []
-    return model_id in values
+    return image_model_publication.model_allowed(config, mode, tier, model_id)
 
 
 def openrouter_quality_model(config: dict[str, Any], mode: str, preset: str, tier: str = "mini") -> str | None:
@@ -16925,12 +16882,18 @@ def _public_model_option(model_id: str, capability: dict[str, Any] | None = None
             },
         }
     price = OPENROUTER_PRICE_CATALOG.get(model_id)
+    created = capability.get("created") if isinstance(capability, dict) else None
+    try:
+        released_at = int(created) if created else None
+    except (TypeError, ValueError):
+        released_at = None
     return {
         "id": model_id,
         "label": price.name if price else model_id.split("/")[-1].replace("-", " ").title(),
         "provider": "openrouter",
         "modelProfile": model_id,
         "tokenHint": price.min_tokens if price else 1,
+        "releasedAt": released_at,
         "supportedResolutionIds": supported_resolution_ids_from_capability(capability),
         "generation": {
             "fixedSteps": None,
@@ -16944,37 +16907,17 @@ def _public_model_option(model_id: str, capability: dict[str, Any] | None = None
 def public_model_access_for_plan(plan: str, capability_catalog: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     if plan not in PLAN_ORDER:
         plan = "mini"
-    tariff = get_tariff_config()[plan]
-    config = get_openrouter_config()
-    capabilities = {item.get("id"): item for item in (capability_catalog or []) if item.get("id")}
-    access = config.get("access") if isinstance(config.get("access"), dict) else {}
-    modes: dict[str, Any] = {}
-    for mode in sorted(PUBLIC_MODEL_MODE_LABELS.keys()):
-        ids = ["server:local_flux_klein"]
-        mode_access = access.get(mode) if isinstance(access.get(mode), dict) else {}
-        tier_ids = mode_access.get(plan) if isinstance(mode_access.get(plan), list) else []
-        for model_id in tier_ids:
-            capability = capabilities.get(model_id)
-            compatible = not capability_catalog or (capability is not None and mode in (capability.get("modes") or []))
-            if isinstance(model_id, str) and model_id not in ids and compatible:
-                ids.append(model_id)
-        models = [_public_model_option(model_id, capabilities.get(model_id)) for model_id in ids]
-        presets: dict[str, str] = {}
-        tariff_defaults = tariff.get("model_defaults") if isinstance(tariff.get("model_defaults"), dict) else {}
-        for preset in QUALITY_PRESETS:
-            default_id = str(tariff_defaults.get(preset) or "server:local_flux_klein")
-            if default_id == "server:local_flux_klein" or default_id in ids:
-                presets[preset] = default_id
-                continue
-            mode_default = openrouter_quality_model(config, mode, preset, plan)
-            presets[preset] = mode_default if mode_default in ids else "server:local_flux_klein"
-        modes[mode] = {
-            "id": mode,
-            "label": PUBLIC_MODEL_MODE_LABELS[mode],
-            "models": models,
-            "presets": presets,
-        }
-    return {"plan": plan, "modes": modes}
+    return image_model_publication.public_access_for_plan(
+        plan,
+        valid_plans=PLAN_ORDER,
+        tariff=get_tariff_config()[plan],
+        config=get_openrouter_config(),
+        capability_catalog=capability_catalog,
+        mode_labels=PUBLIC_MODEL_MODE_LABELS,
+        quality_presets=QUALITY_PRESETS,
+        option_builder=_public_model_option,
+        quality_model=openrouter_quality_model,
+    )
 
 
 @app.get("/api/model-access")

@@ -86,7 +86,11 @@ def normalize_openrouter_model_capability(model: dict[str, Any]) -> dict[str, An
         modes.append("outpaint")
     if image_output and max_references >= 1 and "transparent" in background_values:
         modes.append("remove_background")
-    return {
+    try:
+        created = int(model.get("created") or 0)
+    except (TypeError, ValueError):
+        created = 0
+    capability = {
         "id": str(model.get("id") or ""),
         "name": str(model.get("name") or model.get("id") or ""),
         "description": str(model.get("description") or ""),
@@ -106,6 +110,9 @@ def normalize_openrouter_model_capability(model: dict[str, Any]) -> dict[str, An
             "multipleOutputs": isinstance(parameters.get("n"), dict) and int(parameters["n"].get("max") or 1) > 1,
         },
     }
+    if created > 0:
+        capability["created"] = created
+    return capability
 
 
 def normalize_openrouter_endpoint_capability(

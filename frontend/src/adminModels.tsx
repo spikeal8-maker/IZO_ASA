@@ -15,6 +15,7 @@ import {
   type AdminOpenRouterPage,
 } from './adminModelsRoutes'
 import { ensureSessionRefreshedV2 } from './authV2'
+import { publishedImageModelIds, setImageModelOperation, setImageModelPublished, setImageModelSection, setImageModelTier, setImageModelTierColumn } from './adminImageModelPublication'
 import { normalizeTariffs, tariffKeys, type TariffConfig, type TariffKey } from './profileSupport'
 import { IMAGE_RESOLUTIONS, normalizeResolutionIds, resolutionLabel, type ResolutionFormat, type ResolutionTier } from './resolutionPolicy'
 
@@ -82,6 +83,7 @@ type OpenRouterCapabilityModel = {
   id: string
   name: string
   description: string
+  created: number
   inputModalities: string[]
   outputModalities: string[]
   parameters: string[]
@@ -204,6 +206,7 @@ type OpenRouterQuality = 'fast' | 'standard' | 'max'
 type OpenRouterAccess = Record<string, Partial<Record<OpenRouterTier, string[]>>>
 type OpenRouterQualityDefaults = Record<string, Partial<Record<OpenRouterQuality, string>>>
 type OpenRouterConfig = {
+  published?: string[]
   enabled?: Record<string, string[]>
   defaults?: Record<string, string>
   access?: OpenRouterAccess
@@ -219,11 +222,6 @@ const OPENROUTER_TIERS: Array<{ id: OpenRouterTier; label: string }> = [
   { id: 'pro', label: 'Pro' },
   { id: 'business', label: 'Business' },
 ]
-const OPENROUTER_QUALITY: Array<{ id: OpenRouterQuality; label: string }> = [
-  { id: 'fast', label: 'Быстро' },
-  { id: 'standard', label: 'Стандарт' },
-  { id: 'max', label: 'Максимум' },
-]
 const OPENROUTER_FORMAT_COLUMNS = [
   { id: 'square', label: '1:1' },
   { id: 'portrait', label: '9:16' },
@@ -233,7 +231,7 @@ const OPENROUTER_FORMAT_COLUMNS = [
 type ApiImageModel = {
   id: string; name: string; provider: string; input: string; output: string; params: string; pricing: string
   mpUsd?: number; imageUsd?: number; token?: boolean; tiered?: boolean
-  modes?: string[]; maxInputReferences?: number; description?: string; supportsStreaming?: boolean
+  modes?: string[]; maxInputReferences?: number; description?: string; supportsStreaming?: boolean; created?: number
 }
 type ApiSortKey = 'price' | 'name' | 'provider' | 'tokens' | 'revenue' | 'profit' | 'margin'
 type ApiSortState = { key: ApiSortKey; dir: 'asc' | 'desc' }
@@ -544,6 +542,9 @@ const modelShortName = (m: ApiImageModel) => {
   const withoutBrand = m.name.includes(':') ? m.name.split(':').slice(1).join(':').trim() : m.name
   return withoutBrand.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim()
 }
+const modelReleaseLabel = (created?: number) => typeof created === 'number' && created > 0
+  ? new Date(created * 1000).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' })
+  : 'не указана поставщиком'
 const modelLabelById = (id: unknown) => {
   const value = String(id || '')
   const found = OPENROUTER_IMAGE_MODELS.find((m) => m.id === value)
@@ -809,13 +810,15 @@ const CSS = `
 .amv2 .quality-row span{color:var(--muted);font-size:11px;font-weight:750}
 .amv2 .quality-row select{min-height:28px;font-size:12px;padding:0 8px}
 .amv2 .api-table{min-width:1420px}
-.amv2 .api-table.format-table{min-width:1680px}
+.amv2 .api-table.format-table{min-width:1760px}
 .amv2 .api-table td,.amv2 .api-table th{vertical-align:middle}
 .amv2 .api-table th{padding:6px 8px}
 .amv2 .api-table td{padding:2px 8px;height:26px;line-height:1.15}
 .amv2 .api-table tr.api-model-row{cursor:pointer}
 .amv2 .api-table tr.api-model-row:hover td{background:rgba(234,255,16,.035)}
 .amv2 .api-table tr.api-model-row.expanded td{background:rgba(234,255,16,.05)}
+.amv2 .api-table tr.api-model-row.unpublished td{background:rgba(255,255,255,.012);color:var(--dim)}
+.amv2 .api-table tr.api-model-row.unpublished:hover td{background:rgba(255,255,255,.025)}
 .amv2 .video-catalog-head{width:100%;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px;border:0;background:transparent;color:var(--text);text-align:left;cursor:pointer}
 .amv2 .video-catalog-head:hover{background:rgba(234,255,16,.035)}
 .amv2 .video-catalog-title{display:flex;align-items:center;gap:10px;min-width:0}.amv2 .video-catalog-title>span{color:var(--lime);flex:none}
@@ -837,7 +840,9 @@ const CSS = `
 .amv2 .detail-box{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 14px;color:var(--muted);line-height:1.35;font-size:11px}
 .amv2 .detail-box span{overflow-wrap:anywhere}
 .amv2 .api-table .model-name{white-space:nowrap;font-size:12px;font-weight:700}
+.amv2 .api-table .model-release{display:block;margin-top:3px;color:var(--muted);font-size:9px;white-space:nowrap}
 .amv2 .api-enabled{width:28px;text-align:center}
+.amv2 .api-column-label{display:block;margin-bottom:3px;color:var(--muted);font-size:8px;font-weight:700;text-transform:none;letter-spacing:0}
 .amv2 .api-enabled input{width:14px;height:14px;min-height:14px;padding:0;margin:0;vertical-align:middle}
 .amv2 .tier-checks{display:flex;align-items:center;gap:5px;white-space:nowrap}
 .amv2 .tier-checks label{display:inline-flex;align-items:center;gap:3px;color:var(--muted);font-size:10px;font-weight:800}
@@ -953,7 +958,7 @@ const CSS = `
 .amv2 .mobile-models{display:none;padding:12px;gap:10px}
 .amv2 .mobile-model{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.035);display:grid;gap:10px}
 @media (max-width:1360px){.amv2 .dashboard,.amv2 .server-layout{grid-template-columns:1fr}.amv2 .metric-grid,.amv2 .lora-grid,.amv2 .status-grid,.amv2 .mode-board{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .api-section-head{grid-template-columns:minmax(220px,1.4fr) repeat(3,minmax(100px,.8fr)) minmax(150px,1fr)}.amv2 .grid-main{grid-template-columns:1fr}.amv2 .side-panel{position:static}}
-@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats,.amv2 .api-section-head,.amv2 .assistant-config{grid-template-columns:1fr}.amv2 .assistant-economy{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .assistant-history-row{grid-template-columns:1fr 70px}.amv2 .assistant-history-row span:nth-child(n+3){grid-column:1/-1}.amv2 .server-command{align-items:stretch;flex-wrap:wrap}.amv2 .server-command .server-title{width:100%}.amv2 .profile-switch{flex:1}.amv2 .lora-columns,.amv2 .config-profiles{grid-template-columns:1fr}.amv2 .lora-row{grid-template-columns:28px 1fr 80px}.amv2 .lora-row>div:nth-child(3),.amv2 .lora-row>div:nth-child(4){grid-column:2 / -1}.amv2 .tab-status{width:100%;justify-content:flex-start;flex-wrap:wrap}.amv2 .models-page-head{display:grid}.amv2 .models-page-head-status{margin-left:0}.amv2 .models-page-head-status .tab-status{justify-content:flex-start}.amv2 .page-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .openrouter-page-nav{display:flex;overflow-x:auto}.amv2 .openrouter-page-nav button{flex:0 0 auto;min-width:112px}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .matrix-wrap .api-table.format-table{min-width:1500px}.amv2 .mobile-models{display:grid}}
+@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats,.amv2 .assistant-config{grid-template-columns:1fr}.amv2 .assistant-economy{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .assistant-history-row{grid-template-columns:1fr 70px}.amv2 .assistant-history-row span:nth-child(n+3){grid-column:1/-1}.amv2 .server-command{align-items:stretch;flex-wrap:wrap}.amv2 .server-command .server-title{width:100%}.amv2 .profile-switch{flex:1}.amv2 .lora-columns,.amv2 .config-profiles{grid-template-columns:1fr}.amv2 .lora-row{grid-template-columns:28px 1fr 80px}.amv2 .lora-row>div:nth-child(3),.amv2 .lora-row>div:nth-child(4){grid-column:2 / -1}.amv2 .tab-status{width:100%;justify-content:flex-start;flex-wrap:wrap}.amv2 .models-page-head{display:grid}.amv2 .models-page-head-status{margin-left:0}.amv2 .models-page-head-status .tab-status{justify-content:flex-start}.amv2 .page-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .openrouter-page-nav{display:flex;overflow-x:auto}.amv2 .openrouter-page-nav button{flex:0 0 auto;min-width:112px}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .api-section-head{grid-template-columns:minmax(0,1fr) auto}.amv2 .api-section-head .section-cell:not(:first-child){display:none}.amv2 .api-section-head .api-count{justify-content:flex-end;flex-wrap:wrap;white-space:normal}.amv2 .matrix-wrap .api-table.format-table{min-width:0;width:100%;table-layout:fixed}.amv2 .format-table th:nth-child(4),.amv2 .format-table td:nth-child(4),.amv2 .format-table th:nth-child(n+6),.amv2 .format-table td:nth-child(n+6){display:none}.amv2 .format-table th:nth-child(1),.amv2 .format-table td:nth-child(1),.amv2 .format-table th:nth-child(2),.amv2 .format-table td:nth-child(2){width:42px;padding-left:4px;padding-right:4px}.amv2 .format-table th:nth-child(3),.amv2 .format-table td:nth-child(3){width:132px}.amv2 .format-table .tier-checks{flex-wrap:wrap;white-space:normal;gap:5px 8px}.amv2 .format-table .detail-cell{display:table-cell!important}.amv2 .detail-box{grid-template-columns:1fr}.amv2 .mobile-models{display:grid}}
 @media (max-width:580px){.amv2 .metric-grid,.amv2 .two-col,.amv2 .price-row,.amv2 .lora-grid,.amv2 .advanced-grid,.amv2 .status-grid,.amv2 .mode-board,.amv2 .or-stats,.amv2 .server-overview,.amv2 .assistant-summary,.amv2 .assistant-economy{grid-template-columns:1fr}.amv2 .profile-switch{width:100%}.amv2 .server-restart{width:100%}}
 @media (max-width:880px){.amv2 .video-catalog-card{width:calc(100vw - 40px);max-width:calc(100vw - 40px)}.amv2 .video-mode-finance-head{grid-template-columns:1fr 1fr}.amv2 .video-mode-finance-head>div:first-child,.amv2 .video-mode-count{grid-column:1 / -1}.amv2 .video-catalog-head{align-items:flex-start;flex-direction:column}.amv2 .video-catalog-meta{width:100%;justify-content:flex-start}.amv2 .video-model-detail{overflow-wrap:anywhere}.amv2 .video-economy-note{display:grid;gap:5px}}
 `
@@ -1368,80 +1373,27 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
 
   const toggleOpenrouterModel = (mode: string, modelId: string, checked: boolean) => {
     if (!data) return
-    const current = data.openrouter.config || { enabled: {}, defaults: {} }
-    const enabled = { ...(current.enabled || {}) }
-    const defaults = { ...(current.defaults || {}) }
-    const access: OpenRouterAccess = JSON.parse(JSON.stringify(current.access || {}))
-    const qualityDefaults: OpenRouterQualityDefaults = JSON.parse(JSON.stringify(current.qualityDefaults || {}))
-    const list = new Set(enabled[mode] || [])
-    if (checked) list.add(modelId)
-    else list.delete(modelId)
-    const nextList = Array.from(list).sort()
-    if (nextList.length) enabled[mode] = nextList
-    else delete enabled[mode]
-    if (!checked) {
-      for (const q of OPENROUTER_QUALITY) {
-        if (qualityDefaults[mode]?.[q.id] === modelId) delete qualityDefaults[mode]![q.id]
-      }
-    }
-    if (checked && !defaults[mode]) defaults[mode] = modelId
-    if (!checked && defaults[mode] === modelId) {
-      if (nextList.length) defaults[mode] = nextList[0]
-      else delete defaults[mode]
-    }
-    void saveOpenrouterConfig({ enabled, defaults, access, qualityDefaults })
+    void saveOpenrouterConfig(setImageModelOperation(data.openrouter.config || {}, mode, modelId, checked))
+  }
+
+  const toggleOpenrouterPublished = (modelId: string, checked: boolean) => {
+    if (!data) return
+    void saveOpenrouterConfig(setImageModelPublished(data.openrouter.config || {}, modelId, checked))
   }
 
   const toggleOpenrouterSection = (mode: string, modelIds: string[], checked: boolean) => {
     if (!data) return
-    const current = data.openrouter.config || { enabled: {}, defaults: {}, access: {}, qualityDefaults: {} }
-    const enabled = { ...(current.enabled || {}) }
-    const defaults = { ...(current.defaults || {}) }
-    const access: OpenRouterAccess = JSON.parse(JSON.stringify(current.access || {}))
-    const qualityDefaults: OpenRouterQualityDefaults = JSON.parse(JSON.stringify(current.qualityDefaults || {}))
-    const ids = Array.from(new Set(modelIds)).sort()
-    if (checked) {
-      enabled[mode] = ids
-      defaults[mode] = defaults[mode] && ids.includes(defaults[mode]) ? defaults[mode] : ids[0]
-      access[mode] = { ...(access[mode] || {}) }
-    } else {
-      delete enabled[mode]
-      delete defaults[mode]
-      delete qualityDefaults[mode]
-    }
-    void saveOpenrouterConfig({ enabled, defaults, access, qualityDefaults })
+    void saveOpenrouterConfig(setImageModelSection(data.openrouter.config || {}, mode, modelIds, checked))
   }
 
   const toggleOpenrouterTier = (mode: string, tier: OpenRouterTier, modelId: string, checked: boolean) => {
     if (!data) return
-    const current = data.openrouter.config || { enabled: {}, defaults: {}, access: {}, qualityDefaults: {} }
-    const enabled = { ...(current.enabled || {}) }
-    const defaults = { ...(current.defaults || {}) }
-    const access: OpenRouterAccess = JSON.parse(JSON.stringify(current.access || {}))
-    const qualityDefaults: OpenRouterQualityDefaults = JSON.parse(JSON.stringify(current.qualityDefaults || {}))
-    access[mode] = access[mode] || {}
-    const values = new Set(access[mode][tier] || [])
-    if (checked) values.add(modelId)
-    else values.delete(modelId)
-    if (values.size) access[mode][tier] = Array.from(values).sort()
-    else delete access[mode][tier]
-    if (!Object.keys(access[mode]).length) delete access[mode]
-    void saveOpenrouterConfig({ enabled, defaults, access, qualityDefaults })
+    void saveOpenrouterConfig(setImageModelTier(data.openrouter.config || {}, mode, tier, modelId, checked))
   }
 
   const toggleOpenrouterTierColumn = (mode: string, tier: OpenRouterTier, modelIds: string[], checked: boolean) => {
     if (!data) return
-    const current = data.openrouter.config || { enabled: {}, defaults: {}, access: {}, qualityDefaults: {} }
-    const enabled = { ...(current.enabled || {}) }
-    const defaults = { ...(current.defaults || {}) }
-    const access: OpenRouterAccess = JSON.parse(JSON.stringify(current.access || {}))
-    const qualityDefaults: OpenRouterQualityDefaults = JSON.parse(JSON.stringify(current.qualityDefaults || {}))
-    const ids = Array.from(new Set(modelIds)).sort()
-    access[mode] = access[mode] || {}
-    if (checked) access[mode][tier] = ids
-    else delete access[mode][tier]
-    if (!Object.keys(access[mode]).length) delete access[mode]
-    void saveOpenrouterConfig({ enabled, defaults, access, qualityDefaults })
+    void saveOpenrouterConfig(setImageModelTierColumn(data.openrouter.config || {}, mode, tier, modelIds, checked))
   }
 
   const runOpenrouterTest = async () => {
@@ -1569,8 +1521,10 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
       maxInputReferences: model.maxInputReferences,
       description: model.description,
       supportsStreaming: model.supportsStreaming,
+      created: model.created,
     }
   }) : OPENROUTER_IMAGE_MODELS.map(fallbackCapabilityModel)
+  const publishedModelIds = new Set(publishedImageModelIds(data.openrouter.config || {}))
   const backendPricedCount = backendPricingMap.size
   const totalSpentPair = typeof data.openrouter.usage?.totalCostUsd === 'number' ? moneyPair(data.openrouter.usage.totalCostUsd, usdRubEffective) : '—'
   const avgImagePair = typeof data.openrouter.usage?.avgCostUsd === 'number' ? moneyPair(data.openrouter.usage.avgCostUsd, usdRubEffective) : '—'
@@ -2072,8 +2026,8 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
 
       {openrouterPage === 'images' && <article className="card video-catalog-card">
         <div className="video-catalog-head">
-          <div className="video-catalog-title"><div><h2 className="card-title">Каталог моделей изображений</h2><p className="card-note">Генерация, редактирование, сборка и экономика форматов.</p></div></div>
-          <div className="video-catalog-meta"><span className="state ok">{capabilityModels.length} моделей</span></div>
+          <div className="video-catalog-title"><div><h2 className="card-title">Каталог моделей изображений</h2><p className="card-note">Публикация управляет показом пользователям; операция и тарифы задаются отдельно.</p></div></div>
+          <div className="video-catalog-meta"><span className="state ok">{capabilityModels.length} моделей</span><span className="state ok">{publishedModelIds.size} опубликовано</span></div>
         </div>
       </article>}
 
@@ -2097,7 +2051,7 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
             return !query || hay.includes(query.toLowerCase())
           })
         const sortedRows = sortedApiRows(rows, sort, orUsageModels, usdRubEffective, minMarginPercent, tokenRub, backendPricingMap)
-        const billableIds = rows.filter((m) => backendPricingMap.has(m.id)).map((m) => m.id)
+        const billableIds = rows.filter((m) => backendPricingMap.has(m.id) && publishedModelIds.has(m.id)).map((m) => m.id)
         const enabledBillableCount = billableIds.filter((id) => enabledForSection.includes(id)).length
         const allBillableEnabled = billableIds.length > 0 && enabledBillableCount === billableIds.length
         const enabledIds = billableIds.filter((id) => enabledForSection.includes(id))
@@ -2123,7 +2077,9 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
           <div className="matrix-wrap">
             <table className="api-table format-table">
               <thead><tr>
+                <th className="api-enabled" title="Глобальная публикация: выключенная модель нигде не видна пользователям">Публ.</th>
                 <th className="api-enabled">
+                  <span className="api-column-label" title="Разрешение модели для этой операции">Опер.</span>
                   <input
                     type="checkbox"
                     checked={allBillableEnabled}
@@ -2161,6 +2117,7 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
                 const expanded = apiExpandedRows[rowKey] || false
                 const backendPrice = backendPricingMap.get(m.id)
                 const canBill = Boolean(backendPrice)
+                const published = publishedModelIds.has(m.id)
                 const tierAccess = (tier: OpenRouterTier) => Boolean(accessForSection[tier]?.includes(m.id))
                 const modelStats = orUsageModels.get(m.id)
                 const avgActualUsd = typeof modelStats?.avgCostUsd === 'number' ? modelStats.avgCostUsd : null
@@ -2173,18 +2130,28 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
                 const profit = profitRub(revenue, costRub)
                 const margin = marginPercent(revenue, profit)
                 return <Fragment key={rowKey}>
-                  <tr className={`api-model-row ${expanded ? 'expanded' : ''}`} onClick={() => setApiExpandedRows((prev) => ({ ...prev, [rowKey]: !expanded }))}>
+                  <tr className={`api-model-row ${expanded ? 'expanded' : ''}${published ? '' : ' unpublished'}`} onClick={() => setApiExpandedRows((prev) => ({ ...prev, [rowKey]: !expanded }))}>
+                    <td className="api-enabled">
+                      <input
+                        type="checkbox"
+                        checked={published}
+                        disabled={!canBill && !published}
+                        aria-label={`Опубликовать ${modelShortName(m)} для пользователей`}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => toggleOpenrouterPublished(m.id, e.target.checked)}
+                      />
+                    </td>
                     <td className="api-enabled">
                       <input
                         type="checkbox"
                         checked={enabled}
-                        disabled={!canBill && !enabled}
+                        disabled={!published || (!canBill && !enabled)}
                         aria-label={`Включить ${modelShortName(m)} для ${section.title}`}
                         onClick={(e) => e.stopPropagation()}
                         onChange={(e) => toggleOpenrouterModel(section.id, m.id, e.target.checked)}
                       />
                     </td>
-                    <td><strong className="model-name">{modelShortName(m)}</strong>{defaultForSection === m.id ? <span className="mini" style={{ marginLeft: 8 }}>default</span> : null}{!canBill ? <span className="mini risk-high" style={{ marginLeft: 8 }}>нет backend цены</span> : null}</td>
+                    <td><strong className="model-name">{modelShortName(m)}</strong><small className="model-release">выпуск: {modelReleaseLabel(m.created)}</small>{defaultForSection === m.id ? <span className="mini" style={{ marginLeft: 8 }}>по умолчанию</span> : null}{!published ? <span className="mini" style={{ marginLeft: 8 }}>скрыта</span> : null}{!canBill ? <span className="mini risk-high" style={{ marginLeft: 8 }}>нет backend цены</span> : null}</td>
                     <td><span className="provider openrouter">{modelBrand(m)}</span></td>
                     <td>
                       <div className="tier-checks">
@@ -2207,9 +2174,11 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
                     <td><span className="money">{spentTotal}</span></td>
                   </tr>
                   {expanded && <tr>
-                    <td className="detail-cell" colSpan={10}>
+                    <td className="detail-cell" colSpan={11}>
                       <div className="detail-box">
                         <span><b>Полное имя:</b> {m.name}</span>
+                        <span><b>Дата выпуска:</b> {modelReleaseLabel(m.created)}</span>
+                        <span><b>Публикация:</b> {published ? 'видна пользователям в разрешённых операциях' : 'полностью скрыта от пользователей'}</span>
                         <span><b>OpenRouter id:</b> {m.id}</span>
                         <span><b>Backend billing:</b> {backendPrice ? `${backendPrice.pricing_type} · min ${backendPrice.min_tokens} ток. · ${backendPrice.source}` : 'не подключено, модель нельзя включать в реальную генерацию'}</span>
                         <span><b>Как посчитано:</b> {priceConfidence(m)}</span>

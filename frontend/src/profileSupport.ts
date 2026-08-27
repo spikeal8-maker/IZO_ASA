@@ -9,6 +9,7 @@ export type UserModelMode = {
   id: ModelModeKey
   label: string
   models: ModelOption[]
+  publishedModels: ModelOption[]
   presets: TariffModelDefaults
 }
 export type UserModelAccess = {
@@ -45,6 +46,7 @@ export type ModelOption = {
   provider: ModelProvider
   modelProfile: string
   tokenHint: number
+  releasedAt?: number | null
   supportedResolutionIds?: string[]
   generation?: ModelGenerationContract
 }
@@ -234,6 +236,16 @@ function familyInfo(model: ModelOption): ModelPublicInfo {
 export function modelPublicInfo(model: ModelOption): ModelPublicInfo {
   return modelPublicInfoById[model.id] || familyInfo(model)
 }
+
+export function modelReleaseLabel(model: ModelOption): string {
+  if (typeof model.releasedAt !== 'number' || model.releasedAt <= 0) return 'не указана поставщиком'
+  return new Date(model.releasedAt * 1000).toLocaleDateString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    timeZone: 'UTC',
+  })
+}
 export const resolutionOptions = IMAGE_RESOLUTIONS.map((item) => ({ ...item, label: resolutionLabel(item) }))
 
 const sdResolutions = IMAGE_RESOLUTIONS.filter((item) => item.tier === 'sd').map((item) => item.id)
@@ -311,7 +323,7 @@ export function normalizeModelAccess(input: unknown, fallbackPlan: TariffKey = '
   const modes = modelModeOrder.reduce((acc, mode) => {
     const raw = source.modes?.[mode]
     const rawModels = Array.isArray(raw?.models) ? raw.models : [SERVER_MODEL_OPTION]
-    const models = rawModels.map((item) => {
+    const normalizeOptions = (items: ModelOption[]) => items.map((item) => {
       const fallback = modelOptionById(String(item.id || item.modelProfile || SERVER_MODEL_OPTION.id))
       const generation = item.generation && typeof item.generation === 'object'
         ? {
@@ -329,18 +341,23 @@ export function normalizeModelAccess(input: unknown, fallbackPlan: TariffKey = '
         provider: item.provider === 'openrouter' ? 'openrouter' as const : fallback.provider,
         modelProfile: typeof item.modelProfile === 'string' && item.modelProfile ? item.modelProfile : fallback.modelProfile,
         tokenHint: typeof item.tokenHint === 'number' && item.tokenHint > 0 ? item.tokenHint : fallback.tokenHint,
+        releasedAt: typeof item.releasedAt === 'number' && item.releasedAt > 0 ? item.releasedAt : null,
         supportedResolutionIds: normalizeResolutionIds(item.supportedResolutionIds, fallback.supportedResolutionIds || fullResolutions),
         generation,
       }
     })
+    const models = normalizeOptions(rawModels)
+    const rawPublishedModels = Array.isArray(raw?.publishedModels) ? raw.publishedModels : rawModels
+    const publishedModels = normalizeOptions(rawPublishedModels)
     const unique = Array.from(new Map([SERVER_MODEL_OPTION, ...models].map((item) => [item.id, item])).values())
+    const uniquePublished = Array.from(new Map([SERVER_MODEL_OPTION, ...publishedModels, ...unique].map((item) => [item.id, item])).values())
     const rawPresets = (raw?.presets || {}) as Partial<TariffModelDefaults>
     const presets = qualityPresets.reduce((presetAcc, preset) => {
       const value = String(rawPresets[preset] || SERVER_MODEL_OPTION.id)
       presetAcc[preset] = unique.some((item) => item.id === value) ? value : SERVER_MODEL_OPTION.id
       return presetAcc
     }, { ...serverDefaults } as TariffModelDefaults)
-    acc[mode] = { id: mode, label: raw?.label || modelModeLabels[mode], models: unique, presets }
+    acc[mode] = { id: mode, label: raw?.label || modelModeLabels[mode], models: unique, publishedModels: uniquePublished, presets }
     return acc
   }, {} as Record<ModelModeKey, UserModelMode>)
   return { plan, modes }

@@ -167,44 +167,44 @@ Auth policy is a conservative static hint. Every `REVIEW` row must be checked in
 | GET | `/api/video/media/{job_id}` | `video_media` | 16667 | user |
 | POST | `/api/gallery/videos/{video_id}/favorite` | `gallery_video_favorite` | 16680 | user |
 | DELETE | `/api/gallery/videos/{video_id}` | `gallery_video_delete` | 16705 | user |
-| GET | `/api/model-access` | `model_access` | 16981 | user |
-| PUT | `/api/admin/openrouter/key` | `admin_save_openrouter_key` | 17032 | admin |
-| DELETE | `/api/admin/openrouter/key` | `admin_delete_openrouter_key` | 17052 | admin |
-| POST | `/api/admin/openrouter/test-generate` | `admin_openrouter_test_generate` | 17069 | admin |
-| GET | `/api/admin/models-page` | `admin_models_page` | 17169 | admin |
-| GET | `/api/admin/jobs` | `admin_jobs` | 17285 | admin |
-| POST | `/api/admin/limits` | `admin_limits` | 17291 | admin |
-| GET | `/api/feed` | `feed_list` | 18288 | public/optional/review |
-| POST | `/api/feed/publications` | `feed_publish` | 18660 | user |
-| GET | `/api/feed/publications/{publication_id}/status` | `feed_publication_status` | 18866 | user |
-| PATCH | `/api/feed/publications/{publication_id}` | `update_own_feed_publication` | 18898 | user |
-| POST | `/api/feed/publications/{publication_id}/like` | `feed_like` | 18961 | public/optional/review |
-| DELETE | `/api/feed/publications/{publication_id}/like` | `feed_unlike` | 18966 | public/optional/review |
-| POST | `/api/feed/publications/{publication_id}/save` | `feed_save` | 18971 | public/optional/review |
-| DELETE | `/api/feed/publications/{publication_id}/save` | `feed_unsave` | 18976 | public/optional/review |
-| POST | `/api/feed/events` | `feed_engagement_event` | 18995 | public/optional/review |
-| POST | `/api/feed/publications/{publication_id}/view` | `feed_publication_view` | 19052 | public/optional/review |
-| POST | `/api/feed/publications/{publication_id}/dislike` | `feed_dislike` | 19098 | public/optional/review |
-| DELETE | `/api/feed/publications/{publication_id}/dislike` | `feed_undislike` | 19103 | public/optional/review |
-| POST | `/api/feed/publications/{publication_id}/hide` | `feed_hide` | 19108 | public/optional/review |
-| DELETE | `/api/feed/publications/{publication_id}/hide` | `feed_unhide` | 19113 | public/optional/review |
-| POST | `/api/feed/publications/{publication_id}/report` | `feed_report` | 19118 | public/optional/review |
-| POST | `/api/feed/publications/{publication_id}/use-as` | `feed_publication_use_as` | 19123 | user |
-| POST | `/api/feed/authors/{author_id}/follow` | `feed_follow_author` | 19159 | user |
-| DELETE | `/api/feed/authors/{author_id}/follow` | `feed_unfollow_author` | 19180 | user |
-| GET | `/api/feed/authors/{author_id}/publications` | `feed_author_publications` | 19191 | public/optional/review |
-| POST | `/api/feed/following/read` | `feed_following_mark_read` | 19237 | user |
-| GET | `/api/feed/challenges` | `feed_challenges` | 19253 | public/optional/review |
-| POST | `/api/feed/publications/{publication_id}/recreate` | `feed_recreate_mark` | 19278 | public/optional/review |
-| POST | `/api/feed/publications/{publication_id}/remix/start` | `feed_remix_start` | 19294 | user |
-| GET | `/api/admin/feed/moderation` | `admin_feed_moderation_queue` | 19325 | admin |
-| GET | `/api/admin/feed/publications/{publication_id}/media` | `admin_feed_moderation_media` | 19355 | admin |
-| POST | `/api/admin/feed/publications/{publication_id}/moderate` | `admin_moderate_feed_publication` | 19374 | admin |
-| POST | `/api/admin/feed/publications/{publication_id}/delete-v2` | `admin_delete_feed_publication_v2` | 19449 | admin |
-| DELETE | `/api/feed/publications/{publication_id}` | `delete_own_feed_publication` | 19531 | user |
-| GET | `/api/feed/media/{publication_id}` | `feed_media` | 19622 | public/optional/review |
-| GET | `/api/feed/video/{publication_id}` | `feed_video_media` | 19643 | public/optional/review |
-| GET | `/api/feed/publications/{publication_id}/download` | `feed_publication_download` | 19675 | public/optional/review |
+| GET | `/api/model-access` | `model_access` | 16924 | user |
+| PUT | `/api/admin/openrouter/key` | `admin_save_openrouter_key` | 16975 | admin |
+| DELETE | `/api/admin/openrouter/key` | `admin_delete_openrouter_key` | 16995 | admin |
+| POST | `/api/admin/openrouter/test-generate` | `admin_openrouter_test_generate` | 17012 | admin |
+| GET | `/api/admin/models-page` | `admin_models_page` | 17112 | admin |
+| GET | `/api/admin/jobs` | `admin_jobs` | 17228 | admin |
+| POST | `/api/admin/limits` | `admin_limits` | 17234 | admin |
+| GET | `/api/feed` | `feed_list` | 18231 | public/optional/review |
+| POST | `/api/feed/publications` | `feed_publish` | 18603 | user |
+| GET | `/api/feed/publications/{publication_id}/status` | `feed_publication_status` | 18809 | user |
+| PATCH | `/api/feed/publications/{publication_id}` | `update_own_feed_publication` | 18841 | user |
+| POST | `/api/feed/publications/{publication_id}/like` | `feed_like` | 18904 | public/optional/review |
+| DELETE | `/api/feed/publications/{publication_id}/like` | `feed_unlike` | 18909 | public/optional/review |
+| POST | `/api/feed/publications/{publication_id}/save` | `feed_save` | 18914 | public/optional/review |
+| DELETE | `/api/feed/publications/{publication_id}/save` | `feed_unsave` | 18919 | public/optional/review |
+| POST | `/api/feed/events` | `feed_engagement_event` | 18938 | public/optional/review |
+| POST | `/api/feed/publications/{publication_id}/view` | `feed_publication_view` | 18995 | public/optional/review |
+| POST | `/api/feed/publications/{publication_id}/dislike` | `feed_dislike` | 19041 | public/optional/review |
+| DELETE | `/api/feed/publications/{publication_id}/dislike` | `feed_undislike` | 19046 | public/optional/review |
+| POST | `/api/feed/publications/{publication_id}/hide` | `feed_hide` | 19051 | public/optional/review |
+| DELETE | `/api/feed/publications/{publication_id}/hide` | `feed_unhide` | 19056 | public/optional/review |
+| POST | `/api/feed/publications/{publication_id}/report` | `feed_report` | 19061 | public/optional/review |
+| POST | `/api/feed/publications/{publication_id}/use-as` | `feed_publication_use_as` | 19066 | user |
+| POST | `/api/feed/authors/{author_id}/follow` | `feed_follow_author` | 19102 | user |
+| DELETE | `/api/feed/authors/{author_id}/follow` | `feed_unfollow_author` | 19123 | user |
+| GET | `/api/feed/authors/{author_id}/publications` | `feed_author_publications` | 19134 | public/optional/review |
+| POST | `/api/feed/following/read` | `feed_following_mark_read` | 19180 | user |
+| GET | `/api/feed/challenges` | `feed_challenges` | 19196 | public/optional/review |
+| POST | `/api/feed/publications/{publication_id}/recreate` | `feed_recreate_mark` | 19221 | public/optional/review |
+| POST | `/api/feed/publications/{publication_id}/remix/start` | `feed_remix_start` | 19237 | user |
+| GET | `/api/admin/feed/moderation` | `admin_feed_moderation_queue` | 19268 | admin |
+| GET | `/api/admin/feed/publications/{publication_id}/media` | `admin_feed_moderation_media` | 19298 | admin |
+| POST | `/api/admin/feed/publications/{publication_id}/moderate` | `admin_moderate_feed_publication` | 19317 | admin |
+| POST | `/api/admin/feed/publications/{publication_id}/delete-v2` | `admin_delete_feed_publication_v2` | 19392 | admin |
+| DELETE | `/api/feed/publications/{publication_id}` | `delete_own_feed_publication` | 19474 | user |
+| GET | `/api/feed/media/{publication_id}` | `feed_media` | 19565 | public/optional/review |
+| GET | `/api/feed/video/{publication_id}` | `feed_video_media` | 19586 | public/optional/review |
+| GET | `/api/feed/publications/{publication_id}/download` | `feed_publication_download` | 19618 | public/optional/review |
 | GET | `/openrouter/status` | `openrouter_status` | 100 | public/optional/review |
 | GET | `/openrouter/catalog/status-v2` | `openrouter_catalog_status` | 110 | public/optional/review |
 | POST | `/openrouter/catalog/refresh-v2` | `openrouter_catalog_refresh` | 115 | public/optional/review |
@@ -346,8 +346,8 @@ Auth policy is a conservative static hint. Every `REVIEW` row must be checked in
 | `OpenRouterResult` | 1621–1630 |
 | `TelegramAuthError` | 1678–1683 |
 | `MaxAuthError` | 1733–1738 |
-| `FeedAssetInfo` | 17329–17339 |
-| `FeedVideoAssetInfo` | 17343–17355 |
+| `FeedAssetInfo` | 17272–17282 |
+| `FeedVideoAssetInfo` | 17286–17298 |
 
 ## Functions
 
@@ -952,87 +952,87 @@ Auth policy is a conservative static hint. Every `REVIEW` row must be checked in
 | `gallery_video_favorite` | async function | 16680–16701 |
 | `gallery_video_delete` | async function | 16705–16726 |
 | `openrouter_video_usage_stats` | function | 16729–16730 |
-| `normalize_openrouter_config` | function | 16740–16790 |
-| `get_openrouter_config` | function | 16793–16794 |
-| `tariff_model_counts` | function | 16797–16843 |
-| `tariff_config_with_model_counts` | function | 16846–16854 |
-| `filter_openrouter_config_by_capabilities` | function | 16857–16879 |
-| `openrouter_model_allowed` | function | 16882–16886 |
-| `openrouter_quality_model` | function | 16889–16897 |
-| `_public_model_option` | function | 16911–16941 |
-| `public_model_access_for_plan` | function | 16944–16977 |
-| `model_access` | async function | 16981–16992 |
-| `admin_save_openrouter_key` | async function | 17032–17049 |
-| `admin_delete_openrouter_key` | async function | 17052–17066 |
-| `admin_openrouter_test_generate` | async function | 17069–17137 |
-| `default_routes` | function | 17140–17165 |
-| `admin_models_page` | async function | 17169–17281 |
-| `admin_jobs` | async function | 17285–17287 |
-| `admin_limits` | async function | 17291–17294 |
-| `_feed_orientation` | function | 17358–17363 |
-| `_feed_source_label` | function | 17366–17382 |
-| `_feed_source_type` | function | 17385–17391 |
-| `_save_feed_variant` | function | 17394–17402 |
-| `create_feed_assets` | function | 17405–17432 |
-| `_feed_ffmpeg_executable` | function | 17435–17444 |
-| `_run_feed_ffmpeg` | function | 17447–17461 |
-| `create_feed_video_assets` | function | 17464–17540 |
-| `_feed_media_name` | function | 17543–17552 |
-| `_feed_author_name` | function | 17555–17567 |
-| `_feed_author_profile` | function | 17570–17608 |
-| `_feed_author_profile_payload` | function | 17611–17641 |
-| `_feed_author_profiles` | function | 17644–17708 |
-| `_feed_challenge_payload` | function | 17711–17738 |
-| `_feed_source_history_payload` | function | 17741–17748 |
-| `_feed_generation_snapshot` | function | 17751–17764 |
-| `backfill_feed_generation_snapshots` | function | 17767–17788 |
-| `_feed_aspect_ratio` | function | 17791–17797 |
-| `_feed_payload_context` | function | 17800–17868 |
-| `_feed_item_payload` | function | 17871–18032 |
-| `_feed_optional_viewer` | function | 18035–18041 |
-| `_feed_viewer_key` | function | 18062–18073 |
-| `_encode_feed_cursor` | function | 18076–18080 |
-| `_decode_feed_cursor` | function | 18083–18101 |
-| `_feed_subscription_unread_count` | function | 18104–18126 |
-| `_feed_cursor_for_row` | function | 18129–18148 |
-| `_feed_list_rows` | function | 18151–18284 |
-| `feed_list` | async function | 18288–18341 |
-| `_feed_video_publication_status_payload` | function | 18344–18356 |
-| `_prepare_feed_video_publication` | function | 18359–18440 |
-| `feed_video_publication_worker` | async function | 18443–18454 |
-| `start_feed_video_publication_worker` | function | 18457–18475 |
-| `stop_feed_video_publication_worker` | async function | 18478–18501 |
-| `enqueue_feed_video_publication` | async function | 18504–18511 |
-| `_publish_feed_video` | async function | 18514–18656 |
-| `feed_publish` | async function | 18660–18862 |
-| `feed_publication_status` | async function | 18866–18894 |
-| `update_own_feed_publication` | async function | 18898–18933 |
-| `_feed_reaction_toggle` | function | 18936–18957 |
-| `feed_like` | async function | 18961–18962 |
-| `feed_unlike` | async function | 18966–18967 |
-| `feed_save` | async function | 18971–18972 |
-| `feed_unsave` | async function | 18976–18977 |
-| `_feed_engagement_context` | function | 18980–18991 |
-| `feed_engagement_event` | async function | 18995–19048 |
-| `feed_publication_view` | async function | 19052–19094 |
-| `feed_dislike` | async function | 19098–19099 |
-| `feed_undislike` | async function | 19103–19104 |
-| `feed_hide` | async function | 19108–19109 |
-| `feed_unhide` | async function | 19113–19114 |
-| `feed_report` | async function | 19118–19119 |
-| `feed_publication_use_as` | async function | 19123–19155 |
-| `feed_follow_author` | async function | 19159–19176 |
-| `feed_unfollow_author` | async function | 19180–19187 |
-| `feed_author_publications` | async function | 19191–19233 |
-| `feed_following_mark_read` | async function | 19237–19249 |
-| `feed_challenges` | async function | 19253–19274 |
-| `feed_recreate_mark` | async function | 19278–19290 |
-| `feed_remix_start` | async function | 19294–19321 |
-| `admin_feed_moderation_queue` | async function | 19325–19351 |
-| `admin_feed_moderation_media` | async function | 19355–19370 |
-| `admin_moderate_feed_publication` | async function | 19374–19445 |
-| `admin_delete_feed_publication_v2` | async function | 19449–19527 |
-| `delete_own_feed_publication` | async function | 19531–19618 |
-| `feed_media` | async function | 19622–19639 |
-| `feed_video_media` | async function | 19643–19671 |
-| `feed_publication_download` | async function | 19675–19749 |
+| `normalize_openrouter_config` | function | 16740–16746 |
+| `get_openrouter_config` | function | 16749–16750 |
+| `tariff_model_counts` | function | 16753–16799 |
+| `tariff_config_with_model_counts` | function | 16802–16810 |
+| `filter_openrouter_config_by_capabilities` | function | 16813–16839 |
+| `openrouter_model_allowed` | function | 16842–16843 |
+| `openrouter_quality_model` | function | 16846–16854 |
+| `_public_model_option` | function | 16868–16904 |
+| `public_model_access_for_plan` | function | 16907–16920 |
+| `model_access` | async function | 16924–16935 |
+| `admin_save_openrouter_key` | async function | 16975–16992 |
+| `admin_delete_openrouter_key` | async function | 16995–17009 |
+| `admin_openrouter_test_generate` | async function | 17012–17080 |
+| `default_routes` | function | 17083–17108 |
+| `admin_models_page` | async function | 17112–17224 |
+| `admin_jobs` | async function | 17228–17230 |
+| `admin_limits` | async function | 17234–17237 |
+| `_feed_orientation` | function | 17301–17306 |
+| `_feed_source_label` | function | 17309–17325 |
+| `_feed_source_type` | function | 17328–17334 |
+| `_save_feed_variant` | function | 17337–17345 |
+| `create_feed_assets` | function | 17348–17375 |
+| `_feed_ffmpeg_executable` | function | 17378–17387 |
+| `_run_feed_ffmpeg` | function | 17390–17404 |
+| `create_feed_video_assets` | function | 17407–17483 |
+| `_feed_media_name` | function | 17486–17495 |
+| `_feed_author_name` | function | 17498–17510 |
+| `_feed_author_profile` | function | 17513–17551 |
+| `_feed_author_profile_payload` | function | 17554–17584 |
+| `_feed_author_profiles` | function | 17587–17651 |
+| `_feed_challenge_payload` | function | 17654–17681 |
+| `_feed_source_history_payload` | function | 17684–17691 |
+| `_feed_generation_snapshot` | function | 17694–17707 |
+| `backfill_feed_generation_snapshots` | function | 17710–17731 |
+| `_feed_aspect_ratio` | function | 17734–17740 |
+| `_feed_payload_context` | function | 17743–17811 |
+| `_feed_item_payload` | function | 17814–17975 |
+| `_feed_optional_viewer` | function | 17978–17984 |
+| `_feed_viewer_key` | function | 18005–18016 |
+| `_encode_feed_cursor` | function | 18019–18023 |
+| `_decode_feed_cursor` | function | 18026–18044 |
+| `_feed_subscription_unread_count` | function | 18047–18069 |
+| `_feed_cursor_for_row` | function | 18072–18091 |
+| `_feed_list_rows` | function | 18094–18227 |
+| `feed_list` | async function | 18231–18284 |
+| `_feed_video_publication_status_payload` | function | 18287–18299 |
+| `_prepare_feed_video_publication` | function | 18302–18383 |
+| `feed_video_publication_worker` | async function | 18386–18397 |
+| `start_feed_video_publication_worker` | function | 18400–18418 |
+| `stop_feed_video_publication_worker` | async function | 18421–18444 |
+| `enqueue_feed_video_publication` | async function | 18447–18454 |
+| `_publish_feed_video` | async function | 18457–18599 |
+| `feed_publish` | async function | 18603–18805 |
+| `feed_publication_status` | async function | 18809–18837 |
+| `update_own_feed_publication` | async function | 18841–18876 |
+| `_feed_reaction_toggle` | function | 18879–18900 |
+| `feed_like` | async function | 18904–18905 |
+| `feed_unlike` | async function | 18909–18910 |
+| `feed_save` | async function | 18914–18915 |
+| `feed_unsave` | async function | 18919–18920 |
+| `_feed_engagement_context` | function | 18923–18934 |
+| `feed_engagement_event` | async function | 18938–18991 |
+| `feed_publication_view` | async function | 18995–19037 |
+| `feed_dislike` | async function | 19041–19042 |
+| `feed_undislike` | async function | 19046–19047 |
+| `feed_hide` | async function | 19051–19052 |
+| `feed_unhide` | async function | 19056–19057 |
+| `feed_report` | async function | 19061–19062 |
+| `feed_publication_use_as` | async function | 19066–19098 |
+| `feed_follow_author` | async function | 19102–19119 |
+| `feed_unfollow_author` | async function | 19123–19130 |
+| `feed_author_publications` | async function | 19134–19176 |
+| `feed_following_mark_read` | async function | 19180–19192 |
+| `feed_challenges` | async function | 19196–19217 |
+| `feed_recreate_mark` | async function | 19221–19233 |
+| `feed_remix_start` | async function | 19237–19264 |
+| `admin_feed_moderation_queue` | async function | 19268–19294 |
+| `admin_feed_moderation_media` | async function | 19298–19313 |
+| `admin_moderate_feed_publication` | async function | 19317–19388 |
+| `admin_delete_feed_publication_v2` | async function | 19392–19470 |
+| `delete_own_feed_publication` | async function | 19474–19561 |
+| `feed_media` | async function | 19565–19582 |
+| `feed_video_media` | async function | 19586–19614 |
+| `feed_publication_download` | async function | 19618–19692 |

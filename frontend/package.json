@@ -44,6 +44,7 @@
     "test:video-handoff": "node videoSourceHandoff.test.ts",
     "test:style-presets": "node stylePresets.test.ts",
     "test:token-visual": "node tokenVisual.test.ts",
+    "test:admin-image-publication": "node adminImageModelPublication.test.ts",
     "test:phone-contract": "node --test phoneContracts.test.ts",
     "test:phone-core": "node --test phoneCore.test.ts",
     "test:phone-chat": "node --test phoneChat.test.ts",

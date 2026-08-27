@@ -41,7 +41,7 @@ import TopBarV3 from './TopBarV3'
 import type { V3Mode, V3Section } from './TopBarV3'
 import { accountInfo } from './topbarUtils'
 import ProfilePage, { type PublicProfileLink } from './ProfilePage'
-import { DEFAULT_TARIFFS, avatarPresets, modelAccessOption, modelOptions, modelPublicInfo, type ModelModeKey, type ModelOption, type QualityPreset, type TariffKey } from './profileSupport'
+import { DEFAULT_TARIFFS, avatarPresets, modelAccessOption, modelPublicInfo, type ModelModeKey, type ModelOption, type QualityPreset, type TariffKey } from './profileSupport'
 import { imageTokenVisualKind, tokenVisualClass, tokenVisualLabel } from './tokenVisual'
 import { normalizeResolutionId } from './resolutionPolicy'
 import type { PaintDrawMode, PaintLine, PaintOutpaintPlacement, PaintSubMode, PaintTool } from './paintTypes'
@@ -1752,9 +1752,7 @@ export default function NewStudio(): ReactElement {
   }
   const studioModelEnabled = (model: ModelOption, mode: ModelModeKey = currentModelMode) => isRasterOpenRouterModel(model) && (model.provider !== 'openrouter' || mode === 'text_to_image' || mode === 'image_to_image' || mode === 'edit')
   const accessibleStudioModelIds = new Set((currentModeAccess?.models || []).map((model) => model.id))
-  const studioModelCatalog = Array.from(new Map(
-    [...(currentModeAccess?.models || []), ...modelOptions].map((model) => [model.id, model]),
-  ).values())
+  const studioModelCatalog = currentModeAccess?.publishedModels || currentModeAccess?.models || []
   const selectableStudioModels = studioModelCatalog
     .filter((model) => studioModelEnabled(model))
     .sort((a, b) => {

@@ -1,7 +1,7 @@
 import { useEffect, useState, type ChangeEvent, type Dispatch, type SetStateAction } from 'react'
 import { ArrowRight, Copy, KeyRound, Link as LinkIcon, Lock, LogOut, Plus, Save, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, Upload, WandSparkles, X } from 'lucide-react'
 import { changePasswordV2, type AuthStatusV2, type MeV2 } from './authV2'
-import { DEFAULT_TARIFFS, SERVER_MODEL_OPTION, avatarPresets, formatModelCount, modelAccessOption, modelModeOrder, modelOptions, modelPublicInfo, qualityPresetLabels, qualityPresets, tariffKeys, type ModelModeKey, type ModelOption, type QualityPreset, type TariffConfig, type TariffKey, type TariffModelDefaults, type UserModelAccess } from './profileSupport'
+import { DEFAULT_TARIFFS, SERVER_MODEL_OPTION, avatarPresets, formatModelCount, modelAccessOption, modelModeOrder, modelPublicInfo, modelReleaseLabel, qualityPresetLabels, qualityPresets, tariffKeys, type ModelModeKey, type ModelOption, type QualityPreset, type TariffConfig, type TariffKey, type TariffModelDefaults, type UserModelAccess } from './profileSupport'
 import { imageTokenVisualKind, tokenVisualClass, tokenVisualLabel, videoTokenVisualKind } from './tokenVisual'
 import './profileAccount.css'
 
@@ -248,7 +248,8 @@ export default function ProfilePage({
   const availableModelIds = (mode: ModelModeKey) => new Set((modelAccess.modes[mode]?.models || []).map((item) => item.id))
   const catalogModelsForMode = (mode: ModelModeKey): ModelOption[] => {
     const accessModels = modelAccess.modes[mode]?.models || []
-    const map = new Map([...accessModels, ...modelOptions].map((item) => [item.id, item]))
+    const publishedModels = modelAccess.modes[mode]?.publishedModels || accessModels
+    const map = new Map(publishedModels.map((item) => [item.id, item]))
     const available = availableModelIds(mode)
     return Array.from(map.values()).sort((a, b) => {
       const accessDiff = Number(available.has(b.id)) - Number(available.has(a.id))
@@ -907,7 +908,7 @@ export default function ProfilePage({
                   const visibleCount = access.models.filter((model) => isModelVisible(access.id, model.id)).length
                   const catalogModels = catalogModelsForMode(access.id)
                   return <details className="profile-model-group" key={`catalog-${access.id}`}>
-                    <summary><strong>{access.label}</strong><span>{access.models.length} доступно · {visibleCount} показано</span></summary>
+                    <summary><strong>{access.label}</strong><span>{access.models.length} доступно · {catalogModels.length} опубликовано · {visibleCount} показано</span></summary>
                     <div className="profile-model-info-list">
                       {catalogModels.map((model) => {
                         const info = modelPublicInfo(model)
@@ -925,7 +926,7 @@ export default function ProfilePage({
                           </summary>
                           <div className="profile-model-info-body">
                             <p>{info.description}</p>
-                            <div className="profile-model-info-meta"><span>Год: <b>{info.year}</b></span><span>Семейство: <b>{info.company}</b></span></div>
+                            <div className="profile-model-info-meta"><span>Выпуск: <b>{modelReleaseLabel(model)}</b></span><span>Производитель: <b>{info.company}</b></span></div>
                             <div className="profile-model-format-grid" aria-label="Стоимость по форматам">
                               {modelFormatChips(model).map((fmt) => (
                                 <span key={`${model.id}-${fmt.id}`} className={`${fmt.supported === false ? 'disabled' : ''} ${tokenVisualClass(imageTokenVisualKind(model))}`.trim()}>

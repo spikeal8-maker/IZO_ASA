@@ -54,6 +54,34 @@ def test_fallback_catalog_does_not_strip_saved_modes():
     normalized = main.normalize_openrouter_config(requested)
     assert normalized["enabled"]["edit"] == ["provider/model"]
     assert normalized["defaults"]["edit"] == "provider/model"
+    assert normalized["published"] == ["provider/model"]
+
+
+def test_global_unpublish_removes_operation_tariff_and_defaults():
+    normalized = main.normalize_openrouter_config({
+        "published": ["provider/visible"],
+        "enabled": {"edit": ["provider/visible", "provider/hidden"]},
+        "defaults": {"edit": "provider/hidden"},
+        "access": {"edit": {"pro": ["provider/visible", "provider/hidden"]}},
+        "qualityDefaults": {"edit": {"max": "provider/hidden"}},
+    })
+    assert normalized["published"] == ["provider/visible"]
+    assert normalized["enabled"]["edit"] == ["provider/visible"]
+    assert normalized["defaults"]["edit"] == "provider/visible"
+    assert normalized["access"]["edit"]["pro"] == ["provider/visible"]
+    assert normalized["qualityDefaults"]["edit"]["max"] == "provider/visible"
+
+
+def test_server_rejects_unpublished_or_operation_disabled_model():
+    config = main.normalize_openrouter_config({
+        "published": ["provider/allowed", "provider/wrong-mode"],
+        "enabled": {"edit": ["provider/allowed"], "text_to_image": ["provider/wrong-mode"]},
+        "access": {"edit": {"pro": ["provider/allowed"]}, "text_to_image": {"pro": ["provider/wrong-mode"]}},
+    })
+    assert main.openrouter_model_allowed(config, "edit", "pro", "provider/allowed") is True
+    assert main.openrouter_model_allowed(config, "edit", "pro", "provider/wrong-mode") is False
+    unpublished = {**config, "published": []}
+    assert main.openrouter_model_allowed(unpublished, "edit", "pro", "provider/allowed") is False
 
 
 def test_exchange_snapshot_never_uses_network(monkeypatch):
@@ -139,3 +167,16 @@ def test_frontend_bots_route_and_secret_controls_are_present():
     assert "confirmModeChange" in bots_page
     assert "window.confirm" in bots_page
     assert "setTokens((current) => ({ ...current, [provider]: '' }))" in bots_page
+
+
+def test_frontend_model_catalog_uses_server_publication_contract():
+    frontend = main.ROOT.parent / "frontend" / "src"
+    support = (frontend / "profileSupport.ts").read_text(encoding="utf-8")
+    studio = (frontend / "newUi.tsx").read_text(encoding="utf-8")
+    profile = (frontend / "ProfilePage.tsx").read_text(encoding="utf-8")
+    admin = (frontend / "adminModels.tsx").read_text(encoding="utf-8")
+    assert "publishedModels: ModelOption[]" in support
+    assert "currentModeAccess?.publishedModels || currentModeAccess?.models" in studio
+    assert "modelAccess.modes[mode]?.publishedModels || accessModels" in profile
+    assert "toggleOpenrouterPublished" in admin
+    assert "Глобальная публикация" in admin

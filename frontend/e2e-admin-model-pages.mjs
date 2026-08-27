@@ -37,7 +37,28 @@ async function mockAdmin(page) {
   await page.route('**/api/admin/models-page**', (route) => route.fulfill(json({
     economy: { activeModels: 0, routesAssigned: '', expensiveRoutes: 0, priceConflicts: 0 }, routes: [], matrix: [], catalog: [], loras: [],
     userChoice: { simple: [], pro: [] }, comfyuiAvailable: false, comfyFiles: {}, profiles: [],
-    openrouter: { keyConfigured: true, usage: {}, config: {}, exchange: { rate: 90 }, economy: { minMarginPercent: 40, tokenRub: 5 }, backendPricing: [], capabilityCatalog: [], videoCatalog: [], videoConfig: {}, videoUsage: {} },
+    openrouter: {
+      keyConfigured: true,
+      usage: {},
+      config: {
+        published: ['provider/test-image'],
+        enabled: { text_to_image: ['provider/test-image'] },
+        defaults: { text_to_image: 'provider/test-image' },
+        access: { text_to_image: { pro: ['provider/test-image'] } },
+        qualityDefaults: {},
+      },
+      exchange: { rate: 90 },
+      economy: { minMarginPercent: 40, tokenRub: 5 },
+      backendPricing: [
+        { id: 'provider/test-image', name: 'Test Image', provider: 'Provider', pricing_type: 'image', usd: 0.02, min_tokens: 1, source: 'test', formats: [] },
+        { id: 'provider/hidden-image', name: 'Hidden Image', provider: 'Provider', pricing_type: 'image', usd: 0.02, min_tokens: 1, source: 'test', formats: [] },
+      ],
+      capabilityCatalog: [
+        { id: 'provider/test-image', name: 'Provider: Test Image', description: '', created: 1700000000, inputModalities: ['text'], outputModalities: ['image'], parameters: [], maxInputReferences: 0, supportsStreaming: false, modes: ['text_to_image'], features: {} },
+        { id: 'provider/hidden-image', name: 'Provider: Hidden Image', description: '', created: 0, inputModalities: ['text'], outputModalities: ['image'], parameters: [], maxInputReferences: 0, supportsStreaming: false, modes: ['text_to_image'], features: {} },
+      ],
+      videoCatalog: [], videoConfig: {}, videoUsage: {},
+    },
   })))
   await page.route('**/api/admin/energy**', (route) => route.fulfill(json({ detail: 'isolated navigation test' }, 503)))
   await page.route('**/api/admin/voice**', (route) => route.fulfill(json({ detail: 'isolated navigation test' }, 503)))
@@ -85,6 +106,18 @@ async function verify(viewport) {
     await page.getByRole('link', { name: label, exact: true }).click()
     await page.getByRole('heading', { name: heading, exact: true }).first().waitFor()
     assert(new URL(page.url()).pathname === path, `${label} OpenRouter page did not open its own URL`)
+    if (label === 'Изображения') {
+      await page.getByRole('button', { name: /По тексту/ }).first().click()
+      const published = page.getByLabel('Опубликовать Test Image для пользователей')
+      const hidden = page.getByLabel('Опубликовать Hidden Image для пользователей')
+      await published.waitFor()
+      assert(await published.isChecked(), 'published image model is not marked as published')
+      assert(!(await hidden.isChecked()), 'hidden image model is incorrectly marked as published')
+      assert(await page.getByLabel('Включить Hidden Image для По тексту').isDisabled(), 'hidden model operation can be enabled before publication')
+      assert((await page.locator('body').innerText()).includes('14.11.2023'), 'provider release date is not rendered')
+      assert((await page.locator('body').innerText()).includes('не указана поставщиком'), 'missing release date is not explained')
+      await page.screenshot({ path: `${outDir}/admin-images-${viewport.width}.png`, fullPage: true })
+    }
   }
 
   for (const [label, path, heading] of pages) {

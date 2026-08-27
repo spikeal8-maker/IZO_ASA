@@ -253,6 +253,16 @@ def test_public_model_option_exposes_reference_limit() -> None:
     assert main._public_model_option("server:local_flux_klein")["generation"]["maxInputReferences"] == 4
 
 
+def test_image_capability_preserves_provider_release_timestamp() -> None:
+    capability = main.normalize_openrouter_model_capability({
+        "id": "provider/released",
+        "name": "Provider: Released",
+        "created": 1_700_000_000,
+        "architecture": {"input_modalities": ["text"], "output_modalities": ["image"]},
+    })
+    assert capability["created"] == 1_700_000_000
+
+
 def test_public_assembly_models_are_filtered_by_live_capability(monkeypatch) -> None:
     compatible = "provider/multi"
     incompatible = "provider/single"
@@ -271,3 +281,31 @@ def test_public_assembly_models_are_filtered_by_live_capability(monkeypatch) -> 
     ids = [item["id"] for item in access["modes"]["edit"]["models"]]
     assert compatible in ids
     assert incompatible not in ids
+
+
+def test_public_catalog_separates_published_models_from_tariff_access(monkeypatch) -> None:
+    available = "provider/available"
+    locked = "provider/locked"
+    hidden = "provider/hidden"
+    monkeypatch.setattr(main, "get_openrouter_config", lambda: {
+        "published": [available, locked],
+        "enabled": {"edit": [available, locked, hidden]},
+        "access": {"edit": {"pro": [available]}},
+        "qualityDefaults": {},
+        "defaults": {},
+    })
+    tariffs = main.get_tariff_config()
+    monkeypatch.setattr(main, "get_tariff_config", lambda: tariffs)
+    catalog = [
+        {"id": available, "modes": ["edit"], "maxInputReferences": 4, "created": 1_700_000_000},
+        {"id": locked, "modes": ["edit"], "maxInputReferences": 4, "created": 1_710_000_000},
+        {"id": hidden, "modes": ["edit"], "maxInputReferences": 4, "created": 1_720_000_000},
+    ]
+    result = main.public_model_access_for_plan("pro", catalog)["modes"]["edit"]
+    accessible_ids = [item["id"] for item in result["models"]]
+    published_ids = [item["id"] for item in result["publishedModels"]]
+    assert available in accessible_ids
+    assert locked not in accessible_ids
+    assert available in published_ids and locked in published_ids
+    assert hidden not in published_ids
+    assert next(item for item in result["publishedModels"] if item["id"] == available)["releasedAt"] == 1_700_000_000
