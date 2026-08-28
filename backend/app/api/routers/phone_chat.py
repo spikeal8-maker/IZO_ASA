@@ -671,21 +671,28 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
         economy = deps.openrouter_economy() if deps.openrouter_economy is not None else {}
         usd_rub = float(exchange.get("rate") or 0)
         token_rub = max(0.01, float(economy.get("tokenRub") or 5))
-        usd_fee_factor = 1 + max(0.0, float(economy.get("usdFeePercent") or 0)) / 100
-        margin_factor = max(0.05, 1 - max(0.0, float(economy.get("minMarginPercent") or 0)) / 100)
-
-        def product_tokens_per_million(usd: float) -> float:
-            if usd <= 0 or usd_rub <= 0:
-                return 0
-            return round(max(0.001, usd * usd_rub * usd_fee_factor / token_rub / margin_factor), 3)
 
         for model_id in config.get("enabledApiModels", []):
             model_id = str(model_id)
             if model_id not in published_api or model_id not in enabled_api:
                 continue
             item = by_id.get(model_id, {})
-            input_per_million = product_tokens_per_million(float(item.get("inputPerMillionUsd") or 0))
-            output_per_million = product_tokens_per_million(float(item.get("outputPerMillionUsd") or 0))
+            price_confirmed = model_id in by_id
+            pricing = chat_billing.build_text_model_economics(
+                input_per_million_usd=float(item.get("inputPerMillionUsd") or 0),
+                output_per_million_usd=float(item.get("outputPerMillionUsd") or 0),
+                exchange_rate=usd_rub if usd_rub > 0 else None,
+                funding_reserve_percent=float(economy.get("usdFeePercent") or 0),
+                minimum_margin_percent=float(economy.get("minMarginPercent") or 0),
+                token_rub=token_rub,
+                observed_at=str(exchange.get("fetchedAt") or exchange.get("sourceDate") or "") or None,
+            )
+            if not price_confirmed:
+                pricing = {**pricing, "priceStatus": "missing_catalog", "inputPerMillion": None, "outputPerMillion": None, "millionRussianChars": None, "sample1000Input500Output": None}
+            input_quote = pricing.get("inputPerMillion") or {}
+            output_quote = pricing.get("outputPerMillion") or {}
+            input_per_million = float(input_quote.get("reservedTokens") or 0)
+            output_per_million = float(output_quote.get("reservedTokens") or 0)
             models.append({
                 "id": model_id,
                 "name": str(item.get("name") or model_id.rsplit("/", 1)[-1]),
@@ -695,14 +702,15 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
                 "description": "Оплата по фактическому объёму ответа",
                 "usageBased": bool(config.get("usageBillingEnabled", True)),
                 "priceGuidance": "Цена зависит от истории, изображений и длины ответа; максимум резервируется заранее, остаток возвращается.",
-                "available": model_id in allowed_api,
-                "unavailableReason": "Недоступна на вашем тарифе" if model_id not in allowed_api else "",
+                "available": model_id in allowed_api and price_confirmed,
+                "unavailableReason": "Нет проверенной цены модели" if not price_confirmed else "Недоступна на вашем тарифе" if model_id not in allowed_api else "",
                 "contextLength": int(item.get("contextLength") or 0),
                 "inputPerMillionUsd": float(item.get("inputPerMillionUsd") or 0),
                 "outputPerMillionUsd": float(item.get("outputPerMillionUsd") or 0),
                 "inputPerMillionProductTokens": input_per_million,
                 "outputPerMillionProductTokens": output_per_million,
                 "retailPerMillionProductTokens": math.ceil(max(input_per_million, output_per_million) * 100) / 100,
+                "economics": pricing,
                 "contextChars": min(int(config.get("contextChars") or 60000), max(4000, int(item.get("contextLength") or 15000) * 4)),
             })
         default_model = str(config.get("defaultModel") or "local:izo-chat")

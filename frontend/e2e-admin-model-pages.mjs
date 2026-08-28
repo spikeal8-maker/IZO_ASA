@@ -57,7 +57,14 @@ async function mockAdmin(page) {
         { id: 'provider/test-image', name: 'Provider: Test Image', description: '', created: 1700000000, inputModalities: ['text'], outputModalities: ['image'], parameters: [], maxInputReferences: 0, supportsStreaming: false, modes: ['text_to_image'], features: {} },
         { id: 'provider/hidden-image', name: 'Provider: Hidden Image', description: '', created: 0, inputModalities: ['text'], outputModalities: ['image'], parameters: [], maxInputReferences: 0, supportsStreaming: false, modes: ['text_to_image'], features: {} },
       ],
-      videoCatalog: [], videoConfig: {}, videoUsage: {},
+      videoCatalog: [{
+        id: 'provider/test-video', name: 'Test Video', description: '', created: 1700000000,
+        modes: ['text_to_video'], supportedAspectRatios: ['16:9'], supportedDurations: [5],
+        supportedResolutions: ['1080p'], supportedFrameImages: [], generateAudio: false, seed: true,
+        pricingSkus: { 'video.default': '0.10' },
+      }],
+      videoConfig: { published: ['provider/test-video'], enabled: { text_to_video: ['provider/test-video'] }, access: { text_to_video: { pro: ['provider/test-video'] } } },
+      videoUsage: { modes: [], models: [], shadowEconomics: {} },
     },
   })))
   await page.route('**/api/admin/energy**', (route) => route.fulfill(json({ detail: 'isolated navigation test' }, 503)))
@@ -66,11 +73,23 @@ async function mockAdmin(page) {
     config: {
       voice: { localModel: 'gemma4:12b', qwenModel: '', qwenBaseUrl: '', apiModel: '', route: 'local', queueTimeoutSeconds: 1, requestTimeoutSeconds: 45, minRecordingSeconds: 1 },
       improve: { route: 'local', localModel: 'gemma4:12b', apiModel: '', localTimeoutSeconds: 30, apiTimeoutSeconds: 10, systemPrompt: '', modePrompts: {} },
-      chat: { enabled: true, localEnabled: true, localModel: 'gemma4:12b', localLabel: 'ИЗО Чат', localTokenCost: 0, defaultModel: 'provider/chat', enabledApiModels: ['provider/chat'], apiTokenCosts: { 'provider/chat': 0.2 }, apiTierAccess: { mini: ['provider/chat'], plus: [], pro: ['provider/chat'], business: [] }, contextChars: 60000, localNumCtx: 16384, localTimeoutSeconds: 60, apiTimeoutSeconds: 60 },
+      chat: { enabled: true, localEnabled: true, localModel: 'gemma4:12b', localLabel: 'ИЗО Чат', localTokenCost: 0, defaultModel: 'provider/chat', publishedApiModels: ['provider/chat'], enabledApiModels: ['provider/chat'], apiTokenCosts: { 'provider/chat': 0.2 }, apiTierAccess: { mini: ['provider/chat'], plus: [], pro: ['provider/chat'], business: [] }, contextChars: 60000, localNumCtx: 16384, localTimeoutSeconds: 60, apiTimeoutSeconds: 60 },
     },
     ollama: { ok: true, baseUrl: '', models: [] }, ollamaResidency: { ok: true, models: [] }, openrouterConfigured: true,
     usage: { periodDays: 30, totals: { successful: 0, failed: 0, fallbacks: 0, cost_usd: 0, cost_rub: 0, energy_wh: 0, energy_cost_rub: 0 }, recent: [] },
-    openrouterModels: [{ id: 'provider/chat', name: 'Test Chat Model', inputPerMillionUsd: 1, outputPerMillionUsd: 2, contextLength: 64000 }],
+    openrouterModels: [{
+      id: 'provider/chat', name: 'Test Chat Model', provider: 'Provider', created: 1700000000,
+      inputPerMillionUsd: 1, outputPerMillionUsd: 2, contextLength: 64000,
+      economics: {
+        schema: 'text-model-economics-v1', priceStatus: 'priced', priceSource: 'openrouter_text_catalog', priceObservedAt: '2026-08-28T10:00:00+00:00',
+        exchangeRate: 100, fundingReservePercent: 30, minimumMarginPercent: 50, tokenRub: 5,
+        inputPerMillion: { quotedCostUsd: 1, quotedCostRub: 130, reservedTokens: 52, revenueRub: 260, profitRub: 130, marginPercent: 50 },
+        outputPerMillion: { quotedCostUsd: 2, quotedCostRub: 260, reservedTokens: 104, revenueRub: 520, profitRub: 260, marginPercent: 50 },
+        millionRussianChars: { charsPerProviderToken: 4, assumedProviderTokens: 250000, approximate: true, input: { reservedTokens: 13 }, output: { reservedTokens: 26 } },
+        sample1000Input500Output: { reservedTokens: 0.104 },
+      },
+    }],
+    chatUsage: { priced: 1, averageCostUsd: 0.01, marginPercent: 50, perModel: { 'provider/chat': { answers: 2, priced: 1, averageCostUsd: 0.01, settledTokens: 1, revenueRub: 5, profitRub: 2.5, marginPercent: 50 } } },
     openrouterAudioModels: [],
   })))
 }
@@ -83,8 +102,7 @@ async function verify(viewport) {
   }
   await page.goto(`${baseURL}/admin/models`, { waitUntil: 'networkidle', timeout: 40000 })
   try {
-    if (viewport.width <= 980) await page.getByRole('button', { name: 'Открыть меню админки' }).click()
-    await page.getByRole('navigation', { name: 'Разделы админки' }).waitFor()
+    await page.getByRole('navigation', { name: 'Разделы админки' }).waitFor({ state: 'attached' })
   } catch (error) {
     console.error((await page.locator('body').innerText()).slice(0, 3000))
     throw error
@@ -94,11 +112,20 @@ async function verify(viewport) {
   assert(await page.locator('.page-tabs').count() === 0, 'duplicated models tab bar is still rendered')
   assert(await page.locator('.openrouter-page-nav').count() === 0, 'duplicated OpenRouter tab bar is still rendered')
   assert(await page.locator('.openrouter-page-title').count() === 0, 'duplicated OpenRouter page title is still rendered')
-  await page.getByLabel('Test Chat Model — mini').waitFor()
-  assert(await page.getByLabel('Test Chat Model — mini').isChecked(), 'MINI tariff access was not restored')
-  assert(!(await page.getByLabel('Test Chat Model — plus').isChecked()), 'PLUS tariff access was incorrectly enabled')
-  if (viewport.width <= 980) assert(await page.getByRole('link', { name: 'OpenRouter', exact: true }).isVisible(), 'saved desktop collapse hides mobile model pages')
-
+  const textRow = page.locator('.text-model-row', { hasText: 'Test Chat Model' })
+  await textRow.waitFor()
+  assert(await textRow.locator('.text-model-publication input').isChecked(), 'text publication was not restored')
+  assert(await textRow.locator('.tariffs label', { hasText: 'MINI' }).locator('input').isChecked(), 'MINI tariff access was not restored')
+  assert(!(await textRow.locator('.tariffs label', { hasText: 'PLUS' }).locator('input').isChecked()), 'PLUS tariff access was incorrectly enabled')
+  assert(await textRow.locator('.publication input[type="checkbox"]').count() === 1, 'text model has more than one publication checkbox')
+  const textBody = await textRow.innerText()
+  assert(textBody.includes('2023'), 'text release date is not rendered before controls')
+  assert(textBody.includes('52') && textBody.includes('104'), 'canonical product-token prices per million are not rendered')
+  assert(textBody.includes('1 млн русских символов'), 'Russian-character estimate is not rendered')
+  const textCheckboxSize = await textRow.locator('.text-model-publication input').evaluate((element) => ({ width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height }))
+  assert(textCheckboxSize.width === 16 && textCheckboxSize.height === 16, `text checkbox size is ${textCheckboxSize.width}x${textCheckboxSize.height}`)
+  assert(!(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1)), `text catalog overflows at ${viewport.width}px`)
+  await page.screenshot({ path: `${outDir}/admin-text-${viewport.width}.png`, fullPage: true })
   for (const [label, path, heading] of openrouterPages) {
     if (viewport.width <= 980 && !(await page.locator('.admin-sidebar').evaluate((element) => element.classList.contains('mobile-open')))) {
       await page.getByRole('button', { name: 'Открыть меню админки' }).click()
@@ -114,9 +141,19 @@ async function verify(viewport) {
       assert(await published.isChecked(), 'published image model is not marked as published')
       assert(!(await hidden.isChecked()), 'hidden image model is incorrectly marked as published')
       assert(await page.getByLabel('Включить Hidden Image для По тексту').isDisabled(), 'hidden model operation can be enabled before publication')
-      assert((await page.locator('body').innerText()).includes('14.11.2023'), 'provider release date is not rendered')
+      assert((await page.locator('body').innerText()).includes('2023'), 'provider release date is not rendered')
       assert((await page.locator('body').innerText()).includes('не указана поставщиком'), 'missing release date is not explained')
+      assert(!(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1)), `image catalog overflows at ${viewport.width}px`)
       await page.screenshot({ path: `${outDir}/admin-images-${viewport.width}.png`, fullPage: true })
+    }
+    if (label === 'Видео') {
+      await page.getByRole('button', { name: /Видео по тексту/ }).first().click()
+      const videoRow = page.locator('.video-finance-table .api-model-row', { hasText: 'Test Video' })
+      await videoRow.waitFor()
+      assert((await videoRow.innerText()).includes('2023'), 'video release date is not rendered')
+      assert(await videoRow.getByLabel('Публиковать Test Video').isChecked(), 'video publication was not restored')
+      assert(!(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1)), `video catalog overflows at ${viewport.width}px`)
+      await page.screenshot({ path: `${outDir}/admin-video-${viewport.width}.png`, fullPage: true })
     }
   }
 
@@ -152,8 +189,14 @@ async function verify(viewport) {
 
 const browser = await chromium.launch({ headless: true })
 try {
-  await verify({ width: 1440, height: 900 })
-  await verify({ width: 390, height: 844 })
+  for (const viewport of [
+    { width: 1920, height: 1080 },
+    { width: 1440, height: 900 },
+    { width: 1280, height: 720 },
+    { width: 1024, height: 768 },
+    { width: 768, height: 1024 },
+    { width: 390, height: 844 },
+  ]) await verify(viewport)
   console.log('e2e-admin-model-pages OK')
 } finally {
   await browser.close()

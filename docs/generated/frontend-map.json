@@ -222,6 +222,7 @@
         "frontend/src/adminOpenRouterAuxPages.tsx",
         "frontend/src/adminPayments.tsx",
         "frontend/src/adminSocial.tsx",
+        "frontend/src/adminTextModelCatalog.tsx",
         "frontend/src/adminVideoPublication.ts",
         "frontend/src/adminVoice.tsx",
         "frontend/src/authV2.tsx",
@@ -247,6 +248,7 @@
       ],
       "css": [
         "frontend/src/adminModelsResponsive.css",
+        "frontend/src/adminTextModelCatalog.css",
         "frontend/src/authV2.css",
         "frontend/src/crmDossier.css",
         "frontend/src/crmViewport.css",
@@ -282,6 +284,7 @@
         "frontend/src/adminModelsNavigation.tsx",
         "frontend/src/adminModelsRoutes.ts",
         "frontend/src/adminOpenRouterAuxPages.tsx",
+        "frontend/src/adminTextModelCatalog.tsx",
         "frontend/src/adminVideoPublication.ts",
         "frontend/src/adminVoice.tsx",
         "frontend/src/assets/preview-placeholder.jpg",
@@ -410,6 +413,7 @@
         "/api/video/history?limit=30"
       ],
       "css": [
+        "frontend/src/adminTextModelCatalog.css",
         "frontend/src/authV2.css",
         "frontend/src/crmDossier.css",
         "frontend/src/crmViewport.css",

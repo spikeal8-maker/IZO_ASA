@@ -19,6 +19,7 @@ import { publishedImageModelIds, setImageModelOperation, setImageModelPublished,
 import { normalizeTariffs, tariffKeys, type TariffConfig, type TariffKey } from './profileSupport'
 import { IMAGE_RESOLUTIONS, normalizeResolutionIds, resolutionLabel, type ResolutionFormat, type ResolutionTier } from './resolutionPolicy'
 import { setVideoPublication } from './adminVideoPublication'
+import { AdminTextModelCatalog, type AdminTextModel, type TextModelEconomics, type TextModelUsage, type TextTariff } from './adminTextModelCatalog'
 
 const AdminEnergy = lazy(() => import('./adminEnergy'))
 const AdminVoice = lazy(() => import('./adminVoice'))
@@ -504,12 +505,12 @@ type AssistantAdminData = {
   ollama: { ok: boolean; baseUrl: string; error?: string; models: Array<{ name?: string; model?: string; size?: number; details?: { parameter_size?: string; quantization_level?: string } }> }
   ollamaResidency: { ok: boolean; models: Array<{ name?: string; model?: string; size_vram?: number; expires_at?: string }> }
   openrouterConfigured: boolean
-  openrouterModels: Array<{ id: string; name: string; inputPerMillionUsd: number; outputPerMillionUsd: number; contextLength: number }>
+  openrouterModels: Array<AdminTextModel & { economics?: TextModelEconomics }>
   openrouterModelsError?: string | null
   openrouterAudioModels: Array<{ id: string; name: string; inputPerMillionUsd: number; outputPerMillionUsd: number; contextLength: number }>
   openrouterAudioModelsError?: string | null
   usage: { periodDays: number; totals: { successful: number; failed: number; fallbacks: number; cost_usd: number; cost_rub: number; energy_wh: number; energy_cost_rub: number }; recent: Array<{ createdAt: string; ok: boolean; route?: string; provider?: string; model?: string; mode?: string; latencyMs?: number; fallbackUsed?: boolean; costUsd?: number; costRub?: number; energyWh?: number; energyCostRub?: number }> }
-  chatUsage?: { answers?: number; priced?: number; missingActual?: number; costUsd?: number; averageCostUsd?: number | null; settledTokens?: number; revenueRub?: number; profitRub?: number; marginPercent?: number | null }
+  chatUsage?: { answers?: number; priced?: number; missingActual?: number; costUsd?: number; averageCostUsd?: number | null; settledTokens?: number; revenueRub?: number; profitRub?: number; marginPercent?: number | null; perModel?: Record<string, TextModelUsage> }
 }
 type AssistantTestResult = { ok?: boolean; provider?: string; model?: string; improvedPrompt?: string; latencyMs?: number; costUsd?: number; costRub?: number; energyWh?: number; detail?: string }
 
@@ -845,10 +846,15 @@ const CSS = `
 .amv2 .api-table .model-release{display:block;margin-top:3px;color:var(--muted);font-size:9px;white-space:nowrap}
 .amv2 .api-enabled{width:28px;text-align:center}
 .amv2 .api-column-label{display:block;margin-bottom:3px;color:var(--muted);font-size:8px;font-weight:700;text-transform:none;letter-spacing:0}
-.amv2 .api-enabled input{width:14px;height:14px;min-height:14px;padding:0;margin:0;vertical-align:middle}
+.amv2 .api-enabled input{width:16px;height:16px;min-width:16px;min-height:16px;padding:0;margin:0;vertical-align:middle}
+.amv2 .format-table th:nth-child(1),.amv2 .format-table tr.api-model-row>td:nth-child(1),.amv2 .video-finance-table th:nth-child(1),.amv2 .video-finance-table tr.api-model-row>td:nth-child(1){position:sticky;left:0;z-index:2;min-width:90px;background:#151815}
+.amv2 .format-table th:nth-child(2),.amv2 .format-table tr.api-model-row>td:nth-child(2),.amv2 .video-finance-table th:nth-child(2),.amv2 .video-finance-table tr.api-model-row>td:nth-child(2){position:sticky;left:90px;z-index:2;min-width:56px;background:#151815}
+.amv2 .format-table th:nth-child(3),.amv2 .format-table tr.api-model-row>td:nth-child(3),.amv2 .video-finance-table th:nth-child(3),.amv2 .video-finance-table tr.api-model-row>td:nth-child(3){position:sticky;left:146px;z-index:2;min-width:56px;background:#151815}
+.amv2 .format-table th:nth-child(4),.amv2 .format-table tr.api-model-row>td:nth-child(4),.amv2 .video-finance-table th:nth-child(4),.amv2 .video-finance-table tr.api-model-row>td:nth-child(4){position:sticky;left:202px;z-index:2;min-width:240px;background:#151815;box-shadow:1px 0 var(--line)}
+.amv2 .format-table thead th:nth-child(-n+4),.amv2 .video-finance-table thead th:nth-child(-n+4){z-index:4}
 .amv2 .tier-checks{display:flex;align-items:center;gap:5px;white-space:nowrap}
 .amv2 .tier-checks label{display:inline-flex;align-items:center;gap:3px;color:var(--muted);font-size:10px;font-weight:800}
-.amv2 .tier-checks input{width:13px;height:13px;min-height:13px;padding:0;margin:0}
+.amv2 .tier-checks input{width:14px;height:14px;min-width:14px;min-height:14px;padding:0;margin:0}
 .amv2 .tier-checks input:checked + span{color:var(--lime)}
 .amv2 .tier-checks.tier-head label{font-size:10px;text-transform:none;letter-spacing:0}
 .amv2 .api-table .provider{font-size:11px;padding:2px 6px}
@@ -960,7 +966,7 @@ const CSS = `
 .amv2 .mobile-models{display:none;padding:12px;gap:10px}
 .amv2 .mobile-model{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.035);display:grid;gap:10px}
 @media (max-width:1360px){.amv2 .dashboard,.amv2 .server-layout{grid-template-columns:1fr}.amv2 .metric-grid,.amv2 .lora-grid,.amv2 .status-grid,.amv2 .mode-board{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .api-section-head{grid-template-columns:minmax(220px,1.4fr) repeat(3,minmax(100px,.8fr)) minmax(150px,1fr)}.amv2 .grid-main{grid-template-columns:1fr}.amv2 .side-panel{position:static}}
-@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats,.amv2 .assistant-config{grid-template-columns:1fr}.amv2 .assistant-economy{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .assistant-history-row{grid-template-columns:1fr 70px}.amv2 .assistant-history-row span:nth-child(n+3){grid-column:1/-1}.amv2 .server-command{align-items:stretch;flex-wrap:wrap}.amv2 .server-command .server-title{width:100%}.amv2 .profile-switch{flex:1}.amv2 .lora-columns,.amv2 .config-profiles{grid-template-columns:1fr}.amv2 .lora-row{grid-template-columns:28px 1fr 80px}.amv2 .lora-row>div:nth-child(3),.amv2 .lora-row>div:nth-child(4){grid-column:2 / -1}.amv2 .tab-status{width:100%;justify-content:flex-start;flex-wrap:wrap}.amv2 .models-page-head{display:grid}.amv2 .models-page-head-status{margin-left:0}.amv2 .models-page-head-status .tab-status{justify-content:flex-start}.amv2 .page-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .openrouter-page-nav{display:flex;overflow-x:auto}.amv2 .openrouter-page-nav button{flex:0 0 auto;min-width:112px}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .api-section-head{grid-template-columns:minmax(0,1fr) auto}.amv2 .api-section-head .section-cell:not(:first-child){display:none}.amv2 .api-section-head .api-count{justify-content:flex-end;flex-wrap:wrap;white-space:normal}.amv2 .matrix-wrap .api-table.format-table{min-width:0;width:100%;table-layout:fixed}.amv2 .format-table th:nth-child(4),.amv2 .format-table td:nth-child(4),.amv2 .format-table th:nth-child(n+6),.amv2 .format-table td:nth-child(n+6){display:none}.amv2 .format-table th:nth-child(1),.amv2 .format-table td:nth-child(1),.amv2 .format-table th:nth-child(2),.amv2 .format-table td:nth-child(2){width:42px;padding-left:4px;padding-right:4px}.amv2 .format-table th:nth-child(3),.amv2 .format-table td:nth-child(3){width:132px}.amv2 .format-table .tier-checks{flex-wrap:wrap;white-space:normal;gap:5px 8px}.amv2 .format-table .detail-cell{display:table-cell!important}.amv2 .detail-box{grid-template-columns:1fr}.amv2 .mobile-models{display:grid}}
+@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats,.amv2 .assistant-config{grid-template-columns:1fr}.amv2 .assistant-economy{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .assistant-history-row{grid-template-columns:1fr 70px}.amv2 .assistant-history-row span:nth-child(n+3){grid-column:1/-1}.amv2 .server-command{align-items:stretch;flex-wrap:wrap}.amv2 .server-command .server-title{width:100%}.amv2 .profile-switch{flex:1}.amv2 .lora-columns,.amv2 .config-profiles{grid-template-columns:1fr}.amv2 .lora-row{grid-template-columns:28px 1fr 80px}.amv2 .lora-row>div:nth-child(3),.amv2 .lora-row>div:nth-child(4){grid-column:2 / -1}.amv2 .tab-status{width:100%;justify-content:flex-start;flex-wrap:wrap}.amv2 .models-page-head{display:grid}.amv2 .models-page-head-status{margin-left:0}.amv2 .models-page-head-status .tab-status{justify-content:flex-start}.amv2 .page-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .openrouter-page-nav{display:flex;overflow-x:auto}.amv2 .openrouter-page-nav button{flex:0 0 auto;min-width:112px}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .api-section-head{grid-template-columns:minmax(0,1fr) auto}.amv2 .api-section-head .section-cell:not(:first-child){display:none}.amv2 .api-section-head .api-count{justify-content:flex-end;flex-wrap:wrap;white-space:normal}.amv2 .matrix-wrap .api-table.format-table{min-width:0;width:100%;table-layout:fixed}.amv2 .format-table th:nth-child(5),.amv2 .format-table td:nth-child(5),.amv2 .format-table th:nth-child(n+7),.amv2 .format-table td:nth-child(n+7){display:none}.amv2 .format-table th:nth-child(2),.amv2 .format-table td:nth-child(2),.amv2 .format-table th:nth-child(3),.amv2 .format-table td:nth-child(3){width:42px;padding-left:4px;padding-right:4px}.amv2 .format-table th:nth-child(1),.amv2 .format-table td:nth-child(1){width:86px}.amv2 .format-table th:nth-child(4),.amv2 .format-table td:nth-child(4){width:132px}.amv2 .format-table .tier-checks{flex-wrap:wrap;white-space:normal;gap:5px 8px}.amv2 .format-table .detail-cell{display:table-cell!important}.amv2 .detail-box{grid-template-columns:1fr}.amv2 .mobile-models{display:grid}}
 @media (max-width:580px){.amv2 .metric-grid,.amv2 .two-col,.amv2 .price-row,.amv2 .lora-grid,.amv2 .advanced-grid,.amv2 .status-grid,.amv2 .mode-board,.amv2 .or-stats,.amv2 .server-overview,.amv2 .assistant-summary,.amv2 .assistant-economy{grid-template-columns:1fr}.amv2 .profile-switch{width:100%}.amv2 .server-restart{width:100%}}
 @media (max-width:880px){.amv2 .video-catalog-card{width:calc(100vw - 40px);max-width:calc(100vw - 40px)}.amv2 .video-mode-finance-head{grid-template-columns:1fr 1fr}.amv2 .video-mode-finance-head>div:first-child,.amv2 .video-mode-count{grid-column:1 / -1}.amv2 .video-catalog-head{align-items:flex-start;flex-direction:column}.amv2 .video-catalog-meta{width:100%;justify-content:flex-start}.amv2 .video-model-detail{overflow-wrap:anywhere}.amv2 .video-economy-note{display:grid;gap:5px}}
 `
@@ -1130,7 +1136,16 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
   const saveAssistantConfig = async () => {
     if (!assistantData) return
     setAssistantBusy(true)
-    await saveSetting('assistant_models', assistantData.config, 'Настройки помощников')
+    const publishedApiModels = assistantData.config.chat.publishedApiModels || assistantData.config.chat.enabledApiModels
+    const normalizedConfig = {
+      ...assistantData.config,
+      chat: {
+        ...assistantData.config.chat,
+        publishedApiModels,
+        enabledApiModels: [...publishedApiModels],
+      },
+    }
+    await saveSetting('assistant_models', normalizedConfig, 'Настройки помощников')
     setAssistantBusy(false)
     await loadAssistants()
   }
@@ -1884,49 +1899,30 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
           <div className="video-catalog-title"><div><h2 className="card-title">Каталог текстовых моделей</h2><p className="card-note">Техническая цена провайдера за 1 млн токенов. Пользователь платит по фактическому объёму: сервер заранее резервирует максимум и возвращает неиспользованное. Ориентиры «около 1000 слов» и «1 млн русских символов» приблизительны и зависят от модели.</p></div></div>
           <div className="video-catalog-meta"><span className="state ok">{assistantData?.openrouterModels.length || 0} моделей</span><span className="state">{assistantData?.chatUsage?.priced || 0} ответов с фактом · среднее ${Number(assistantData?.chatUsage?.averageCostUsd || 0).toFixed(6)} · маржа {assistantData?.chatUsage?.marginPercent === null || assistantData?.chatUsage?.marginPercent === undefined ? '—' : `${assistantData.chatUsage.marginPercent.toFixed(1)}%`}</span></div>
         </div>
-        <div className="matrix-wrap">
-          {!assistantData ? <p className="hint">Загружаем текстовый каталог…</p> : <>
-            <table className="api-table text-model-access-table"><thead><tr><th>Публ.</th><th>Чат</th><th>Модель</th><th>Вход / 1M</th><th>Выход / 1M</th><th>Контекст</th><th>Списание</th>{(['mini', 'plus', 'pro', 'business'] as const).map((plan) => <th key={plan}>{plan === 'business' ? 'Бизнес' : plan.toUpperCase()}</th>)}<th>Пример: 1000 + 500</th><th>По умолчанию</th></tr></thead>
-              <tbody>{filteredOpenrouterTextModels.map((model) => {
-                const publishedApiModels = assistantData.config.chat.publishedApiModels || assistantData.config.chat.enabledApiModels
-                const published = publishedApiModels.includes(model.id)
-                const enabled = published && assistantData.config.chat.enabledApiModels.includes(model.id)
-                const productTokens = Number(assistantData.config.chat.apiTokenCosts[model.id] ?? 0.1)
-                const sampleUsd = model.inputPerMillionUsd / 1000 + model.outputPerMillionUsd / 2000
-                const sampleRub = usdRubEffective === null ? null : sampleUsd * usdRubEffective
-                const sampleProductTokens = sampleRub === null ? null : Math.ceil(sampleRub / Math.max(0.05, 1 - minMarginPercent / 100) / tokenRub * 1000) / 1000
-                const revenue = (sampleProductTokens || 0) * tokenRub
-                const profit = sampleRub === null ? null : revenue - sampleRub
-                return <tr key={model.id}>
-                  <td><input type="checkbox" checked={published} aria-label={`Публиковать ${model.name}`} onChange={(e) => {
-                    const nextPublished = e.target.checked ? [...new Set([...publishedApiModels, model.id])] : publishedApiModels.filter((id) => id !== model.id)
-                    const enabledApiModels = e.target.checked ? assistantData.config.chat.enabledApiModels : assistantData.config.chat.enabledApiModels.filter((id) => id !== model.id)
-                    const defaultModel = !e.target.checked && assistantData.config.chat.defaultModel === model.id ? 'local:izo-chat' : assistantData.config.chat.defaultModel
-                    const apiTierAccess = Object.fromEntries((['mini', 'plus', 'pro', 'business'] as const).map((plan) => [plan, e.target.checked ? assistantData.config.chat.apiTierAccess?.[plan] || [] : (assistantData.config.chat.apiTierAccess?.[plan] || []).filter((id) => id !== model.id)]))
-                    updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, publishedApiModels: nextPublished, enabledApiModels, defaultModel, apiTierAccess } })
-                  }} /></td>
-                  <td><input type="checkbox" checked={enabled} onChange={(e) => {
-                    const enabledApiModels = e.target.checked ? [...new Set([...assistantData.config.chat.enabledApiModels, model.id])] : assistantData.config.chat.enabledApiModels.filter((id) => id !== model.id)
-                    const defaultModel = !e.target.checked && assistantData.config.chat.defaultModel === model.id ? 'local:izo-chat' : assistantData.config.chat.defaultModel
-                    const apiTierAccess = Object.fromEntries((['mini', 'plus', 'pro', 'business'] as const).map((plan) => [plan, e.target.checked ? assistantData.config.chat.apiTierAccess?.[plan] || [] : (assistantData.config.chat.apiTierAccess?.[plan] || []).filter((id) => id !== model.id)]))
-                    updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, enabledApiModels, defaultModel, apiTierAccess, apiTokenCosts: { ...assistantData.config.chat.apiTokenCosts, [model.id]: productTokens } } })
-                  }} disabled={!published} aria-label={`Использовать ${model.name} в чате`} /></td>
-                  <td><strong>{model.name}</strong><small className="model-id">{model.id}</small></td>
-                  <td>${model.inputPerMillionUsd.toFixed(4)}</td><td>${model.outputPerMillionUsd.toFixed(4)}</td><td>{model.contextLength.toLocaleString('ru-RU')}</td>
-                  <td><span className="state ok">по факту</span><small>резерв → возврат</small></td>
-                  {(['mini', 'plus', 'pro', 'business'] as const).map((plan) => <td key={plan}><input type="checkbox" disabled={!enabled} checked={enabled && (assistantData.config.chat.apiTierAccess?.[plan] || []).includes(model.id)} aria-label={`${model.name} — ${plan}`} onChange={(e) => {
-                    const current = assistantData.config.chat.apiTierAccess?.[plan] || []
-                    const next = e.target.checked ? [...new Set([...current, model.id])] : current.filter((id) => id !== model.id)
-                    updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, apiTierAccess: { ...assistantData.config.chat.apiTierAccess, [plan]: next } } })
-                  }} /></td>)}
-                  <td><strong>{sampleProductTokens === null ? '—' : `${sampleProductTokens.toFixed(3)} ток.`}</strong><small>${sampleUsd.toFixed(6)}{sampleRub === null ? ' · курс не загружен' : ` · ${sampleRub.toFixed(4)} ₽ · выручка ${revenue.toFixed(4)} ₽ · прибыль ${profit?.toFixed(4)} ₽`}</small></td>
-                  <td><input type="radio" name="chat-default-model" disabled={!enabled} checked={assistantData.config.chat.defaultModel === model.id} onChange={() => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, defaultModel: model.id } })} /></td>
-                </tr>
-              })}{filteredOpenrouterTextModels.length === 0 && <tr><td colSpan={13}><div className="hint">По выбранному фильтру модели не найдены. <button className="ghost" onClick={() => setQuery('')}>Показать все модели</button></div></td></tr>}</tbody>
-            </table>
-            <div className="actions" style={{ padding: 12 }}><button className="primary" disabled={assistantBusy} onClick={() => void saveAssistantConfig()}>{assistantBusy ? 'Сохраняю…' : 'Сохранить текстовые модели'}</button><label className="resolution-plan"><input type="radio" name="chat-default-model" checked={assistantData.config.chat.defaultModel === 'local:izo-chat'} onChange={() => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, defaultModel: 'local:izo-chat' } })} /><span>ИЗО Чат по умолчанию</span></label></div>
-          </>}
-        </div>
+        {!assistantData ? <p className="hint">Загружаем текстовый каталог…</p> : <AdminTextModelCatalog
+          models={filteredOpenrouterTextModels}
+          publishedIds={assistantData.config.chat.publishedApiModels || assistantData.config.chat.enabledApiModels}
+          tierAccess={assistantData.config.chat.apiTierAccess}
+          defaultModel={assistantData.config.chat.defaultModel}
+          usageByModel={assistantData.chatUsage?.perModel}
+          busy={assistantBusy}
+          onPublicationChange={(modelId, published) => {
+            const currentPublished = assistantData.config.chat.publishedApiModels || assistantData.config.chat.enabledApiModels
+            const publishedApiModels = published ? [...new Set([...currentPublished, modelId])] : currentPublished.filter((id) => id !== modelId)
+            const enabledApiModels = [...publishedApiModels]
+            const apiTierAccess = Object.fromEntries((['mini', 'plus', 'pro', 'business'] as TextTariff[]).map((plan) => [plan, published ? assistantData.config.chat.apiTierAccess?.[plan] || [] : (assistantData.config.chat.apiTierAccess?.[plan] || []).filter((id) => id !== modelId)]))
+            const defaultModel = !published && assistantData.config.chat.defaultModel === modelId ? 'local:izo-chat' : assistantData.config.chat.defaultModel
+            updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, publishedApiModels, enabledApiModels, apiTierAccess, defaultModel } })
+          }}
+          onTierChange={(modelId, plan, checked) => {
+            const current = assistantData.config.chat.apiTierAccess?.[plan] || []
+            const next = checked ? [...new Set([...current, modelId])] : current.filter((id) => id !== modelId)
+            updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, apiTierAccess: { ...assistantData.config.chat.apiTierAccess, [plan]: next } } })
+          }}
+          onDefaultChange={(modelId) => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, defaultModel: modelId } })}
+          onLocalDefault={() => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, defaultModel: 'local:izo-chat' } })}
+          onSave={() => void saveAssistantConfig()}
+        />}
       </article>}
 
       {openrouterPage === 'video' && <article className="card video-catalog-card">
@@ -1976,8 +1972,9 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
               {open && <div className="matrix-wrap video-finance-wrap">
                 {!rows.length ? <p className="hint">Подходящих моделей в текущем каталоге нет.</p> : <table className="api-table video-finance-table">
                   <thead><tr>
-                    <th className="api-enabled"><input type="checkbox" checked={allPublished} disabled={!rowIds.length || videoConfigBusy} aria-label={`Публиковать все модели ${section.title}`} onChange={(event) => toggleVideoPublicationSection(rowIds, event.target.checked)} /></th>
-                    <th className="api-enabled"><input type="checkbox" checked={allModelsEnabled} disabled={!billableIds.length || videoConfigBusy} aria-label={`Включить все модели ${section.title}`} onChange={(event) => toggleVideoSection(mode, billableIds, event.target.checked)} /></th>
+                    <th>Дата выпуска</th>
+                    <th className="api-enabled"><span className="api-column-label">Показ</span><input type="checkbox" checked={allPublished} disabled={!rowIds.length || videoConfigBusy} aria-label={`Показывать все модели ${section.title}`} onChange={(event) => toggleVideoPublicationSection(rowIds, event.target.checked)} /></th>
+                    <th className="api-enabled"><span className="api-column-label">Режим</span><input type="checkbox" checked={allModelsEnabled} disabled={!billableIds.length || videoConfigBusy} aria-label={`Включить режим ${section.title} для всех моделей`} onChange={(event) => toggleVideoSection(mode, billableIds, event.target.checked)} /></th>
                     <th>Модель</th>
                     <th>Производитель</th>
                     <th><div className="tier-checks tier-head">{OPENROUTER_TIERS.map((tier) => <label key={tier.id} title={`Весь столбец ${tier.label}`}><input type="checkbox" checked={allTierChecked(tier.id)} disabled={!enabledIds.length || videoConfigBusy} onChange={(event) => toggleVideoTierColumn(mode, tier.id, enabledIds, event.target.checked)} /><span>{tier.label}</span></label>)}</div></th>
@@ -2003,20 +2000,21 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
                   const provider = model.id.split('/')[0] || 'OpenRouter'
                   return <Fragment key={rowKey}>
                     <tr className={`api-model-row ${expanded ? 'expanded' : ''} ${published ? '' : 'unpublished'}`} onClick={() => setVideoExpandedRows((current) => ({ ...current, [rowKey]: !expanded }))}>
-                      <td className="api-enabled"><input type="checkbox" checked={published} disabled={videoConfigBusy} aria-label={`Публиковать ${model.name}`} onClick={(event) => event.stopPropagation()} onChange={(event) => toggleVideoPublished(model.id, event.target.checked)} /></td>
-                      <td className="api-enabled"><input type="checkbox" checked={enabled} disabled={videoConfigBusy || !published || (!profiles.length && !enabled)} aria-label={`Включить ${model.name}`} onClick={(event) => event.stopPropagation()} onChange={(event) => toggleVideoModel(mode, model.id, event.target.checked)} /></td>
-                      <td><strong className="model-name">{model.name}</strong><small className="model-id">{model.created ? new Date(model.created * 1000).toLocaleDateString('ru-RU') : 'дата выпуска не указана'}</small>{!profiles.length ? <span className="mini risk-high" style={{ marginLeft: 8 }}>нет цены</span> : null}</td>
-                      <td><span className="provider openrouter">{provider}</span></td>
-                      <td><div className="tier-checks">{OPENROUTER_TIERS.map((tier) => <label key={tier.id}><input type="checkbox" disabled={videoConfigBusy || !enabled} checked={data.openrouter.videoConfig?.access?.[mode]?.[tier.id]?.includes(model.id) || false} onClick={(event) => event.stopPropagation()} onChange={(event) => toggleVideoTier(mode, tier.id, model.id, event.target.checked)} /><span>{tier.label}</span></label>)}</div></td>
-                      <td><div className="video-scenario"><strong>{scenario.seconds ? `${scenario.seconds} сек.` : '—'} · {scenario.resolution}</strong><span>{scenario.profile?.aspectRatio || model.supportedAspectRatios[0] || 'формат не указан'}</span></div></td>
-                      <td><div className="video-summary-econ"><strong>{economics?.costRub === null || economics?.costRub === undefined ? '—' : `${economics.costRub.toFixed(2)} ₽`}</strong><span>{economics ? `$${economics.costUsd.toFixed(4)}` : 'нет расчёта'}</span></div></td>
-                      <td><div className="video-summary-econ"><strong>{economics?.tokens ? `${economics.tokens} ток.` : '—'}</strong><span>{economics?.revenueRub === null || economics?.revenueRub === undefined ? '—' : `выручка ${economics.revenueRub.toFixed(2)} ₽`}</span></div></td>
-                      <td><div className="video-summary-econ"><strong>{economics?.profitRub === null || economics?.profitRub === undefined ? '—' : `${economics.profitRub.toFixed(2)} ₽`}</strong><span className={economics?.marginPercent !== null && economics?.marginPercent !== undefined && economics.marginPercent < minMarginPercent ? 'risk-high' : 'risk-low'}>{economics?.marginPercent === null || economics?.marginPercent === undefined ? '—' : `маржа ${economics.marginPercent.toFixed(1)}%`}</span></div></td>
-                      <td>{generated}</td>
-                      <td><span className="money">{spent}</span></td>
-                      <td><button className="video-expand" onClick={(event) => { event.stopPropagation(); setVideoExpandedRows((current) => ({ ...current, [rowKey]: !expanded })) }} aria-label={expanded ? 'Свернуть модель' : 'Раскрыть модель'}>{expanded ? '−' : '+'}</button></td>
+                      <td data-label="Дата выпуска"><strong className="model-release">{model.created ? new Date(model.created * 1000).toLocaleDateString('ru-RU') : 'дата не указана'}</strong></td>
+                      <td className="api-enabled" data-label="Показывать"><input type="checkbox" checked={published} disabled={videoConfigBusy} aria-label={`Публиковать ${model.name}`} onClick={(event) => event.stopPropagation()} onChange={(event) => toggleVideoPublished(model.id, event.target.checked)} /></td>
+                      <td className="api-enabled" data-label="Режим"><input type="checkbox" checked={enabled} disabled={videoConfigBusy || !published || (!profiles.length && !enabled)} aria-label={`Включить ${model.name}`} onClick={(event) => event.stopPropagation()} onChange={(event) => toggleVideoModel(mode, model.id, event.target.checked)} /></td>
+                      <td data-label="Модель"><strong className="model-name">{model.name}</strong><small className="model-id">{model.id}</small>{!profiles.length ? <span className="mini risk-high" style={{ marginLeft: 8 }}>нет цены</span> : null}</td>
+                      <td data-label="Производитель"><span className="provider openrouter">{provider}</span></td>
+                      <td data-label="Тарифы"><div className="tier-checks">{OPENROUTER_TIERS.map((tier) => <label key={tier.id}><input type="checkbox" disabled={videoConfigBusy || !enabled} checked={data.openrouter.videoConfig?.access?.[mode]?.[tier.id]?.includes(model.id) || false} onClick={(event) => event.stopPropagation()} onChange={(event) => toggleVideoTier(mode, tier.id, model.id, event.target.checked)} /><span>{tier.label}</span></label>)}</div></td>
+                      <td data-label="Контрольный вариант"><div className="video-scenario"><strong>{scenario.seconds ? `${scenario.seconds} сек.` : '—'} · {scenario.resolution}</strong><span>{scenario.profile?.aspectRatio || model.supportedAspectRatios[0] || 'формат не указан'}</span></div></td>
+                      <td data-label="Себестоимость"><div className="video-summary-econ"><strong>{economics?.costRub === null || economics?.costRub === undefined ? '—' : `${economics.costRub.toFixed(2)} ₽`}</strong><span>{economics ? `$${economics.costUsd.toFixed(4)}` : 'нет расчёта'}</span></div></td>
+                      <td data-label="Продажа"><div className="video-summary-econ"><strong>{economics?.tokens ? `${economics.tokens} ток.` : '—'}</strong><span>{economics?.revenueRub === null || economics?.revenueRub === undefined ? '—' : `выручка ${economics.revenueRub.toFixed(2)} ₽`}</span></div></td>
+                      <td data-label="Результат"><div className="video-summary-econ"><strong>{economics?.profitRub === null || economics?.profitRub === undefined ? '—' : `${economics.profitRub.toFixed(2)} ₽`}</strong><span className={economics?.marginPercent !== null && economics?.marginPercent !== undefined && economics.marginPercent < minMarginPercent ? 'risk-high' : 'risk-low'}>{economics?.marginPercent === null || economics?.marginPercent === undefined ? '—' : `маржа ${economics.marginPercent.toFixed(1)}%`}</span></div></td>
+                      <td data-label="Сгенерировано">{generated}</td>
+                      <td data-label="Потрачено"><span className="money">{spent}</span></td>
+                      <td className="video-expand-cell"><button className="video-expand" onClick={(event) => { event.stopPropagation(); setVideoExpandedRows((current) => ({ ...current, [rowKey]: !expanded })) }} aria-label={expanded ? 'Свернуть модель' : 'Раскрыть модель'}>{expanded ? '−' : '+'}</button></td>
                     </tr>
-                    {expanded && <tr><td className="detail-cell" colSpan={12}><div className="video-model-detail">
+                    {expanded && <tr><td className="detail-cell" colSpan={13}><div className="video-model-detail">
                       <div className="video-capabilities">
                         <span><b>OpenRouter id:</b> {model.id}</span>
                         <span><b>Соотношения:</b> {model.supportedAspectRatios.join(', ') || 'не опубликованы'}</span>
@@ -2108,9 +2106,10 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
           <div className="matrix-wrap">
             <table className="api-table format-table">
               <thead><tr>
-                <th className="api-enabled" title="Глобальная публикация: выключенная модель нигде не видна пользователям">Публ.</th>
+                <th>Дата выпуска</th>
+                <th className="api-enabled" title="Глобальная публикация: выключенная модель нигде не видна пользователям">Показ</th>
                 <th className="api-enabled">
-                  <span className="api-column-label" title="Разрешение модели для этой операции">Опер.</span>
+                  <span className="api-column-label" title="Разрешение модели для этой операции">Режим</span>
                   <input
                     type="checkbox"
                     checked={allBillableEnabled}
@@ -2162,6 +2161,7 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
                 const margin = marginPercent(revenue, profit)
                 return <Fragment key={rowKey}>
                   <tr className={`api-model-row ${expanded ? 'expanded' : ''}${published ? '' : ' unpublished'}`} onClick={() => setApiExpandedRows((prev) => ({ ...prev, [rowKey]: !expanded }))}>
+                    <td><strong className="model-release">{modelReleaseLabel(m.created)}</strong></td>
                     <td className="api-enabled">
                       <input
                         type="checkbox"
@@ -2182,7 +2182,7 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
                         onChange={(e) => toggleOpenrouterModel(section.id, m.id, e.target.checked)}
                       />
                     </td>
-                    <td><strong className="model-name">{modelShortName(m)}</strong><small className="model-release">выпуск: {modelReleaseLabel(m.created)}</small>{defaultForSection === m.id ? <span className="mini" style={{ marginLeft: 8 }}>по умолчанию</span> : null}{!published ? <span className="mini" style={{ marginLeft: 8 }}>скрыта</span> : null}{!canBill ? <span className="mini risk-high" style={{ marginLeft: 8 }}>нет backend цены</span> : null}</td>
+                    <td><strong className="model-name">{modelShortName(m)}</strong><small className="model-id">{m.id}</small>{defaultForSection === m.id ? <span className="mini" style={{ marginLeft: 8 }}>по умолчанию</span> : null}{!published ? <span className="mini" style={{ marginLeft: 8 }}>скрыта</span> : null}{!canBill ? <span className="mini risk-high" style={{ marginLeft: 8 }}>нет backend цены</span> : null}<span className="mobile-image-economics">{tokenCount === null ? 'цена требует замера' : `${tokenCount} наших ток. · себестоимость ${rubText(costRub)} · выручка ${rubText(revenue)} · прибыль ${rubText(profit)} · маржа ${percentText(margin)}`}</span></td>
                     <td><span className="provider openrouter">{modelBrand(m)}</span></td>
                     <td>
                       <div className="tier-checks">
@@ -2205,7 +2205,7 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
                     <td><span className="money">{spentTotal}</span></td>
                   </tr>
                   {expanded && <tr>
-                    <td className="detail-cell" colSpan={11}>
+                    <td className="detail-cell" colSpan={12}>
                       <div className="detail-box">
                         <span><b>Полное имя:</b> {m.name}</span>
                         <span><b>Дата выпуска:</b> {modelReleaseLabel(m.created)}</span>

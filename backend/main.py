@@ -14673,6 +14673,7 @@ async def admin_assistants(request: Request) -> dict[str, Any]:
         audio_models_error = type(exc).__name__
     with db() as conn:
         chat_usage = chat_billing.chat_usage_report(conn)
+    text_models = chat_billing.enrich_text_models_economics(text_models, exchange=usd_rub_rate_snapshot(), economy=openrouter_economy_settings(), fallback_observed_at=datetime.now(timezone.utc).isoformat())
     return {
         "ok": True,
         "config": config,
@@ -14687,7 +14688,6 @@ async def admin_assistants(request: Request) -> dict[str, Any]:
         "usage": assistant_usage_report(),
         "chatUsage": chat_usage,
     }
-
 
 @app.put("/api/admin/mail/config-v2")
 async def admin_mail_config_v2(req: AdminMailConfigV2Request, request: Request) -> dict[str, Any]:

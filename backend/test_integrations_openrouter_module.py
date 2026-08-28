@@ -80,6 +80,7 @@ def test_text_model_parser_filters_modalities_prices_and_sorts():
                 "architecture": TEXT_ARCHITECTURE,
                 "pricing": {"prompt": "0.000000077", "completion": "0.000000154"},
                 "context_length": 1_048_576,
+                "created": 1_725_686_400,
             },
             {
                 "id": "a/model",
@@ -102,6 +103,7 @@ def test_text_model_parser_filters_modalities_prices_and_sorts():
         {
             "id": "a/model",
             "name": "Alpha",
+            "provider": "a",
             "inputPerMillionUsd": 1.0,
             "outputPerMillionUsd": 2.0,
             "contextLength": 4096,
@@ -109,9 +111,11 @@ def test_text_model_parser_filters_modalities_prices_and_sorts():
         {
             "id": "z/model",
             "name": "beta",
+            "provider": "z",
             "inputPerMillionUsd": 0.077,
             "outputPerMillionUsd": 0.154,
             "contextLength": 1_048_576,
+            "created": 1_725_686_400,
         },
     ]
 
@@ -128,6 +132,7 @@ def test_text_model_parser_preserves_invalid_pricing_fallback_and_default_name()
     assert models == [{
         "id": "fallback/model",
         "name": "fallback/model",
+        "provider": "fallback",
         "inputPerMillionUsd": 0,
         "outputPerMillionUsd": 0,
         "contextLength": 0,

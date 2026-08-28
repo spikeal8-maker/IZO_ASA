@@ -3,7 +3,53 @@ from __future__ import annotations
 import sqlite3
 
 from app.api.routers.phone_chat import PhoneChatRequest, _resolve_phone_chat_model
-from app.services.chat_billing import build_chat_reservation_quote, charge_chat_tokens, chat_usage_report, normalize_chat_config, refund_chat_tokens, settle_chat_tokens
+from app.services.chat_billing import build_chat_reservation_quote, build_text_model_economics, charge_chat_tokens, chat_usage_report, normalize_chat_config, refund_chat_tokens, settle_chat_tokens
+
+
+def test_text_model_economics_exposes_canonical_per_million_product_prices() -> None:
+    result = build_text_model_economics(
+        input_per_million_usd=1,
+        output_per_million_usd=2,
+        exchange_rate=100,
+        funding_reserve_percent=30,
+        minimum_margin_percent=50,
+        token_rub=5,
+        observed_at="2026-08-28T10:00:00+00:00",
+    )
+
+    assert result["priceStatus"] == "priced"
+    assert result["inputPerMillion"]["quotedCostRub"] == 130
+    assert result["inputPerMillion"]["reservedTokens"] == 52
+    assert result["outputPerMillion"]["reservedTokens"] == 104
+    assert result["millionRussianChars"]["assumedProviderTokens"] == 250_000
+    assert result["millionRussianChars"]["input"]["reservedTokens"] == 13
+    assert result["millionRussianChars"]["output"]["reservedTokens"] == 26
+    assert result["fundingReservePercent"] == 30
+    assert result["minimumMarginPercent"] == 50
+
+
+def test_text_model_economics_marks_missing_rate_and_free_models_honestly() -> None:
+    missing = build_text_model_economics(
+        input_per_million_usd=1,
+        output_per_million_usd=2,
+        exchange_rate=None,
+        funding_reserve_percent=30,
+        minimum_margin_percent=50,
+        token_rub=5,
+    )
+    free = build_text_model_economics(
+        input_per_million_usd=0,
+        output_per_million_usd=0,
+        exchange_rate=100,
+        funding_reserve_percent=30,
+        minimum_margin_percent=50,
+        token_rub=5,
+    )
+
+    assert missing["priceStatus"] == "missing_rate"
+    assert missing["inputPerMillion"] is None
+    assert free["priceStatus"] == "free"
+    assert free["inputPerMillion"]["reservedTokens"] == 0
 
 
 def _database() -> sqlite3.Connection:

@@ -263,7 +263,7 @@ Auth policy is a conservative static hint. Every `REVIEW` row must be checked in
 | GET | `/api/phone/chat/threads/{thread_id}/messages` | `phone_chat_thread_messages` | 614 | public/optional/review |
 | PATCH | `/api/phone/chat/threads/{thread_id}/messages/{message_id}/tools` | `phone_chat_message_tools` | 626 | public/optional/review |
 | GET | `/api/phone/chat/models` | `phone_chat_models` | 638 | public/optional/review |
-| POST | `/api/phone/chat` | `phone_chat` | 715 | public/optional/review |
+| POST | `/api/phone/chat` | `phone_chat` | 723 | public/optional/review |
 | GET | `` | `phone_jobs` | 31 | user |
 | GET | `/{job_id}` | `phone_job` | 44 | user |
 | GET | `/platform` | `phone_platform` | 23 | user |
@@ -892,7 +892,7 @@ Auth policy is a conservative static hint. Every `REVIEW` row must be checked in
 | `admin_get_settings` | async function | 14587–14595 |
 | `admin_save_settings` | async function | 14599–14651 |
 | `assistant_usage_report` | function | 14654–14655 |
-| `admin_assistants` | async function | 14659–14689 |
+| `admin_assistants` | async function | 14659–14690 |
 | `admin_mail_config_v2` | async function | 14693–14699 |
 | `admin_mail_verify_v2` | async function | 14703–14735 |
 | `admin_mail_unisender_verify_v2` | async function | 14739–14817 |

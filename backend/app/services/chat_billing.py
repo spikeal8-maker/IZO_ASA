@@ -222,6 +222,102 @@ def build_chat_reservation_quote(
     return quote
 
 
+def build_text_model_economics(
+    *,
+    input_per_million_usd: float,
+    output_per_million_usd: float,
+    exchange_rate: float | None,
+    funding_reserve_percent: float,
+    minimum_margin_percent: float,
+    token_rub: float,
+    observed_at: str | None = None,
+) -> dict[str, Any]:
+    """Return the canonical admin/public retail view for one text model.
+
+    One million Russian characters is deliberately an estimate based on the
+    same four-characters-per-provider-token assumption used by chat preflight.
+    The input and output estimates stay separate because provider rates differ.
+    """
+
+    input_usd = max(0.0, float(input_per_million_usd))
+    output_usd = max(0.0, float(output_per_million_usd))
+    common = {
+        "exchange_rate": exchange_rate,
+        "funding_reserve_percent": funding_reserve_percent,
+        "minimum_margin_percent": minimum_margin_percent,
+        "token_rub": token_rub,
+        "minimum_tokens": 0.001,
+        "token_quantum": 0.001,
+        "official_source": "openrouter_text_catalog",
+        "observed_at": observed_at,
+    }
+
+    def quote(cost_usd: float) -> dict[str, Any] | None:
+        if cost_usd == 0:
+            return {
+                "quotedCostUsd": 0.0,
+                "quotedCostRub": 0.0,
+                "reservedTokens": 0.0,
+                "revenueRub": 0.0,
+                "profitRub": 0.0,
+                "marginPercent": None,
+            }
+        if exchange_rate is None or float(exchange_rate) <= 0:
+            return None
+        return cloud_quote.build_cloud_quote(official_cost_usd=cost_usd, **common)
+
+    input_quote = quote(input_usd)
+    output_quote = quote(output_usd)
+    chars_provider_tokens = 250_000
+    chars_input_quote = quote(input_usd / 4)
+    chars_output_quote = quote(output_usd / 4)
+    sample_quote = quote(input_usd / 1000 + output_usd / 2000)
+    price_status = "missing_rate" if exchange_rate is None or float(exchange_rate or 0) <= 0 else "free" if input_usd == 0 and output_usd == 0 else "priced"
+    return {
+        "schema": "text-model-economics-v1",
+        "priceStatus": price_status,
+        "priceSource": "openrouter_text_catalog",
+        "priceObservedAt": observed_at,
+        "exchangeRate": float(exchange_rate) if exchange_rate is not None else None,
+        "fundingReservePercent": round(max(0.0, float(funding_reserve_percent)), 4),
+        "minimumMarginPercent": round(max(0.0, min(95.0, float(minimum_margin_percent))), 4),
+        "tokenRub": round(max(0.01, float(token_rub)), 6),
+        "inputPerMillion": input_quote,
+        "outputPerMillion": output_quote,
+        "millionRussianChars": {
+            "assumedProviderTokens": chars_provider_tokens,
+            "charsPerProviderToken": 4,
+            "input": chars_input_quote,
+            "output": chars_output_quote,
+            "approximate": True,
+        },
+        "sample1000Input500Output": sample_quote,
+    }
+
+
+def enrich_text_models_economics(
+    models: list[dict[str, Any]],
+    *,
+    exchange: dict[str, Any],
+    economy: dict[str, Any],
+    fallback_observed_at: str,
+) -> list[dict[str, Any]]:
+    observed_at = str(exchange.get("fetchedAt") or exchange.get("sourceDate") or fallback_observed_at)
+    exchange_rate = float(exchange["rate"]) if isinstance(exchange.get("rate"), (int, float)) else None
+    return [{
+        **model,
+        "economics": build_text_model_economics(
+            input_per_million_usd=float(model.get("inputPerMillionUsd") or 0),
+            output_per_million_usd=float(model.get("outputPerMillionUsd") or 0),
+            exchange_rate=exchange_rate,
+            funding_reserve_percent=float(economy["usdFeePercent"]),
+            minimum_margin_percent=float(economy["minMarginPercent"]),
+            token_rub=float(economy["tokenRub"]),
+            observed_at=observed_at,
+        ),
+    } for model in models]
+
+
 def chat_usage_report(conn: sqlite3.Connection, *, limit: int = 500) -> dict[str, Any]:
     rows = conn.execute(
         "SELECT properties_json,created_at FROM event_logs WHERE event_name='phone_chat_answered' "
@@ -231,6 +327,7 @@ def chat_usage_report(conn: sqlite3.Connection, *, limit: int = 500) -> dict[str
     priced = 0
     cost_usd = settled_tokens = revenue_rub = profit_rub = 0.0
     recent: list[dict[str, Any]] = []
+    per_model: dict[str, dict[str, Any]] = {}
     for row in rows:
         try:
             properties = json.loads(row["properties_json"] or "{}")
@@ -239,6 +336,10 @@ def chat_usage_report(conn: sqlite3.Connection, *, limit: int = 500) -> dict[str
         settlement = properties.get("billing_settlement") if isinstance(properties.get("billing_settlement"), dict) else {}
         quote = properties.get("billing_quote") if isinstance(properties.get("billing_quote"), dict) else {}
         actual = properties.get("cost_usd")
+        model_id = str(properties.get("model") or "").strip()
+        model_stats = per_model.setdefault(model_id, {"answers": 0, "priced": 0, "costUsd": 0.0, "settledTokens": 0.0, "revenueRub": 0.0, "profitRub": 0.0}) if model_id else None
+        if model_stats is not None:
+            model_stats["answers"] += 1
         if isinstance(actual, (int, float)) and float(actual) > 0:
             priced += 1
             actual_value = float(actual)
@@ -249,6 +350,12 @@ def chat_usage_report(conn: sqlite3.Connection, *, limit: int = 500) -> dict[str
             cost_rub = actual_value * float(quote.get("effectiveUsdRub") or 0)
             revenue_rub += revenue
             profit_rub += revenue - cost_rub
+            if model_stats is not None:
+                model_stats["priced"] += 1
+                model_stats["costUsd"] += actual_value
+                model_stats["settledTokens"] += tokens
+                model_stats["revenueRub"] += revenue
+                model_stats["profitRub"] += revenue - cost_rub
         if len(recent) < 30:
             usage = properties.get("provider_usage") if isinstance(properties.get("provider_usage"), dict) else {}
             recent.append({
@@ -260,6 +367,19 @@ def chat_usage_report(conn: sqlite3.Connection, *, limit: int = 500) -> dict[str
                 "settledTokens": settlement.get("settled_tokens"),
                 "status": settlement.get("status") or "legacy",
             })
+    normalized_per_model: dict[str, dict[str, Any]] = {}
+    for model_id, stats in per_model.items():
+        priced_count = int(stats["priced"])
+        model_revenue = float(stats["revenueRub"])
+        normalized_per_model[model_id] = {
+            "answers": int(stats["answers"]),
+            "priced": priced_count,
+            "averageCostUsd": round(float(stats["costUsd"]) / priced_count, 8) if priced_count else None,
+            "settledTokens": round(float(stats["settledTokens"]), 3),
+            "revenueRub": round(model_revenue, 6),
+            "profitRub": round(float(stats["profitRub"]), 6),
+            "marginPercent": round(float(stats["profitRub"]) / model_revenue * 100, 4) if model_revenue else None,
+        }
     return {
         "answers": len(rows),
         "priced": priced,
@@ -271,6 +391,7 @@ def chat_usage_report(conn: sqlite3.Connection, *, limit: int = 500) -> dict[str
         "profitRub": round(profit_rub, 6),
         "marginPercent": round(profit_rub / revenue_rub * 100, 4) if revenue_rub else None,
         "recent": recent,
+        "perModel": normalized_per_model,
     }
 
 

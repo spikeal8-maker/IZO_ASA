@@ -304,7 +304,7 @@ def test_admin_assistant_catalog_contains_ollama_and_openrouter_prices(prompt_us
         return {"ok": True, "baseUrl": "http://127.0.0.1:11434", "models": [{"name": "gemma4:31b-cloud"}]}
 
     async def fake_openrouter_models(force=False):
-        return [{"id": "deepseek/deepseek-v4-flash", "name": "DeepSeek V4 Flash", "inputPerMillionUsd": 0.077, "outputPerMillionUsd": 0.154, "contextLength": 1048576}]
+        return [{"id": "deepseek/deepseek-v4-flash", "name": "DeepSeek V4 Flash", "provider": "deepseek", "created": 1780012800, "inputPerMillionUsd": 0.077, "outputPerMillionUsd": 0.154, "contextLength": 1048576}]
 
     async def fake_openrouter_audio_models(force=False):
         return [{"id": "google/gemini-audio", "name": "Gemini Audio", "inputPerMillionUsd": 0.1, "outputPerMillionUsd": 0.4, "contextLength": 1048576}]
@@ -316,6 +316,8 @@ def test_admin_assistant_catalog_contains_ollama_and_openrouter_prices(prompt_us
     monkeypatch.setattr(main, "qwen_asr_status", fake_qwen)
     monkeypatch.setattr(main, "openrouter_text_models", fake_openrouter_models)
     monkeypatch.setattr(main, "openrouter_audio_models", fake_openrouter_audio_models)
+    monkeypatch.setattr(main, "usd_rub_rate_snapshot", lambda: {"rate": 100.0, "fetchedAt": "2026-08-28T10:00:00+00:00"})
+    monkeypatch.setattr(main, "openrouter_economy_settings", lambda: {"usdFeePercent": 30.0, "minMarginPercent": 50.0, "tokenRub": 5.0})
     with TestClient(main.app) as client:
         response = client.get("/api/admin/assistants", cookies={"onenode_session": prompt_user["cookie"]})
     assert response.status_code == 200, response.text
@@ -323,6 +325,11 @@ def test_admin_assistant_catalog_contains_ollama_and_openrouter_prices(prompt_us
     assert body["ollama"]["models"][0]["name"] == "gemma4:31b-cloud"
     assert body["qwen"]["ok"] is False
     assert body["openrouterModels"][0]["inputPerMillionUsd"] == 0.077
+    assert body["openrouterModels"][0]["provider"] == "deepseek"
+    assert body["openrouterModels"][0]["created"] == 1780012800
+    assert body["openrouterModels"][0]["economics"]["schema"] == "text-model-economics-v1"
+    assert body["openrouterModels"][0]["economics"]["inputPerMillion"]["reservedTokens"] == 4.004
+    assert body["openrouterModels"][0]["economics"]["priceObservedAt"] == "2026-08-28T10:00:00+00:00"
     assert body["openrouterAudioModels"][0]["id"] == "google/gemini-audio"
 
 

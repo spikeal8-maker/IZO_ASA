@@ -267,13 +267,21 @@ def parse_openrouter_text_models(payload: Any) -> list[dict[str, Any]]:
         model_id = str(row.get("id") or "").strip()
         if not model_id:
             continue
-        models.append({
+        model = {
             "id": model_id,
             "name": str(row.get("name") or model_id),
+            "provider": model_id.split("/", 1)[0],
             "inputPerMillionUsd": round(input_per_million, 6),
             "outputPerMillionUsd": round(output_per_million, 6),
             "contextLength": int(row.get("context_length") or 0),
-        })
+        }
+        try:
+            created = int(row.get("created"))
+        except (TypeError, ValueError):
+            created = 0
+        if created > 0:
+            model["created"] = created
+        models.append(model)
     models.sort(key=lambda item: (item["name"].lower(), item["id"]))
     return models
 
