@@ -140,6 +140,7 @@ import { useModelPreferences, useStudioBackendData, useStudioDraftAutosave } fro
 const PaintWorkbench = lazy(() => import('./PaintWorkbench'))
 const VideoStudio = lazy(() => import('./VideoStudio'))
 const DesktopChatWorkspace = lazy(() => import('./desktopChat/DesktopChatWorkspace'))
+const DesktopAudioWorkspace = lazy(() => import('./DesktopAudioWorkspace'))
 
 const IMAGE_MODE_TABS: Array<{ id: StudioMode; label: string; note: string }> = [
   { id: 'text', label: 'По тексту', note: 'Создать по описанию' },
@@ -3671,7 +3672,7 @@ export default function NewStudio(): ReactElement {
           ) : tab === 'video' ? (
             <Suspense fallback={<div className="iv3-content"><div className="preview-empty">Загружаем видеостудию…</div></div>}><VideoStudio authStatus={authStatus} onTokenBalanceChange={() => { void refreshAuthStateV2() }} /></Suspense>
           ) : tab === 'audio' ? (
-            placeholderStudio('Звук', 'Создание и обработка звука появятся в этом разделе.')
+            <Suspense fallback={<div className="iv3-content"><div className="preview-empty">Загружаем звуковую студию…</div></div>}><DesktopAudioWorkspace authed={authStatus === 'authed'} onRequireAuth={() => setAuthOpen(true)} /></Suspense>
           ) : tab === '3d' ? (
             placeholderStudio('3D', 'Создание 3D-моделей появится в этом разделе.')
           ) : tab === 'chat' ? (

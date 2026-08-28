@@ -362,6 +362,22 @@ def test_voice_transcription_rejects_too_short_recording(prompt_user):
     assert "не меньше" in response.text
 
 
+def test_voice_transcription_rejects_unpublished_operation(prompt_user):
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('assistant_models', ?, '2026-08-28T00:00:00+00:00')",
+            ('{"voice":{"transcriptionPublished":false,"minRecordingSeconds":1}}',),
+        )
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/api/tools/transcribe?duration_ms=1400&language=ru",
+            files={"file": ("voice.webm", b"audio", "audio/webm")},
+            cookies={"onenode_session": prompt_user["cookie"]},
+            headers=BROWSER_ORIGIN,
+        )
+    assert response.status_code == 403
+
+
 def test_voice_transcription_returns_provider_text(prompt_user, monkeypatch):
     captured = {}
     with main.db() as conn:
@@ -384,6 +400,7 @@ def test_voice_transcription_returns_provider_text(prompt_user, monkeypatch):
         )
     assert response.status_code == 200, response.text
     assert response.json()["text"] == "девушка у вечернего окна"
+    assert response.json()["actualCostUsd"] == 0.0002
     assert captured == {"audio": b"not-real-audio", "format": "webm", "language": "русском"}
 
 

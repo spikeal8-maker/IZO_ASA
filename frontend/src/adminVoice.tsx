@@ -26,6 +26,8 @@ type VoiceConfig = {
   queueTimeoutSeconds: number
   requestTimeoutSeconds: number
   minRecordingSeconds: number
+  transcriptionPublished: boolean
+  speechPublished: boolean
 }
 type AssistantConfig = { voice: VoiceConfig; improve: Record<string, unknown> }
 type RuntimeStatus = { ok: boolean; baseUrl: string; error?: string; models: Array<{ name?: string; id?: string }> }
@@ -283,6 +285,8 @@ export default function AdminVoice({ embedded = false }: { embedded?: boolean })
             <div className="voice-field"><label>Таймаут ответа, сек.</label><input type="number" min="10" max="180" value={voice.requestTimeoutSeconds} onChange={(event) => updateVoice({ requestTimeoutSeconds: Number(event.target.value) })} /></div>
             <div className="voice-field"><label>Минимальная запись, сек.</label><input type="number" min="0.5" max="10" step="0.5" value={voice.minRecordingSeconds} onChange={(event) => updateVoice({ minRecordingSeconds: Number(event.target.value) })} /></div>
           </div></details>
+          <label className="voice-selected"><input type="checkbox" checked={voice.transcriptionPublished !== false} onChange={(event) => updateVoice({ transcriptionPublished: event.target.checked })} /><div><strong>Публиковать распознавание речи</strong><span>Если выключить, пользовательский endpoint отклонит даже поддельный запрос.</span></div></label>
+          <label className="voice-selected"><input type="checkbox" checked={voice.speechPublished !== false} onChange={(event) => updateVoice({ speechPublished: event.target.checked })} /><div><strong>Публиковать локальное озвучивание</strong><span>Голоса Irina и Pavel работают на сервере без внешнего API.</span></div></label>
           <button className="voice-save" type="button" disabled={busy || recording} onClick={() => void save()}><Save size={15} />{busy ? 'Обрабатываю...' : 'Сохранить настройки'}</button>
           {message && <div className="voice-result"><strong>{message}</strong></div>}
         </div>

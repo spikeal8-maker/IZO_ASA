@@ -15,6 +15,7 @@ import { adminGet, adminPost } from './adminApi'
 import { DEFAULT_TARIFFS, SERVER_MODEL_OPTION, formatModelCount, modelOptionById, normalizeTariffs, qualityPresetLabels, qualityPresets, resolutionOptions, tariffKeys, type ModelOption, type TariffConfig, type TariffKey } from './profileSupport'
 import { ADMIN_MODELS_PAGES, ADMIN_OPENROUTER_PAGES, adminModelsRouteDefinition } from './adminModelsRoutes'
 import './index.css'
+import './adminModelsResponsive.css'
 
 const AdminAnalyticsV2 = lazy(() => import('./adminAnalytics').then((module) => ({ default: module.AdminAnalyticsV2 })))
 const AdminModelsV2 = lazy(() => import('./adminModels'))

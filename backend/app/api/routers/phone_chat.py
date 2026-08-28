@@ -25,7 +25,7 @@ from ...integrations.openrouter import (
     format_openrouter_public_error,
     request_openrouter_chat_completion,
 )
-from ...services import phone_chat_history
+from ...services import chat_billing, phone_chat_history
 
 
 PROVIDER_ENDPOINTS = load_provider_endpoint_policy()
@@ -128,6 +128,7 @@ class PhoneChatDependencies:
     openrouter_text_models: Callable[[], Any]
     charge_tokens: Callable[..., dict[str, Any]]
     refund_tokens: Callable[..., bool]
+    settle_tokens: Callable[..., dict[str, Any]] | None = None
     connect_db: Callable[[], Any] | None = None
     usd_rub_snapshot: Callable[[], dict[str, Any]] | None = None
     openrouter_economy: Callable[[], dict[str, float]] | None = None
@@ -139,6 +140,10 @@ def _chat_config(deps: PhoneChatDependencies) -> dict[str, Any]:
 
 
 def _resolve_phone_chat_model(req: PhoneChatRequest, config: dict[str, Any], plan: str | None = None) -> tuple[str, str, str, float, str]:
+    published_api = {
+        str(value) for value in config.get("publishedApiModels", config.get("enabledApiModels", []))
+        if str(value).strip()
+    }
     enabled_api = [str(value) for value in config.get("enabledApiModels", []) if str(value).strip()]
     selected = str(req.modelId or "").strip()
     if not selected:
@@ -152,7 +157,7 @@ def _resolve_phone_chat_model(req: PhoneChatRequest, config: dict[str, Any], pla
         if config.get("enabled") is False or config.get("localEnabled") is False:
             raise ValueError("Локальная модель чата сейчас отключена.")
         return selected, "local", str(config.get("localModel") or "gemma4:12b"), 0.0, "free"
-    if config.get("enabled") is False or selected not in enabled_api:
+    if config.get("enabled") is False or selected not in published_api or selected not in enabled_api:
         raise ValueError("Эта модель чата сейчас недоступна.")
     if plan is not None:
         tier_access = config.get("apiTierAccess") if isinstance(config.get("apiTierAccess"), dict) else {}
@@ -646,7 +651,14 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
                 "contextChars": int(config.get("contextChars") or 60000),
                 "runtimeContextTokens": int(config.get("localNumCtx") or 16384),
             })
-        enabled_api = {str(value) for value in config.get("enabledApiModels", [])}
+        published_api = {
+            str(value) for value in config.get("publishedApiModels", config.get("enabledApiModels", []))
+            if str(value).strip()
+        }
+        enabled_api = {
+            str(value) for value in config.get("enabledApiModels", [])
+            if str(value) in published_api
+        }
         tier_access = config.get("apiTierAccess") if isinstance(config.get("apiTierAccess"), dict) else {}
         allowed_api = set(enabled_api) if plan == "admin" else {str(value) for value in tier_access.get(plan, []) if str(value).strip()}
         costs = config.get("apiTokenCosts") if isinstance(config.get("apiTokenCosts"), dict) else {}
@@ -669,7 +681,7 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
 
         for model_id in config.get("enabledApiModels", []):
             model_id = str(model_id)
-            if model_id not in enabled_api:
+            if model_id not in published_api or model_id not in enabled_api:
                 continue
             item = by_id.get(model_id, {})
             input_per_million = product_tokens_per_million(float(item.get("inputPerMillionUsd") or 0))
@@ -680,7 +692,9 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
                 "provider": "api",
                 "tokenCost": float(costs.get(model_id) or 0.1),
                 "tokenKind": "main",
-                "description": "Облачная текстовая модель",
+                "description": "Оплата по фактическому объёму ответа",
+                "usageBased": bool(config.get("usageBillingEnabled", True)),
+                "priceGuidance": "Цена зависит от истории, изображений и длины ответа; максимум резервируется заранее, остаток возвращается.",
                 "available": model_id in allowed_api,
                 "unavailableReason": "Недоступна на вашем тарифе" if model_id not in allowed_api else "",
                 "contextLength": int(item.get("contextLength") or 0),
@@ -721,6 +735,31 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
             _public_id, selected_provider, selected_model, selected_cost, selected_kind = _resolve_phone_chat_model(routed_req, config, plan)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
+        reservation_quote: dict[str, Any] | None = None
+        if selected_provider == "api" and config.get("usageBillingEnabled", True):
+            try:
+                catalog = await deps.openrouter_text_models()
+            except Exception as exc:
+                raise HTTPException(503, "Не удалось получить актуальную цену модели чата.") from exc
+            catalog_model = next((item for item in catalog if isinstance(item, dict) and str(item.get("id") or "") == selected_model), None)
+            exchange = deps.usd_rub_snapshot() if deps.usd_rub_snapshot is not None else {}
+            economy = deps.openrouter_economy() if deps.openrouter_economy is not None else {}
+            if catalog_model is None or not isinstance(exchange.get("rate"), (int, float)):
+                raise HTTPException(503, "Для этой модели пока нет проверенной цены или курса валют.")
+            try:
+                reservation_quote = chat_billing.build_chat_reservation_quote(
+                    messages=routed_req.messages,
+                    image_count=len(routed_req.images),
+                    input_per_million_usd=float(catalog_model.get("inputPerMillionUsd") or 0),
+                    output_per_million_usd=float(catalog_model.get("outputPerMillionUsd") or 0),
+                    exchange_rate=float(exchange["rate"]),
+                    funding_reserve_percent=float(economy.get("usdFeePercent") or 0),
+                    minimum_margin_percent=float(economy.get("minMarginPercent") or 0),
+                    token_rub=float(economy.get("tokenRub") or 5),
+                )
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(503, "Для этой модели пока нет проверенной цены.") from exc
+            selected_cost = float(reservation_quote["reservedTokens"])
         charge = deps.charge_tokens(
             user_id=user_id,
             token_cost=selected_cost,
@@ -760,6 +799,16 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
             for item in tool_payloads
             if isinstance(item, dict)
         )
+        settlement: dict[str, Any] | None = None
+        if reservation_quote is not None and deps.settle_tokens is not None:
+            settlement = deps.settle_tokens(
+                user_id=user_id,
+                ledger_id=charge["ledger_id"],
+                quote=reservation_quote,
+                actual_cost_usd=cost if cost > 0 else None,
+            )
+            token_cost = float(settlement.get("settled_tokens") or selected_cost)
+            charge["new_balance"] = settlement.get("new_balance", charge.get("new_balance"))
         deps.record_event(
             "phone_chat_answered",
             internal_user_id=trusted.get("internal_user_id"),
@@ -778,6 +827,9 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
                 "cost_usd": cost,
                 "product_token_cost": token_cost,
                 "product_token_kind": token_kind,
+                "provider_usage": usage,
+                "billing_quote": reservation_quote,
+                "billing_settlement": settlement,
                 "tools": [str(item.get("name") or "") for item in tool_runs if isinstance(item, dict)],
             },
         )
@@ -809,6 +861,8 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
             "tokenBalance": charge.get("new_balance"),
             "dailyTokensUsed": charge.get("daily_tokens_used_after"),
             "dailyTokensLimit": charge.get("daily_tokens_limit"),
+            "reservedTokens": float(reservation_quote["reservedTokens"]) if reservation_quote is not None else token_cost,
+            "billingStatus": settlement.get("status") if settlement is not None else "fixed",
             "tools": tool_runs,
             "messageId": message_ids.get("assistantMessageId"),
         }

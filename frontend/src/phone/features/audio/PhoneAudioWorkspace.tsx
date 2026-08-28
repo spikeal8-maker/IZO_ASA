@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, Copy, Download, FileAudio, Mic, Pause, Play, RotateCcw, Trash2, Upload } from 'lucide-react'
 
-import { transcribePhoneAudio } from './api.ts'
+import { loadPhoneAudioConfig, synthesizePhoneSpeech, transcribePhoneAudio, type PhoneAudioConfig } from './api.ts'
 import './phoneAudio.css'
+import './phoneAudioSpeech.css'
 
 type AudioEntry = {
   id: string
@@ -50,6 +51,10 @@ export default function PhoneAudioWorkspace({ offline }: { offline: boolean }) {
   const [playing, setPlaying] = useState(false)
   const [message, setMessage] = useState('')
   const [copied, setCopied] = useState(false)
+  const [audioConfig, setAudioConfig] = useState<PhoneAudioConfig | null>(null)
+  const [speechText, setSpeechText] = useState('')
+  const [speechVoice, setSpeechVoice] = useState<'irina' | 'pavel'>('irina')
+  const [speechUrl, setSpeechUrl] = useState('')
   const recorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
   const startedRef = useRef(0)
@@ -65,11 +70,24 @@ export default function PhoneAudioWorkspace({ offline }: { offline: boolean }) {
   }, [recording])
 
   useEffect(() => { entriesRef.current = entries }, [entries])
+  useEffect(() => { const controller = new AbortController(); void loadPhoneAudioConfig(controller.signal).then(setAudioConfig).catch(() => undefined); return () => controller.abort() }, [])
 
   useEffect(() => () => {
     recorderRef.current?.stream.getTracks().forEach((track) => track.stop())
     entriesRef.current.forEach((entry) => URL.revokeObjectURL(entry.url))
   }, [])
+  useEffect(() => () => { if (speechUrl) URL.revokeObjectURL(speechUrl) }, [speechUrl])
+
+  async function synthesize() {
+    if (!speechText.trim() || busy || offline) return
+    setBusy(true); setMessage('Озвучиваем текст…')
+    try {
+      const blob = await synthesizePhoneSpeech(speechText.trim(), speechVoice)
+      if (speechUrl) URL.revokeObjectURL(speechUrl)
+      setSpeechUrl(URL.createObjectURL(blob)); setMessage('Текст озвучен.')
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Не удалось озвучить текст.') }
+    finally { setBusy(false) }
+  }
 
   async function recognize(file: File, durationMs: number) {
     if (offline) { setMessage('Нет связи с сервером. Запись сохранена в этом сеансе.'); return '' }
@@ -192,6 +210,6 @@ export default function PhoneAudioWorkspace({ offline }: { offline: boolean }) {
       {entries.length ? <div>{entries.map((entry) => <button type="button" key={entry.id} className={selected?.id === entry.id ? 'active' : ''} onClick={() => setSelected(entry)}><Play /><span><b>{entry.name}</b><small>{entry.text || 'Без расшифровки'}</small></span><time>{formatTime(entry.durationMs)}</time></button>)}</div> : <p>Здесь появятся записанные и загруженные файлы.</p>}
     </section>
 
-    <section className="phone-audio-soon"><b>Озвучивание текста</b><span>Серверный синтез речи и выбор голосов подключаются следующим пакетом. Кнопка не показывается, пока операция недоступна.</span></section>
+    {audioConfig?.speechPublished && <section className="phone-audio-soon"><b>Озвучивание текста</b><span>Локальные голоса сервера — без внешнего API.</span><textarea value={speechText} maxLength={audioConfig.speechMaxChars || 4000} placeholder="Введите текст для озвучивания" onChange={(event) => setSpeechText(event.target.value)} /><select value={speechVoice} onChange={(event) => setSpeechVoice(event.target.value as 'irina' | 'pavel')}>{audioConfig.voices.map((voice) => <option key={voice.id} value={voice.id}>{voice.name}</option>)}</select><button type="button" disabled={busy || offline || !speechText.trim()} onClick={() => void synthesize()}>Озвучить</button>{speechUrl && <><audio controls src={speechUrl} /><a href={speechUrl} download="izo-asa-voice.wav"><Download /> Скачать WAV</a></>}</section>}
   </main>
 }

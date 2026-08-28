@@ -16,15 +16,15 @@ const manifest = {
     notificationHost: true,
   },
   contracts: { capabilities: 'v1', jobs: 'v1', media: 'v1', billing: 'v1' },
-  workspaces: ['image', 'video', 'chat', 'audio', '3d'].map((id) => ({
+  workspaces: ['image', 'video', 'chat', 'audio'].map((id) => ({
     id,
     label: id,
     shortLabel: id,
     route: `/phone/${id}`,
-    enabled: id !== '3d',
-    stage: id === '3d' ? 'planned' : 'ready',
+    enabled: true,
+    stage: 'ready',
     operations: [],
-    navigation: id === '3d' ? 'menu' : 'primary',
+    navigation: 'primary',
   })),
 }
 
@@ -36,7 +36,7 @@ test('accepts the versioned phone manifest', () => {
 
 test('rejects malformed or partial manifests', () => {
   assert.equal(isPhonePlatformManifest({ ...manifest, apiVersion: 'v2' }), false)
-  assert.equal(isPhonePlatformManifest({ ...manifest, workspaces: manifest.workspaces.slice(1) }), false)
+  assert.equal(isPhonePlatformManifest({ ...manifest, workspaces: [...manifest.workspaces, manifest.workspaces[0]] }), false)
   assert.equal(isPhonePlatformManifest({ ...manifest, defaultRoute: '/' }), false)
 })
 

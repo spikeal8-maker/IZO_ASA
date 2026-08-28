@@ -43,3 +43,18 @@ def test_phone_speech_rejects_blank_text():
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Введите текст для озвучивания."
+
+
+def test_phone_audio_publication_contract_is_server_enforced():
+    app = FastAPI()
+    app.include_router(create_phone_audio_router(PhoneAudioDependencies(
+        require_user=lambda _request: {"id": "web-test"},
+        audio_config=lambda: {"transcriptionPublished": True, "speechPublished": False},
+    )))
+    client = TestClient(app)
+    config = client.get("/api/phone/audio/config")
+    speech = client.post("/api/phone/audio/speech", json={"text": "Привет"})
+    assert config.status_code == 200
+    assert config.json()["speechPublished"] is False
+    assert {item["id"] for item in config.json()["voices"]} == {"irina", "pavel"}
+    assert speech.status_code == 403

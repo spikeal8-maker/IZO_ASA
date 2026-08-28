@@ -7,6 +7,8 @@ import re
 from statistics import fmean
 from typing import Any, Callable, Iterable
 
+from . import cloud_quote
+
 
 STARTING_USD_PER_SECOND = {
     "480p": 0.08,
@@ -49,7 +51,8 @@ def allowed_models(
     plan: str,
     is_admin: bool,
 ) -> list[dict[str, Any]]:
-    enabled = set((config.get("enabled") or {}).get(mode) or [])
+    published = set(config.get("published") or [])
+    enabled = set((config.get("enabled") or {}).get(mode) or []).intersection(published)
     tier = set((((config.get("access") or {}).get(mode) or {}).get(plan)) or [])
     allowed = enabled if is_admin else enabled.intersection(tier)
     return [
@@ -66,12 +69,39 @@ def public_preview_models(
 ) -> list[dict[str, Any]]:
     """Return enabled product models for the signed-out catalogue preview."""
 
-    enabled = set((config.get("enabled") or {}).get(mode) or [])
+    published = set(config.get("published") or [])
+    enabled = set((config.get("enabled") or {}).get(mode) or []).intersection(published)
     return [
         model
         for model in catalog
         if model.get("id") in enabled and mode in (model.get("modes") or [])
     ]
+
+
+def visible_models(
+    catalog: list[dict[str, Any]],
+    config: dict[str, Any],
+    mode: str,
+    plan: str,
+    is_admin: bool,
+) -> list[dict[str, Any]]:
+    """Return published operation models and mark tariff eligibility explicitly."""
+
+    published = set(config.get("published") or [])
+    enabled = set((config.get("enabled") or {}).get(mode) or []).intersection(published)
+    tier = set((((config.get("access") or {}).get(mode) or {}).get(plan)) or [])
+    visible: list[dict[str, Any]] = []
+    for model in catalog:
+        model_id = str(model.get("id") or "")
+        if model_id not in enabled or mode not in (model.get("modes") or []):
+            continue
+        available = is_admin or model_id in tier
+        visible.append({
+            **model,
+            "available": available,
+            "unavailableReason": "" if available else "Недоступна на вашем тарифе",
+        })
+    return visible
 
 
 @dataclass(frozen=True)
@@ -113,9 +143,44 @@ def actual_pricing_samples(
             "resolution": settings.get("resolution"),
             "aspectRatio": settings.get("aspectRatio"),
             "generateAudio": bool(settings.get("generateAudio")),
+            "inputImageCount": int(billing.get("inputImageCount") or 0),
             "actualCostUsd": float(actual_cost),
         })
     return samples
+
+
+def comparable_actual_costs(
+    samples: Iterable[dict[str, Any]],
+    *,
+    model_id: str,
+    mode: str,
+    resolution: str,
+    aspect_ratio: str,
+    generate_audio: bool,
+    duration: float,
+    input_image_count: int,
+) -> list[float]:
+    """Return newest-first actual costs for the exact price-affecting shape."""
+
+    result: list[float] = []
+    for sample in samples:
+        if (
+            str(sample.get("modelId") or "") != model_id
+            or str(sample.get("mode") or "") != mode
+            or str(sample.get("resolution") or "").lower() != resolution.lower()
+            or str(sample.get("aspectRatio") or "") != aspect_ratio
+            or bool(sample.get("generateAudio")) != bool(generate_audio)
+            or float(sample.get("duration") or 0) != float(duration)
+            or int(sample.get("inputImageCount") or 0) != int(input_image_count)
+        ):
+            continue
+        try:
+            cost = float(sample.get("actualCostUsd") or 0)
+        except (TypeError, ValueError):
+            continue
+        if cost > 0:
+            result.append(cost)
+    return result
 
 
 def load_actual_pricing_samples(
@@ -306,10 +371,14 @@ def openrouter_video_usage_stats(
     modes: dict[str, dict[str, Any]] = {}
     total_count = total_priced = 0
     total_cost_usd = 0.0
+    shadow_quotes: list[dict[str, Any]] = []
     for row in rows:
         settings = parse_json(row["settings_json"]) or {}
         if not isinstance(settings, dict):
             settings = {}
+        billing = settings.get("openrouterBilling") if isinstance(settings.get("openrouterBilling"), dict) else {}
+        if isinstance(billing.get("shadowQuote"), dict):
+            shadow_quotes.append(billing["shadowQuote"])
         mode = str(row["mode"] or "unknown")
         model = str(settings.get("openrouterModel") or settings.get("modelProfile") or "unknown")
         try:
@@ -349,6 +418,7 @@ def openrouter_video_usage_stats(
         "priced": total_priced,
         "costUsd": round(total_cost_usd, 6),
         "avgCostUsd": round(total_cost_usd / total_priced, 6) if total_priced else None,
+        "shadowEconomics": cloud_quote.summarize_shadow_quotes(shadow_quotes),
         "models": rows_for(models, "model"),
         "modes": rows_for(modes, "mode"),
     }

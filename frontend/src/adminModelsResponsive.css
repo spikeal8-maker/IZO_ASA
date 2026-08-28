@@ -1,0 +1,59 @@
+@media (max-width: 880px) {
+  .amv2 .matrix-wrap:has(.format-table) { overflow: visible; }
+  .amv2 .format-table,
+  .amv2 .format-table tbody { display: block; width: 100%; }
+  .amv2 .format-table thead { display: none; }
+  .amv2 .format-table tbody { padding: 10px; }
+  .amv2 .format-table tr.api-model-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    margin-bottom: 10px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: rgba(255,255,255,.025);
+  }
+  .amv2 .format-table tr.api-model-row > td {
+    display: flex;
+    width: auto !important;
+    min-width: 0;
+    height: auto;
+    padding: 10px 12px !important;
+    border: 0;
+  }
+  .amv2 .format-table tr.api-model-row > td:nth-child(4),
+  .amv2 .format-table tr.api-model-row > td:nth-child(n+6) { display: none !important; }
+  .amv2 .format-table tr.api-model-row > td:nth-child(3) {
+    order: 1;
+    grid-column: 1 / -1;
+    display: grid;
+    gap: 3px;
+    border-bottom: 1px solid var(--line);
+  }
+  .amv2 .format-table tr.api-model-row > td:nth-child(1),
+  .amv2 .format-table tr.api-model-row > td:nth-child(2) {
+    order: 2;
+    align-items: center;
+    gap: 8px;
+  }
+  .amv2 .format-table tr.api-model-row > td:nth-child(1)::after { content: "Публикация"; }
+  .amv2 .format-table tr.api-model-row > td:nth-child(2)::after { content: "Операция"; }
+  .amv2 .format-table tr.api-model-row > td:nth-child(1)::after,
+  .amv2 .format-table tr.api-model-row > td:nth-child(2)::after {
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+  .amv2 .format-table tr.api-model-row > td:nth-child(5) {
+    order: 3;
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--line);
+  }
+  .amv2 .format-table .model-name,
+  .amv2 .format-table .model-release { white-space: normal; overflow-wrap: anywhere; }
+  .amv2 .format-table .tier-checks { width: 100%; justify-content: space-between; }
+  .amv2 .format-table tr:not(.api-model-row) { display: block; margin: -10px 10px 10px; }
+  .amv2 .format-table tr:not(.api-model-row) .detail-cell { display: block !important; width: auto; }
+}

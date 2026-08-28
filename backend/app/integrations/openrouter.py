@@ -409,17 +409,34 @@ def normalize_openrouter_video_config(raw: Any, catalog: list[dict[str, Any]]) -
         }
         for mode in OPENROUTER_VIDEO_MODES
     }
+    catalog_ids = set().union(*models_by_mode.values()) if models_by_mode else set()
+    raw_published = source.get("published")
+    legacy_published: set[str] = set()
+    for mode in OPENROUTER_VIDEO_MODES:
+        mode_enabled = enabled_source.get(mode)
+        if isinstance(mode_enabled, list):
+            legacy_published.update(str(value) for value in mode_enabled)
+        mode_access = access_source.get(mode)
+        if isinstance(mode_access, dict):
+            for tier_values in mode_access.values():
+                if isinstance(tier_values, list):
+                    legacy_published.update(str(value) for value in tier_values)
+    published = sorted({
+        str(value) for value in (raw_published if isinstance(raw_published, list) else legacy_published)
+        if str(value) in catalog_ids
+    })
+    published_set = set(published)
     enabled: dict[str, list[str]] = {}
     access: dict[str, dict[str, list[str]]] = {}
     for mode in OPENROUTER_VIDEO_MODES:
         allowed = models_by_mode[mode]
         values = enabled_source.get(mode) if isinstance(enabled_source.get(mode), list) else []
-        normalized_enabled = sorted({str(value) for value in values if str(value) in allowed})
+        normalized_enabled = sorted({str(value) for value in values if str(value) in allowed and str(value) in published_set})
         mode_access_source = access_source.get(mode) if isinstance(access_source.get(mode), dict) else {}
         mode_access: dict[str, list[str]] = {}
         for tier in OPENROUTER_VIDEO_TIERS:
             tier_values = mode_access_source.get(tier) if isinstance(mode_access_source.get(tier), list) else []
-            normalized_tier = sorted({str(value) for value in tier_values if str(value) in allowed})
+            normalized_tier = sorted({str(value) for value in tier_values if str(value) in allowed and str(value) in published_set})
             if normalized_tier:
                 mode_access[tier] = normalized_tier
                 normalized_enabled = sorted(set(normalized_enabled).union(normalized_tier))
@@ -427,7 +444,7 @@ def normalize_openrouter_video_config(raw: Any, catalog: list[dict[str, Any]]) -
             enabled[mode] = normalized_enabled
         if mode_access:
             access[mode] = mode_access
-    return {"enabled": enabled, "access": access}
+    return {"published": published, "enabled": enabled, "access": access}
 
 
 async def fetch_openrouter_text_models(

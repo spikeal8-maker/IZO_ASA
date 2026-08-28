@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 
 from app.api.routers.phone_chat import PhoneChatRequest, _resolve_phone_chat_model
-from app.services.chat_billing import charge_chat_tokens, normalize_chat_config, refund_chat_tokens
+from app.services.chat_billing import build_chat_reservation_quote, charge_chat_tokens, chat_usage_report, normalize_chat_config, refund_chat_tokens, settle_chat_tokens
 
 
 def _database() -> sqlite3.Connection:
@@ -27,6 +27,7 @@ def _database() -> sqlite3.Connection:
           meta_json TEXT,
           created_at TEXT NOT NULL
         );
+        CREATE TABLE event_logs (event_name TEXT, properties_json TEXT, created_at TEXT);
         INSERT INTO users (id, token_balance) VALUES ('user-1', 10);
         """
     )
@@ -64,6 +65,61 @@ def test_fractional_openrouter_chat_accumulates_before_one_main_token() -> None:
     assert tenth["balance_part"] == 1
 
 
+def test_zero_whole_token_balance_cannot_fund_fractional_api_responses() -> None:
+    conn = _database()
+    conn.execute("UPDATE users SET token_balance=0 WHERE id='user-1'")
+    try:
+        charge_chat_tokens(conn, user_id="user-1", token_cost=0.1, request_id="req-zero", provider="api", model="provider/model", daily_limit=25)
+    except Exception as exc:
+        assert getattr(exc, "status_code", None) == 402
+    else:
+        raise AssertionError("A zero balance funded a paid fractional response")
+
+
+def test_usage_quote_reserves_then_idempotently_refunds_unused_fraction() -> None:
+    conn = _database()
+    quote = build_chat_reservation_quote(
+        messages=[{"content": "Короткий вопрос"}],
+        image_count=0,
+        input_per_million_usd=1,
+        output_per_million_usd=10,
+        exchange_rate=80,
+        funding_reserve_percent=30,
+        minimum_margin_percent=50,
+        token_rub=5,
+    )
+    charge = charge_chat_tokens(
+        conn, user_id="user-1", token_cost=quote["reservedTokens"], request_id="req-settle",
+        provider="api", model="provider/model", daily_limit=25,
+    )
+    settled = settle_chat_tokens(
+        conn, user_id="user-1", ledger_id=charge["ledger_id"], quote=quote, actual_cost_usd=0.001,
+    )
+    repeated = settle_chat_tokens(
+        conn, user_id="user-1", ledger_id=charge["ledger_id"], quote=quote, actual_cost_usd=0.001,
+    )
+    assert 0 < settled["settled_tokens"] <= quote["reservedTokens"]
+    assert settled["refunded_millitokens"] > 0
+    assert repeated["duplicate"] is True
+
+
+def test_chat_usage_report_uses_provider_usage_and_actual_margin() -> None:
+    conn = _database()
+    conn.execute(
+        "INSERT INTO event_logs VALUES (?,?,?)",
+        (
+            "phone_chat_answered",
+            '{"model":"provider/model","cost_usd":0.01,"provider_usage":{"prompt_tokens":100,"completion_tokens":50},"billing_quote":{"tokenRub":5,"effectiveUsdRub":100},"billing_settlement":{"settled_tokens":0.4,"status":"actual"}}',
+            "2026-08-28T00:00:00+00:00",
+        ),
+    )
+    report = chat_usage_report(conn)
+    assert report["priced"] == 1
+    assert report["averageCostUsd"] == 0.01
+    assert report["marginPercent"] == 50
+    assert report["recent"][0]["inputTokens"] == 100
+
+
 def test_failed_chat_refund_is_idempotent() -> None:
     conn = _database()
     charge = charge_chat_tokens(conn, user_id="user-1", token_cost=3, request_id="req-api-2", provider="api", model="provider/model", daily_limit=25)
@@ -91,6 +147,7 @@ def test_chat_model_selection_never_exposes_or_silently_switches_local_model() -
 
 def test_chat_model_tariff_access_is_normalized_and_enforced() -> None:
     legacy = normalize_chat_config({"enabledApiModels": ["provider/model"]})
+    assert legacy["publishedApiModels"] == ["provider/model"]
     assert legacy["apiTierAccess"] == {
         "mini": ["provider/model"], "plus": ["provider/model"],
         "pro": ["provider/model"], "business": ["provider/model"],
@@ -109,3 +166,14 @@ def test_chat_model_tariff_access_is_normalized_and_enforced() -> None:
         assert "тарифе" in str(exc)
     else:
         raise AssertionError("Tariff-blocked model was accepted")
+
+
+def test_unpublished_chat_model_is_removed_from_operations_and_tariffs() -> None:
+    config = normalize_chat_config({
+        "publishedApiModels": ["provider/model"],
+        "enabledApiModels": ["provider/model", "provider/hidden"],
+        "apiTierAccess": {"mini": ["provider/model", "provider/hidden"]},
+    })
+    assert config["publishedApiModels"] == ["provider/model"]
+    assert config["enabledApiModels"] == ["provider/model"]
+    assert config["apiTierAccess"]["mini"] == ["provider/model"]

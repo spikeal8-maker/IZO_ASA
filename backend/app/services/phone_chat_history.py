@@ -146,7 +146,7 @@ def list_messages(conn: sqlite3.Connection, user_id: str, thread_id: str, *, lim
         "id": row["id"], "role": row["role"], "content": row["content"],
         "provider": row["provider"] or "", "model": row["model"] or "",
         "tools": _tools_from_json(row["tools_json"]),
-        "chargedTokens": int(row["charged_tokens"] or 0), "tokenKind": row["token_kind"] or "",
+        "chargedTokens": round(float(row["charged_tokens"] or 0), 3), "tokenKind": row["token_kind"] or "",
         "createdAt": row["created_at"], "status": "done",
     } for row in rows]
 
@@ -178,7 +178,7 @@ def add_exchange(
     provider: str,
     model: str,
     tools: list[dict[str, Any]],
-    charged_tokens: int,
+    charged_tokens: float,
     token_kind: str,
 ) -> dict[str, str]:
     if get_thread(conn, user_id, thread_id) is None:

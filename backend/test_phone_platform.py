@@ -17,22 +17,19 @@ def test_phone_platform_manifest_has_stable_routes_and_no_provider_internals(mon
     assert payload["apiVersion"] == "v1"
     assert payload["defaultRoute"] == "/phone/image"
     routes = {item["id"]: item for item in payload["workspaces"]}
-    assert set(routes) == {"image", "video", "chat", "audio", "3d"}
+    assert set(routes) == {"image", "video", "chat", "audio"}
     assert routes["audio"]["enabled"] is True
     assert routes["audio"]["operations"] == ["speech_to_text"]
-    assert routes["3d"]["navigation"] == "menu"
-    assert routes["3d"]["enabled"] is False
-    assert routes["3d"]["operations"] == ["text_to_3d", "image_to_3d"]
     serialized = str(payload).casefold()
     assert "checkpoint" not in serialized
     assert "provider" not in serialized
     assert "openrouter" not in serialized
 
 
-def test_phone_platform_feature_flag_is_server_owned(monkeypatch) -> None:
+def test_unfinished_3d_is_not_public_even_when_legacy_feature_flag_is_set(monkeypatch) -> None:
     monkeypatch.setenv("PHONE_3D_ENABLED", "true")
     routes = {item["id"]: item for item in phone_platform_manifest()["workspaces"]}
-    assert routes["3d"]["enabled"] is True
+    assert "3d" not in routes
 
 
 def test_phone_platform_route_requires_trusted_user() -> None:

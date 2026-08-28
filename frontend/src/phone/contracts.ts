@@ -49,12 +49,13 @@ export function isPhonePlatformManifest(value: unknown): value is PhonePlatformM
   const candidate = value as Partial<PhonePlatformManifest>
   if (candidate.ok !== true || candidate.apiVersion !== 'v1') return false
   if (typeof candidate.defaultRoute !== 'string' || !candidate.defaultRoute.startsWith('/phone/')) return false
-  if (!Array.isArray(candidate.workspaces) || candidate.workspaces.length !== PHONE_WORKSPACE_IDS.length) return false
-  return candidate.workspaces.every((workspace) => (
-    Boolean(workspace)
-    && isPhoneWorkspaceId(workspace.id)
-    && workspace.route === `/phone/${workspace.id}`
-    && typeof workspace.enabled === 'boolean'
-    && Array.isArray(workspace.operations)
-  ))
+  if (!Array.isArray(candidate.workspaces) || candidate.workspaces.length === 0) return false
+  const seen = new Set<PhoneWorkspaceId>()
+  return candidate.workspaces.every((workspace) => {
+    if (!workspace || !isPhoneWorkspaceId(workspace.id) || seen.has(workspace.id)) return false
+    seen.add(workspace.id)
+    return workspace.route === `/phone/${workspace.id}`
+      && typeof workspace.enabled === 'boolean'
+      && Array.isArray(workspace.operations)
+  })
 }

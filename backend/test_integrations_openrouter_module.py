@@ -244,6 +244,7 @@ def test_video_config_keeps_only_catalog_modes_tiers_and_models():
     }, catalog)
 
     assert config == {
+        "published": ["vendor/image", "vendor/text"],
         "enabled": {
             "text_to_video": ["vendor/image", "vendor/text"],
             "image_to_video": ["vendor/image"],
@@ -252,6 +253,17 @@ def test_video_config_keeps_only_catalog_modes_tiers_and_models():
             "text_to_video": {"mini": ["vendor/image"]},
             "image_to_video": {"pro": ["vendor/image"]},
         },
+    }
+
+    unpublished = normalize_openrouter_video_config({
+        "published": ["vendor/text"],
+        "enabled": {"text_to_video": ["vendor/text", "vendor/image"]},
+        "access": {"text_to_video": {"mini": ["vendor/text", "vendor/image"]}},
+    }, catalog)
+    assert unpublished == {
+        "published": ["vendor/text"],
+        "enabled": {"text_to_video": ["vendor/text"]},
+        "access": {"text_to_video": {"mini": ["vendor/text"]}},
     }
 
 

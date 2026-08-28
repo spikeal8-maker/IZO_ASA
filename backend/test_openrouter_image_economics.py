@@ -6,6 +6,8 @@ import main
 
 from app.services.openrouter_image_economics import (
     NEW_IMAGE_PRICE_SPECS,
+    actual_pricing_samples,
+    comparable_actual_costs,
     estimate_live_image_cost,
 )
 
@@ -66,3 +68,33 @@ def test_live_image_token_cost_includes_prompt_and_reference_estimates():
 
     assert estimate is not None
     assert estimate.cost_usd == pytest.approx(0.000108 * 1300 + 0.000008 * 1300 + 0.000005 * 40)
+
+
+def test_image_history_requires_exact_operation_dimensions_and_inputs():
+    rows = [{
+        "mode": "edit",
+        "width": 1024,
+        "height": 1024,
+        "settings_json": {
+            "openrouterModel": "vendor/model",
+            "openrouterCostUsd": 0.12,
+            "openrouterBilling": {"billingWidth": 1024, "billingHeight": 1024, "inputImageCount": 2},
+        },
+    }]
+    samples = actual_pricing_samples(rows, lambda value: value)
+    assert comparable_actual_costs(
+        samples,
+        model_id="vendor/model",
+        mode="edit",
+        billing_width=1024,
+        billing_height=1024,
+        input_image_count=2,
+    ) == [0.12]
+    assert comparable_actual_costs(
+        samples,
+        model_id="vendor/model",
+        mode="edit",
+        billing_width=1024,
+        billing_height=1024,
+        input_image_count=1,
+    ) == []

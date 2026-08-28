@@ -54,6 +54,8 @@ export type PhoneChatModel = {
   retailPerMillionProductTokens?: number
   available?: boolean
   unavailableReason?: string
+  usageBased?: boolean
+  priceGuidance?: string
 }
 
 export async function listChatThreads(signal?: AbortSignal): Promise<PhoneChatThread[]> {

@@ -11,6 +11,8 @@ export type PhoneVideoModel = {
   supportedAspectRatios: string[]
   supportedDurations: number[]
   generateAudio: boolean | null
+  available?: boolean
+  unavailableReason?: string
   publicPricing?: { fromTokens?: number | null }
 }
 export type PhoneVideoConfig = { modes: Record<PhoneVideoMode, PhoneVideoModel[]>; videoSlots: number; feedPublicationEnabled?: boolean }

@@ -9,7 +9,7 @@ billable in the admin UI.  Whenever an endpoint publishes structured pricing,
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 
 SHORT_PROMPT_TEXT_TOKENS = 40
@@ -202,3 +202,63 @@ def estimate_live_image_cost(
                 total += row_cost * OUTPUT_IMAGE_TOKENS_1MP * mp * inputs
                 keys.append("input_image:token_estimate")
     return LiveImageEstimate(cost_usd=total, source_keys=tuple(keys))
+
+
+def actual_pricing_samples(rows: Iterable[Any], parse_json: Callable[[Any], Any]) -> list[dict[str, Any]]:
+    samples: list[dict[str, Any]] = []
+    for row in rows:
+        settings = parse_json(row["settings_json"]) or {}
+        if not isinstance(settings, dict):
+            continue
+        billing = settings.get("openrouterBilling") if isinstance(settings.get("openrouterBilling"), dict) else {}
+        actual = billing.get("actualCostUsd")
+        if not isinstance(actual, (int, float)):
+            actual = settings.get("openrouterCostUsd")
+        if not isinstance(actual, (int, float)) or float(actual) <= 0:
+            continue
+        samples.append({
+            "modelId": settings.get("openrouterModel") or billing.get("modelId"),
+            "mode": row["mode"],
+            "billingWidth": int(billing.get("billingWidth") or row["width"] or 0),
+            "billingHeight": int(billing.get("billingHeight") or row["height"] or 0),
+            "inputImageCount": int(billing.get("inputImageCount") or 0),
+            "actualCostUsd": float(actual),
+        })
+    return samples
+
+
+def load_actual_pricing_samples(open_db: Callable[[], Any], parse_json: Callable[[Any], Any]) -> list[dict[str, Any]]:
+    with open_db() as conn:
+        rows = conn.execute(
+            "SELECT mode,width,height,settings_json FROM images "
+            "WHERE provider='openrouter' ORDER BY created_at DESC LIMIT 500"
+        ).fetchall()
+    return actual_pricing_samples(rows, parse_json)
+
+
+def comparable_actual_costs(
+    samples: Iterable[dict[str, Any]],
+    *,
+    model_id: str,
+    mode: str,
+    billing_width: int,
+    billing_height: int,
+    input_image_count: int,
+) -> list[float]:
+    result: list[float] = []
+    for sample in samples:
+        if (
+            str(sample.get("modelId") or "") != model_id
+            or str(sample.get("mode") or "") != mode
+            or int(sample.get("billingWidth") or 0) != int(billing_width)
+            or int(sample.get("billingHeight") or 0) != int(billing_height)
+            or int(sample.get("inputImageCount") or 0) != int(input_image_count)
+        ):
+            continue
+        try:
+            cost = float(sample.get("actualCostUsd") or 0)
+        except (TypeError, ValueError):
+            continue
+        if cost > 0:
+            result.append(cost)
+    return result

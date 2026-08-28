@@ -1,0 +1,53 @@
+.phone-audio-soon {
+  gap: 8px;
+}
+
+.phone-audio-soon textarea,
+.phone-audio-soon select {
+  width: 100%;
+  border: 1px solid var(--phone-edge);
+  border-radius: 13px;
+  background: #0c0e15;
+  color: #f5f5f8;
+  font: inherit;
+}
+
+.phone-audio-soon textarea {
+  min-height: 96px;
+  padding: 11px;
+  resize: vertical;
+}
+
+.phone-audio-soon select {
+  min-height: 42px;
+  padding: 0 10px;
+}
+
+.phone-audio-soon > button {
+  min-height: 44px;
+  border-radius: 14px;
+  background: linear-gradient(145deg, var(--phone-purple), var(--phone-violet));
+  color: #fff;
+  font-weight: 800;
+}
+
+.phone-audio-soon > button:disabled {
+  opacity: .45;
+}
+
+.phone-audio-soon audio {
+  width: 100%;
+}
+
+.phone-audio-soon > a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #d87be8;
+  font-size: 11px;
+}
+
+.phone-audio-soon > a svg {
+  width: 15px;
+}

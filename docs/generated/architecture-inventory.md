@@ -5,13 +5,13 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 ## Summary
 
-- Routes: 250
+- Routes: 251
 - Registered workers: 8
 - Registered ephemeral tasks: 4
 - SQLite tables: 64
 - SQLite indexes: 97
 - Foreign-key declarations: 2
-- Frontend/static API literals: 41
+- Frontend/static API literals: 43
 - Route process role: `all-dev-current-monolith`
 
 ## Route authorization
@@ -20,7 +20,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 |---|---:|
 | REVIEW: admin route without detected gate | 8 |
 | admin | 94 |
-| public/optional/review | 88 |
+| public/optional/review | 89 |
 | session | 1 |
 | user | 57 |
 | webhook: MAX secret conditional | 1 |
@@ -128,6 +128,8 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | `/api/media/` | backend/static/gallery/gallery.js, frontend/src/studio/videoSourceHandoff.ts |
 | `/api/model-access` | frontend/src/phone/features/chat/api.ts, frontend/src/phone/features/image/api.ts |
 | `/api/models` | frontend/src/phone/features/image/api.ts |
+| `/api/phone/audio/config` | frontend/src/phone/features/audio/api.ts |
+| `/api/phone/audio/speech` | frontend/src/phone/features/audio/api.ts |
 | `/api/phone/chat` | frontend/src/phone/features/chat/api.ts |
 | `/api/phone/chat/models` | frontend/src/phone/features/chat/api.ts |
 | `/api/phone/chat/threads` | frontend/src/phone/features/chat/api.ts |
@@ -147,15 +149,15 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Current | Maximum | Remaining |
 |---|---:|---:|---:|
-| `backend/main.py` | 19692 | 19750 | 58 |
+| `backend/main.py` | 19750 | 19750 | 0 |
 | `backend/static/feed/index.html` | 2124 | 2200 | 76 |
 | `backend/test_feed_v2.py` | 2346 | 2600 | 254 |
 | `frontend/src/LegacyApp.tsx` | 3600 | 3700 | 100 |
-| `frontend/src/adminModels.tsx` | 2269 | 2300 | 31 |
+| `frontend/src/adminModels.tsx` | 2300 | 2300 | 0 |
 | `frontend/src/index.css` | 2501 | 2650 | 149 |
 | `frontend/src/newStudioV3.css` | 6071 | 6400 | 329 |
 | `frontend/src/newUi.css` | 3143 | 3400 | 257 |
-| `frontend/src/newUi.tsx` | 3694 | 3950 | 256 |
+| `frontend/src/newUi.tsx` | 3695 | 3950 | 255 |
 
 ## Symbol budgets
 

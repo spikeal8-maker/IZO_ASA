@@ -330,7 +330,7 @@ try:
         generation_recovery,
         generation_results,
         generation_worker,
-        generation_queue, image_model_publication, openrouter_availability, openrouter_image_economics,
+        generation_queue, image_model_publication, openrouter_availability, openrouter_image_economics, cloud_quote,
         gallery_policy,
         gallery_eviction,
         gallery_query,
@@ -382,7 +382,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         generation_recovery,
         generation_results,
         generation_worker,
-        generation_queue, image_model_publication, openrouter_availability, openrouter_image_economics,
+        generation_queue, image_model_publication, openrouter_availability, openrouter_image_economics, cloud_quote,
         gallery_policy,
         gallery_eviction,
         gallery_query,
@@ -6325,6 +6325,8 @@ DEFAULT_ASSISTANT_MODELS_CONFIG: dict[str, Any] = {
         "queueTimeoutSeconds": 1,
         "requestTimeoutSeconds": 45,
         "minRecordingSeconds": 1,
+        "transcriptionPublished": True,
+        "speechPublished": True,
     },
     "improve": {
         "route": "auto",
@@ -6359,6 +6361,8 @@ def normalize_assistant_models_config(value: Any) -> dict[str, Any]:
     voice["route"] = voice["route"] if voice.get("route") in {"local", "qwen", "api", "auto"} else "local"
     voice["qwenModel"] = str(voice.get("qwenModel") or DEFAULT_QWEN_ASR_MODEL).strip()
     voice["qwenBaseUrl"] = str(voice.get("qwenBaseUrl") or DEFAULT_QWEN_ASR_BASE_URL).strip().rstrip("/")
+    voice["transcriptionPublished"] = bool(voice.get("transcriptionPublished", True))
+    voice["speechPublished"] = bool(voice.get("speechPublished", True))
     improve = {**DEFAULT_ASSISTANT_MODELS_CONFIG["improve"], **(stored.get("improve") if isinstance(stored.get("improve"), dict) else {})}
     improve["modePrompts"] = {
         **DEFAULT_ASSISTANT_MODELS_CONFIG["improve"]["modePrompts"],
@@ -8125,6 +8129,8 @@ async def transcribe_audio(
 ) -> dict[str, Any]:
     trusted = require_trusted_user(request)
     config = assistant_models_config()["voice"]
+    if not config.get("transcriptionPublished", True):
+        raise HTTPException(403, "Распознавание речи сейчас отключено администратором.")
     minimum_ms = max(500, min(10_000, int(float(config.get("minRecordingSeconds") or 1) * 1000)))
     if duration_ms < minimum_ms:
         raise HTTPException(400, f"Говорите не меньше {minimum_ms / 1000:g} сек.")
@@ -8151,14 +8157,27 @@ async def transcribe_audio(
     except (httpx.HTTPError, RuntimeError) as exc:
         raise HTTPException(502, str(exc)) from exc
     usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+    actual_cost_usd = extract_openrouter_generation_cost(payload) if provider == "api" else 0.0
     record_event_log(
         "voice_transcribed",
         internal_user_id=trusted.get("internal_user_id"), legacy_user_id=trusted.get("legacy_user_id"),
         session_id=trusted.get("session_id"), platform="web", request=request,
-        properties={"model": model, "provider": provider, "duration_ms": duration_ms, "bytes": len(audio), "latency_ms": round((time.monotonic() - started) * 1000)},
+        properties={
+            "model": model,
+            "provider": provider,
+            "duration_ms": duration_ms,
+            "bytes": len(audio),
+            "latency_ms": round((time.monotonic() - started) * 1000),
+            "usage": usage,
+            "actual_cost_usd": actual_cost_usd,
+            "billing_status": "metered_not_settled" if provider == "api" else "local_runtime",
+        },
     )
-    return {"ok": True, "text": text, "model": model, "provider": provider, "usage": usage}
-
+    return {
+        "ok": True, "text": text, "model": model, "provider": provider,
+        "usage": usage,
+        "actualCostUsd": actual_cost_usd,
+    }
 
 @app.post("/api/generate")
 async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
@@ -14652,6 +14671,8 @@ async def admin_assistants(request: Request) -> dict[str, Any]:
     except Exception as exc:
         audio_models = []
         audio_models_error = type(exc).__name__
+    with db() as conn:
+        chat_usage = chat_billing.chat_usage_report(conn)
     return {
         "ok": True,
         "config": config,
@@ -14664,6 +14685,7 @@ async def admin_assistants(request: Request) -> dict[str, Any]:
         "openrouterAudioModels": audio_models,
         "openrouterAudioModelsError": audio_models_error,
         "usage": assistant_usage_report(),
+        "chatUsage": chat_usage,
     }
 
 
@@ -15758,6 +15780,25 @@ async def estimate_openrouter_billing(
     revenue_rub = tokens * float(economy["tokenRub"])
     profit_rub = revenue_rub - estimated_rub
     margin_percent = (profit_rub / revenue_rub * 100) if revenue_rub > 0 else None
+    comparable_costs = openrouter_image_economics.comparable_actual_costs(
+        openrouter_image_economics.load_actual_pricing_samples(db, safe_json_load),
+        model_id=model.id,
+        mode=req.mode,
+        billing_width=int(request_plan.get("billing_width") or req.width),
+        billing_height=int(request_plan.get("billing_height") or req.height),
+        input_image_count=input_image_count,
+    )
+    shadow_quote = cloud_quote.build_legacy_shadow_quote(
+        legacy_reserved_tokens=tokens,
+        official_cost_usd=estimated_usd,
+        comparable_actual_costs_usd=comparable_costs,
+        exchange_rate=float(rate),
+        funding_reserve_percent=OPENROUTER_USD_FEE_RATE * 100,
+        minimum_margin_percent=float(economy["minMarginPercent"]),
+        token_rub=float(economy["tokenRub"]),
+        minimum_tokens=model.min_tokens,
+        official_source="openrouter_live_endpoint" if live_estimate is not None else model.source,
+    )
     return {
         "provider": "openrouter",
         "billingStatus": "estimated",
@@ -15788,37 +15829,17 @@ async def estimate_openrouter_billing(
         "revenueRub": round(revenue_rub, 4),
         "profitRub": round(profit_rub, 4),
         "marginPercent": round(margin_percent, 2) if margin_percent is not None else None,
+        "shadowQuote": shadow_quote,
     }
 
 
 def finalize_openrouter_billing_snapshot(snapshot: dict[str, Any], actual_cost_usd: float | None) -> dict[str, Any]:
-    result = dict(snapshot or {})
-    if actual_cost_usd is None:
-        result["billingStatus"] = "actual_cost_missing"
-        return result
-    effective_rate = result.get("effectiveUsdRub")
-    economy = {"tokenRub": result.get("tokenRub", OPENROUTER_DEFAULT_TOKEN_RUB), "minMarginPercent": result.get("minMarginPercent", OPENROUTER_DEFAULT_MIN_MARGIN_PERCENT)}
-    try:
-        actual_rub = float(actual_cost_usd) * float(effective_rate)
-        min_tokens = OPENROUTER_PRICE_CATALOG.get(str(result.get("modelId") or ""), OpenRouterPriceModel(id="unknown", name="unknown", provider="unknown", pricing_type="image", usd=0, min_tokens=1)).min_tokens
-        actual_tokens = openrouter_tokens_for_cost(actual_rub, min_tokens, economy)
-        charged_tokens = int(result.get("chargedTokens") or 0)
-        revenue_rub = charged_tokens * float(economy["tokenRub"])
-        profit_rub = revenue_rub - actual_rub
-        result.update({
-            "billingStatus": "actual",
-            "actualCostUsd": round(float(actual_cost_usd), 6),
-            "actualCostRub": round(actual_rub, 4),
-            "actualTokens": actual_tokens,
-            "chargedTokens": charged_tokens,
-            "tokenDelta": charged_tokens - actual_tokens,
-            "revenueRub": round(revenue_rub, 4),
-            "profitRub": round(profit_rub, 4),
-            "marginPercent": round((profit_rub / revenue_rub) * 100, 2) if revenue_rub > 0 else None,
-        })
-    except (TypeError, ValueError):
-        result["billingStatus"] = "actual_cost_unpriced"
-    return result
+    model = OPENROUTER_PRICE_CATALOG.get(str(snapshot.get("modelId") or ""))
+    return cloud_quote.finalize_legacy_billing_snapshot(
+        snapshot, actual_cost_usd, minimum_tokens=model.min_tokens if model else 1,
+        default_token_rub=OPENROUTER_DEFAULT_TOKEN_RUB, default_margin_percent=OPENROUTER_DEFAULT_MIN_MARGIN_PERCENT,
+        tokens_for_cost=openrouter_tokens_for_cost,
+    )
 
 
 def default_tariff_matrix() -> list[dict[str, Any]]:
@@ -15857,6 +15878,7 @@ def openrouter_usage_stats() -> dict[str, Any]:
     last_at: str | None = None
     models: dict[str, dict[str, Any]] = {}
     modes: dict[str, dict[str, Any]] = {}
+    shadow_quotes: list[dict[str, Any]] = []
     for row in rows:
         settings = safe_json_load(row["settings_json"]) or {}
         if not isinstance(settings, dict):
@@ -15866,6 +15888,8 @@ def openrouter_usage_stats() -> dict[str, Any]:
         except (TypeError, ValueError):
             continue
         billing = settings.get("openrouterBilling") if isinstance(settings.get("openrouterBilling"), dict) else {}
+        if isinstance(billing.get("shadowQuote"), dict):
+            shadow_quotes.append(billing["shadowQuote"])
         charged_tokens = int(billing.get("chargedTokens") or 0)
         revenue_rub = float(billing.get("revenueRub") or 0)
         profit_rub = float(billing.get("profitRub") or 0)
@@ -15952,6 +15976,7 @@ def openrouter_usage_stats() -> dict[str, Any]:
         "marginPercent": round((total_profit / total_revenue) * 100, 2) if total_revenue > 0 else None,
         "lastCostUsd": last_cost,
         "lastAt": last_at,
+        "shadowEconomics": cloud_quote.summarize_shadow_quotes(shadow_quotes),
         "models": model_rows[:20],
         "modes": mode_rows,
     }
@@ -16002,11 +16027,32 @@ def _openrouter_video_billing_from_exchange(
     cost_rub = cost_usd * effective_rate
     tokens = openrouter_tokens_for_cost(cost_rub, 1, economy)
     revenue = tokens * float(economy["tokenRub"])
+    shadow_quote = cloud_quote.build_legacy_shadow_quote(
+        legacy_reserved_tokens=tokens,
+        official_cost_usd=catalog_cost_usd,
+        comparable_actual_costs_usd=video_pricing.comparable_actual_costs(
+            resolved_history,
+            model_id=str(model.get("id") or req.model),
+            mode=req.mode,
+            resolution=req.resolution,
+            aspect_ratio=req.aspectRatio,
+            generate_audio=req.generateAudio,
+            duration=req.duration,
+            input_image_count=input_count,
+        ),
+        provider_minimum_usd=minimum_cost_usd or None,
+        exchange_rate=float(rate),
+        funding_reserve_percent=OPENROUTER_USD_FEE_RATE * 100,
+        minimum_margin_percent=float(economy["minMarginPercent"]),
+        token_rub=float(economy["tokenRub"]),
+        official_source="provider_catalog",
+    )
     return {
         "billingStatus": "estimated", "modelId": model["id"], "pricingKey": pricing_rate.source_key,
         "pricingSource": "catalog_with_actual_history_floor" if calibration_applied else pricing_rate.source,
         "pricingFallback": pricing_rate.fallback,
         "pricingSampleCount": history_floor.sample_count if calibration_applied else pricing_rate.sample_count,
+        "inputImageCount": input_count,
         "unit": unit, "rateUsd": rate_usd, "billedUnits": round(billed_units, 4),
         "catalogEstimatedCostUsd": round(catalog_cost_usd, 6),
         "historyFloorCostUsd": round(history_floor_cost_usd, 6) if history_floor_cost_usd else None,
@@ -16017,6 +16063,7 @@ def _openrouter_video_billing_from_exchange(
         "tokenRub": economy["tokenRub"], "minMarginPercent": economy["minMarginPercent"],
         "chargedTokens": tokens, "revenueRub": round(revenue, 4),
         "profitRub": round(revenue - cost_rub, 4), "size": f"{size[0]}x{size[1]}" if size else None,
+        "shadowQuote": shadow_quote,
     }
 
 
@@ -16266,7 +16313,7 @@ async def video_generation_config(request: Request) -> dict[str, Any]:
     for mode in OPENROUTER_VIDEO_MODES:
         modes[mode] = ltx_video.catalog_for_mode(mode, enabled=local_video_enabled, profile_model_id=local_video_profile)
         visible_models = (
-            video_pricing.allowed_models(catalog, config, mode, plan, is_admin)
+            video_pricing.visible_models(catalog, config, mode, plan, is_admin)
             if trusted is not None
             else video_pricing.public_preview_models(catalog, config, mode)
         )
@@ -16961,13 +17008,24 @@ app.include_router(create_admin_operations_router(AdminOperationsDependencies(
     social_worker_status=SOCIAL_DELIVERY_WORKER.status,
 )))
 app.include_router(create_phone_chat_router(PhoneChatDependencies(
-    require_trusted_user, assistant_models_config, openrouter_headers,
-    OPENROUTER_AVAILABILITY.record, record_event_log, openrouter_text_models,
-    lambda **kwargs: chat_billing.charge_chat_tokens_for_user(connect=db, get_tariffs=get_tariff_config, reconcile_tariff=_reconcile_user_tariff, **kwargs),
-    lambda **kwargs: chat_billing.refund_chat_tokens_for_user(connect=db, **kwargs),
-    db, usd_rub_rate_snapshot, openrouter_economy_settings,
+    require_trusted_user=require_trusted_user,
+    assistant_models_config=assistant_models_config,
+    openrouter_headers=openrouter_headers,
+    record_openrouter_availability=OPENROUTER_AVAILABILITY.record,
+    record_event=record_event_log,
+    openrouter_text_models=openrouter_text_models,
+    charge_tokens=lambda **kwargs: chat_billing.charge_chat_tokens_for_user(connect=db, get_tariffs=get_tariff_config, reconcile_tariff=_reconcile_user_tariff, **kwargs),
+    refund_tokens=lambda **kwargs: chat_billing.refund_chat_tokens_for_user(connect=db, **kwargs),
+    settle_tokens=lambda **kwargs: chat_billing.settle_chat_tokens_for_user(connect=db, **kwargs),
+    connect_db=db,
+    usd_rub_snapshot=usd_rub_rate_snapshot,
+    openrouter_economy=openrouter_economy_settings,
 )))
-app.include_router(create_phone_audio_router(PhoneAudioDependencies(require_trusted_user)))
+app.include_router(create_phone_audio_router(PhoneAudioDependencies(
+    require_user=require_trusted_user,
+    audio_config=lambda: assistant_models_config()["voice"],
+    record_event=record_event_log,
+)))
 app.include_router(create_phone_platform_router(PhonePlatformDependencies(require_trusted_user)))
 app.include_router(create_phone_jobs_router(PhoneJobDependencies(require_trusted_user, db, get_job, get_video_job)))
 

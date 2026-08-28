@@ -61,16 +61,6 @@ def phone_platform_manifest() -> dict[str, Any]:
             "operations": ["speech_to_text"],
             "navigation": "primary",
         },
-        {
-            "id": "3d",
-            "label": "3D-модель",
-            "shortLabel": "3D",
-            "route": "/phone/3d",
-            "enabled": _enabled("PHONE_3D_ENABLED", False),
-            "stage": "planned",
-            "operations": ["text_to_3d", "image_to_3d"],
-            "navigation": "menu",
-        },
     ]
     return {
         "ok": True,

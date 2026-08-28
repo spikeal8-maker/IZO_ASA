@@ -15,7 +15,6 @@ const MODE_TABS: Array<{ id: V3Mode; label: string; hint: string }> = [
   { id: 'image', label: 'Изображение', hint: 'Создание и редактирование изображений' },
   { id: 'video', label: 'Видео', hint: 'Генерация видео' },
   { id: 'audio', label: 'Звук', hint: 'Создание и обработка звука' },
-  { id: '3d', label: '3D', hint: 'Создание 3D-моделей' },
   { id: 'chat', label: 'Чат', hint: 'Чат с ИЗО АСА' },
 ]
 

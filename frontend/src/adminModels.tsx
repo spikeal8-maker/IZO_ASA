@@ -18,6 +18,7 @@ import { ensureSessionRefreshedV2 } from './authV2'
 import { publishedImageModelIds, setImageModelOperation, setImageModelPublished, setImageModelSection, setImageModelTier, setImageModelTierColumn } from './adminImageModelPublication'
 import { normalizeTariffs, tariffKeys, type TariffConfig, type TariffKey } from './profileSupport'
 import { IMAGE_RESOLUTIONS, normalizeResolutionIds, resolutionLabel, type ResolutionFormat, type ResolutionTier } from './resolutionPolicy'
+import { setVideoPublication } from './adminVideoPublication'
 
 const AdminEnergy = lazy(() => import('./adminEnergy'))
 const AdminVoice = lazy(() => import('./adminVoice'))
@@ -111,10 +112,8 @@ type OpenRouterVideoModel = {
   referenceEvidence: 'description' | null
 }
 type OpenRouterVideoMode = 'text_to_video' | 'image_to_video' | 'first_last_frame' | 'reference_to_video'
-type OpenRouterVideoConfig = {
-  enabled?: Partial<Record<OpenRouterVideoMode, string[]>>
-  access?: Partial<Record<OpenRouterVideoMode, Partial<Record<OpenRouterTier, string[]>>>>
-}
+type ShadowEconomics = { quoted?: number; priced?: number; missingActual?: number; underquoted?: number; belowMinimumMargin?: number; averageActualMarginPercent?: number | null; alert?: boolean }
+type OpenRouterVideoConfig = { published?: string[]; enabled?: Partial<Record<OpenRouterVideoMode, string[]>>; access?: Partial<Record<OpenRouterVideoMode, Partial<Record<OpenRouterTier, string[]>>>> }
 type OpenRouterVideoUsage = {
   count?: number
   priced?: number
@@ -122,6 +121,7 @@ type OpenRouterVideoUsage = {
   avgCostUsd?: number | null
   models?: Array<Record<string, unknown>>
   modes?: Array<Record<string, unknown>>
+  shadowEconomics?: ShadowEconomics
 }
 type OpenRouterAvailability = { state?: 'unknown' | 'available' | 'billing_blocked' | 'authorization_blocked' | 'service_error'; ready?: boolean | null; lastStatusCode?: number | null; lastFailureAt?: string | null; lastSuccessAt?: string | null }
 type VideoPriceProfile = {
@@ -171,6 +171,7 @@ type PageData = {
       avgCostUsd?: number | null
       avgCostPerMpUsd?: number | null
       lastCostUsd?: number | null
+      shadowEconomics?: ShadowEconomics
       models?: Array<Record<string, unknown>>
       modes?: Array<Record<string, unknown>>
     }
@@ -493,9 +494,9 @@ const fallbackReferenceLimit = (model: ApiImageModel) => {
   return 0
 }
 type AssistantConfig = {
-  voice: { localModel: string; qwenModel: string; qwenBaseUrl: string; apiModel: string; route: string; queueTimeoutSeconds: number; requestTimeoutSeconds: number; minRecordingSeconds: number }
+  voice: { localModel: string; qwenModel: string; qwenBaseUrl: string; apiModel: string; route: string; queueTimeoutSeconds: number; requestTimeoutSeconds: number; minRecordingSeconds: number; transcriptionPublished: boolean; speechPublished: boolean }
   improve: { route: 'local' | 'api' | 'auto'; localModel: string; apiModel: string; localTimeoutSeconds: number; apiTimeoutSeconds: number; systemPrompt: string; modePrompts: Record<string, string> }
-  chat: { enabled: boolean; localEnabled: boolean; localModel: string; localLabel: string; localTokenCost: number; defaultModel: string; enabledApiModels: string[]; apiTokenCosts: Record<string, number>; apiTierAccess: Partial<Record<Exclude<TariffKey, 'free'>, string[]>>; contextChars: number; localNumCtx: number; localTimeoutSeconds: number; apiTimeoutSeconds: number }
+  chat: { enabled: boolean; localEnabled: boolean; localModel: string; localLabel: string; localTokenCost: number; defaultModel: string; publishedApiModels: string[]; enabledApiModels: string[]; apiTokenCosts: Record<string, number>; apiTierAccess: Partial<Record<Exclude<TariffKey, 'free'>, string[]>>; contextChars: number; localNumCtx: number; localTimeoutSeconds: number; apiTimeoutSeconds: number; usageBillingEnabled: boolean }
 }
 type AssistantAdminData = {
   ok?: boolean
@@ -508,6 +509,7 @@ type AssistantAdminData = {
   openrouterAudioModels: Array<{ id: string; name: string; inputPerMillionUsd: number; outputPerMillionUsd: number; contextLength: number }>
   openrouterAudioModelsError?: string | null
   usage: { periodDays: number; totals: { successful: number; failed: number; fallbacks: number; cost_usd: number; cost_rub: number; energy_wh: number; energy_cost_rub: number }; recent: Array<{ createdAt: string; ok: boolean; route?: string; provider?: string; model?: string; mode?: string; latencyMs?: number; fallbackUsed?: boolean; costUsd?: number; costRub?: number; energyWh?: number; energyCostRub?: number }> }
+  chatUsage?: { answers?: number; priced?: number; missingActual?: number; costUsd?: number; averageCostUsd?: number | null; settledTokens?: number; revenueRub?: number; profitRub?: number; marginPercent?: number | null }
 }
 type AssistantTestResult = { ok?: boolean; provider?: string; model?: string; improvedPrompt?: string; latencyMs?: number; costUsd?: number; costRub?: number; energyWh?: number; detail?: string }
 
@@ -1305,6 +1307,16 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
     if (saved) setData((current) => current ? { ...current, openrouter: { ...current.openrouter, videoConfig: saved } } : current)
   }
 
+  const toggleVideoPublished = (modelId: string, checked: boolean) => {
+    if (!data) return
+    void saveVideoConfig(setVideoPublication(data.openrouter.videoConfig || {}, [modelId], checked))
+  }
+
+  const toggleVideoPublicationSection = (modelIds: string[], checked: boolean) => {
+    if (!data) return
+    void saveVideoConfig(setVideoPublication(data.openrouter.videoConfig || {}, modelIds, checked))
+  }
+
   const toggleVideoModel = (mode: OpenRouterVideoMode, modelId: string, checked: boolean) => {
     if (!data) return
     const current = data.openrouter.videoConfig || {}
@@ -1326,7 +1338,7 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
     if (values.size) enabled[mode] = Array.from(values).sort()
     else delete enabled[mode]
     if (access[mode] && !Object.keys(access[mode]!).length) delete access[mode]
-    void saveVideoConfig({ enabled, access })
+    void saveVideoConfig({ published: current.published || [], enabled, access })
   }
 
   const toggleVideoTier = (mode: OpenRouterVideoMode, tier: OpenRouterTier, modelId: string, checked: boolean) => {
@@ -1342,7 +1354,7 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
     else delete access[mode]![tier]
     if (!Object.keys(access[mode]!).length) delete access[mode]
     if (checked) enabled[mode] = Array.from(new Set([...(enabled[mode] || []), modelId])).sort()
-    void saveVideoConfig({ enabled, access })
+    void saveVideoConfig({ published: current.published || [], enabled, access })
   }
 
   const toggleVideoSection = (mode: OpenRouterVideoMode, modelIds: string[], checked: boolean) => {
@@ -1356,7 +1368,7 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
       delete enabled[mode]
       delete access[mode]
     }
-    void saveVideoConfig({ enabled, access })
+    void saveVideoConfig({ published: current.published || [], enabled, access })
   }
 
   const toggleVideoTierColumn = (mode: OpenRouterVideoMode, tier: OpenRouterTier, modelIds: string[], checked: boolean) => {
@@ -1368,7 +1380,7 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
     if (checked) access[mode]![tier] = Array.from(new Set(modelIds)).sort()
     else delete access[mode]![tier]
     if (!Object.keys(access[mode]!).length) delete access[mode]
-    void saveVideoConfig({ enabled, access })
+    void saveVideoConfig({ published: current.published || [], enabled, access })
   }
 
   const toggleOpenrouterModel = (mode: string, modelId: string, checked: boolean) => {
@@ -1813,6 +1825,8 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
         <div className="or-stat"><span>Средняя за картинку</span><strong>{avgImagePair}</strong></div>
         <div className="or-stat"><span>Справка 1MP</span><strong>{avgMpPair}</strong></div>
         <div className="or-stat"><span>Фаворит по генерациям</span><strong>{favoriteOverallName}</strong></div>
+        <div className={`or-stat ${data.openrouter.usage?.shadowEconomics?.alert ? 'risk-high' : ''}`}><span>Теневая экономика картинок</span><strong>{data.openrouter.usage?.shadowEconomics?.priced || 0} с фактом · {data.openrouter.usage?.shadowEconomics?.underquoted || 0} недооценено</strong></div>
+        <div className={`or-stat ${data.openrouter.videoUsage?.shadowEconomics?.alert ? 'risk-high' : ''}`}><span>Теневая экономика видео</span><strong>{data.openrouter.videoUsage?.shadowEconomics?.priced || 0} с фактом · {data.openrouter.videoUsage?.shadowEconomics?.belowMinimumMargin || 0} ниже маржи</strong></div>
         <div className="or-stat">
           <span>Мин. маржа, %</span>
           <input
@@ -1867,38 +1881,48 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
       </>}
       {openrouterPage === 'text' && <article className="card video-catalog-card">
         <div className="video-catalog-head">
-          <div className="video-catalog-title"><div><h2 className="card-title">Каталог текстовых моделей</h2><p className="card-note">Выбор моделей для чата, цена за 1 млн токенов и экономика ответа.</p></div></div>
-          <div className="video-catalog-meta"><span className="state ok">{assistantData?.openrouterModels.length || 0} моделей</span></div>
+          <div className="video-catalog-title"><div><h2 className="card-title">Каталог текстовых моделей</h2><p className="card-note">Техническая цена провайдера за 1 млн токенов. Пользователь платит по фактическому объёму: сервер заранее резервирует максимум и возвращает неиспользованное. Ориентиры «около 1000 слов» и «1 млн русских символов» приблизительны и зависят от модели.</p></div></div>
+          <div className="video-catalog-meta"><span className="state ok">{assistantData?.openrouterModels.length || 0} моделей</span><span className="state">{assistantData?.chatUsage?.priced || 0} ответов с фактом · среднее ${Number(assistantData?.chatUsage?.averageCostUsd || 0).toFixed(6)} · маржа {assistantData?.chatUsage?.marginPercent === null || assistantData?.chatUsage?.marginPercent === undefined ? '—' : `${assistantData.chatUsage.marginPercent.toFixed(1)}%`}</span></div>
         </div>
         <div className="matrix-wrap">
           {!assistantData ? <p className="hint">Загружаем текстовый каталог…</p> : <>
-            <table className="api-table text-model-access-table"><thead><tr><th>Вкл.</th><th>Модель</th><th>Вход / 1M</th><th>Выход / 1M</th><th>Контекст</th><th>Токены проекта</th>{(['mini', 'plus', 'pro', 'business'] as const).map((plan) => <th key={plan}>{plan === 'business' ? 'Бизнес' : plan.toUpperCase()}</th>)}<th>Пример: 1000 + 500</th><th>По умолчанию</th></tr></thead>
+            <table className="api-table text-model-access-table"><thead><tr><th>Публ.</th><th>Чат</th><th>Модель</th><th>Вход / 1M</th><th>Выход / 1M</th><th>Контекст</th><th>Списание</th>{(['mini', 'plus', 'pro', 'business'] as const).map((plan) => <th key={plan}>{plan === 'business' ? 'Бизнес' : plan.toUpperCase()}</th>)}<th>Пример: 1000 + 500</th><th>По умолчанию</th></tr></thead>
               <tbody>{filteredOpenrouterTextModels.map((model) => {
-                const enabled = assistantData.config.chat.enabledApiModels.includes(model.id)
+                const publishedApiModels = assistantData.config.chat.publishedApiModels || assistantData.config.chat.enabledApiModels
+                const published = publishedApiModels.includes(model.id)
+                const enabled = published && assistantData.config.chat.enabledApiModels.includes(model.id)
                 const productTokens = Number(assistantData.config.chat.apiTokenCosts[model.id] ?? 0.1)
                 const sampleUsd = model.inputPerMillionUsd / 1000 + model.outputPerMillionUsd / 2000
                 const sampleRub = usdRubEffective === null ? null : sampleUsd * usdRubEffective
-                const revenue = productTokens * tokenRub
+                const sampleProductTokens = sampleRub === null ? null : Math.ceil(sampleRub / Math.max(0.05, 1 - minMarginPercent / 100) / tokenRub * 1000) / 1000
+                const revenue = (sampleProductTokens || 0) * tokenRub
                 const profit = sampleRub === null ? null : revenue - sampleRub
                 return <tr key={model.id}>
+                  <td><input type="checkbox" checked={published} aria-label={`Публиковать ${model.name}`} onChange={(e) => {
+                    const nextPublished = e.target.checked ? [...new Set([...publishedApiModels, model.id])] : publishedApiModels.filter((id) => id !== model.id)
+                    const enabledApiModels = e.target.checked ? assistantData.config.chat.enabledApiModels : assistantData.config.chat.enabledApiModels.filter((id) => id !== model.id)
+                    const defaultModel = !e.target.checked && assistantData.config.chat.defaultModel === model.id ? 'local:izo-chat' : assistantData.config.chat.defaultModel
+                    const apiTierAccess = Object.fromEntries((['mini', 'plus', 'pro', 'business'] as const).map((plan) => [plan, e.target.checked ? assistantData.config.chat.apiTierAccess?.[plan] || [] : (assistantData.config.chat.apiTierAccess?.[plan] || []).filter((id) => id !== model.id)]))
+                    updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, publishedApiModels: nextPublished, enabledApiModels, defaultModel, apiTierAccess } })
+                  }} /></td>
                   <td><input type="checkbox" checked={enabled} onChange={(e) => {
                     const enabledApiModels = e.target.checked ? [...new Set([...assistantData.config.chat.enabledApiModels, model.id])] : assistantData.config.chat.enabledApiModels.filter((id) => id !== model.id)
                     const defaultModel = !e.target.checked && assistantData.config.chat.defaultModel === model.id ? 'local:izo-chat' : assistantData.config.chat.defaultModel
                     const apiTierAccess = Object.fromEntries((['mini', 'plus', 'pro', 'business'] as const).map((plan) => [plan, e.target.checked ? assistantData.config.chat.apiTierAccess?.[plan] || [] : (assistantData.config.chat.apiTierAccess?.[plan] || []).filter((id) => id !== model.id)]))
                     updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, enabledApiModels, defaultModel, apiTierAccess, apiTokenCosts: { ...assistantData.config.chat.apiTokenCosts, [model.id]: productTokens } } })
-                  }} /></td>
+                  }} disabled={!published} aria-label={`Использовать ${model.name} в чате`} /></td>
                   <td><strong>{model.name}</strong><small className="model-id">{model.id}</small></td>
                   <td>${model.inputPerMillionUsd.toFixed(4)}</td><td>${model.outputPerMillionUsd.toFixed(4)}</td><td>{model.contextLength.toLocaleString('ru-RU')}</td>
-                  <td><input style={{ width: 76 }} type="number" min="0.01" max="1000" step="0.01" disabled={!enabled} value={productTokens} onChange={(e) => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, apiTokenCosts: { ...assistantData.config.chat.apiTokenCosts, [model.id]: Number(e.target.value) } } })} /> <span className="state">осн.</span></td>
+                  <td><span className="state ok">по факту</span><small>резерв → возврат</small></td>
                   {(['mini', 'plus', 'pro', 'business'] as const).map((plan) => <td key={plan}><input type="checkbox" disabled={!enabled} checked={enabled && (assistantData.config.chat.apiTierAccess?.[plan] || []).includes(model.id)} aria-label={`${model.name} — ${plan}`} onChange={(e) => {
                     const current = assistantData.config.chat.apiTierAccess?.[plan] || []
                     const next = e.target.checked ? [...new Set([...current, model.id])] : current.filter((id) => id !== model.id)
                     updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, apiTierAccess: { ...assistantData.config.chat.apiTierAccess, [plan]: next } } })
                   }} /></td>)}
-                  <td><strong>${sampleUsd.toFixed(6)}</strong><small>{sampleRub === null ? 'курс не загружен' : `${sampleRub.toFixed(4)} ₽ · выручка ${revenue.toFixed(2)} ₽ · прибыль ${profit?.toFixed(4)} ₽`}</small></td>
+                  <td><strong>{sampleProductTokens === null ? '—' : `${sampleProductTokens.toFixed(3)} ток.`}</strong><small>${sampleUsd.toFixed(6)}{sampleRub === null ? ' · курс не загружен' : ` · ${sampleRub.toFixed(4)} ₽ · выручка ${revenue.toFixed(4)} ₽ · прибыль ${profit?.toFixed(4)} ₽`}</small></td>
                   <td><input type="radio" name="chat-default-model" disabled={!enabled} checked={assistantData.config.chat.defaultModel === model.id} onChange={() => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, defaultModel: model.id } })} /></td>
                 </tr>
-              })}{filteredOpenrouterTextModels.length === 0 && <tr><td colSpan={12}><div className="hint">По выбранному фильтру модели не найдены. <button className="ghost" onClick={() => setQuery('')}>Показать все модели</button></div></td></tr>}</tbody>
+              })}{filteredOpenrouterTextModels.length === 0 && <tr><td colSpan={13}><div className="hint">По выбранному фильтру модели не найдены. <button className="ghost" onClick={() => setQuery('')}>Показать все модели</button></div></td></tr>}</tbody>
             </table>
             <div className="actions" style={{ padding: 12 }}><button className="primary" disabled={assistantBusy} onClick={() => void saveAssistantConfig()}>{assistantBusy ? 'Сохраняю…' : 'Сохранить текстовые модели'}</button><label className="resolution-plan"><input type="radio" name="chat-default-model" checked={assistantData.config.chat.defaultModel === 'local:izo-chat'} onChange={() => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, defaultModel: 'local:izo-chat' } })} /><span>ИЗО Чат по умолчанию</span></label></div>
           </>}
@@ -1919,6 +1943,7 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
             <span>Курс: {usdRubBase === null ? 'не загружен' : `${usdRubBase.toFixed(2)} ₽/$`} + {Math.round(USD_FEE_RATE * 100)}% резерв = {usdRubEffective === null ? '—' : `${usdRubEffective.toFixed(2)} ₽/$`}</span>
             <span>1 токен = {tokenRub.toFixed(2)} ₽ · минимальная маржа {minMarginPercent.toFixed(0)}%</span>
             <span>Токены округляются вверх так, чтобы фактическая маржа не опускалась ниже заданной.</span>
+            <span>Теневой расчёт: {data.openrouter.videoUsage?.shadowEconomics?.priced || 0} операций с фактической ценой, {data.openrouter.videoUsage?.shadowEconomics?.missingActual || 0} ещё без факта{data.openrouter.videoUsage?.shadowEconomics?.alert ? ' · ВНИМАНИЕ: повторяется маржа ниже минимальной' : ''}.</span>
           </div>
           {data.openrouter.videoCatalogError ? <p className="hint" style={{ color: 'var(--yellow)' }}>Каталог видео не загрузился: {data.openrouter.videoCatalogError}</p> : null}
           {!data.openrouter.videoCatalogError && !data.openrouter.videoCatalog?.length ? <p className="hint">OpenRouter не вернул видеомодели. Обновите backend или проверьте доступ к API.</p> : null}
@@ -1929,7 +1954,10 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
               const hay = `${model.id} ${model.name} ${model.description} ${Object.keys(model.pricingSkus).join(' ')}`.toLowerCase()
               return !query || hay.includes(query.toLowerCase())
             })
-            const billableIds = rows.filter((model) => videoPricingProfiles(model, mode).length > 0).map((model) => model.id)
+            const publishedVideoIds = new Set(data.openrouter.videoConfig?.published || [])
+            const rowIds = rows.map((model) => model.id)
+            const allPublished = rowIds.length > 0 && rowIds.every((id) => publishedVideoIds.has(id))
+            const billableIds = rows.filter((model) => publishedVideoIds.has(model.id) && videoPricingProfiles(model, mode).length > 0).map((model) => model.id)
             const enabledIds = billableIds.filter((id) => data.openrouter.videoConfig?.enabled?.[mode]?.includes(id))
             const allModelsEnabled = billableIds.length > 0 && enabledIds.length === billableIds.length
             const allTierChecked = (tier: OpenRouterTier) => enabledIds.length > 0 && enabledIds.every((id) => data.openrouter.videoConfig?.access?.[mode]?.[tier]?.includes(id))
@@ -1948,6 +1976,7 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
               {open && <div className="matrix-wrap video-finance-wrap">
                 {!rows.length ? <p className="hint">Подходящих моделей в текущем каталоге нет.</p> : <table className="api-table video-finance-table">
                   <thead><tr>
+                    <th className="api-enabled"><input type="checkbox" checked={allPublished} disabled={!rowIds.length || videoConfigBusy} aria-label={`Публиковать все модели ${section.title}`} onChange={(event) => toggleVideoPublicationSection(rowIds, event.target.checked)} /></th>
                     <th className="api-enabled"><input type="checkbox" checked={allModelsEnabled} disabled={!billableIds.length || videoConfigBusy} aria-label={`Включить все модели ${section.title}`} onChange={(event) => toggleVideoSection(mode, billableIds, event.target.checked)} /></th>
                     <th>Модель</th>
                     <th>Производитель</th>
@@ -1964,7 +1993,8 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
                   const rowKey = `${section.id}:${model.id}`
                   const expanded = videoExpandedRows[rowKey] || false
                   const profiles = videoPricingProfiles(model, mode)
-                  const enabled = data.openrouter.videoConfig?.enabled?.[mode]?.includes(model.id) || false
+                  const published = publishedVideoIds.has(model.id)
+                  const enabled = published && (data.openrouter.videoConfig?.enabled?.[mode]?.includes(model.id) || false)
                   const scenario = videoRepresentativeScenario(model, mode)
                   const economics = scenario.seconds && scenario.profile ? videoEconomics(scenario.profile, scenario.seconds, usdRubEffective, minMarginPercent, tokenRub) : null
                   const stats = videoUsageModels.get(model.id)
@@ -1972,9 +2002,10 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
                   const spent = typeof stats?.costUsd === 'number' && Number(stats.costUsd) > 0 ? moneyPair(stats.costUsd, usdRubEffective) : '—'
                   const provider = model.id.split('/')[0] || 'OpenRouter'
                   return <Fragment key={rowKey}>
-                    <tr className={`api-model-row ${expanded ? 'expanded' : ''}`} onClick={() => setVideoExpandedRows((current) => ({ ...current, [rowKey]: !expanded }))}>
-                      <td className="api-enabled"><input type="checkbox" checked={enabled} disabled={videoConfigBusy || (!profiles.length && !enabled)} aria-label={`Включить ${model.name}`} onClick={(event) => event.stopPropagation()} onChange={(event) => toggleVideoModel(mode, model.id, event.target.checked)} /></td>
-                      <td><strong className="model-name">{model.name}</strong>{!profiles.length ? <span className="mini risk-high" style={{ marginLeft: 8 }}>нет цены</span> : null}</td>
+                    <tr className={`api-model-row ${expanded ? 'expanded' : ''} ${published ? '' : 'unpublished'}`} onClick={() => setVideoExpandedRows((current) => ({ ...current, [rowKey]: !expanded }))}>
+                      <td className="api-enabled"><input type="checkbox" checked={published} disabled={videoConfigBusy} aria-label={`Публиковать ${model.name}`} onClick={(event) => event.stopPropagation()} onChange={(event) => toggleVideoPublished(model.id, event.target.checked)} /></td>
+                      <td className="api-enabled"><input type="checkbox" checked={enabled} disabled={videoConfigBusy || !published || (!profiles.length && !enabled)} aria-label={`Включить ${model.name}`} onClick={(event) => event.stopPropagation()} onChange={(event) => toggleVideoModel(mode, model.id, event.target.checked)} /></td>
+                      <td><strong className="model-name">{model.name}</strong><small className="model-id">{model.created ? new Date(model.created * 1000).toLocaleDateString('ru-RU') : 'дата выпуска не указана'}</small>{!profiles.length ? <span className="mini risk-high" style={{ marginLeft: 8 }}>нет цены</span> : null}</td>
                       <td><span className="provider openrouter">{provider}</span></td>
                       <td><div className="tier-checks">{OPENROUTER_TIERS.map((tier) => <label key={tier.id}><input type="checkbox" disabled={videoConfigBusy || !enabled} checked={data.openrouter.videoConfig?.access?.[mode]?.[tier.id]?.includes(model.id) || false} onClick={(event) => event.stopPropagation()} onChange={(event) => toggleVideoTier(mode, tier.id, model.id, event.target.checked)} /><span>{tier.label}</span></label>)}</div></td>
                       <td><div className="video-scenario"><strong>{scenario.seconds ? `${scenario.seconds} сек.` : '—'} · {scenario.resolution}</strong><span>{scenario.profile?.aspectRatio || model.supportedAspectRatios[0] || 'формат не указан'}</span></div></td>
@@ -1985,7 +2016,7 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
                       <td><span className="money">{spent}</span></td>
                       <td><button className="video-expand" onClick={(event) => { event.stopPropagation(); setVideoExpandedRows((current) => ({ ...current, [rowKey]: !expanded })) }} aria-label={expanded ? 'Свернуть модель' : 'Раскрыть модель'}>{expanded ? '−' : '+'}</button></td>
                     </tr>
-                    {expanded && <tr><td className="detail-cell" colSpan={11}><div className="video-model-detail">
+                    {expanded && <tr><td className="detail-cell" colSpan={12}><div className="video-model-detail">
                       <div className="video-capabilities">
                         <span><b>OpenRouter id:</b> {model.id}</span>
                         <span><b>Соотношения:</b> {model.supportedAspectRatios.join(', ') || 'не опубликованы'}</span>

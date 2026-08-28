@@ -178,7 +178,7 @@ CREATE TABLE IF NOT EXISTS phone_chat_messages (
     provider TEXT,
     model TEXT,
     tools_json TEXT NOT NULL DEFAULT '[]',
-    charged_tokens INTEGER NOT NULL DEFAULT 0,
+    charged_tokens REAL NOT NULL DEFAULT 0,
     token_kind TEXT,
     created_at TEXT NOT NULL,
     FOREIGN KEY(thread_id) REFERENCES phone_chat_threads(id) ON DELETE CASCADE
