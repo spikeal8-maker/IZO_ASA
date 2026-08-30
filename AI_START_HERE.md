@@ -2,7 +2,7 @@
 status: canonical
 role: agent-entrypoint
 reading_order_role: sole-owner
-updated: 2026-08-30
+updated: 2026-08-31
 ---
 # AI_START_HERE — короткий вход в IZO_ASA
 
@@ -40,10 +40,11 @@ git worktree list
 ## 3. Быстрая маршрутизация
 | Задача | Первый предметный контекст |
 |---|---|
-| Студия изображений, профиль, `/`, `/paint` | `docs/context/frontend-studio.md` |
-| Видео, лента, галерея | `docs/context/video-gallery-feed.md` |
-| Auth, Telegram/MAX, trusted identity | `docs/context/backend-auth-bots.md` |
-| `/chat`, admin models, billing, audio, 3D, release | см. `docs/NOW.md`; отсутствующая карта означает bounded discovery, а не широкий scan |
+| Студия изображений, профиль, `/`, `/paint` | [docs/context/frontend-studio.md](docs/context/frontend-studio.md) |
+| Видео, лента, галерея | [docs/context/video-gallery-feed.md](docs/context/video-gallery-feed.md) |
+| Auth, Telegram/MAX, trusted identity | [docs/context/backend-auth-bots.md](docs/context/backend-auth-bots.md) |
+| `/chat`, `/phone/chat`, chat models/tools/history | [docs/context/chat.md](docs/context/chat.md) |
+| Admin models, billing, audio, 3D, release | см. `docs/NOW.md`; отсутствующая карта означает bounded discovery, а не широкий scan |
 
 Generated evidence:
 ```text
@@ -116,5 +117,4 @@ DEPLOYED
 OPERATIONALLY VERIFIED
 BLOCKED
 ```
-Не объединяй эти состояния и не называй код развернутым без exact release
-evidence.
+Не объединяй эти состояния и не называй код развернутым без exact release evidence.

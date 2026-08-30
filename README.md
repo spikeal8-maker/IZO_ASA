@@ -12,14 +12,10 @@ SQLite, локальные media/jobs, ComfyUI, Ollama/Qwen ASR и внешни�
 
 ## Для разработчика или coding-агента
 
-Читайте в таком порядке:
-
-1. `AGENTS.md` — обязательная политика безопасности и разработки.
-2. `AI_START_HERE.md` — короткий маршрут начала и завершения package.
-3. `docs/NOW.md` — единственный актуальный status/program router.
-4. Ближайший `AGENTS.md`, релевантный `docs/context/*.md`, generated map и
-   Task Contract текущего package.
-5. `docs/system-overview.md` — подробный human-readable обзор архитектуры.
+Сначала откройте [AGENTS.md](AGENTS.md), затем следуйте единственной
+маршрутизации из [AI_START_HERE.md](AI_START_HERE.md). Текущее состояние
+программы находится в [docs/NOW.md](docs/NOW.md), а подробный human-readable
+обзор архитектуры — в [docs/system-overview.md](docs/system-overview.md).
 
 `README.md` описывает продукт и базовые команды. Он не является backlog.
 Исторические roadmaps и phase reports читаются только когда `docs/NOW.md`,
@@ -36,6 +32,14 @@ context-карта или Task Contract объясняют зачем.
 - Production SQLite, media, secrets и providers не используются в тестах.
 - Release, restart, реальные платежи, почта, webhooks и provider calls требуют
   отдельного operator authorization.
+
+## Документация чата
+
+- [Продуктовый и архитектурный контракт](docs/chat-system.md).
+- [Контракт поведения AI-помощника](docs/chat-assistant-contract.md).
+- Coding-агенты получают краткую карту через маршрутизацию в
+  [AI_START_HERE.md](AI_START_HERE.md); chat-specific правила не дублируются в
+  `AGENTS.md`.
 
 ## Локальный запуск для разработки
 

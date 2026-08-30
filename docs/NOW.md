@@ -2,7 +2,7 @@
 status: canonical
 status_role: current-status-aggregator
 backlog_role: program-router
-updated: 2026-08-30
+updated: 2026-08-31
 status_effective_when: merged-to-main
 last_verified_main: 8e15a89aae71f71eed31a0ef490228cdbc854c7d
 completed_package: AI-CANONICAL-001
@@ -57,11 +57,18 @@ Baseline issue `#71` остаётся закреплён за SHA
 
 ## 3. Доступные context-карты
 
-- `docs/context/frontend-studio.md` — студия, профиль и основные frontend routes.
-- `docs/context/video-gallery-feed.md` — видео, gallery и feed.
-- `docs/context/backend-auth-bots.md` — auth, trusted identity, Telegram/MAX.
+- [docs/context/frontend-studio.md](context/frontend-studio.md) — студия,
+  профиль и основные frontend routes.
+- [docs/context/video-gallery-feed.md](context/video-gallery-feed.md) — видео,
+  gallery и feed.
+- [docs/context/backend-auth-bots.md](context/backend-auth-bots.md) — auth,
+  trusted identity, Telegram/MAX.
+- [docs/context/chat.md](context/chat.md) — desktop/mobile chat, общая история,
+  модели, инструменты и chat billing. Полные контракты:
+  [архитектура продукта](chat-system.md) и
+  [поведение AI-помощника](chat-assistant-contract.md).
 
-Для chat, admin-models, billing, images, audio, 3D и release отдельные canonical
+Для admin-models, billing, images, audio, 3D и release отдельные canonical
 карты ещё не завершены. До context-pilot использовать bounded discovery.
 
 ## 4. Generated evidence
@@ -80,6 +87,7 @@ Generated evidence читается точечно. Большие JSON, symbol 
 ## 5. Программные и продуктовые lanes
 
 - Agent-development: `docs/agent-control-plane.md`.
+- Chat product/architecture: [docs/chat-system.md](chat-system.md).
 - Phone product: `docs/phone-platform-master-plan-20260824.md`; только для
   `/phone` и связанных capabilities.
 - Production release: `docs/production-release-runbook.md`; только для
