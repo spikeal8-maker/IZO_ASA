@@ -139,7 +139,10 @@ def _assert_risk_classes() -> None:
                 f"risk class {risk_class} lacks required evidence: {phrase}"
             )
     assert "запрещён третий broad scan" in section
-    assert "`BLOCKED`" in section
+    assert "bounded diagnosis" in section
+    assert "`BLOCKED` допустим только" in section
+    assert "подтверждённой внешней зависимости" in section
+    assert "иначе package остаётся active" in section
 
 
 def _assert_generated_evidence_paths() -> None:
