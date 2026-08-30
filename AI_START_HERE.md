@@ -62,9 +62,8 @@ backend/SYMBOL_MAP.md
 | `high-assurance` | Auth, billing, migrations, durable workers, privacy, media ownership | characterization, race/idempotency, rollback, CI, independent review |
 | `release-ops` | Deploy, restart, webhook, production data/provider/network | явное разрешение владельца, exact-SHA receipt, operational evidence |
 
-После двух одинаковых неудачных попыток запрещён третий broad scan: выполни
-bounded diagnosis и escalation с evidence. `BLOCKED` допустим только при
-подтверждённой внешней зависимости; иначе package остаётся active.
+После двух одинаковых неудачных попыток запрещён третий broad scan: выполни bounded diagnosis и escalation с evidence.
+`BLOCKED` допустим только при подтверждённой внешней зависимости; иначе package остаётся active.
 
 ## 5. До кода сформируй Task Contract
 ```yaml
