@@ -167,33 +167,37 @@ def _assert_program_and_package_status() -> None:
     assert "status: active-program" in program
     assert "canonical: true" in program
     assert "daily_context: false" in program
-    assert "status: review-draft" not in program
+    assert "AI-CANONICAL-REPAIR-001" in program
+    assert "merge `8e15a89aae71f71eed31a0ef490228cdbc854c7d`" in program
+    assert "Активного implementation package нет" in program
 
-    receipt = _text(ROOT / "docs" / "agent-tasks" / "AI-CANONICAL-001.md")
-    assert "status: completed" in receipt
-    assert "record_role: completed-package-receipt" in receipt
-    assert "merged_pr: 73" in receipt
-    assert "merged_sha: 49a19e271e4e0e71d1fa6f871f828f0a233cfbdf" in receipt
-    assert "deployment: none" in receipt
-    assert "ready-for-owner-review" not in receipt
+    first = _text(ROOT / "docs" / "agent-tasks" / "AI-CANONICAL-001.md")
+    assert "status: completed" in first
+    assert "record_role: completed-package-receipt" in first
+    assert "merged_pr: 73" in first
+    assert "merged_sha: 49a19e271e4e0e71d1fa6f871f828f0a233cfbdf" in first
+    assert "deployment: none" in first
 
     repair = _text(
         ROOT / "docs" / "agent-tasks" / "AI-CANONICAL-REPAIR-001.md"
     )
-    assert "status: active" in repair
-    assert "record_role: active-task-contract" in repair
-    assert "issue: 74" in repair
+    assert "status: completed" in repair
+    assert "record_role: completed-package-receipt" in repair
+    assert "final_candidate_sha: 8f1de5a167ca94a334e5df274da479cf0beab0ee" in repair
+    assert "ci_run: 33312197937" in repair
+    assert "merged_pr: 75" in repair
+    assert "merged_sha: 8e15a89aae71f71eed31a0ef490228cdbc854c7d" in repair
+    assert "completion_effective_when: closeout-source-merged-to-main" in repair
     assert "deployment: none" in repair
 
     now = _text(ROOT / "docs" / "NOW.md")
+    assert "status_effective_when: merged-to-main" in now
     assert "completed_package: AI-CANONICAL-001" in now
-    assert "completed_repair:" not in now
-    assert "active_package: AI-CANONICAL-REPAIR-001" in now
-    assert (
-        "active_task_contract: docs/agent-tasks/AI-CANONICAL-REPAIR-001.md" in now
-    )
-    assert "next_candidate: blocked-until-active-package-closes" in now
-    assert "Task Contract: `docs/agent-tasks/AI-CANONICAL-001.md`" not in now
+    assert "completed_repair: AI-CANONICAL-REPAIR-001" in now
+    assert "active_package: none" in now
+    assert "active_task_contract:" not in now
+    assert "next_candidate: AI-INSTRUCTION-SCOPE-001" in now
+    assert "Feature branch не может сама разблокировать" in now
 
 
 def assert_agent_instruction_contracts() -> None:

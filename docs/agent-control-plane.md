@@ -12,11 +12,8 @@ repository: spikeal8-maker/IZO_ASA
 ## 1. Назначение
 
 Программа делает работу разработчиков и AI-агентов ограниченной, проверяемой и
-воспроизводимой. Это program/reference document, а не ежедневный обязательный
-контекст. Порядок чтения для coding-задач определён только в
-`AI_START_HERE.md`.
-
-Целевой цикл:
+воспроизводимой. Это reference document, а не ежедневный обязательный контекст.
+Порядок чтения определён только в `AI_START_HERE.md`.
 
 ```text
 запрос владельца
@@ -31,60 +28,43 @@ repository: spikeal8-maker/IZO_ASA
 → обновление context/eval по фактическому drift
 ```
 
-Главный принцип:
-
-> Документация объясняет правила. Инструменты проверяют и обеспечивают их.
+Главный принцип: документация объясняет правила, инструменты их проверяют и
+обеспечивают.
 
 ## 2. Что переиспользуется
 
-Не создавать параллельные реализации существующих механизмов:
+Не создавать параллельные реализации:
 
-- корневой `AGENTS.md`;
-- существующий `docs/context/`;
+- корневой `AGENTS.md` и существующий `docs/context/`;
 - generated frontend/backend/architecture maps;
-- `tools/repository-operation-lock.ps1`;
-- `tools/verify.ps1`;
+- `tools/repository-operation-lock.ps1` и `tools/verify.ps1`;
 - временные DB/media roots и fake providers в CI;
 - действующие release, backup и production-safety contracts.
 
 ## 3. Что не смешивается с базовым контуром
 
-До завершения управляющих пакетов не объединять с ними:
-
-- redesign продукта;
-- массовую декомпозицию `backend/main.py`, `newUi.tsx` или CSS;
-- миграцию на Linux/PostgreSQL/Docker;
-- установку Maya;
-- deploy/restart;
-- реальные платежи, webhook, письма или provider calls;
-- массовое перемещение исторической документации.
-
-3D получает domain-карту и eval-кейс. Maya остаётся отдельным продуктовым
-пакетом.
+До завершения управляющих пакетов не объединять с ними redesign, массовую
+декомпозицию монолитов, миграцию платформы, Maya, deploy/restart, реальные
+платежи/webhook/письма/provider calls или массовое перемещение документации.
 
 ## 4. Состояние программы
 
 Завершено:
 
-- `AI-CANONICAL-001` — единая policy/entry/status route; PR `#73`, merge
+- `AI-CANONICAL-001`: PR `#73`, merge
   `49a19e271e4e0e71d1fa6f871f828f0a233cfbdf`, `NOT DEPLOYED`.
+- `AI-CANONICAL-REPAIR-001`: final reviewed head
+  `8f1de5a167ca94a334e5df274da479cf0beab0ee`, CI `33312197937`, PR `#75`,
+  merge `8e15a89aae71f71eed31a0ef490228cdbc854c7d`, `NOT DEPLOYED`.
+- Status closeout tracked by issue `#76`.
 
-Активно:
-
-- `AI-CANONICAL-REPAIR-001` — issue `#74`, Task Contract
-  `docs/agent-tasks/AI-CANONICAL-REPAIR-001.md`.
-- Package остаётся активным до завершённых CI/review, merge evidence и отдельного
-  status-transition commit. Следующий package до этого заблокирован.
-
-Отдельно сохраняется baseline:
-
-- `AI-EVAL-BASELINE-001`, issue `#71`, выполняется тремя независимыми read-only
-  сессиями на SHA `ecb02bf84ae21a46711c9b38b61784147fb9fc0a`.
-
-Следующий кандидат после закрытия active package:
+Активного implementation package нет. Следующий кандидат:
 
 - `AI-INSTRUCTION-SCOPE-001` — уменьшить постоянный root context и добавить
   scoped `backend/frontend/ops/docs AGENTS.md`.
+
+Он начинается только с отдельного owner-approved Task Contract. Baseline issue
+`#71` остаётся read-only экспериментом на старом SHA.
 
 ## 5. Последовательность оставшихся пакетов
 
@@ -95,8 +75,7 @@ repository: spikeal8-maker/IZO_ASA
 
 2. `AI-CONTEXT-SCHEMA-001`
    - metadata schema для существующих трёх context-карт;
-   - deterministic generated index;
-   - path/fingerprint validation;
+   - deterministic generated index и path/fingerprint validation;
    - без новых domain-карт.
 
 3. `AI-CONTEXT-PILOT-001`
@@ -105,57 +84,43 @@ repository: spikeal8-maker/IZO_ASA
    - повторить соответствующие baseline cases.
 
 4. `AI-SYMBOL-CONTEXT-001`
-   - выдавать symbol, imports, callers/callees, routes, tests и ограниченный
-     line window;
-   - не читать гигантские файлы целиком.
+   - symbol, imports, callers/callees, routes, tests и bounded line window;
+   - без чтения гигантских файлов целиком.
 
 5. `AI-CONTEXT-EXPAND-001`
-   - расширить доказавшую эффективность схему на images, billing, audio, 3D и
-     release-ops.
+   - images, billing, audio, 3D и release-ops после успешного пилота.
 
 6. `AI-PACKAGE-001`
    - Task Contract schema;
    - shared registry через Git common dir;
-   - worktree lifecycle;
-   - declared/discovered scope и overlap detection;
+   - worktree lifecycle, declared/discovered scope и overlap detection;
    - расширить существующий repository lock, не писать второй.
 
 7. `AI-ENFORCE-001`
-   - versioned hooks;
-   - package ID и scope guards;
-   - integration lock;
-   - CI validation.
+   - versioned hooks, package ID/scope guards, integration lock и CI validation.
 
 8. `AI-DEV-ENV-001`
-   - temporary DB/media/secrets;
-   - fake providers;
-   - fixtures, unique ports, preview и cleanup receipt.
+   - temporary DB/media/secrets, fake providers, fixtures, unique ports,
+     preview и cleanup receipt.
 
 9. `AI-VERIFY-001`
-   - affected-test routing;
-   - compact logs;
-   - visual/functional evidence;
-   - один Full на clean integration candidate.
+   - affected-test routing, compact logs, visual/functional evidence и один Full
+     на clean integration candidate.
 
 10. `AI-CONTRACT-GRAPH-001`
     - UI → API → service → DB → worker → provider → billing;
     - `unknown` вместо догадок.
 
 11. `AI-EVAL-001`
-    - полный cold eval;
-    - сравнение с baseline;
-    - решение о rollout.
+    - полный cold eval, сравнение с baseline и решение о rollout.
 
 12. `AI-DECOMPOSE-*`
     - постепенное уменьшение `backend/main.py`, `newUi.tsx`,
       `adminModels.tsx`, крупных CSS и legacy boundaries.
 
-Широкий issue `#72` остаётся родительской спецификацией и не передаётся одному
-агенту целиком.
+Issue `#72` остаётся родительской спецификацией и не исполняется одним агентом.
 
-## 6. Единый пользовательский CLI
-
-Целевая поверхность:
+## 6. Целевая CLI-поверхность
 
 ```powershell
 .\tools\agent.ps1 doctor
@@ -170,20 +135,16 @@ repository: spikeal8-maker/IZO_ASA
 .\tools\agent.ps1 eval -Suite smoke
 ```
 
-Команды внедряются поэтапно. Отсутствующая команда не должна имитироваться
-ручной процедурой, выдаваемой за техническое enforcement.
+Отсутствующая команда не должна имитироваться ручной процедурой, выдаваемой за
+техническое enforcement.
 
 ## 7. Бюджеты и метрики
-
-Целевые бюджеты:
 
 ```text
 core instructions:          ≤ 12–16 KiB
 domain + Task Contract:     ≤ 12–16 KiB
 bounded source/test context: измеряется отдельно
 ```
-
-Метрики:
 
 - first-pass acceptance ≥ 70%;
 - обычная UI-задача читает < 15 source-файлов;
@@ -195,32 +156,17 @@ bounded source/test context: измеряется отдельно
 
 ## 8. Merge и release gates
 
-Каждый package:
+Каждый package имеет Task Contract/issue и feature branch, не расширяет scope
+молча, проходит targeted checks и требуемый Quick, ждёт CI и automated review,
+разбирает все findings, передаёт один self-contained PR и не выполняет
+production-действия без отдельной авторизации.
 
-- имеет отдельный Task Contract/issue и feature branch;
-- не расширяет scope молча;
-- проходит targeted checks и требуемый Quick;
-- ждёт завершения CI и automated review;
-- устраняет или обоснованно отклоняет все findings;
-- передаёт один self-contained commit/PR;
-- не выполняет deploy/restart без отдельной авторизации.
-
-Состояния `CODE COMPLETE`, `VERIFIED`, `MERGED`, `DEPLOYED` и
+`CODE COMPLETE`, `VERIFIED`, `MERGED`, `DEPLOYED` и
 `OPERATIONALLY VERIFIED` не объединяются.
 
 ## 9. Definition of done программы
 
-Новый агент без истории чата:
-
-1. определяет правильный repo/worktree;
-2. формирует Task Contract до product changes;
-3. получает bounded domain/symbol context;
-4. не читает монолиты целиком без причины;
-5. не пересекается с другим package;
-6. использует isolated DB/providers/ports;
-7. запускает релевантные проверки;
-8. предъявляет evidence пользовательского результата;
-9. передаёт один clean commit интегратору;
-10. оставляет drift report;
-11. проходит eval лучше baseline;
-12. не может незаметно обойти основные safety/scope gates.
+Новый агент без истории чата определяет repo/worktree, формирует Task Contract,
+получает bounded context, не читает монолиты целиком без причины, не пересекается
+с другим package, использует isolated environment, запускает релевантные gates,
+предъявляет evidence, передаёт clean commit и проходит eval лучше baseline.
