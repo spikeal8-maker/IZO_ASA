@@ -54,7 +54,18 @@ docs/generated/architecture-inventory.json
 backend/SYMBOL_MAP.md
 ```
 
-## 4. До кода сформируй Task Contract
+## 4. Выбери класс риска
+| `riskClass` | Когда применять | Минимальный gate |
+|---|---|---|
+| `low` | Документация и локальные изменения без product contract | targeted checks |
+| `standard` | Ограниченная frontend/backend feature-задача | Task Contract, targeted tests, Quick |
+| `high-assurance` | Auth, billing, migrations, durable workers, privacy, media ownership | characterization, race/idempotency, rollback, CI, independent review |
+| `release-ops` | Deploy, restart, webhook, production data/provider/network | явное разрешение владельца, exact-SHA receipt, operational evidence |
+
+После двух одинаковых неудачных попыток запрещён третий broad scan: package
+становится `BLOCKED` с конкретной неизвестностью и evidence.
+
+## 5. До кода сформируй Task Contract
 ```yaml
 id:
 goal:
@@ -75,7 +86,7 @@ rollbackBoundary:
 Если нельзя воспроизвести сценарий «до» и сформулировать проверяемый результат
 «после», выполняй только bounded discovery.
 
-## 5. Рабочие правила
+## 6. Рабочие правила
 - Один package — одна проблема, одна feature branch/worktree и один clean commit.
 - Не работай напрямую в `main`.
 - Не используй stash/reset/cleanup для передачи или удаления чужой работы.
@@ -86,7 +97,7 @@ rollbackBoundary:
 - Deploy/restart/provider action выполняются только по отдельному разрешению.
 - Не выполняй merge, пока CI и автоматический review не завершены.
 
-## 6. Завершение package
+## 7. Завершение package
 ```powershell
 git status --short
 git diff --check
