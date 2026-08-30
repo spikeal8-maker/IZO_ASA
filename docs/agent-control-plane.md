@@ -68,16 +68,20 @@ repository: spikeal8-maker/IZO_ASA
 
 - `AI-CANONICAL-001` — единая policy/entry/status route; PR `#73`, merge
   `49a19e271e4e0e71d1fa6f871f828f0a233cfbdf`, `NOT DEPLOYED`.
-- `AI-CANONICAL-REPAIR-001` — устранение post-merge review findings и
-  синхронизация canonical статусов; issue `#74`; считается завершённым после
-  merge source version, содержащей этот текст.
+
+Активно:
+
+- `AI-CANONICAL-REPAIR-001` — issue `#74`, Task Contract
+  `docs/agent-tasks/AI-CANONICAL-REPAIR-001.md`.
+- Package остаётся активным до завершённых CI/review, merge evidence и отдельного
+  status-transition commit. Следующий package до этого заблокирован.
 
 Отдельно сохраняется baseline:
 
 - `AI-EVAL-BASELINE-001`, issue `#71`, выполняется тремя независимыми read-only
   сессиями на SHA `ecb02bf84ae21a46711c9b38b61784147fb9fc0a`.
 
-Следующий кандидат:
+Следующий кандидат после закрытия active package:
 
 - `AI-INSTRUCTION-SCOPE-001` — уменьшить постоянный root context и добавить
   scoped `backend/frontend/ops/docs AGENTS.md`.

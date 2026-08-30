@@ -24,6 +24,9 @@ order in policy, status, program or package documents.
 - Yandex.Disk may receive immutable backup snapshots only. It must not
   synchronize live `.git`, SQLite/WAL/SHM, media working state, runtime
   manifests or secrets.
+- The application runs on the Windows host and the VPS carries the existing
+  public transport. Do not change VPS, FRP, DNS, tunnel or AdGuard configuration
+  unless the owner explicitly places that production-network change in scope.
 - Preserve unrelated work. Never use `reset --hard`, automatic stash,
   checkout-overwrite or cleanup to make another package disappear.
 

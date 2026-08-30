@@ -23,6 +23,7 @@ REQUIRED = (
     ROOT / "docs" / "current-status.md",
     ROOT / "docs" / "agent-control-plane.md",
     ROOT / "docs" / "agent-tasks" / "AI-CANONICAL-001.md",
+    ROOT / "docs" / "agent-tasks" / "AI-CANONICAL-REPAIR-001.md",
     *ADAPTERS,
 )
 CANONICAL_ROUTING_DOCS = (
@@ -152,11 +153,22 @@ def _assert_program_and_package_status() -> None:
     assert "deployment: none" in receipt
     assert "ready-for-owner-review" not in receipt
 
+    repair = _text(
+        ROOT / "docs" / "agent-tasks" / "AI-CANONICAL-REPAIR-001.md"
+    )
+    assert "status: active" in repair
+    assert "record_role: active-task-contract" in repair
+    assert "issue: 74" in repair
+    assert "deployment: none" in repair
+
     now = _text(ROOT / "docs" / "NOW.md")
     assert "completed_package: AI-CANONICAL-001" in now
-    assert "completed_repair: AI-CANONICAL-REPAIR-001" in now
-    assert "active_package: none" in now
-    assert "next_candidate: AI-INSTRUCTION-SCOPE-001" in now
+    assert "completed_repair:" not in now
+    assert "active_package: AI-CANONICAL-REPAIR-001" in now
+    assert (
+        "active_task_contract: docs/agent-tasks/AI-CANONICAL-REPAIR-001.md" in now
+    )
+    assert "next_candidate: blocked-until-active-package-closes" in now
     assert "Task Contract: `docs/agent-tasks/AI-CANONICAL-001.md`" not in now
 
 
@@ -170,6 +182,7 @@ def assert_agent_instruction_contracts() -> None:
         ROOT / "docs" / "NOW.md": 140,
         ROOT / "docs" / "agent-control-plane.md": 250,
         ROOT / "docs" / "agent-tasks" / "AI-CANONICAL-001.md": 120,
+        ROOT / "docs" / "agent-tasks" / "AI-CANONICAL-REPAIR-001.md": 150,
     }
     for path, maximum in limits.items():
         count = len(_lines(path))
@@ -195,6 +208,7 @@ def assert_agent_instruction_contracts() -> None:
     assert "`AI_START_HERE.md` is the sole owner" in agents
     assert "docs/NOW.md" in agents
     assert "repository-operation-lock.ps1" in agents
+    assert "Do not change VPS, FRP, DNS, tunnel or AdGuard" in agents
     assert "The current executable backlog is" not in agents
 
     readme = _text(ROOT / "README.md")

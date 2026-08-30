@@ -5,9 +5,9 @@ backlog_role: program-router
 updated: 2026-08-30
 last_verified_main: 49a19e271e4e0e71d1fa6f871f828f0a233cfbdf
 completed_package: AI-CANONICAL-001
-completed_repair: AI-CANONICAL-REPAIR-001
-active_package: none
-next_candidate: AI-INSTRUCTION-SCOPE-001
+active_package: AI-CANONICAL-REPAIR-001
+active_task_contract: docs/agent-tasks/AI-CANONICAL-REPAIR-001.md
+next_candidate: blocked-until-active-package-closes
 ---
 
 # IZO_ASA — NOW
@@ -27,9 +27,9 @@ git rev-parse origin/main
 git worktree list
 ```
 
-- Последний проверенный `main` до этого repair-package:
+- Проверенный base repair-package:
   `49a19e271e4e0e71d1fa6f871f828f0a233cfbdf`.
-- После merge текущий SHA определяется только Git-командами выше.
+- Текущий candidate определяется Git-командами выше и PR repair-package.
 - Production release нельзя выводить из GitHub. Его подтверждают установленный
   runtime manifest и `/api/version` в рамках разрешённой live-проверки.
 - Код, merge, deployment и operational verification — разные состояния.
@@ -39,12 +39,14 @@ git worktree list
 - Активная программа: `docs/agent-control-plane.md`.
 - `AI-CANONICAL-001` завершён через PR `#73`, merge
   `49a19e271e4e0e71d1fa6f871f828f0a233cfbdf`, `NOT DEPLOYED`.
-- `AI-CANONICAL-REPAIR-001` относится к issue `#74`; после merge этого source
-  version он считается завершённым, а `active_package` остаётся `none`.
+- Активный package: `AI-CANONICAL-REPAIR-001`, issue `#74`.
+- Его Task Contract:
+  `docs/agent-tasks/AI-CANONICAL-REPAIR-001.md`.
+- Package остаётся активным до подтверждённых merge/review evidence и отдельного
+  status-transition commit. Нельзя начинать следующий package только потому,
+  что repair-код находится в PR.
 - Baseline evaluation: issue `#71`, закреплён за исходным SHA
   `ecb02bf84ae21a46711c9b38b61784147fb9fc0a`.
-- Следующий кандидат требует отдельного owner-approved Task Contract:
-  `AI-INSTRUCTION-SCOPE-001`.
 - `AI-CONTEXT-001` issue `#72` не исполняется как один широкий package до
   разделения на schema, pilot и expansion.
 - Ни один program-документ не разрешает deploy, restart или real provider
