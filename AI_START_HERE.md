@@ -34,8 +34,7 @@ git worktree list
 7. Нужные generated maps, symbol map или ограниченные диапазоны строк.
 8. Только source и tests в заявленном scope.
 
-Не читай исторические master plans и большие монолиты целиком, если текущая
-карта, Task Contract или generated evidence прямо этого не требует.
+Не читай исторические master plans и большие монолиты целиком, если текущая карта, Task Contract или generated evidence прямо этого не требует.
 
 ## 3. Быстрая маршрутизация
 | Задача | Первый предметный контекст |
@@ -43,7 +42,8 @@ git worktree list
 | Студия изображений, профиль, `/`, `/paint` | `docs/context/frontend-studio.md` |
 | Видео, лента, галерея | `docs/context/video-gallery-feed.md` |
 | Auth, Telegram/MAX, trusted identity | `docs/context/backend-auth-bots.md` |
-| `/chat`, admin models, billing, audio, 3D, release | см. `docs/NOW.md`; отсутствующая карта означает bounded discovery, а не широкий scan |
+| Админка, CRM, административные экраны моделей | `docs/context/admin-control-center.md` |
+| `/chat`, product billing, audio, 3D, release | см. `docs/NOW.md`; отсутствующая карта означает bounded discovery, а не широкий scan |
 
 Generated evidence:
 ```text
