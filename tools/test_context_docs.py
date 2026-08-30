@@ -1,14 +1,16 @@
 """CTX-001 contracts: scoped context docs and the generated frontend map.
 
-Keeps the three context documents honest (size bounds, referenced files
-exist) and makes the frontend map impossible to forget: the generated files
-must exist, parse, and the --check step must be wired into verify.ps1.
+Keeps the context documents honest (size bounds, referenced files exist), makes
+the frontend map impossible to forget, and runs the canonical agent-entry
+contracts in the existing Quick gate.
 """
 from __future__ import annotations
 
 import json
 import re
 from pathlib import Path
+
+from test_agent_instructions import assert_agent_instruction_contracts
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -59,3 +61,7 @@ def test_frontend_map_check_is_wired_into_verification() -> None:
     assert "generate_frontend_map.mjs" in verify
     assert 'Invoke-NativeStep -Name "frontend_map_check"' in verify
     assert verify.count('"frontend_map_check"') >= 1
+
+
+def test_canonical_agent_entry_is_wired_into_quick_gate() -> None:
+    assert_agent_instruction_contracts()

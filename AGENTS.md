@@ -1,214 +1,226 @@
 # IZO_ASA repository rules for every coding agent
 
-This file is the repository-wide source of truth for Codex, Claude, Copilot,
-Gemini and any other automation that changes this project. Tool-specific files
-may add instructions, but they may not weaken or contradict this file.
+This file is the repository-wide policy for Codex, Claude, Copilot, Gemini and
+any other automation that reads or changes this repository. Tool-specific
+adapters may point here, but they must not duplicate, weaken or contradict it.
 
-## 1. Scope and canonical workspace
+After reading this file, read `AI_START_HERE.md`, then `docs/NOW.md`, then only
+the nearest relevant `AGENTS.md`, `docs/context/*.md` and the current Task
+Contract. `README.md` and historical roadmaps are not executable backlogs.
 
-- The only canonical integration and deployment source on this computer is
-  `E:\IZO_ASA_WORKSPACE`.
+## 1. Repository identity and worktrees
+
+- On the current production computer, the canonical integration and deployment
+  checkout is `E:\IZO_ASA_WORKSPACE`.
+- Every tool and agent must still discover the active checkout with
+  `git rev-parse --show-toplevel`; repository automation must not depend on a
+  hard-coded drive letter.
+- Verify `git remote get-url origin` identifies `spikeal8-maker/IZO_ASA`.
+- Development packages may use separate Git worktrees. Never deploy directly
+  from a feature worktree, sibling copy, attachment, temporary export or
+  resolved symlink target.
 - `E:\Yandex.Disk\IZO_ASA` is a quarantined historical copy affected by live
-  `.git` synchronization conflicts. Do not use it for Git operations, testing,
-  deployment or recovery, and do not delete, rename or repair it without a
-  separate owner-authorized cleanup package.
-- `E:\Yandex.Disk` may be an offsite synchronization target only for immutable,
-  versioned backup snapshots. It must never synchronize a live `.git`
-  directory, open SQLite database or WAL/SHM, production media working state,
-  runtime manifests or secrets.
-- Do not delete files or directories from `E:\Yandex.Disk` during project
-  implementation, synchronization or deployment.
-- Do not deploy from a sibling copy, attachment, temporary worktree or resolved
-  symlink target. Inspect `git worktree list` and resolve reparse points when the
-  source is uncertain.
-- The application stack runs on this Windows computer. The VPS carries only the
-  existing domain tunnel. Do not change VPS, FRP, DNS or tunnel configuration
-  without an explicit owner request.
-- Preserve unrelated user and agent work. Never discard, reset or overwrite a
-  dirty worktree to make a package easier to merge.
+  `.git` synchronization conflicts. Do not use it for Git, tests, deployment or
+  recovery. Do not delete or repair it without a separate owner-authorized task.
+- Yandex.Disk may receive only immutable backup snapshots. It must not
+  synchronize live `.git`, SQLite/WAL/SHM, media working state, runtime
+  manifests or secrets.
+- The application runs on the Windows host. The VPS carries the existing public
+  transport only. Do not change VPS, FRP, DNS, tunnel or AdGuard configuration
+  unless the owner explicitly places it in scope.
+- Preserve unrelated user and agent work. Never use `reset --hard`, automatic
+  stash, checkout-overwrite or cleanup to make another package disappear.
 
-## 2. Mandatory preflight and ownership
+## 2. Mandatory preflight and Task Contract
 
-Before changing files:
+Before changing files, record:
+
+```powershell
+git rev-parse --show-toplevel
+git remote get-url origin
+git status --short --branch
+git rev-parse HEAD
+git rev-parse origin/main
+git worktree list
+```
+
+Then:
 
 1. Read this file and any narrower `AGENTS.md` in the target directory.
-2. Record `git status --short --branch`, `git rev-parse HEAD`,
-   `git rev-parse origin/main` and `git worktree list`.
-3. Check for active `pytest`, `verify.ps1`, `start-public`, publisher and deploy
-   processes before starting another expensive or mutating operation.
-4. Identify live runtime data and keep tests away from it.
-5. If another agent owns overlapping files or a release, coordinate first. Do
-   not race it.
+2. Read `AI_START_HERE.md`, `docs/NOW.md`, the relevant context card and the
+   package Task Contract.
+3. Check for active overlapping packages and for active `pytest`,
+   `verify.ps1`, publisher, promoter, restart or deployment processes.
+4. Identify live DB/media/secrets/providers and keep all tests away from them.
+5. State the user-visible before/after scenario, non-goals, domain, risk class,
+   files/patterns in scope, acceptance, evidence and rollback boundary.
+6. Do not begin implementation when the requested outcome or routing remains
+   materially ambiguous. Create a bounded discovery package instead.
 
-There must be a single release owner. Until the repository operation lock from
-`REL-LOCK-001` is implemented, no agent may run `start-public.bat`, a frontend
-publisher, a backend restart or a second Full verification while another such
-operation is active.
+One package addresses one bounded problem. An additional file may be discovered,
+but scope expansion must record the reason and re-check overlap. Crossing into a
+new domain or materially enlarging the package requires an updated Task Contract.
 
-## 3. Production and data safety
+## 3. Ownership, main and single-flight operations
 
-- Production DB, WAL/SHM, media, secrets, models and runtime manifests are not
-  test fixtures. Tests must use temporary paths and fake providers.
-- Never copy an open SQLite file with a normal file copy. Use the SQLite Backup
-  API and the repository backup/restore tools.
+- Ordinary coding agents work in a feature branch/worktree, not directly in
+  `main`.
+- There is one integration owner for `main` and one release owner.
+- Repository-wide mutable operations use
+  `tools/repository-operation-lock.ps1`; do not bypass or reimplement its
+  locking, stale-owner or re-entry behavior.
+- Do not run a second Full verification, publisher, promotion or backend restart
+  while the corresponding repository operation is owned.
+- Generated maps are deterministic shared artifacts. They are verified and
+  regenerated by the package or integrator, but do not create false exclusive
+  ownership of the whole backend.
+
+## 4. Production and data safety
+
+- Production SQLite, WAL/SHM, media, secrets, models and runtime manifests are
+  never test fixtures.
+- Tests use temporary DB, media and secret roots plus fake providers.
 - Never delete or rewrite `backend/onenode.sqlite3`, `backend/media`, `.runtime`
   or external backup roots during ordinary implementation.
+- Never copy an open SQLite database with a normal file copy. Use the SQLite
+  Backup API and repository backup/restore tools.
 - Schema changes are additive and versioned through
   `backend/app/database/migrations.py`. Never reuse a migration version/name or
-  change an applied checksum. Destructive migration needs an explicit,
-  rehearsed maintenance package and verified backup.
-- Keep a single SQLite writer application process. Do not start a second live
-  backend against the same database.
-- A restart or deploy is allowed only when the requested task needs it, the
-  source is clean and verified, and the user has authorized production change.
-  Documentation, analysis and ordinary tests do not authorize a deploy.
+  change an applied checksum.
+- A destructive migration requires a separate owner-approved maintenance
+  package, verified backup and rehearsed rollback.
+- Keep a single live SQLite writer application process.
+- Documentation, analysis and tests do not authorize deploy or restart.
 
-## 4. Secrets and external providers
+## 5. Secrets, providers and financial actions
 
-- Secrets never enter Git, logs, screenshots, chat, API responses or test
-  snapshots. On Windows, use environment overrides or the repository DPAPI
-  secret store outside the repository. DPAPI material is account- and
-  computer-bound and must be re-entered on a new host.
+- Secrets never enter Git, logs, screenshots, chat, API responses or snapshots.
+- Use environment overrides or the Windows DPAPI store outside the repository.
+  DPAPI material is account- and computer-bound.
 - Automated tests use fake Telegram, MAX, YooKassa, UniSender, SMTP, OpenRouter,
-  ComfyUI and Ollama adapters. They must not charge money, send real email,
-  consume paid generation or mutate real bot state.
-- A real payment, refund, email send, webhook switch or token rotation requires
-  an explicit operator action and a redacted receipt.
-- Payment/webhook processing must be authenticated, idempotent and auditable.
-  Financial state changes belong in one transaction service, not route-local SQL.
+  ComfyUI and Ollama adapters. They must not charge money, send messages or
+  email, consume paid generation or mutate real provider state.
+- Real payments, refunds, mail, webhook switches, token rotations and provider
+  verification require explicit operator authorization and a redacted receipt.
+- Payment and webhook state changes must be authenticated, idempotent,
+  transactional and auditable.
 
-## 5. Authentication, privacy and public APIs
+## 6. Identity, privacy and public APIs
 
 - Never trust `X-OneNode-User`, `onenode_user`, frontend `user_id`, unsigned
   Telegram data or unverified MAX data as identity.
 - Protected routes resolve a trusted server-side session. Admin routes use
   `require_trusted_admin`; every admin mutation writes an audit event.
-- Do not create a second auth system. Legacy compatibility paths are frozen and
-  must be removed through explicit characterization and migration packages.
-- Public endpoints expose only product-safe fields. They must not reveal
-  absolute paths, provider token presence, internal service URLs, TLS/proxy
-  details, stack traces, database statistics or operator diagnostics.
-- Private media access is owner-checked. Public feed derivatives and public
-  avatars are separate, deliberate surfaces. New media lifecycle tests cover
-  publish, private-source deletion and public read behavior.
-- User-facing model branding remains `Flux2`; technical model filenames and
+- Do not create a second authentication system. Legacy compatibility is frozen
+  and removed only through characterization and migration packages.
+- Public endpoints must not expose absolute paths, secret/config presence,
+  internal URLs, TLS/proxy details, stack traces, database statistics or
+  operator diagnostics.
+- Private media access is owner-checked. Public derivatives and avatars are
+  deliberate separate surfaces with lifecycle tests.
+- User-facing image model branding remains `Flux2`; technical model names and
   workflow identifiers are internal/admin-only.
 
-## 6. Bots and background workers
+## 7. Bots, jobs and persistent workers
 
-- Exactly one delivery owner exists per Telegram/MAX bot. Polling and webhook
-  delivery must never be active simultaneously unless a documented handoff
-  protocol makes the overlap impossible.
-- Do not automatically delete a webhook, reset an update cursor or rotate a
-  token. Those are explicit operator actions.
+- Telegram/MAX have exactly one delivery owner each. Polling and webhook
+  delivery must not overlap without an explicit handoff protocol.
+- Do not automatically delete webhooks, reset cursors or rotate tokens.
 - Every persistent worker declares owner, process role, durable state, startup,
   retry/recovery, idempotency and watchdog behavior in the architecture map.
-- In-process queues are wake-up mechanisms, not the source of truth. Jobs,
-  publications, financial events and mail obligations must survive restart in
-  SQLite until a measured scale trigger justifies another queue.
-- Worker health claims require recent success/failure timestamps, not merely a
-  running process or configured token.
+- In-process queues are wake-up mechanisms, not the durable source of truth.
+  Jobs, publications, financial events and mail obligations survive restart in
+  SQLite.
+- Worker health requires recent success/failure evidence, not only a running
+  process or configured token.
 
-## 7. Architecture and large-file policy
+## 8. Architecture and large files
 
-- The project remains a modular monolith. Do not rewrite it into microservices
-  and do not migrate to Docker/Linux/PostgreSQL merely for style.
-- `backend/main.py` is frozen as a compatibility/composition shell. Put new
-  business logic in `backend/app/*`; new route groups use routers or thin
+- Keep the system a modular monolith. Do not migrate to microservices,
+  Docker/Linux/PostgreSQL or an external queue merely for style.
+- `backend/main.py` is a frozen compatibility/composition shell. New business
+  logic belongs in `backend/app/*`; new route groups use routers or thin
   adapters. Move behavior only behind characterization tests.
-- Do not increase protected-file budgets, symbol limits or allowlists merely to
-  make an architecture gate pass. A temporary increase requires explicit owner
-  approval, a named incident rationale and a scheduled ratchet-down package.
-- After every successful extraction, lower the corresponding line/symbol budget
-  to the new measured value in the same commit.
-- Do not replace one monolith with another. Prefer modules around 500 lines or
-  less; a larger module needs one cohesive responsibility and a documented
-  reason.
-- Freeze `LegacyApp.tsx` for compatibility. New product work belongs in the
-  current UI. Legacy UI removal requires telemetry, parity and rollback gates.
-- Split CSS by component/feature/layout boundary while preserving class
-  contracts and desktop/mobile visual behavior.
+- Do not raise protected-file budgets, symbol limits or allowlists just to pass
+  a gate. After an extraction, lower the measured budget in the same commit.
+- Prefer cohesive modules around 500 lines or less; do not replace one monolith
+  with another.
+- `LegacyApp.tsx` is frozen compatibility. New product work belongs in the
+  current UI. Removal requires telemetry, parity and rollback gates.
+- Split CSS by feature/component/layout without mixing decomposition with
+  redesign or breaking desktop/mobile class contracts.
+- Do not read `backend/main.py`, `newUi.tsx`, `LegacyApp.tsx` or large CSS files
+  in full when a context map, symbol map or bounded line range is sufficient.
 
-## 8. Commit and generated-artifact discipline
+## 9. Commits, generated artifacts and review
 
-- One package addresses one bounded problem. Avoid mixing architecture,
-  unrelated UI changes and operational deployment in one commit.
-- Every code-bearing commit must be self-contained and green. Update generated
-  backend symbol maps, architecture inventory, tests and relevant docs in the
-  same commit as the behavior change. A later "refresh map" commit is not an
-  acceptable normal workflow.
-- Generate files with the repository scripts; do not hand-edit generated maps.
-- Inspect the staged diff and secret scan before committing. Commit only files
-  owned by the current package. Push only after local gates pass.
-- Never claim GitHub/CI success when a run has zero steps. Report external
-  billing/plan failures separately from code failures.
+- Keep architecture changes, UI changes and operational deployment in separate
+  packages unless the Task Contract explicitly requires the combination.
+- Every code-bearing commit is self-contained and green: behavior, tests,
+  generated maps and relevant context documentation change together.
+- Generate maps with repository scripts; never hand-edit generated output.
+- Inspect the complete diff and secret scan before commit.
+- Commit only package-owned files and hand off one clean commit/PR.
+- Never claim CI success when a workflow executed zero steps. Report plan,
+  runner or billing blockers separately from code failures.
 
-## 9. Verification policy
+## 10. Verification policy
 
-Use the smallest gate that proves the change, then broaden it in proportion to
-risk:
+Use the smallest gate that proves the current change:
 
-1. Characterization or regression test before a risky move.
+1. Characterization/regression test before a risky move.
 2. Targeted tests after each small edit.
-3. Architecture/map check for structural changes.
-4. Frontend lint/build and focused Playwright checks for UI changes.
+3. Architecture/map checks for structural changes.
+4. Frontend type/lint/build and focused Playwright for UI changes.
 5. `tools/verify.ps1 -Mode Quick` for a completed non-release package.
-6. One clean `tools/verify.ps1 -Mode Full` receipt for a release candidate.
+6. One clean `tools/verify.ps1 -Mode Full` receipt for an integration/release
+   candidate.
 
-For auth, payments, release locking, concurrent storage changes and persistent
-workers, repeat the focused race/idempotency test five times. Do not run the
-entire Full suite five times and do not start duplicate Full suites; that wastes
-CPU and can create false operational races.
+For auth, payments, release locking, concurrent storage and persistent workers,
+repeat the focused race/idempotency test five times. Do not run the whole Full
+suite five times and do not start duplicate Full suites.
 
-Tests passing means code is verified in isolation. It does not prove a feature is
-deployed or a provider is operational. Use these exact states:
+Tests prove code in the stated environment only. Report these states exactly:
 
 - `CODE COMPLETE`: implemented and locally tested.
+- `VERIFIED`: acceptance checks passed in the stated environment.
 - `DEPLOYED`: the exact commit/release is active.
-- `VERIFIED`: its acceptance checks passed in the stated environment.
 - `OPERATIONALLY VERIFIED`: a real provider/user flow produced redacted evidence.
-- `BLOCKED`: an external dependency prevents the next acceptance gate.
+- `BLOCKED`: an external dependency prevents the next gate.
 
-## 10. Release and live verification
+## 11. Release and live verification
 
-- The mandatory production procedure for this computer is
-  `docs/production-release-runbook.md`. Every agent must read it before preparing,
-  installing, rolling back or diagnosing a production release.
-- Detect the deployment topology from installed runtime evidence, not from the
-  first launcher found in the repository. When
+- Read `docs/production-release-runbook.md` before any release, rollback or live
+  diagnosis.
+- Detect installed topology from runtime evidence. When
   `C:\IZO_ASA\runtime\services\backend\IZOBackend.xml`,
   `C:\IZO_ASA\ops\scripts\check-project-update.ps1` and
-  `C:\IZO_ASA\runtime\promote-project-release.ps1` exist, this host uses the
-  installed Windows-service updater/promoter workflow.
-- On that installed topology, do not use `start-public.bat`,
-  `tools/publish-frontend-release.ps1` or `tools/restart-backend.ps1` to promote
-  production. They describe the repository-local bootstrap/manual stack and may
-  disagree with the installed service paths, database and release identity.
-- Promotion and automatic health recovery must coordinate through
-  `C:\IZO_ASA\runtime\project-release-maintenance.flag`. The promoter owns the
-  flag for the full mutable window; the watchdog must not auto-start
-  `IZOBackend` or `IZOCaddy` while it exists. Do not stop the watchdog or change
-  AdGuard VPN/FRP as a release workaround.
+  `C:\IZO_ASA\runtime\promote-project-release.ps1` exist, use the installed
+  Windows-service updater/promoter workflow.
+- On that topology, do not promote with `start-public.bat`,
+  `tools/publish-frontend-release.ps1` or `tools/restart-backend.ps1`.
+- Promotion and watchdog recovery coordinate through
+  `C:\IZO_ASA\runtime\project-release-maintenance.flag`.
 - Deploy only clean canonical `main` when `HEAD == origin/main` and the receipt
   names that exact SHA. Never deploy uncommitted WIP.
-- A successful publisher must bind frontend/backend release identity and retain
-  rollback artifacts. Keep VPS/FRP untouched unless explicitly in scope.
 - After an authorized deploy, verify local and public `/`, `/feed`, `/gallery`,
-  `/api/health` and `/api/version`, listener ownership, release identity and
-  relevant logs. UI work also needs desktop/mobile browser evidence.
-- Report implemented, deployed, verified and blocked work separately. HTTP 200
-  alone is not proof that a UI control or external integration works.
+  `/api/health`, `/api/version`, listener ownership, release identity and logs.
+  UI work also needs desktop/mobile browser evidence.
+- HTTP 200 alone does not prove UI behavior or provider operation.
 
-## 11. Documentation and plan control
+## 12. Documentation and current state
 
-- The current executable backlog is
-  `docs/engineering-optimization-master-plan-20260719.md`.
-- The current evidence audit is `docs/agent-compliance-audit-20260719.md`.
-- Older roadmaps remain historical evidence and must not silently become the
-  current backlog again.
-- When a discovered defect changes priority or acceptance criteria, update the
-  current plan in the same package. Record exact SHA/receipt/PID/run identifiers
-  as timestamped evidence, not timeless facts.
-- A package is complete only when code, tests, generated maps, documentation,
-  commit and requested push are complete. Deployment is a separate explicit
-  state unless the package includes it.
+- `docs/NOW.md` is the only current-status aggregator and program router.
+- `AI_START_HERE.md` is the short navigation entrypoint, not a second policy.
+- `docs/context/*.md` are scoped domain maps; extend them instead of creating a
+  parallel context hierarchy.
+- `docs/generated/*` and symbol/architecture maps are generated evidence.
+- `docs/agent-control-plane.md` defines the active agent-development program.
+- Historical roadmaps and checkpoint journals remain evidence only. They must
+  not silently become the current backlog.
+- `README.md` describes the product and basic operations; it is not a backlog.
+- When a package changes routing, acceptance or architecture, update the
+  relevant context card and `docs/NOW.md` in the same commit.
+- A package is complete only when implementation, tests, generated evidence,
+  documentation, commit and requested push/PR are complete. Deployment remains
+  a separate state unless explicitly included.
