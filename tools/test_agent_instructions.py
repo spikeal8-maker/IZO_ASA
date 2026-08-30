@@ -5,6 +5,7 @@ facts, active process IDs and deployment state must not be hard-coded here.
 """
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -32,12 +33,20 @@ def _lines(path: Path) -> list[str]:
 
 
 def _markdown_files() -> list[Path]:
-    ignored_parts = {".git", ".runtime", "node_modules", ".venv", "__pycache__"}
-    return [
-        path
-        for path in ROOT.rglob("*.md")
-        if not ignored_parts.intersection(path.parts)
-    ]
+    ignored_names = {
+        ".git",
+        ".runtime",
+        ".pytest_cache",
+        "node_modules",
+        ".venv",
+        "__pycache__",
+    }
+    markdown: list[Path] = []
+    for current, directories, filenames in os.walk(ROOT):
+        directories[:] = [name for name in directories if name not in ignored_names]
+        root = Path(current)
+        markdown.extend(root / name for name in filenames if name.endswith(".md"))
+    return markdown
 
 
 def assert_agent_instruction_contracts() -> None:
