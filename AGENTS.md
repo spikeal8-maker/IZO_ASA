@@ -4,32 +4,28 @@ This file is the repository-wide policy for Codex, Claude, Copilot, Gemini and
 any other automation that reads or changes this repository. Tool-specific
 adapters may point here, but they must not duplicate, weaken or contradict it.
 
-After reading this file, read `AI_START_HERE.md`, then `docs/NOW.md`, then only
-the nearest relevant `AGENTS.md`, `docs/context/*.md` and the current Task
-Contract. `README.md` and historical roadmaps are not executable backlogs.
+`AI_START_HERE.md` is the sole owner of the repository reading order. After this
+policy, open that file and follow its sequence. Do not invent or restate another
+order in policy, status, program or package documents.
 
 ## 1. Repository identity and worktrees
 
 - On the current production computer, the canonical integration and deployment
   checkout is `E:\IZO_ASA_WORKSPACE`.
-- Every tool and agent must still discover the active checkout with
-  `git rev-parse --show-toplevel`; repository automation must not depend on a
-  hard-coded drive letter.
+- Portable tooling discovers the active checkout with
+  `git rev-parse --show-toplevel`; it must not depend on a drive letter.
 - Verify `git remote get-url origin` identifies `spikeal8-maker/IZO_ASA`.
-- Development packages may use separate Git worktrees. Never deploy directly
-  from a feature worktree, sibling copy, attachment, temporary export or
-  resolved symlink target.
+- Ordinary development uses a feature branch/worktree. Never deploy from a
+  feature worktree, sibling copy, attachment, temporary export or resolved
+  symlink target.
 - `E:\Yandex.Disk\IZO_ASA` is a quarantined historical copy affected by live
-  `.git` synchronization conflicts. Do not use it for Git, tests, deployment or
-  recovery. Do not delete or repair it without a separate owner-authorized task.
-- Yandex.Disk may receive only immutable backup snapshots. It must not
+  `.git` synchronization conflicts. Do not use, repair or delete it without a
+  separate owner-authorized maintenance package.
+- Yandex.Disk may receive immutable backup snapshots only. It must not
   synchronize live `.git`, SQLite/WAL/SHM, media working state, runtime
   manifests or secrets.
-- The application runs on the Windows host. The VPS carries the existing public
-  transport only. Do not change VPS, FRP, DNS, tunnel or AdGuard configuration
-  unless the owner explicitly places it in scope.
-- Preserve unrelated user and agent work. Never use `reset --hard`, automatic
-  stash, checkout-overwrite or cleanup to make another package disappear.
+- Preserve unrelated work. Never use `reset --hard`, automatic stash,
+  checkout-overwrite or cleanup to make another package disappear.
 
 ## 2. Mandatory preflight and Task Contract
 
@@ -44,36 +40,30 @@ git rev-parse origin/main
 git worktree list
 ```
 
-Then:
+Then follow `AI_START_HERE.md` and:
 
-1. Read this file and any narrower `AGENTS.md` in the target directory.
-2. Read `AI_START_HERE.md`, `docs/NOW.md`, the relevant context card and the
-   package Task Contract.
-3. Check for active overlapping packages and for active `pytest`,
-   `verify.ps1`, publisher, promoter, restart or deployment processes.
-4. Identify live DB/media/secrets/providers and keep all tests away from them.
-5. State the user-visible before/after scenario, non-goals, domain, risk class,
-   files/patterns in scope, acceptance, evidence and rollback boundary.
-6. Do not begin implementation when the requested outcome or routing remains
-   materially ambiguous. Create a bounded discovery package instead.
+- check for overlapping work and active verification/release processes;
+- identify live DB, media, secrets and providers and keep tests away from them;
+- state the user-visible before/after scenario, non-goals, domain, risk class,
+  declared files/patterns, acceptance, evidence and rollback boundary;
+- use a bounded discovery package instead of implementation when the requested
+  outcome or routing remains materially ambiguous.
 
-One package addresses one bounded problem. An additional file may be discovered,
-but scope expansion must record the reason and re-check overlap. Crossing into a
-new domain or materially enlarging the package requires an updated Task Contract.
+One package addresses one bounded problem. Discovered scope must record its
+reason and re-check overlap. Crossing into a new domain or materially enlarging
+the package requires an updated Task Contract.
 
 ## 3. Ownership, main and single-flight operations
 
-- Ordinary coding agents work in a feature branch/worktree, not directly in
-  `main`.
+- Ordinary coding agents do not work directly in `main`.
 - There is one integration owner for `main` and one release owner.
 - Repository-wide mutable operations use
   `tools/repository-operation-lock.ps1`; do not bypass or reimplement its
   locking, stale-owner or re-entry behavior.
 - Do not run a second Full verification, publisher, promotion or backend restart
   while the corresponding repository operation is owned.
-- Generated maps are deterministic shared artifacts. They are verified and
-  regenerated by the package or integrator, but do not create false exclusive
-  ownership of the whole backend.
+- Generated maps are deterministic shared artifacts. Verify and regenerate them
+  as required, but do not create false exclusive ownership of the whole backend.
 
 ## 4. Production and data safety
 
@@ -87,8 +77,8 @@ new domain or materially enlarging the package requires an updated Task Contract
 - Schema changes are additive and versioned through
   `backend/app/database/migrations.py`. Never reuse a migration version/name or
   change an applied checksum.
-- A destructive migration requires a separate owner-approved maintenance
-  package, verified backup and rehearsed rollback.
+- Destructive migration requires a separate owner-approved maintenance package,
+  verified backup and rehearsed rollback.
 - Keep a single live SQLite writer application process.
 - Documentation, analysis and tests do not authorize deploy or restart.
 
@@ -96,7 +86,6 @@ new domain or materially enlarging the package requires an updated Task Contract
 
 - Secrets never enter Git, logs, screenshots, chat, API responses or snapshots.
 - Use environment overrides or the Windows DPAPI store outside the repository.
-  DPAPI material is account- and computer-bound.
 - Automated tests use fake Telegram, MAX, YooKassa, UniSender, SMTP, OpenRouter,
   ComfyUI and Ollama adapters. They must not charge money, send messages or
   email, consume paid generation or mutate real provider state.
@@ -129,8 +118,7 @@ new domain or materially enlarging the package requires an updated Task Contract
 - Every persistent worker declares owner, process role, durable state, startup,
   retry/recovery, idempotency and watchdog behavior in the architecture map.
 - In-process queues are wake-up mechanisms, not the durable source of truth.
-  Jobs, publications, financial events and mail obligations survive restart in
-  SQLite.
+  Jobs, publications, financial events and mail obligations survive restart.
 - Worker health requires recent success/failure evidence, not only a running
   process or configured token.
 
@@ -139,8 +127,8 @@ new domain or materially enlarging the package requires an updated Task Contract
 - Keep the system a modular monolith. Do not migrate to microservices,
   Docker/Linux/PostgreSQL or an external queue merely for style.
 - `backend/main.py` is a frozen compatibility/composition shell. New business
-  logic belongs in `backend/app/*`; new route groups use routers or thin
-  adapters. Move behavior only behind characterization tests.
+  logic belongs in `backend/app/*`; move behavior only behind characterization
+  tests.
 - Do not raise protected-file budgets, symbol limits or allowlists just to pass
   a gate. After an extraction, lower the measured budget in the same commit.
 - Prefer cohesive modules around 500 lines or less; do not replace one monolith
@@ -149,38 +137,40 @@ new domain or materially enlarging the package requires an updated Task Contract
   current UI. Removal requires telemetry, parity and rollback gates.
 - Split CSS by feature/component/layout without mixing decomposition with
   redesign or breaking desktop/mobile class contracts.
-- Do not read `backend/main.py`, `newUi.tsx`, `LegacyApp.tsx` or large CSS files
-  in full when a context map, symbol map or bounded line range is sufficient.
+- Do not read `backend/main.py`, `newUi.tsx`, `LegacyApp.tsx`,
+  `adminModels.tsx` or large CSS in full when a context card, generated map,
+  symbol map or bounded line range is sufficient.
 
 ## 9. Commits, generated artifacts and review
 
-- Keep architecture changes, UI changes and operational deployment in separate
+- Keep architecture, product behavior and operational deployment in separate
   packages unless the Task Contract explicitly requires the combination.
 - Every code-bearing commit is self-contained and green: behavior, tests,
   generated maps and relevant context documentation change together.
 - Generate maps with repository scripts; never hand-edit generated output.
 - Inspect the complete diff and secret scan before commit.
 - Commit only package-owned files and hand off one clean commit/PR.
-- Never claim CI success when a workflow executed zero steps. Report plan,
-  runner or billing blockers separately from code failures.
+- Do not merge until required CI and automated review have completed and every
+  finding is fixed or explicitly waived with evidence.
+- Never claim CI success when a workflow executed zero steps.
 
 ## 10. Verification policy
 
 Use the smallest gate that proves the current change:
 
-1. Characterization/regression test before a risky move.
-2. Targeted tests after each small edit.
-3. Architecture/map checks for structural changes.
-4. Frontend type/lint/build and focused Playwright for UI changes.
-5. `tools/verify.ps1 -Mode Quick` for a completed non-release package.
-6. One clean `tools/verify.ps1 -Mode Full` receipt for an integration/release
+1. characterization/regression test before a risky move;
+2. targeted tests after each small edit;
+3. architecture/map checks for structural changes;
+4. frontend type/lint/build and focused Playwright for UI changes;
+5. `tools/verify.ps1 -Mode Quick` for a completed non-release package;
+6. one clean `tools/verify.ps1 -Mode Full` receipt for an integration/release
    candidate.
 
 For auth, payments, release locking, concurrent storage and persistent workers,
 repeat the focused race/idempotency test five times. Do not run the whole Full
 suite five times and do not start duplicate Full suites.
 
-Tests prove code in the stated environment only. Report these states exactly:
+Report states exactly:
 
 - `CODE COMPLETE`: implemented and locally tested.
 - `VERIFIED`: acceptance checks passed in the stated environment.
@@ -190,37 +180,30 @@ Tests prove code in the stated environment only. Report these states exactly:
 
 ## 11. Release and live verification
 
-- Read `docs/production-release-runbook.md` before any release, rollback or live
+- Read `docs/production-release-runbook.md` before release, rollback or live
   diagnosis.
-- Detect installed topology from runtime evidence. When
-  `C:\IZO_ASA\runtime\services\backend\IZOBackend.xml`,
-  `C:\IZO_ASA\ops\scripts\check-project-update.ps1` and
-  `C:\IZO_ASA\runtime\promote-project-release.ps1` exist, use the installed
-  Windows-service updater/promoter workflow.
-- On that topology, do not promote with `start-public.bat`,
-  `tools/publish-frontend-release.ps1` or `tools/restart-backend.ps1`.
-- Promotion and watchdog recovery coordinate through
-  `C:\IZO_ASA\runtime\project-release-maintenance.flag`.
+- Detect installed topology from runtime evidence. On the installed
+  Windows-service topology, use its updater/promoter workflow and maintenance
+  flag; do not substitute legacy start/restart scripts.
 - Deploy only clean canonical `main` when `HEAD == origin/main` and the receipt
   names that exact SHA. Never deploy uncommitted WIP.
-- After an authorized deploy, verify local and public `/`, `/feed`, `/gallery`,
-  `/api/health`, `/api/version`, listener ownership, release identity and logs.
-  UI work also needs desktop/mobile browser evidence.
+- After an authorized deploy, verify local and public routes, health/version,
+  listener ownership, release identity and logs. UI work also needs
+  desktop/mobile browser evidence.
 - HTTP 200 alone does not prove UI behavior or provider operation.
 
 ## 12. Documentation and current state
 
+- Follow the reading order owned by `AI_START_HERE.md`.
 - `docs/NOW.md` is the only current-status aggregator and program router.
-- `AI_START_HERE.md` is the short navigation entrypoint, not a second policy.
 - `docs/context/*.md` are scoped domain maps; extend them instead of creating a
   parallel context hierarchy.
-- `docs/generated/*` and symbol/architecture maps are generated evidence.
-- `docs/agent-control-plane.md` defines the active agent-development program.
-- Historical roadmaps and checkpoint journals remain evidence only. They must
-  not silently become the current backlog.
+- `docs/generated/*`, `backend/SYMBOL_MAP.md` and other generated maps are
+  evidence, not manually maintained plans.
+- `docs/agent-control-plane.md` is the active agent-development program but is
+  not daily context.
+- Historical roadmaps and completed Task Contracts remain evidence only.
 - `README.md` describes the product and basic operations; it is not a backlog.
-- When a package changes routing, acceptance or architecture, update the
-  relevant context card and `docs/NOW.md` in the same commit.
 - A package is complete only when implementation, tests, generated evidence,
   documentation, commit and requested push/PR are complete. Deployment remains
-  a separate state unless explicitly included.
+  separate unless explicitly included.

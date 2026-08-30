@@ -1,7 +1,7 @@
 """Canonical agent-entry contracts for IZO_ASA.
 
-These checks intentionally validate only stable repository invariants. Runtime
-facts, active process IDs and deployment state must not be hard-coded here.
+These tests validate stable repository invariants. Runtime facts, active process
+IDs and deployment state must not be hard-coded here.
 """
 from __future__ import annotations
 
@@ -21,15 +21,41 @@ REQUIRED = (
     ROOT / "AI_START_HERE.md",
     ROOT / "docs" / "NOW.md",
     ROOT / "docs" / "current-status.md",
+    ROOT / "docs" / "agent-control-plane.md",
+    ROOT / "docs" / "agent-tasks" / "AI-CANONICAL-001.md",
     *ADAPTERS,
 )
+CANONICAL_ROUTING_DOCS = (
+    ROOT / "AGENTS.md",
+    ROOT / "AI_START_HERE.md",
+    ROOT / "docs" / "NOW.md",
+    ROOT / "docs" / "agent-control-plane.md",
+)
+GENERATED_EVIDENCE = (
+    ROOT / "docs" / "generated" / "frontend-map.md",
+    ROOT / "docs" / "generated" / "frontend-map.json",
+    ROOT / "docs" / "generated" / "architecture-inventory.md",
+    ROOT / "docs" / "generated" / "architecture-inventory.json",
+    ROOT / "backend" / "SYMBOL_MAP.md",
+)
+
 WINDOWS_ABSOLUTE_PATH = re.compile(r"(?i)\b[A-Z]:\\")
 STATUS_ROLE = "status_role: current-status-aggregator"
 BACKLOG_ROLE = "backlog_role: program-router"
+READING_ORDER_ROLE = "reading_order_role: sole-owner"
+DEAD_GENERATED_PATHS = (
+    "architecture/generated-inventory.json",
+    "architecture/generated-inventory.md",
+    "architecture/generated-inventory",
+)
+
+
+def _text(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
 
 
 def _lines(path: Path) -> list[str]:
-    return path.read_text(encoding="utf-8").splitlines()
+    return _text(path).splitlines()
 
 
 def _markdown_files() -> list[Path]:
@@ -46,62 +72,149 @@ def _markdown_files() -> list[Path]:
         directories[:] = [name for name in directories if name not in ignored_names]
         root = Path(current)
         markdown.extend(root / name for name in filenames if name.endswith(".md"))
-    return markdown
+    return sorted(markdown)
+
+
+def _assert_unique_marker(markdown: list[Path], marker: str, expected: str) -> None:
+    owners = [
+        path.relative_to(ROOT).as_posix()
+        for path in markdown
+        if marker in _text(path)
+    ]
+    assert owners == [expected], f"{marker!r} must be unique, found: {owners}"
+
+
+def _assert_reading_order() -> None:
+    start = _text(ROOT / "AI_START_HERE.md")
+    heading = "## 2. Единственный порядок чтения"
+    assert heading in start
+    section = start.split(heading, 1)[1].split("## 3.", 1)[0]
+    sequence = (
+        "Корневой `AGENTS.md`",
+        "Этот `AI_START_HERE.md`",
+        "`docs/NOW.md`",
+        "scoped `AGENTS.md`",
+        "карта из `docs/context/`",
+        "Task Contract текущего package",
+        "generated maps",
+        "source и tests",
+    )
+    positions = [section.index(item) for item in sequence]
+    assert positions == sorted(positions), f"invalid canonical reading order: {positions}"
+
+    forbidden_duplicate_headings = (
+        "Единственный порядок чтения",
+        "Текущая иерархия знаний",
+        "Единственная иерархия источников",
+    )
+    for path in CANONICAL_ROUTING_DOCS:
+        if path.name == "AI_START_HERE.md":
+            continue
+        text = _text(path)
+        for phrase in forbidden_duplicate_headings:
+            assert phrase not in text, (
+                f"{path.relative_to(ROOT)} duplicates reading-order ownership: {phrase}"
+            )
+        assert "AI_START_HERE.md" in text, (
+            f"{path.relative_to(ROOT)} must defer to AI_START_HERE.md"
+        )
+
+
+def _assert_generated_evidence_paths() -> None:
+    for path in GENERATED_EVIDENCE:
+        assert path.is_file(), f"missing generated evidence: {path.relative_to(ROOT)}"
+
+    routing_text = "\n".join(_text(path) for path in CANONICAL_ROUTING_DOCS)
+    for dead in DEAD_GENERATED_PATHS:
+        assert dead not in routing_text, f"canonical routing references dead path: {dead}"
+
+    start = _text(ROOT / "AI_START_HERE.md")
+    now = _text(ROOT / "docs" / "NOW.md")
+    for path in GENERATED_EVIDENCE:
+        relative = path.relative_to(ROOT).as_posix()
+        assert relative in start or relative in now, (
+            f"generated evidence is not routed from AI_START_HERE/NOW: {relative}"
+        )
+
+
+def _assert_program_and_package_status() -> None:
+    program = _text(ROOT / "docs" / "agent-control-plane.md")
+    assert "status: active-program" in program
+    assert "canonical: true" in program
+    assert "daily_context: false" in program
+    assert "status: review-draft" not in program
+
+    receipt = _text(ROOT / "docs" / "agent-tasks" / "AI-CANONICAL-001.md")
+    assert "status: completed" in receipt
+    assert "record_role: completed-package-receipt" in receipt
+    assert "merged_pr: 73" in receipt
+    assert "merged_sha: 49a19e271e4e0e71d1fa6f871f828f0a233cfbdf" in receipt
+    assert "deployment: none" in receipt
+    assert "ready-for-owner-review" not in receipt
+
+    now = _text(ROOT / "docs" / "NOW.md")
+    assert "completed_package: AI-CANONICAL-001" in now
+    assert "completed_repair: AI-CANONICAL-REPAIR-001" in now
+    assert "active_package: none" in now
+    assert "next_candidate: AI-INSTRUCTION-SCOPE-001" in now
+    assert "Task Contract: `docs/agent-tasks/AI-CANONICAL-001.md`" not in now
 
 
 def assert_agent_instruction_contracts() -> None:
     for path in REQUIRED:
         assert path.is_file(), f"missing canonical agent file: {path.relative_to(ROOT)}"
 
-    start_lines = _lines(ROOT / "AI_START_HERE.md")
-    now_lines = _lines(ROOT / "docs" / "NOW.md")
-    assert len(start_lines) <= 120, f"AI_START_HERE.md exceeds 120 lines: {len(start_lines)}"
-    assert len(now_lines) <= 140, f"docs/NOW.md exceeds 140 lines: {len(now_lines)}"
+    limits = {
+        ROOT / "AGENTS.md": 230,
+        ROOT / "AI_START_HERE.md": 120,
+        ROOT / "docs" / "NOW.md": 140,
+        ROOT / "docs" / "agent-control-plane.md": 250,
+        ROOT / "docs" / "agent-tasks" / "AI-CANONICAL-001.md": 120,
+    }
+    for path, maximum in limits.items():
+        count = len(_lines(path))
+        assert count <= maximum, (
+            f"{path.relative_to(ROOT)} exceeds {maximum} lines: {count}"
+        )
 
     for adapter in ADAPTERS:
-        text = adapter.read_text(encoding="utf-8")
+        text = _text(adapter)
         lines = text.splitlines()
-        assert 4 <= len(lines) <= 20, f"{adapter.name} must stay 4-20 lines, has {len(lines)}"
+        assert 4 <= len(lines) <= 20, (
+            f"{adapter.name} must stay 4-20 lines, has {len(lines)}"
+        )
         assert "AGENTS.md" in text, f"{adapter.name} does not point to AGENTS.md"
-        assert "AI_START_HERE.md" in text, f"{adapter.name} does not point to AI_START_HERE.md"
+        assert "AI_START_HERE.md" in text, (
+            f"{adapter.name} does not point to AI_START_HERE.md"
+        )
         assert not WINDOWS_ABSOLUTE_PATH.search(text), (
             f"{adapter.name} must not define an absolute workspace path"
         )
 
-    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    agents = _text(ROOT / "AGENTS.md")
+    assert "`AI_START_HERE.md` is the sole owner" in agents
     assert "docs/NOW.md" in agents
-    assert "AI_START_HERE.md" in agents
-    assert "The current executable backlog is" not in agents
     assert "repository-operation-lock.ps1" in agents
+    assert "The current executable backlog is" not in agents
 
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    readme = _text(ROOT / "README.md")
     assert "Prototype web" not in readme
     assert "Implemented prototype scope" not in readme
     assert "docs/NOW.md" in readme
     assert "AI_START_HERE.md" in readme
 
-    legacy_status = (ROOT / "docs" / "current-status.md").read_text(encoding="utf-8")
+    legacy_status = _text(ROOT / "docs" / "current-status.md")
     assert "superseded_by: docs/NOW.md" in legacy_status
     assert "AUTH-BOT-P0-20260723" not in legacy_status
     assert "Active package:" not in legacy_status
 
     markdown = _markdown_files()
-    status_owners = [
-        path.relative_to(ROOT).as_posix()
-        for path in markdown
-        if STATUS_ROLE in path.read_text(encoding="utf-8")
-    ]
-    backlog_owners = [
-        path.relative_to(ROOT).as_posix()
-        for path in markdown
-        if BACKLOG_ROLE in path.read_text(encoding="utf-8")
-    ]
-    assert status_owners == ["docs/NOW.md"], (
-        f"current-status aggregator must be unique, found: {status_owners}"
-    )
-    assert backlog_owners == ["docs/NOW.md"], (
-        f"program router must be unique, found: {backlog_owners}"
-    )
+    _assert_unique_marker(markdown, STATUS_ROLE, "docs/NOW.md")
+    _assert_unique_marker(markdown, BACKLOG_ROLE, "docs/NOW.md")
+    _assert_unique_marker(markdown, READING_ORDER_ROLE, "AI_START_HERE.md")
+    _assert_reading_order()
+    _assert_generated_evidence_paths()
+    _assert_program_and_package_status()
 
 
 def test_agent_instruction_contracts() -> None:
