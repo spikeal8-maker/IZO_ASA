@@ -121,6 +121,27 @@ def _assert_reading_order() -> None:
         )
 
 
+def _assert_risk_classes() -> None:
+    start = _text(ROOT / "AI_START_HERE.md")
+    heading = "## 4. Выбери класс риска"
+    assert heading in start
+    section = start.split(heading, 1)[1].split("## 5.", 1)[0]
+    expected = {
+        "`low`": ("Документация", "targeted checks"),
+        "`standard`": ("frontend/backend", "Quick"),
+        "`high-assurance`": ("Auth, billing, migrations", "race/idempotency"),
+        "`release-ops`": ("production data/provider/network", "разрешение владельца"),
+    }
+    for risk_class, evidence in expected.items():
+        assert risk_class in section, f"missing risk class: {risk_class}"
+        for phrase in evidence:
+            assert phrase in section, (
+                f"risk class {risk_class} lacks required evidence: {phrase}"
+            )
+    assert "запрещён третий broad scan" in section
+    assert "`BLOCKED`" in section
+
+
 def _assert_generated_evidence_paths() -> None:
     for path in GENERATED_EVIDENCE:
         assert path.is_file(), f"missing generated evidence: {path.relative_to(ROOT)}"
@@ -227,6 +248,7 @@ def assert_agent_instruction_contracts() -> None:
     _assert_unique_marker(markdown, BACKLOG_ROLE, "docs/NOW.md")
     _assert_unique_marker(markdown, READING_ORDER_ROLE, "AI_START_HERE.md")
     _assert_reading_order()
+    _assert_risk_classes()
     _assert_generated_evidence_paths()
     _assert_program_and_package_status()
 
