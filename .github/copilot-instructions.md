@@ -1,10 +1,8 @@
 # GitHub Copilot instructions for IZO_ASA
 
-Read and follow the repository-root `AGENTS.md` before proposing or applying any
-change. `AGENTS.md` is authoritative for canonical workspace, production safety,
-security, bot ownership, modularization, testing, commits and releases.
+Read repository-root `AGENTS.md` first, then `AI_START_HERE.md` and
+`docs/NOW.md`. `AGENTS.md` is the only repository-wide policy.
 
-This is a live modular-monolith product. Preserve compatibility, keep tests away
-from production DB/media/providers, place new backend logic under `backend/app`,
-never raise protected-file budgets just to pass a gate, and update generated maps
-in the same code-bearing commit.
+Use the nearest scoped instructions, context card, generated map and Task
+Contract. Do not invent alternate workspace paths, change production data,
+deploy/restart, call real providers or add business logic to `backend/main.py`.
