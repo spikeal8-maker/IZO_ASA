@@ -113,7 +113,10 @@ URL, lazy-loaded workspace, стили, история, composer, каталог
 
 ### 4.3. Сообщение
 
-- Один пользовательский turn ограничен 4 000 символами.
+- Backend schema ограничивает итоговый пользовательский `content` 4 000
+  символами. CURRENT GAP: desktop проверяет 4 000 символов `rawContent`, а затем
+  добавляет скрытый forced-tool prefix; поэтому web-search запрос длиннее 3 937
+  и image-tool запрос длиннее 3 933 символов отклоняются backend validation.
 - Разрешены до четырёх JPEG/PNG/WebP изображений.
 - CURRENT GAP: выбранная model не проверяется на visual capability до charge и
   provider call; unsupported attachment может завершиться ошибкой или быть проигнорирован.
@@ -395,8 +398,10 @@ internal.
   перехваченных ветках `ValueError`, timeout, `httpx.HTTPError` и `RuntimeError`
   вокруг provider route. Неизвестное исключение provider и ошибки последующих
   settlement, telemetry или history writes эту refund-ветку не проходят.
-- UI должен объяснять активный принцип цены; нельзя описывать fixed-cost charge
-  как расчёт по фактическому usage.
+- TARGET: UI должен объяснять активный принцип цены и не описывать fixed-cost
+  charge как расчёт по фактическому usage. CURRENT GAP: model-catalog route и в
+  compatibility-режиме возвращает usage-based `description` и
+  `priceGuidance` про reserve/refund; desktop показывает первое, mobile — второе.
 - UI должен объяснять цену до выбора платной модели, не раскрывая внутреннюю
   provider economics.
 
@@ -462,7 +467,7 @@ social bots.
 | Model picker перегружен недоступными technical models и слабыми описаниями | `DesktopChatWorkspace.tsx`, model catalog route/test | product acceptance + отдельная issue |
 | Local ответ может занимать около минуты; streaming и cancel отсутствуют | router latency event и desktop request flow | измеренный baseline + streaming package |
 | Formatter не поддерживает полноценный Markdown и nested lists | `frontend/src/phone/features/chat/format.ts`, `frontend/phoneChat.test.ts` | characterization + renderer issue |
-| Forced tool кодируется скрытым text prefix | desktop composer и backend tool contract | regression + structured-field issue |
+| Forced tool кодируется скрытым text prefix и уменьшает фактический raw limit до 3 937/3 933 символов | desktop composer и backend 4 000-character validation | regression + structured-field issue |
 | Финальный image-tool state пишется отдельным best-effort PATCH | desktop image job completion и tool-state route | recovery/idempotency issue |
 | Surface actions не имеют desktop/mobile parity | desktop media empty-state actions и preview/share; mobile quick prompts и download/animate | product decision + mobile parity issue |
 | Refund не покрывает unknown provider exception и post-provider settlement/telemetry/history failure | `phone_chat.py` exception boundary после charge | отдельная billing recovery issue с race/idempotency tests |
@@ -471,6 +476,7 @@ social bots.
 | Visual capability не описана и не проверяется до платного provider call | model catalog/resolver и attachment path | capability schema + pre-charge validation |
 | Mobile не показывает structured web-search source links | desktop source renderer и mobile `ChatTools` filter | citation surface parity package |
 | Image data не декодируется и не сверяется с magic bytes | `_phone_chat_image_payloads` | content validation до charge/provider |
+| Fixed-cost catalog copy всё равно обещает usage-based reserve/refund | model-catalog `description`/`priceGuidance`, desktop/mobile renderers | billing-copy contract + отдельная UI issue |
 | Chat metadata конфликтуют с общим studio effect и исходным HTML | `studioNavigation.ts`, `newUi.tsx`, source HTML | SEO decision + отдельная issue |
 | Нет канонического eval набора качества ответа и tool choice | [assistant contract](chat-assistant-contract.md) | eval package и versioned fixtures |
 
