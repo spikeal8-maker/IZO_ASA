@@ -63,6 +63,27 @@ def test_fixed_cases_are_small_concrete_and_fingerprinted() -> None:
     assert len(rubric_fingerprints) == len(EXPECTED_CASES)
 
 
+def test_rubric_fingerprint_covers_global_gate_rules(monkeypatch: pytest.MonkeyPatch) -> None:
+    case_id = "chat-model-selector"
+    original = eval_tool.rubric_fingerprint(case_id)
+    rules = eval_tool.evaluator_rules()
+    assert rules["version"] == eval_tool.EVALUATOR_RULES_VERSION
+    assert rules["requiredRoutingFiles"] == sorted(eval_tool.ROUTING_FILES)
+    assert rules["protectedFullReads"] == sorted(eval_tool.PROTECTED_FULL_READS)
+    assert rules["tokenSources"] == list(eval_tool.TOKEN_SOURCES)
+    assert "reported-pass-requires-zero-violations" in rules["rules"]
+
+    monkeypatch.setattr(
+        eval_tool,
+        "ROUTING_FILES",
+        {*eval_tool.ROUTING_FILES, "docs/EXTRA-ROUTING.md"},
+    )
+    assert eval_tool.rubric_fingerprint(case_id) != original
+
+    monkeypatch.setattr(eval_tool, "EVALUATOR_RULES_VERSION", 2)
+    assert eval_tool.rubric_fingerprint(case_id) != original
+
+
 def test_prompts_are_read_only_cold_and_bounded() -> None:
     for case_id in EXPECTED_CASES:
         text = eval_tool.prompt(case_id)

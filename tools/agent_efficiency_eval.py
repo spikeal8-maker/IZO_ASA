@@ -19,8 +19,11 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_VERSION = 1
+EVALUATOR_RULES_VERSION = 1
 ROUTING_FILES = {"AGENTS.md", "AI_START_HERE.md", "docs/NOW.md"}
 TOKEN_FIELDS = ("inputTokens", "cachedInputTokens", "outputTokens")
+TOKEN_SOURCES = ("unknown", "codex-ui", "codex-api")
+RESULT_VALUES = ("pass", "partial", "fail")
 PROTECTED_FULL_READS = {
     "backend/main.py",
     "frontend/src/newUi.tsx",
@@ -31,6 +34,25 @@ PROTECTED_FULL_READS = {
     "frontend/src/videoStudio.css",
     "frontend/src/index.css",
 }
+RULE_NAMES = (
+    "clean-checkout",
+    "receipt-head-equals-current-head",
+    "cold-session-required",
+    "memory-disabled-required",
+    "required-routing-files",
+    "extra-routing-counts-as-subject",
+    "unlisted-full-read-counts-as-subject",
+    "subject-file-limit",
+    "required-opened-files",
+    "required-result-anchors",
+    "protected-full-read-violation",
+    "broad-scan-violation",
+    "repeated-search-violation",
+    "owner-correction-violation",
+    "exact-test-path-hints",
+    "numeric-token-provenance",
+    "reported-pass-requires-zero-violations",
+)
 COMMON = """Режим: АНАЛИЗ БЕЗ ИЗМЕНЕНИЙ.
 
 - Новый чистый чат Codex в canonical IZO_ASA repository.
@@ -160,14 +182,30 @@ def case_fingerprint(case_id: str) -> str:
     return _sha256_text(prompt(case_id))
 
 
+def evaluator_rules() -> dict[str, Any]:
+    """Return every global input that defines gatePassed semantics."""
+    return {
+        "version": EVALUATOR_RULES_VERSION,
+        "requiredRoutingFiles": sorted(ROUTING_FILES),
+        "protectedFullReads": sorted(PROTECTED_FULL_READS),
+        "tokenFields": list(TOKEN_FIELDS),
+        "tokenSources": list(TOKEN_SOURCES),
+        "resultValues": list(RESULT_VALUES),
+        "rules": list(RULE_NAMES),
+    }
+
+
 def rubric_fingerprint(case_id: str) -> str:
     case = CASES[case_id]
     rubric = {
         "schemaVersion": SCHEMA_VERSION,
-        "limit": case["limit"],
-        "opened": case["opened"],
-        "anchors": case["anchors"],
-        "tests": case["tests"],
+        "evaluatorRules": evaluator_rules(),
+        "case": {
+            "limit": case["limit"],
+            "opened": case["opened"],
+            "anchors": case["anchors"],
+            "tests": case["tests"],
+        },
     }
     return _sha256_text(
         json.dumps(rubric, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -306,7 +344,7 @@ def validate(data: object) -> dict[str, Any]:
     for field in ("toolCalls", "elapsedSeconds"):
         _count(data[field], field)
     token_values = {field: _tokens(data[field], field) for field in TOKEN_FIELDS}
-    if data["tokenSource"] not in {"unknown", "codex-ui", "codex-api"}:
+    if data["tokenSource"] not in TOKEN_SOURCES:
         raise InvalidReceipt("tokenSource must be unknown, codex-ui or codex-api")
     any_token_known = any(value is not None for value in token_values.values())
     if any_token_known and data["tokenSource"] == "unknown":
@@ -317,7 +355,7 @@ def validate(data: object) -> dict[str, Any]:
         data["tokenSource"] != "unknown" or data["tokenEvidence"].strip()
     ):
         raise InvalidReceipt("unknown token counters require tokenSource=unknown and empty tokenEvidence")
-    if data["result"] not in {"pass", "partial", "fail"}:
+    if data["result"] not in RESULT_VALUES:
         raise InvalidReceipt("result must be pass, partial or fail")
 
     violations: list[str] = []
@@ -424,7 +462,7 @@ def summarize(directory: Path) -> dict[str, Any]:
         "tokenTotals": token_totals,
         "tokenSources": {
             source: sum(row["tokenSource"] == source for row in rows)
-            for source in ("unknown", "codex-ui", "codex-api")
+            for source in TOKEN_SOURCES
         },
     }
 
