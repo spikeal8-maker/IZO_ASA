@@ -6,6 +6,8 @@ import importlib.util
 import json
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = ROOT / "tools" / "agent_efficiency_eval.py"
@@ -13,6 +15,7 @@ SPEC = importlib.util.spec_from_file_location("agent_efficiency_eval", MODULE_PA
 assert SPEC and SPEC.loader
 eval_tool = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(eval_tool)
+ORIGINAL_ASSERT_CLEAN = eval_tool._assert_clean_checkout
 
 
 EXPECTED_CASES = {
@@ -20,6 +23,11 @@ EXPECTED_CASES = {
     "admin-last-admin-race",
     "studio-text-to-image",
 }
+
+
+@pytest.fixture(autouse=True)
+def _isolate_unit_receipts_from_developer_wip(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(eval_tool, "_assert_clean_checkout", lambda: None)
 
 
 def _receipt(case_id: str) -> dict[str, object]:
@@ -73,6 +81,12 @@ def test_template_captures_actual_head_and_run_identity() -> None:
     assert payload["rubricFingerprint"] == eval_tool.rubric_fingerprint("chat-model-selector")
 
 
+def test_dirty_checkout_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(eval_tool, "_git_status_porcelain", lambda: " M AGENTS.md")
+    with pytest.raises(eval_tool.InvalidReceipt, match="checkout must be clean"):
+        ORIGINAL_ASSERT_CLEAN()
+
+
 def test_clean_receipts_pass_all_gates_and_keep_tokens() -> None:
     for case_id in EXPECTED_CASES:
         payload = _receipt(case_id)
@@ -124,61 +138,37 @@ def test_reported_pass_with_missing_evidence_fails_gate() -> None:
 def test_changed_fingerprints_fake_tokens_and_missing_provenance_are_invalid() -> None:
     payload = _receipt("studio-text-to-image")
     payload["caseFingerprint"] = "sha256:" + ("0" * 64)
-    try:
+    with pytest.raises(eval_tool.InvalidReceipt, match="caseFingerprint"):
         eval_tool.validate(payload)
-    except eval_tool.InvalidReceipt as exc:
-        assert "caseFingerprint" in str(exc)
-    else:
-        raise AssertionError("wrong prompt fingerprint must be rejected")
 
     payload = _receipt("studio-text-to-image")
     payload["rubricFingerprint"] = "sha256:" + ("0" * 64)
-    try:
+    with pytest.raises(eval_tool.InvalidReceipt, match="rubricFingerprint"):
         eval_tool.validate(payload)
-    except eval_tool.InvalidReceipt as exc:
-        assert "rubricFingerprint" in str(exc)
-    else:
-        raise AssertionError("wrong rubric fingerprint must be rejected")
 
     payload = _receipt("studio-text-to-image")
     payload["inputTokens"] = "bytes/4"
-    try:
+    with pytest.raises(eval_tool.InvalidReceipt, match="inputTokens"):
         eval_tool.validate(payload)
-    except eval_tool.InvalidReceipt as exc:
-        assert "inputTokens" in str(exc)
-    else:
-        raise AssertionError("estimated token string must be rejected")
 
     payload = _receipt("studio-text-to-image")
     payload["inputTokens"] = 123
-    try:
+    with pytest.raises(eval_tool.InvalidReceipt, match="tokenSource"):
         eval_tool.validate(payload)
-    except eval_tool.InvalidReceipt as exc:
-        assert "tokenSource" in str(exc)
-    else:
-        raise AssertionError("numeric tokens without Codex/API provenance must be rejected")
 
 
 def test_receipt_must_match_actual_checkout_head() -> None:
     payload = _receipt("chat-model-selector")
     payload["repoHead"] = "0" * 40
-    try:
+    with pytest.raises(eval_tool.InvalidReceipt, match="current checkout HEAD"):
         eval_tool.validate(payload)
-    except eval_tool.InvalidReceipt as exc:
-        assert "current checkout HEAD" in str(exc)
-    else:
-        raise AssertionError("fabricated repoHead must be rejected")
 
 
 def test_absolute_paths_are_invalid_receipts() -> None:
     payload = _receipt("studio-text-to-image")
     payload["subjectFilesOpened"] = [r"E:\IZO_ASA_WORKSPACE\docs\context\frontend-studio.md"]
-    try:
+    with pytest.raises(eval_tool.InvalidReceipt, match="repository-relative"):
         eval_tool.validate(payload)
-    except eval_tool.InvalidReceipt as exc:
-        assert "repository-relative" in str(exc)
-    else:
-        raise AssertionError("absolute path must be rejected")
 
 
 def test_extra_routing_entries_count_as_subject_reads() -> None:
@@ -202,10 +192,7 @@ def test_proposed_tests_require_exact_paths() -> None:
     ]
     payload["result"] = "fail"
     result = eval_tool.validate(payload)
-    assert any(
-        item == "missing-test-hints:frontend/e2e-generate.mjs"
-        for item in result["violations"]
-    )
+    assert "missing-test-hints:frontend/e2e-generate.mjs" in result["violations"]
 
     payload = _receipt("admin-last-admin-race")
     payload["testsProposed"] = [
@@ -239,12 +226,8 @@ def test_summary_requires_all_cases_same_sha_and_preserves_token_totals(tmp_path
     assert result["tokenSources"]["codex-api"] == 3
 
     (tmp_path / "studio-text-to-image.json").unlink()
-    try:
+    with pytest.raises(eval_tool.InvalidReceipt, match="incomplete case set"):
         eval_tool.summarize(tmp_path)
-    except eval_tool.InvalidReceipt as exc:
-        assert "incomplete case set" in str(exc)
-    else:
-        raise AssertionError("incomplete case set must be rejected")
 
 
 def test_templates_use_ignored_runtime_receipts() -> None:

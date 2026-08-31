@@ -118,21 +118,38 @@ def _sha256_text(value: str) -> str:
     return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def _git_head() -> str:
+def _run_git(*args: str) -> str:
     try:
         completed = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
+            ["git", *args],
             cwd=ROOT,
             check=True,
             capture_output=True,
             text=True,
         )
     except (OSError, subprocess.CalledProcessError) as exc:
-        raise InvalidReceipt("cannot capture repository HEAD") from exc
-    value = completed.stdout.strip().lower()
+        raise InvalidReceipt(f"git {' '.join(args)} failed") from exc
+    return completed.stdout.strip()
+
+
+def _git_head() -> str:
+    value = _run_git("rev-parse", "HEAD").lower()
     if not re.fullmatch(r"[0-9a-f]{40}", value):
         raise InvalidReceipt("git rev-parse HEAD returned an invalid SHA")
     return value
+
+
+def _git_status_porcelain() -> str:
+    return _run_git("status", "--porcelain=v1", "--untracked-files=all")
+
+
+def _assert_clean_checkout() -> None:
+    status = _git_status_porcelain()
+    if status:
+        preview = " | ".join(status.splitlines()[:5])
+        raise InvalidReceipt(
+            f"checkout must be clean before agent eval; dirty entries: {preview}"
+        )
 
 
 def prompt(case_id: str) -> str:
@@ -158,6 +175,7 @@ def rubric_fingerprint(case_id: str) -> str:
 
 
 def template(case_id: str) -> dict[str, Any]:
+    _assert_clean_checkout()
     return {
         "schemaVersion": SCHEMA_VERSION,
         "caseId": case_id,
@@ -239,6 +257,7 @@ def _tokens(value: object, field: str) -> int | None:
 
 
 def validate(data: object) -> dict[str, Any]:
+    _assert_clean_checkout()
     if not isinstance(data, dict):
         raise InvalidReceipt("receipt must be a JSON object")
     missing, extra = FIELDS - data.keys(), data.keys() - FIELDS
