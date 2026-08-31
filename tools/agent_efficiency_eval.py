@@ -7,6 +7,7 @@ must contain only values reported by Codex/API.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -16,6 +17,7 @@ from typing import Any
 
 SCHEMA_VERSION = 1
 ROUTING_FILES = {"AGENTS.md", "AI_START_HERE.md", "docs/NOW.md"}
+TOKEN_FIELDS = ("inputTokens", "cachedInputTokens", "outputTokens")
 PROTECTED_FULL_READS = {
     "backend/main.py",
     "frontend/src/newUi.tsx",
@@ -95,17 +97,30 @@ CASES: dict[str, dict[str, Any]] = {
 }
 
 FIELDS = {
-    "schemaVersion", "caseId", "runId", "startedAt", "agent", "model",
-    "repoHead", "coldSession", "memoryEnabled", "routingFilesOpened",
-    "subjectFilesOpened", "resultAnchors", "largeFilesReadFully", "broadScans",
-    "repeatedSearches", "toolCalls", "testsProposed", "testsRun",
-    "ownerCorrections", "result", "inputTokens", "cachedInputTokens",
-    "outputTokens", "elapsedSeconds", "notes",
+    "schemaVersion", "caseId", "caseFingerprint", "runId", "startedAt",
+    "agent", "model", "repoHead", "coldSession", "memoryEnabled",
+    "routingFilesOpened", "subjectFilesOpened", "resultAnchors",
+    "largeFilesReadFully", "broadScans", "repeatedSearches", "toolCalls",
+    "testsProposed", "testsRun", "ownerCorrections", "result",
+    "inputTokens", "cachedInputTokens", "outputTokens", "elapsedSeconds", "notes",
 }
 
 
 class InvalidReceipt(ValueError):
     pass
+
+
+def case_fingerprint(case_id: str) -> str:
+    payload = {
+        "schemaVersion": SCHEMA_VERSION,
+        "caseId": case_id,
+        "common": COMMON,
+        "case": CASES[case_id],
+    }
+    canonical = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(canonical).hexdigest()
 
 
 def prompt(case_id: str) -> str:
@@ -116,6 +131,7 @@ def template(case_id: str) -> dict[str, Any]:
     return {
         "schemaVersion": SCHEMA_VERSION,
         "caseId": case_id,
+        "caseFingerprint": case_fingerprint(case_id),
         "runId": "",
         "startedAt": "",
         "agent": "Codex",
@@ -179,11 +195,16 @@ def validate(data: object) -> dict[str, Any]:
         raise InvalidReceipt(f"field mismatch; missing={sorted(missing)} extra={sorted(extra)}")
     if data["schemaVersion"] != SCHEMA_VERSION or data["caseId"] not in CASES:
         raise InvalidReceipt("unsupported schemaVersion or caseId")
-    case = CASES[str(data["caseId"])]
+    case_id = str(data["caseId"])
+    case = CASES[case_id]
 
-    for field in ("runId", "startedAt", "agent", "model", "repoHead", "notes"):
+    for field in (
+        "caseFingerprint", "runId", "startedAt", "agent", "model", "repoHead", "notes"
+    ):
         if not isinstance(data[field], str):
             raise InvalidReceipt(f"{field} must be a string")
+    if data["caseFingerprint"] != case_fingerprint(case_id):
+        raise InvalidReceipt("caseFingerprint does not match the current fixed prompt")
     if not data["runId"].strip():
         raise InvalidReceipt("runId is required")
     try:
@@ -206,8 +227,7 @@ def validate(data: object) -> dict[str, Any]:
     corrections = _count(data["ownerCorrections"], "ownerCorrections")
     for field in ("toolCalls", "elapsedSeconds"):
         _count(data[field], field)
-    for field in ("inputTokens", "cachedInputTokens", "outputTokens"):
-        _tokens(data[field], field)
+    token_values = {field: _tokens(data[field], field) for field in TOKEN_FIELDS}
     if data["result"] not in {"pass", "partial", "fail"}:
         raise InvalidReceipt("result must be pass, partial or fail")
 
@@ -242,16 +262,16 @@ def validate(data: object) -> dict[str, Any]:
         violations.append("reported-pass-with-violations")
 
     return {
-        "caseId": data["caseId"],
+        "caseId": case_id,
+        "caseFingerprint": data["caseFingerprint"],
+        "repoHead": data["repoHead"],
         "reportedResult": data["result"],
         "gatePassed": data["result"] == "pass" and not violations,
         "violations": violations,
         "subjectFiles": len(subjects),
         "toolCalls": data["toolCalls"],
         "elapsedSeconds": data["elapsedSeconds"],
-        "tokenDataKnown": any(_tokens(data[f], f) is not None for f in (
-            "inputTokens", "cachedInputTokens", "outputTokens"
-        )),
+        **token_values,
     }
 
 
@@ -260,6 +280,42 @@ def _read(path: Path) -> dict[str, Any]:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise InvalidReceipt(f"cannot read {path}: {exc}") from exc
+
+
+def summarize(directory: Path) -> dict[str, Any]:
+    rows = [validate(_read(path)) for path in sorted(directory.glob("*.json"))]
+    if not rows:
+        raise InvalidReceipt("no JSON receipts found")
+    case_ids = {row["caseId"] for row in rows}
+    if len(case_ids) != len(rows):
+        raise InvalidReceipt("duplicate case receipts")
+    if case_ids != set(CASES):
+        raise InvalidReceipt(
+            f"incomplete case set; expected={sorted(CASES)} actual={sorted(case_ids)}"
+        )
+    repo_heads = {row["repoHead"] for row in rows}
+    if len(repo_heads) != 1:
+        raise InvalidReceipt(f"receipts use different repoHead values: {sorted(repo_heads)}")
+
+    token_totals: dict[str, dict[str, int | None]] = {}
+    for field in TOKEN_FIELDS:
+        known = [int(row[field]) for row in rows if row[field] is not None]
+        token_totals[field] = {
+            "knownReceipts": len(known),
+            "value": sum(known) if known else None,
+        }
+
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "repoHead": rows[0]["repoHead"],
+        "receiptCount": len(rows),
+        "cases": rows,
+        "totalSubjectFiles": sum(row["subjectFiles"] for row in rows),
+        "totalToolCalls": sum(row["toolCalls"] for row in rows),
+        "totalElapsedSeconds": sum(row["elapsedSeconds"] for row in rows),
+        "gatesPassed": sum(row["gatePassed"] for row in rows),
+        "tokenTotals": token_totals,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -275,7 +331,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "list":
             for key, case in CASES.items():
-                print(f"{key}\t{case['title']}\tmaxSubjectFiles={case['limit']}")
+                print(
+                    f"{key}\t{case['title']}\tmaxSubjectFiles={case['limit']}"
+                    f"\t{case_fingerprint(key)}"
+                )
         elif args.command == "prompt":
             print(prompt(args.case), end="")
         elif args.command == "template":
@@ -289,19 +348,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "validate":
             print(json.dumps({"ok": True, **validate(_read(args.receipt))}, ensure_ascii=False, indent=2))
         elif args.command == "summarize":
-            rows = [validate(_read(path)) for path in sorted(args.directory.glob("*.json"))]
-            if not rows:
-                raise InvalidReceipt("no JSON receipts found")
-            if len({row["caseId"] for row in rows}) != len(rows):
-                raise InvalidReceipt("duplicate case receipts")
-            print(json.dumps({
-                "receiptCount": len(rows),
-                "cases": rows,
-                "totalSubjectFiles": sum(row["subjectFiles"] for row in rows),
-                "totalToolCalls": sum(row["toolCalls"] for row in rows),
-                "totalElapsedSeconds": sum(row["elapsedSeconds"] for row in rows),
-                "gatesPassed": sum(row["gatePassed"] for row in rows),
-            }, ensure_ascii=False, indent=2))
+            print(json.dumps(summarize(args.directory), ensure_ascii=False, indent=2))
     except InvalidReceipt as exc:
         print(f"AGENT_EVAL_INVALID: {exc}", file=sys.stderr)
         return 2

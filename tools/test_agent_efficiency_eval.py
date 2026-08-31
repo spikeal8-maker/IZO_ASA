@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 
@@ -20,13 +21,13 @@ EXPECTED_CASES = {
 }
 
 
-def _receipt(case_id: str) -> dict[str, object]:
+def _receipt(case_id: str, repo_head: str = "f1ee842f41f2192e71db7f754ad1500190e1547f") -> dict[str, object]:
     case = eval_tool.CASES[case_id]
     payload = eval_tool.template(case_id)
     payload.update({
         "runId": f"{case_id}-run-1",
         "startedAt": "2026-08-31T18:00:00+03:00",
-        "repoHead": "f1ee842f41f2192e71db7f754ad1500190e1547f",
+        "repoHead": repo_head,
         "subjectFilesOpened": list(case["opened"]),
         "resultAnchors": list(case["anchors"]),
         "testsProposed": list(case["tests"]),
@@ -37,12 +38,17 @@ def _receipt(case_id: str) -> dict[str, object]:
     return payload
 
 
-def test_fixed_cases_are_small_and_concrete() -> None:
+def test_fixed_cases_are_small_concrete_and_fingerprinted() -> None:
     assert set(eval_tool.CASES) == EXPECTED_CASES
-    for case in eval_tool.CASES.values():
+    fingerprints = set()
+    for case_id, case in eval_tool.CASES.items():
         assert 1 <= case["limit"] <= 8
         assert case["opened"] and case["anchors"] and case["tests"]
         assert "Открой не более" in case["task"]
+        fingerprint = eval_tool.case_fingerprint(case_id)
+        assert fingerprint.startswith("sha256:") and len(fingerprint) == 71
+        fingerprints.add(fingerprint)
+    assert len(fingerprints) == len(EXPECTED_CASES)
 
 
 def test_prompts_are_read_only_cold_and_bounded() -> None:
@@ -54,13 +60,19 @@ def test_prompts_are_read_only_cold_and_bounded() -> None:
         assert "После ответа остановись" in text
 
 
-def test_clean_receipts_pass_all_gates() -> None:
+def test_clean_receipts_pass_all_gates_and_keep_tokens() -> None:
     for case_id in EXPECTED_CASES:
-        result = eval_tool.validate(_receipt(case_id))
+        payload = _receipt(case_id)
+        payload["inputTokens"] = 100
+        payload["cachedInputTokens"] = 20
+        payload["outputTokens"] = 10
+        result = eval_tool.validate(payload)
         assert result["caseId"] == case_id
         assert result["gatePassed"] is True
         assert result["violations"] == []
-        assert result["tokenDataKnown"] is False
+        assert result["inputTokens"] == 100
+        assert result["cachedInputTokens"] == 20
+        assert result["outputTokens"] == 10
 
 
 def test_bad_agent_behavior_is_recorded_not_rejected() -> None:
@@ -89,15 +101,15 @@ def test_reported_pass_with_missing_evidence_fails_gate() -> None:
     assert "reported-pass-with-violations" in result["violations"]
 
 
-def test_absolute_paths_and_fake_token_estimates_are_invalid_receipts() -> None:
+def test_changed_case_fingerprint_and_fake_tokens_are_invalid() -> None:
     payload = _receipt("studio-text-to-image")
-    payload["subjectFilesOpened"] = [r"E:\IZO_ASA_WORKSPACE\docs\context\frontend-studio.md"]
+    payload["caseFingerprint"] = "sha256:" + ("0" * 64)
     try:
         eval_tool.validate(payload)
     except eval_tool.InvalidReceipt as exc:
-        assert "repository-relative" in str(exc)
+        assert "caseFingerprint" in str(exc)
     else:
-        raise AssertionError("absolute path must be rejected")
+        raise AssertionError("wrong case fingerprint must be rejected")
 
     payload = _receipt("studio-text-to-image")
     payload["inputTokens"] = "bytes/4"
@@ -107,6 +119,47 @@ def test_absolute_paths_and_fake_token_estimates_are_invalid_receipts() -> None:
         assert "inputTokens" in str(exc)
     else:
         raise AssertionError("estimated token string must be rejected")
+
+
+def test_absolute_paths_are_invalid_receipts() -> None:
+    payload = _receipt("studio-text-to-image")
+    payload["subjectFilesOpened"] = [r"E:\IZO_ASA_WORKSPACE\docs\context\frontend-studio.md"]
+    try:
+        eval_tool.validate(payload)
+    except eval_tool.InvalidReceipt as exc:
+        assert "repository-relative" in str(exc)
+    else:
+        raise AssertionError("absolute path must be rejected")
+
+
+def test_summary_requires_all_cases_same_sha_and_preserves_token_totals(tmp_path: Path) -> None:
+    for index, case_id in enumerate(sorted(EXPECTED_CASES), start=1):
+        payload = _receipt(case_id)
+        payload["inputTokens"] = index * 100
+        payload["cachedInputTokens"] = None
+        payload["outputTokens"] = index * 10
+        (tmp_path / f"{case_id}.json").write_text(
+            json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+        )
+    result = eval_tool.summarize(tmp_path)
+    assert result["receiptCount"] == 3
+    assert result["gatesPassed"] == 3
+    assert result["tokenTotals"]["inputTokens"] == {
+        "knownReceipts": 3,
+        "value": 600,
+    }
+    assert result["tokenTotals"]["cachedInputTokens"] == {
+        "knownReceipts": 0,
+        "value": None,
+    }
+
+    (tmp_path / "studio-text-to-image.json").unlink()
+    try:
+        eval_tool.summarize(tmp_path)
+    except eval_tool.InvalidReceipt as exc:
+        assert "incomplete case set" in str(exc)
+    else:
+        raise AssertionError("incomplete case set must be rejected")
 
 
 def test_templates_use_ignored_runtime_receipts() -> None:

@@ -19,7 +19,8 @@ coding-агента **до** появления `agent context`/`symbol` CLI.
 
 Package не оптимизирует retrieval и не меняет продукт. Он фиксирует три
 одинаковых cold cases, выдаёт готовые prompts, создаёт JSON receipt, проверяет
-его структуру и показывает нарушения bounded-gate.
+его структуру, привязывает receipt к fingerprint неизменного prompt и показывает
+нарушения bounded-gate.
 
 Старый issue `#71` относится к pre-change SHA и историческому состоянию до
 исправления Codex project/cwd, Memory и canonical routing. Этот package измеряет
@@ -86,7 +87,8 @@ python tools/agent_efficiency_eval.py summarize `
 - proposed/run tests;
 - owner corrections;
 - elapsed seconds;
-- фактические token counters, только если их показывает Codex/API.
+- фактические token counters и их неполные/полные totals, только если их
+  показывает Codex/API.
 
 `bytes / 4`, оценка по символам и другие вычисленные «токены» запрещены.
 
@@ -95,6 +97,7 @@ python tools/agent_efficiency_eval.py summarize `
 Passing run должен:
 
 - быть cold session с отключённой Memory;
+- использовать точный `caseFingerprint` и один общий `repoHead` для трёх runs;
 - открыть обязательные routing docs и нужную context-карту;
 - уложиться в 6–8 предметных файлов;
 - найти case-specific owners/anchors и targeted tests;
@@ -126,7 +129,7 @@ git diff --check
 
 ## Следующий gate
 
-После merge и трёх cold receipts сравнить фактические результаты. Только если
+После merge и трёх cold receipts на одном Git SHA сравнить фактические результаты. Только если
 они подтверждают дорогой повторный discovery, начинать отдельный
 `AI-CONTEXT-CLI-PILOT-001` для `chat` и `admin`. Этот package не разрешает
 автоматически начинать следующий.
