@@ -122,14 +122,22 @@ def _contract_routes(key: str) -> dict[str, tuple[str, str]]:
     return rows
 
 
-def _backend_routes() -> set[str]:
-    routes = set(re.findall(r"`(/api/[^`]+)`", SYMBOL_MAP.read_text(encoding="utf-8")))
+def _backend_route_methods() -> set[tuple[str, str]]:
+    routes = set(
+        re.findall(
+            r"^\|\s*(GET|POST|PUT|PATCH|DELETE)\s*\|\s*`(/api/[^`]+)`\s*\|",
+            SYMBOL_MAP.read_text(encoding="utf-8"),
+            re.MULTILINE,
+        )
+    )
     for router in sorted(MODULAR_ROUTERS_DIR.glob("*.py")):
         text = router.read_text(encoding="utf-8")
         prefix_match = re.search(r"APIRouter\(prefix=[\"']([^\"']+)[\"']", text)
         prefix = prefix_match.group(1) if prefix_match else ""
-        for path in re.findall(r"@router\.(?:get|post|put|patch|delete)\([\"']([^\"']+)[\"']", text):
-            routes.add(f"{prefix}{path}")
+        for method, path in re.findall(
+            r"@router\.(get|post|put|patch|delete)\([\"']([^\"']+)[\"']", text
+        ):
+            routes.add((method.upper(), f"{prefix}{path}"))
     return routes
 
 
@@ -157,7 +165,8 @@ def test_model_routes_match_source_guide_and_contract() -> None:
 def test_change_matrix_owners_tests_and_api_examples_exist() -> None:
     payload = _contract()
     assert payload["version"] == 1
-    discovered_routes = _backend_routes()
+    discovered_route_methods = _backend_route_methods()
+    discovered_routes = {path for _, path in discovered_route_methods}
     areas = payload["areas"]
     assert isinstance(areas, list) and len(areas) == 10
 
@@ -177,6 +186,13 @@ def test_change_matrix_owners_tests_and_api_examples_exist() -> None:
             assert endpoint in discovered_routes, (
                 f"{area['id']} API example is absent from backend evidence: {endpoint}"
             )
+        for gap in area.get("coverage_gaps", []):
+            for method, endpoint in re.findall(
+                r"\b(GET|POST|PUT|PATCH|DELETE)\s+(/api/[^\s;]+)", gap
+            ):
+                assert (method, endpoint) in discovered_route_methods, (
+                    f"{area['id']} coverage gap has wrong method or route: {method} {endpoint}"
+                )
 
     by_id = {area["id"]: area for area in areas}
     assert "backend/test_admin_v2.py" in by_id["models"]["tests"]
@@ -207,6 +223,7 @@ def test_change_recipes_keep_required_executable_gates() -> None:
         "npm --prefix frontend run lint",
         "npm --prefix frontend run build",
         "npm --prefix frontend run e2e:admin-dashboard",
+        "npm --prefix frontend run e2e:admin-model-pages",
         "pwsh -File tools/verify.ps1 -Mode Quick",
         "backend/test_product_consistency_20e2b.py",
         "backend/test_social_providers.py",
@@ -214,7 +231,8 @@ def test_change_recipes_keep_required_executable_gates() -> None:
         "backend/test_bot_runtime.py",
         "backend/test_yookassa_connection_check.py",
         "test_config_ui_reload_requires_reason_clears_cache_and_logs",
-        "POST /api/admin/payments/config-v2",
+        "PUT /api/admin/payments/config-v2",
+        "PUT /api/admin/mail/config-v2",
         "POST /api/admin/mail/test-v2",
         "GET /api/admin/audit-logs-v2",
         "fake providers",

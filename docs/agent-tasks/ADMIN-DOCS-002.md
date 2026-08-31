@@ -65,6 +65,7 @@ Rollback ограничен одним commit поверх текущего `mai
 - Review-routed tariff/social/payment fake-provider suites: 19 passed.
 - Config UI reload/switch/interrupt focused fake-runtime tests: 3 passed.
 - Social delivery and bot worker runtime characterization: 17 passed.
+- Route-mocked admin model-pages Playwright E2E: passed on isolated local Vite.
 - Focused payment ledger/outbox idempotency: 2 tests × 5 повторов, все passed.
 - Наблюдались существующие FastAPI deprecation и Windows temporary-directory
   cleanup warnings; test failures отсутствуют.

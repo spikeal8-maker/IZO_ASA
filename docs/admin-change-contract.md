@@ -147,7 +147,7 @@ routers.
       "live_action_risk": "release-ops",
       "required_controls": ["trusted-admin", "reason", "audit", "transaction", "idempotency", "explicit-live-authorization"],
       "tests": ["backend/test_admin_actions.py", "backend/test_billing_v2.py", "backend/test_billing_notification_outbox.py", "backend/test_yookassa_connection_check.py"],
-      "coverage_gaps": ["POST /api/admin/payments/config-v2 не имеет focused route test; до изменения config mutation добавить characterization"]
+      "coverage_gaps": ["PUT /api/admin/payments/config-v2 не имеет focused route test; до изменения config mutation добавить characterization"]
     },
     {
       "id": "mail",
@@ -163,7 +163,7 @@ routers.
       "live_action_risk": "release-ops",
       "required_controls": ["trusted-admin", "audit", "secret-store", "explicit-live-authorization", "fake-provider-tests"],
       "tests": ["backend/test_admin_mail_v2.py"],
-      "coverage_gaps": ["POST /api/admin/mail/config-v2 and POST /api/admin/mail/test-v2 lack focused fake-provider route tests"]
+      "coverage_gaps": ["PUT /api/admin/mail/config-v2 and POST /api/admin/mail/test-v2 lack focused fake-provider route tests"]
     },
     {
       "id": "bots",
@@ -273,6 +273,18 @@ npm --prefix frontend run lint
 npm --prefix frontend run build
 ```
 
+Для route-mocked model navigation/responsive E2E запустить из isolated worktree
+отдельный Vite server, затем тест:
+
+```powershell
+npm --prefix frontend run admin:dev -- --host 127.0.0.1 --port 5174
+$env:QA_ADMIN_BASE_URL = "http://127.0.0.1:5174"
+npm --prefix frontend run e2e:admin-model-pages
+```
+
+Server и E2E запускаются в разных терминалах; `VITE_API_BASE_URL` не направлять
+на production, после проверки dev server остановить.
+
 Если меняется цена или публикация, добавить focused quote/reservation/settlement
 tests из затронутого продукта. Route-mocked visual E2E не доказывает фактическое
 списание или provider availability.
@@ -287,7 +299,7 @@ python -m pytest -q backend/test_admin_notifications.py backend/test_admin_socia
 публикация, webhook или token action запрещены без отдельного owner-authorized
 release-ops package.
 
-CURRENT COVERAGE GAP: `POST /api/admin/mail/config-v2` и
+CURRENT COVERAGE GAP: `PUT /api/admin/mail/config-v2` и
 `POST /api/admin/mail/test-v2` не имеют focused route tests. Package, меняющий
 mail config или test-send, сначала добавляет characterization с fake SMTP для
 trusted-admin, validation, audit и redacted response; live SMTP запрещён.
@@ -315,7 +327,7 @@ invariant. Production money, provider webhook и live secrets не исполь�
 python -m pytest -q backend/test_yookassa_connection_check.py
 ```
 
-CURRENT COVERAGE GAP: `POST /api/admin/payments/config-v2` не имеет focused route
+CURRENT COVERAGE GAP: `PUT /api/admin/payments/config-v2` не имеет focused route
 test. Package, меняющий config mutation, сначала добавляет characterization для
 trusted-admin, validation, persistence, audit и secret handling.
 
