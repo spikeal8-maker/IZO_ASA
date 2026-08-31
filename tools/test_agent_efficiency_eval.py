@@ -66,9 +66,10 @@ def test_fixed_cases_are_small_concrete_and_fingerprinted() -> None:
 def test_rubric_fingerprint_covers_global_gate_rules(monkeypatch: pytest.MonkeyPatch) -> None:
     case_id = "chat-model-selector"
     original_routing = set(eval_tool.ROUTING_FILES)
+    original_version = eval_tool.EVALUATOR_RULES_VERSION
     original = eval_tool.rubric_fingerprint(case_id)
     rules = eval_tool.evaluator_rules()
-    assert rules["version"] == eval_tool.EVALUATOR_RULES_VERSION
+    assert rules["version"] == original_version
     assert rules["requiredRoutingFiles"] == sorted(eval_tool.ROUTING_FILES)
     assert rules["protectedFullReads"] == sorted(eval_tool.PROTECTED_FULL_READS)
     assert rules["tokenSources"] == list(eval_tool.TOKEN_SOURCES)
@@ -84,7 +85,7 @@ def test_rubric_fingerprint_covers_global_gate_rules(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(eval_tool, "ROUTING_FILES", original_routing)
     version_baseline = eval_tool.rubric_fingerprint(case_id)
     assert version_baseline == original
-    monkeypatch.setattr(eval_tool, "EVALUATOR_RULES_VERSION", 2)
+    monkeypatch.setattr(eval_tool, "EVALUATOR_RULES_VERSION", original_version + 1)
     assert eval_tool.rubric_fingerprint(case_id) != version_baseline
 
 
@@ -205,6 +206,16 @@ def test_equivalent_relative_paths_cannot_bypass_protected_read_gate() -> None:
     assert result["subjectFiles"] == 3
     assert "protected-full-read:backend/main.py" in result["violations"]
     assert eval_tool._normalize_path("./backend//main.py", "path") == "backend/main.py"
+
+
+def test_windows_case_variant_cannot_bypass_protected_read_gate() -> None:
+    payload = _receipt("admin-last-admin-race")
+    payload["result"] = "fail"
+    payload["subjectFilesOpened"].append("BACKEND/main.py")
+    payload["largeFilesReadFully"] = ["BACKEND/main.py"]
+    result = eval_tool.validate(payload)
+    assert result["subjectFiles"] == 3
+    assert "protected-full-read:BACKEND/main.py" in result["violations"]
 
 
 def test_extra_routing_entries_count_as_subject_reads() -> None:

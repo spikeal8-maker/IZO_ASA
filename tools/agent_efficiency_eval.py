@@ -19,7 +19,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_VERSION = 1
-EVALUATOR_RULES_VERSION = 1
+EVALUATOR_RULES_VERSION = 2
 ROUTING_FILES = {"AGENTS.md", "AI_START_HERE.md", "docs/NOW.md"}
 TOKEN_FIELDS = ("inputTokens", "cachedInputTokens", "outputTokens")
 TOKEN_SOURCES = ("unknown", "codex-ui", "codex-api")
@@ -388,7 +388,8 @@ def validate(data: object) -> dict[str, Any]:
     missing_anchors = sorted(set(case["anchors"]) - anchors)
     if missing_anchors:
         violations.append(f"missing-anchors:{','.join(missing_anchors)}")
-    protected = sorted(full_reads & PROTECTED_FULL_READS)
+    protected_keys = {path.casefold() for path in PROTECTED_FULL_READS}
+    protected = sorted(path for path in full_reads if path.casefold() in protected_keys)
     if protected:
         violations.append(f"protected-full-read:{','.join(protected)}")
     if broad_scans:
