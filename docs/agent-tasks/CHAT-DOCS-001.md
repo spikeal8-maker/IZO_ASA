@@ -103,7 +103,7 @@ documentation-only commit; его отмена не требует миграц�
 
 ```text
 python -m pytest tools/test_context_docs.py tools/test_agent_instructions.py
-9 passed
+10 passed
 
 tools/verify.ps1 -Mode Quick
 backend preflight, py_compile, generated maps and listener contract: passed

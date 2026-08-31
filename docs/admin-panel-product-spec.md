@@ -1,4 +1,18 @@
+---
+status: historical
+document_role: superseded-phase-spec
+phase: 19
+superseded_by: docs/admin-panel-guide.md
+current_context: docs/context/admin-control-center.md
+updated: 2026-08-31
+---
+
 # Admin Panel — Product / UX Spec (Phase 19)
+
+> Историческая design-spec этапа Phase 19. Она сохраняется как evidence и не
+> описывает текущую навигацию, security boundary, release или активный backlog.
+> Текущее общее описание: `docs/admin-panel-guide.md`; контекст для изменений:
+> `docs/context/admin-control-center.md`.
 
 Design only. No code/DB/auth changes. Targets a single product control center built on
 existing endpoints + the new Phase 18 analytics, replacing the chaotic mixed admin.

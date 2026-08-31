@@ -4,7 +4,7 @@ status_role: current-status-aggregator
 backlog_role: program-router
 updated: 2026-08-31
 status_effective_when: merged-to-main
-last_verified_main: 8e15a89aae71f71eed31a0ef490228cdbc854c7d
+last_verified_main: 513e1ae60d1c0ff8acd4dbf804f593bec90f490f
 completed_package: AI-CANONICAL-001
 completed_repair: AI-CANONICAL-REPAIR-001
 active_package: none
@@ -31,7 +31,7 @@ git rev-parse origin/main
 git worktree list
 ```
 
-- Проверенный `main`: `8e15a89aae71f71eed31a0ef490228cdbc854c7d`.
+- Проверенный `main`: `513e1ae60d1c0ff8acd4dbf804f593bec90f490f`.
 - Production release нельзя выводить из GitHub. Его подтверждают установленный
   runtime manifest и `/api/version` в рамках разрешённой live-проверки.
 - Код, merge, deployment и operational verification — разные состояния.
@@ -67,9 +67,11 @@ Baseline issue `#71` остаётся закреплён за SHA
   модели, инструменты и chat billing. Полные контракты:
   [архитектура продукта](chat-system.md) и
   [поведение AI-помощника](chat-assistant-contract.md).
+- [docs/context/admin-control-center.md](context/admin-control-center.md) —
+  админка, CRM и административные экраны моделей/операций.
 
-Для admin-models, billing, images, audio, 3D и release отдельные canonical
-карты ещё не завершены. До context-pilot использовать bounded discovery.
+Для product billing, images, audio, 3D и release отдельные canonical карты
+ещё не завершены. До context-pilot использовать bounded discovery.
 
 ## 4. Generated evidence
 

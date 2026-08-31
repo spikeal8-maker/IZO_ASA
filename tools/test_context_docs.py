@@ -15,11 +15,14 @@ from test_agent_instructions import assert_agent_instruction_contracts
 ROOT = Path(__file__).resolve().parents[1]
 
 CONTEXT_DOCS = [
+    ROOT / "docs" / "context" / "admin-control-center.md",
     ROOT / "docs" / "context" / "backend-auth-bots.md",
     ROOT / "docs" / "context" / "chat.md",
     ROOT / "docs" / "context" / "frontend-studio.md",
     ROOT / "docs" / "context" / "video-gallery-feed.md",
 ]
+ADMIN_GUIDE = ROOT / "docs" / "admin-panel-guide.md"
+LEGACY_ADMIN_SPEC = ROOT / "docs" / "admin-panel-product-spec.md"
 
 CHAT_SYSTEM = ROOT / "docs" / "chat-system.md"
 CHAT_ASSISTANT = ROOT / "docs" / "chat-assistant-contract.md"
@@ -105,6 +108,36 @@ def test_local_markdown_links_in_chat_publishing_docs_resolve() -> None:
             assert resolved.exists(), (
                 f"{doc.relative_to(ROOT)} has broken Markdown link: {raw_target}"
             )
+
+
+def test_admin_guide_is_canonical_and_routed() -> None:
+    guide = ADMIN_GUIDE.read_text(encoding="utf-8")
+    assert "status: canonical" in guide
+    assert "document_role: admin-current-guide" in guide
+    for referenced in PATH_PATTERN.findall(guide):
+        assert (ROOT / referenced).exists(), f"admin guide references missing {referenced}"
+    for route in (
+        "/admin/dashboard",
+        "/admin/crm",
+        "/admin/models/openrouter/text",
+        "/admin/notifications",
+        "/admin/social",
+        "/admin/tariffs",
+        "/admin/payments",
+        "/admin/mail",
+        "/admin/bots",
+        "/admin/logs",
+    ):
+        assert route in guide, f"admin guide lacks current route: {route}"
+
+    context_path = "docs/context/admin-control-center.md"
+    assert context_path in guide
+    assert context_path in (ROOT / "AI_START_HERE.md").read_text(encoding="utf-8")
+    assert context_path in (ROOT / "docs" / "NOW.md").read_text(encoding="utf-8")
+
+    legacy = LEGACY_ADMIN_SPEC.read_text(encoding="utf-8")
+    assert "status: historical" in legacy
+    assert "superseded_by: docs/admin-panel-guide.md" in legacy
 
 
 def test_frontend_map_files_exist_and_parse() -> None:
