@@ -178,6 +178,14 @@ def test_change_matrix_owners_tests_and_api_examples_exist() -> None:
                 f"{area['id']} API example is absent from backend evidence: {endpoint}"
             )
 
+    by_id = {area["id"]: area for area in areas}
+    assert "backend/test_product_consistency_20e2b.py" in by_id["tariffs"]["tests"]
+    assert "backend/test_social_providers.py" in by_id["notifications"]["tests"]
+    assert "backend/test_social_providers.py" in by_id["social"]["tests"]
+    assert "backend/test_yookassa_connection_check.py" in by_id["payments"]["tests"]
+    assert "/api/admin/payments/check-v2" in by_id["payments"]["api_examples"]
+    assert any("config-v2" in gap for gap in by_id["payments"]["coverage_gaps"])
+
 
 def test_change_recipes_keep_required_executable_gates() -> None:
     text = CHANGE_CONTRACT.read_text(encoding="utf-8")
@@ -187,6 +195,10 @@ def test_change_recipes_keep_required_executable_gates() -> None:
         "npm --prefix frontend run build",
         "npm --prefix frontend run e2e:admin-dashboard",
         "pwsh -File tools/verify.ps1 -Mode Quick",
+        "backend/test_product_consistency_20e2b.py",
+        "backend/test_social_providers.py",
+        "backend/test_yookassa_connection_check.py",
+        "POST /api/admin/payments/config-v2",
         "fake providers",
         "не запускать как обычный тест",
     )

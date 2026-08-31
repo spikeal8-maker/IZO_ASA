@@ -62,6 +62,7 @@ Rollback ограничен одним commit поверх текущего `mai
 ## Verification receipt
 
 - Admin/context/agent/collection contracts: 14 passed.
+- Review-routed tariff/social/payment fake-provider suites: 19 passed.
 - Focused payment ledger/outbox idempotency: 2 tests × 5 повторов, все passed.
 - Наблюдались существующие FastAPI deprecation и Windows temporary-directory
   cleanup warnings; test failures отсутствуют.

@@ -101,7 +101,7 @@ routers.
       "risk_escalates_when": ["меняется persistent worker, retry/idempotency или реальная доставка"],
       "live_action_risk": "release-ops",
       "required_controls": ["trusted-admin", "audit", "durable-state", "fake-provider-tests"],
-      "tests": ["backend/test_admin_notifications.py"]
+      "tests": ["backend/test_admin_notifications.py", "backend/test_social_providers.py"]
     },
     {
       "id": "social",
@@ -116,7 +116,7 @@ routers.
       "risk_escalates_when": ["выполняется live verify, test delivery, credential change или publication"],
       "live_action_risk": "release-ops",
       "required_controls": ["trusted-admin", "audit", "secret-store", "explicit-live-authorization", "fake-provider-tests"],
-      "tests": ["backend/test_admin_social_router.py"]
+      "tests": ["backend/test_admin_social_router.py", "backend/test_social_providers.py"]
     },
     {
       "id": "tariffs",
@@ -131,7 +131,7 @@ routers.
       "risk_escalates_when": ["изменяется пользовательский доступ, цена, скидка, лимит или промокод"],
       "live_action_risk": "release-ops",
       "required_controls": ["trusted-admin", "verify-per-endpoint", "audit", "financial-consistency"],
-      "tests": ["backend/test_tariff_model_counts.py", "backend/test_promo_bonus_referral_v2.py"]
+      "tests": ["backend/test_tariff_model_counts.py", "backend/test_promo_bonus_referral_v2.py", "backend/test_product_consistency_20e2b.py"]
     },
     {
       "id": "payments",
@@ -139,14 +139,15 @@ routers.
       "entry_route": "/admin/payments",
       "frontend": ["frontend/src/adminPayments.tsx"],
       "backend": ["backend/main.py", "backend/app/billing/contracts.py", "backend/app/billing/outbox.py"],
-      "api_examples": ["/api/admin/payments/status-v2", "/api/admin/payments/config-v2", "/api/admin/payments/{payment_id}/refund-v2"],
+      "api_examples": ["/api/admin/payments/status-v2", "/api/admin/payments/config-v2", "/api/admin/payments/check-v2", "/api/admin/payments/{payment_id}/refund-v2"],
       "side_effects": ["payment-config", "checkout-package", "invoice", "refund", "provider-call"],
       "risk_floor": "high-assurance",
       "risk_escalates_to": "high-assurance",
       "risk_escalates_when": ["любое изменение денег, webhook, outbox, refund, reconcile или provider state"],
       "live_action_risk": "release-ops",
       "required_controls": ["trusted-admin", "reason", "audit", "transaction", "idempotency", "explicit-live-authorization"],
-      "tests": ["backend/test_admin_actions.py", "backend/test_billing_v2.py", "backend/test_billing_notification_outbox.py"]
+      "tests": ["backend/test_admin_actions.py", "backend/test_billing_v2.py", "backend/test_billing_notification_outbox.py", "backend/test_yookassa_connection_check.py"],
+      "coverage_gaps": ["POST /api/admin/payments/config-v2 не имеет focused route test; до изменения config mutation добавить characterization"]
     },
     {
       "id": "mail",
@@ -263,7 +264,7 @@ reason, audit и idempotency. Live CRM E2E не запускать как обы
 ### 4. Model catalog, publication или pricing
 
 ```powershell
-python -m pytest -q backend/test_openrouter_admin_cache_v2.py backend/test_phone_chat_model_catalog.py backend/test_tariff_model_counts.py
+python -m pytest -q backend/test_openrouter_admin_cache_v2.py backend/test_phone_chat_model_catalog.py backend/test_tariff_model_counts.py backend/test_product_consistency_20e2b.py
 npm --prefix frontend run test:admin-image-publication
 node frontend/adminVideoPublication.test.ts
 npm --prefix frontend run lint
@@ -277,7 +278,7 @@ tests из затронутого продукта. Route-mocked visual E2E не
 ### 5. Notifications, social, mail или bots
 
 ```powershell
-python -m pytest -q backend/test_admin_notifications.py backend/test_admin_social_router.py backend/test_admin_mail_v2.py backend/test_admin_bots_v2.py backend/test_polling_health.py
+python -m pytest -q backend/test_admin_notifications.py backend/test_admin_social_router.py backend/test_social_providers.py backend/test_admin_mail_v2.py backend/test_admin_bots_v2.py backend/test_polling_health.py
 ```
 
 Тесты используют fake providers и temporary roots. Реальные verify, письмо,
@@ -300,6 +301,16 @@ race/idempotency tests пять раз, не весь Full:
 
 Для другого package эти node IDs заменяются тестом конкретного изменённого
 invariant. Production money, provider webhook и live secrets не используются.
+
+Для payment status/provider check использовать fake-provider coverage:
+
+```powershell
+python -m pytest -q backend/test_yookassa_connection_check.py
+```
+
+CURRENT COVERAGE GAP: `POST /api/admin/payments/config-v2` не имеет focused route
+test. Package, меняющий config mutation, сначала добавляет characterization для
+trusted-admin, validation, persistence, audit и secret handling.
 
 ### 7. Package gate
 
