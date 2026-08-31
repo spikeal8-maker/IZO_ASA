@@ -110,6 +110,9 @@ URL, lazy-loaded workspace, стили, история, composer, каталог
   backend использует начало первого запроса как title.
 - Удаление thread удаляет связанную историю каскадно.
 - Поиск истории на desktop выполняется локально по загруженным названиям.
+- CURRENT GAP: assistant reply сохраняется длиной до 8 000 символов, но при
+  следующем запросе каждый history item пересобирается через turn schema с
+  лимитом 4 000; такой thread падает на validation до provider call.
 
 ### 4.3. Сообщение
 
@@ -477,6 +480,7 @@ social bots.
 | Mobile не показывает structured web-search source links | desktop source renderer и mobile `ChatTools` filter | citation surface parity package |
 | Image data не декодируется и не сверяется с magic bytes | `_phone_chat_image_payloads` | content validation до charge/provider |
 | Fixed-cost catalog copy всё равно обещает usage-based reserve/refund | model-catalog `description`/`priceGuidance`, desktop/mobile renderers | billing-copy contract + отдельная UI issue |
+| Assistant reply до 8 000 символов нельзя повторно загрузить через 4 000-character history turn schema | response persistence и route history reconstruction | согласовать limits + regression на следующий turn |
 | Chat metadata конфликтуют с общим studio effect и исходным HTML | `studioNavigation.ts`, `newUi.tsx`, source HTML | SEO decision + отдельная issue |
 | Нет канонического eval набора качества ответа и tool choice | [assistant contract](chat-assistant-contract.md) | eval package и versioned fixtures |
 

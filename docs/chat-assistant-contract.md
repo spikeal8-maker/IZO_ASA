@@ -58,6 +58,7 @@ runtime-вариантами этого помощника, а не разным
 | Один помощник и общий system prompt | CURRENT |
 | Local и опубликованные API text models | CURRENT |
 | Общая история desktop/mobile | CURRENT |
+| Продолжение после длинного assistant turn | GAP: сохранение допускает 8 000 символов, reconstruction — 4 000 |
 | Изображения как контекст | CURRENT |
 | `web_search` и `generate_image` | CURRENT |
 | Surface action parity | GAP: mobile не имеет desktop media/preview/share controls |
@@ -82,7 +83,10 @@ runtime-вариантами этого помощника, а не разным
 Помощник должен уметь:
 
 - отвечать на обычные, объяснительные и творческие вопросы;
-- продолжать диалог с учётом bounded history текущего owned thread;
+- продолжать диалог с учётом bounded history текущего owned thread. CURRENT GAP:
+  сохранённый assistant reply может содержать до 8 000 символов, но следующий
+  запрос пересобирает history через 4 000-character turn schema и завершается
+  validation error до provider call;
 - анализировать до четырёх поддерживаемых изображений, если выбранная модель
   принимает visual input;
 - искать актуальные сведения в интернете и показывать реальные источники;
@@ -232,6 +236,7 @@ Search OPTIONAL для устойчивых знаний, редактирова
 | Недостаточно средств | не вызывать provider; показать понятное действие для продолжения |
 | Timeout | сохранить однозначное состояние, выполнить idempotent refund и предложить повтор |
 | Ошибка settlement/telemetry/history после provider success | CURRENT GAP: refund не гарантирован; не обещать успешное сохранение или возврат |
+| В history есть assistant reply длиннее 4 000 символов | CURRENT GAP: следующий turn не доходит до provider из-за 4 000-character reconstruction schema |
 | Search не дал результата | сообщить об отсутствии подтверждения; не выдумывать источник |
 | Image job завершился ошибкой | показать failed state и безопасную возможность повторить |
 | Неподдерживаемый/повреждённый файл | REQUIRED: отклонить до charge/provider; CURRENT GAP: content/magic bytes не проверяются |
