@@ -179,12 +179,21 @@ def test_change_matrix_owners_tests_and_api_examples_exist() -> None:
             )
 
     by_id = {area["id"]: area for area in areas}
+    assert "backend/test_admin_v2.py" in by_id["models"]["tests"]
+    for endpoint in (
+        "/api/admin/config-ui/reload-v2",
+        "/api/admin/config-ui/switch-v2",
+        "/api/admin/config-ui/interrupt-v2",
+    ):
+        assert endpoint in by_id["models"]["api_examples"]
     assert "backend/test_product_consistency_20e2b.py" in by_id["tariffs"]["tests"]
     assert "backend/test_social_providers.py" in by_id["notifications"]["tests"]
     assert "backend/test_social_providers.py" in by_id["social"]["tests"]
     assert "backend/test_yookassa_connection_check.py" in by_id["payments"]["tests"]
     assert "/api/admin/payments/check-v2" in by_id["payments"]["api_examples"]
     assert any("config-v2" in gap for gap in by_id["payments"]["coverage_gaps"])
+    assert any("mail/test-v2" in gap for gap in by_id["mail"]["coverage_gaps"])
+    assert any("audit-logs-v2" in gap for gap in by_id["logs"]["coverage_gaps"])
 
 
 def test_change_recipes_keep_required_executable_gates() -> None:
@@ -198,7 +207,10 @@ def test_change_recipes_keep_required_executable_gates() -> None:
         "backend/test_product_consistency_20e2b.py",
         "backend/test_social_providers.py",
         "backend/test_yookassa_connection_check.py",
+        "test_config_ui_reload_requires_reason_clears_cache_and_logs",
         "POST /api/admin/payments/config-v2",
+        "POST /api/admin/mail/test-v2",
+        "GET /api/admin/audit-logs-v2",
         "fake providers",
         "не запускать как обычный тест",
     )

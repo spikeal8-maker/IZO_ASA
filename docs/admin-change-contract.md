@@ -79,14 +79,14 @@ routers.
       "entry_route": "/admin/models/openrouter/text",
       "frontend": ["frontend/src/adminModels.tsx", "frontend/src/adminModelsRoutes.ts", "frontend/src/adminTextModelCatalog.tsx"],
       "backend": ["backend/main.py", "backend/app/api/routers/admin_operations.py"],
-      "api_examples": ["/api/admin/models-page", "/api/admin/openrouter/catalog/status-v2", "/api/admin/config-ui/status-v2"],
+      "api_examples": ["/api/admin/models-page", "/api/admin/openrouter/catalog/status-v2", "/api/admin/config-ui/status-v2", "/api/admin/config-ui/reload-v2", "/api/admin/config-ui/switch-v2", "/api/admin/config-ui/interrupt-v2"],
       "side_effects": ["catalog-publication", "tariff-access", "pricing", "provider-secret", "local-runtime"],
       "risk_floor": "standard",
       "risk_escalates_to": "high-assurance",
       "risk_escalates_when": ["меняется публикация, цена, quote/reservation/settlement, API key или provider call"],
       "live_action_risk": "release-ops",
       "required_controls": ["trusted-admin", "verify-per-endpoint", "audit", "publication-access-settlement-consistency", "fake-provider-tests"],
-      "tests": ["backend/test_openrouter_admin_cache_v2.py", "backend/test_phone_chat_model_catalog.py", "backend/test_tariff_model_counts.py", "frontend/e2e-admin-model-pages.mjs", "frontend/adminImageModelPublication.test.ts", "frontend/adminVideoPublication.test.ts"]
+      "tests": ["backend/test_admin_v2.py", "backend/test_openrouter_admin_cache_v2.py", "backend/test_phone_chat_model_catalog.py", "backend/test_tariff_model_counts.py", "frontend/e2e-admin-model-pages.mjs", "frontend/adminImageModelPublication.test.ts", "frontend/adminVideoPublication.test.ts"]
     },
     {
       "id": "notifications",
@@ -162,7 +162,8 @@ routers.
       "risk_escalates_when": ["сохраняется secret, выполняется verify или отправляется письмо"],
       "live_action_risk": "release-ops",
       "required_controls": ["trusted-admin", "audit", "secret-store", "explicit-live-authorization", "fake-provider-tests"],
-      "tests": ["backend/test_admin_mail_v2.py"]
+      "tests": ["backend/test_admin_mail_v2.py"],
+      "coverage_gaps": ["POST /api/admin/mail/config-v2 and POST /api/admin/mail/test-v2 lack focused fake-provider route tests"]
     },
     {
       "id": "bots",
@@ -192,7 +193,8 @@ routers.
       "risk_escalates_when": ["меняется redaction, retention, public diagnostics или privacy boundary"],
       "live_action_risk": "release-ops",
       "required_controls": ["trusted-admin-read", "redaction", "no-secrets", "no-public-operator-diagnostics"],
-      "tests": ["backend/test_admin_v2.py", "backend/test_public_status_redaction.py"]
+      "tests": ["backend/test_admin_v2.py", "backend/test_public_status_redaction.py"],
+      "coverage_gaps": ["authenticated success and redaction coverage is absent for GET /api/admin/logs-v2 and GET /api/admin/audit-logs-v2"]
     }
   ],
   "model_pages": [
@@ -264,7 +266,7 @@ reason, audit и idempotency. Live CRM E2E не запускать как обы
 ### 4. Model catalog, publication или pricing
 
 ```powershell
-python -m pytest -q backend/test_openrouter_admin_cache_v2.py backend/test_phone_chat_model_catalog.py backend/test_tariff_model_counts.py backend/test_product_consistency_20e2b.py
+python -m pytest -q backend/test_admin_v2.py::test_config_ui_reload_requires_reason_clears_cache_and_logs backend/test_admin_v2.py::test_config_ui_interrupt_requires_reason_calls_comfy_and_logs backend/test_admin_v2.py::test_config_ui_switch_updates_global_profile_and_routes backend/test_openrouter_admin_cache_v2.py backend/test_phone_chat_model_catalog.py backend/test_tariff_model_counts.py backend/test_product_consistency_20e2b.py
 npm --prefix frontend run test:admin-image-publication
 node frontend/adminVideoPublication.test.ts
 npm --prefix frontend run lint
@@ -284,6 +286,11 @@ python -m pytest -q backend/test_admin_notifications.py backend/test_admin_socia
 Тесты используют fake providers и temporary roots. Реальные verify, письмо,
 публикация, webhook или token action запрещены без отдельного owner-authorized
 release-ops package.
+
+CURRENT COVERAGE GAP: `POST /api/admin/mail/config-v2` и
+`POST /api/admin/mail/test-v2` не имеют focused route tests. Package, меняющий
+mail config или test-send, сначала добавляет characterization с fake SMTP для
+trusted-admin, validation, audit и redacted response; live SMTP запрещён.
 
 ### 6. Payments, auth и persistent workers
 
@@ -311,6 +318,12 @@ python -m pytest -q backend/test_yookassa_connection_check.py
 CURRENT COVERAGE GAP: `POST /api/admin/payments/config-v2` не имеет focused route
 test. Package, меняющий config mutation, сначала добавляет characterization для
 trusted-admin, validation, persistence, audit и secret handling.
+
+CURRENT COVERAGE GAP: authenticated success/redaction для
+`GET /api/admin/logs-v2` и `GET /api/admin/audit-logs-v2` не покрыты focused
+tests. Package, меняющий serialization, retention или redaction, сначала
+добавляет characterization для обеих routes и доказывает отсутствие secrets,
+config presence и internal operator details в ответах.
 
 ### 7. Package gate
 
