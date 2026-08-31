@@ -16,6 +16,11 @@ verified_source_sha: 11b087d8441cb109b50b1d1e863fdcfa73201d07
 Проверяемая матрица ownership, API examples, side effects, risk и tests вместе
 с точными командами находится в `docs/admin-change-contract.md`.
 
+Route-level evidence для bounded-набора из 19 критичных compatibility mutations
+identity/CRM/finance находится в `docs/admin-mutation-audit.md`. Он различает
+`verified`, `partial` и `gap`; routes вне его scope нельзя считать прошедшими
+audit.
+
 Эта карта применяется после обязательной маршрутизации из `AI_START_HERE.md`.
 Она не создаёт второй порядок чтения и не делает historical plans активным
 backlog.
@@ -135,6 +140,8 @@ evidence, а не proof безопасности. Если scanner помеча�
 
 - Начать с exports/API calls в `frontend/src/adminAnalytics.tsx`.
 - Найти backend symbols через `backend/SYMBOL_MAP.md`.
+- Для заявленных critical mutations сначала открыть exact route в
+  `docs/admin-mutation-audit.md` и перенести его `gap_ids` в Task Contract.
 - Для mutation проверить trusted admin, reason, audit и rollback boundary.
 - Для role/tokens/billing/security применять high-assurance gate.
 
@@ -204,8 +211,10 @@ production data или deployment. Для UI package также нужны front
 - `frontend/e2e-admin-crm-live.mjs` ожидает семь header KPI, а текущий shell и
   dashboard-layout contract — шесть; не заявлять этот live test зелёным до
   исправления precondition.
-- Не доказано единообразное reason/audit покрытие каждой compatibility mutation;
-  проверять конкретный route, не делать blanket claim.
+- Для 19 critical compatibility mutations route-level auth/reason/audit evidence
+  закреплено в `docs/admin-mutation-audit.md` на указанном source SHA. Ещё 39
+  admin mutations находятся вне этого bounded audit; проверять конкретный route
+  и не делать blanket claim.
 - Generated frontend map может перечислять не все специализированные admin E2E;
   сверять с bounded listing `frontend/e2e-admin-*.mjs`.
 - Provider catalog/pricing и production release меняются независимо от source;
@@ -232,3 +241,7 @@ routing обновляет в том же commit эту карту, `docs/admin-
 `docs/admin-change-contract.md`. Generated artifacts обновляются только
 repository scripts. В отчёте раздельно указывать `IMPLEMENTED`, `TESTED`,
 `COMMITTED`, `PUSHED/PR`, `MERGED`, `DEPLOYED` и `OPERATIONALLY VERIFIED`.
+
+Если меняется одна из 19 audited mutations, в том же commit обновить также
+`docs/admin-mutation-audit.md` и его executable contract test. Расширение audit
+на route вне bounded scope является отдельным package.

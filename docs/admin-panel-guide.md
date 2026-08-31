@@ -103,9 +103,11 @@ CRM объединяет список пользователей и досье �
 В кодовой базе остаются compatibility routes с более старыми именами. Их нельзя
 автоматически считать безопасными или небезопасными только по названию. Для
 каждой изменяемой операции проверяются фактические trusted-admin gate, audit,
-reason, idempotency и тесты. Единообразное покрытие reason/audit для всех
-административных мутаций пока не доказано и остаётся отдельной verification
-границей.
+reason, idempotency и тесты. Для bounded-набора из 19 критичных
+identity/CRM/finance mutations сначала используется
+`docs/admin-mutation-audit.md`: он даёт exact symbol/test nodes, статусы
+`verified`/`partial`/`gap` и обязательные `gap_ids`. Ещё 39 mutation routes в
+эту карту не входят и не считаются проверенными автоматически.
 
 ## Секреты и внешние провайдеры
 
@@ -143,6 +145,10 @@ Backend-покрытие включает CRM/actions, dashboard analytics, trus
 - `backend/test_admin_notifications.py`;
 - `backend/test_admin_social_router.py`.
 
+Route-level contract критичных compatibility mutations проверяется отдельно:
+
+- `python -m pytest -q tools/test_admin_mutation_audit.py`.
+
 Frontend-проверки:
 
 - `frontend/e2e-admin-dashboard-layout.mjs` — структура и responsive dashboard;
@@ -167,6 +173,8 @@ shell и dashboard-layout contract используют шесть. До исп�
 - `docs/context/admin-control-center.md` — bounded-контекст для coding-агентов;
 - `docs/admin-change-contract.md` — проверяемая ownership/API/risk/test матрица
   и исполняемые change recipes;
+- `docs/admin-mutation-audit.md` — bounded route-level evidence и remediation
+  gaps для 19 критичных compatibility mutations;
 - `docs/generated/frontend-map.md` и `backend/SYMBOL_MAP.md` — генерируемое
   структурное evidence;
 - `docs/admin-bots-openrouter-operations-20260716.md` — узкий runbook по ботам;
