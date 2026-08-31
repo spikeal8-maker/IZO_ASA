@@ -13,6 +13,9 @@ verified_source_sha: 11b087d8441cb109b50b1d1e863fdcfa73201d07
 логам. Общая пользовательская картина находится в
 `docs/admin-panel-guide.md`.
 
+Проверяемая матрица ownership, API examples, side effects, risk и tests вместе
+с точными командами находится в `docs/admin-change-contract.md`.
+
 Эта карта применяется после обязательной маршрутизации из `AI_START_HERE.md`.
 Она не создаёт второй порядок чтения и не делает historical plans активным
 backlog.
@@ -225,7 +228,7 @@ production data или deployment. Для UI package также нужны front
 ## Документационное завершение
 
 Изменение admin navigation, ownership, permission, safety contract или test
-routing обновляет в том же commit эту карту и `docs/admin-panel-guide.md`.
-Generated artifacts обновляются только repository scripts. В отчёте раздельно
-указывать `IMPLEMENTED`, `TESTED`, `COMMITTED`, `PUSHED/PR`, `MERGED`, `DEPLOYED`
-и `OPERATIONALLY VERIFIED`.
+routing обновляет в том же commit эту карту, `docs/admin-panel-guide.md` и
+`docs/admin-change-contract.md`. Generated artifacts обновляются только
+repository scripts. В отчёте раздельно указывать `IMPLEMENTED`, `TESTED`,
+`COMMITTED`, `PUSHED/PR`, `MERGED`, `DEPLOYED` и `OPERATIONALLY VERIFIED`.
