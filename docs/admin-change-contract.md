@@ -15,6 +15,10 @@ production_status_role: none
 реальные API-примеры, side effects, минимальный риск, обязательные controls и
 targeted tests.
 
+Для 19 критичных compatibility mutations identity/CRM/finance дополнительно
+применяется route-level `docs/admin-mutation-audit.md`: его `gap_ids` входят в
+Task Contract до изменения behavior.
+
 Документ не заменяет порядок из `AI_START_HERE.md`, Task Contract или
 `docs/context/admin-control-center.md`. Он применяется после них и не разрешает
 production/provider action.
@@ -30,6 +34,8 @@ production/provider action.
 5. Любое действие с production/provider state перевести в `live_action_risk`;
    наличие этого поля не является разрешением на live action.
 6. Выполнить подходящий recipe и отдельно записать непроверенные live-границы.
+7. Для route из `docs/admin-mutation-audit.md` не начинать remediation, пока
+   `status`, `gap_ids` и требуемый replay/race test не перенесены в package.
 
 `api_examples` — проверяемые репрезентативные endpoints, а не полный API-list.
 Полный route inventory берётся точечно из `backend/SYMBOL_MAP.md` и modular
@@ -254,12 +260,15 @@ npm --prefix frontend run e2e:admin-dashboard
 ### 3. CRM mutation
 
 ```powershell
+python -m pytest -q tools/test_admin_mutation_audit.py
 python -m pytest -q backend/test_admin_v2.py backend/test_admin_actions.py backend/test_admin_analytics.py backend/test_admin_password_reset.py
 ```
 
 До правки зафиксировать target user state и rollback boundary только на
 временной test DB. Для role/tokens/billing/security проверить trusted identity,
-reason, audit и idempotency. Live CRM E2E не запускать как обычный тест: он
+reason, audit и idempotency. Если route присутствует в mutation audit, package
+обязан включить все его `gap_ids`; `partial` и `gap` нельзя трактовать как
+готовое покрытие. Live CRM E2E не запускать как обычный тест: он
 требует операторские QA credentials и имеет известную устаревшую 7-KPI
 предпосылку.
 
