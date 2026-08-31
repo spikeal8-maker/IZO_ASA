@@ -19,8 +19,7 @@ coding-агента **до** появления `agent context`/`symbol` CLI.
 
 Package не оптимизирует retrieval и не меняет продукт. Он фиксирует три
 одинаковых cold cases, выдаёт готовые prompts, создаёт JSON receipt, проверяет
-его структуру, привязывает receipt к fingerprint неизменного prompt и показывает
-нарушения bounded-gate.
+его структуру и показывает нарушения bounded-gate.
 
 Старый issue `#71` относится к pre-change SHA и историческому состоянию до
 исправления Codex project/cwd, Memory и canonical routing. Этот package измеряет
@@ -45,6 +44,9 @@ tools/test_agent_efficiency_eval.py
 ## Использование после merge
 
 Каждый case выполняется в отдельном новом Codex chat с отключённой Memory.
+Генерировать template нужно непосредственно перед run из чистого checkout;
+`repoHead`, `runId` и `startedAt` заполняются инструментом автоматически.
+Checkout не переключается и не обновляется до `validate` и общего `summarize`.
 
 ```powershell
 python tools/agent_efficiency_eval.py list
@@ -58,11 +60,16 @@ python tools/agent_efficiency_eval.py template chat-model-selector `
 - `subjectFilesOpened` — только реально открытые предметные файлы;
 - `resultAnchors` — корректно найденные owners/source paths, даже если они были
   получены из canonical context без отдельного чтения source;
+- `testsProposed` — точные repository-relative test paths либо `path::node`;
 - плохое поведение не скрывается: broad scans, full reads, лишние routing entries
   и corrections записываются и превращаются в `violations`, а не делают receipt
   нечитаемым;
 - числовые token counters принимаются только вместе с `tokenSource` (`codex-ui`
   или `codex-api`) и непустым `tokenEvidence`.
+
+`caseFingerprint` является SHA256 полностью отрендеренного prompt. Невидимые
+критерии gate закреплены отдельно через `rubricFingerprint`, поэтому изменение
+prompt и изменение evaluation rubric отслеживаются независимо.
 
 Проверка:
 
@@ -101,10 +108,11 @@ python tools/agent_efficiency_eval.py summarize `
 Passing run должен:
 
 - быть cold session с отключённой Memory;
-- использовать точный `caseFingerprint` и один общий `repoHead` для трёх runs;
+- использовать точные prompt/rubric fingerprints и автоматически захваченный
+  текущий `repoHead`;
 - открыть обязательные routing docs и нужную context-карту;
 - уложиться в 6–8 предметных файлов;
-- найти case-specific owners/anchors и targeted tests;
+- найти case-specific owners/anchors и точные targeted test paths;
 - не читать защищённые монолиты целиком и не скрывать source-файлы в
   `routingFilesOpened`;
 - не выполнять broad/repeated search;
@@ -134,7 +142,7 @@ git diff --check
 
 ## Следующий gate
 
-После merge и трёх cold receipts на одном Git SHA сравнить фактические результаты. Только если
-они подтверждают дорогой повторный discovery, начинать отдельный
+После merge и трёх cold receipts на одном Git SHA сравнить фактические результаты.
+Только если они подтверждают дорогой повторный discovery, начинать отдельный
 `AI-CONTEXT-CLI-PILOT-001` для `chat` и `admin`. Этот package не разрешает
 автоматически начинать следующий.

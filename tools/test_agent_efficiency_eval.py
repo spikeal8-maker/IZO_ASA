@@ -1,6 +1,7 @@
 """Tests for the bounded IZO_ASA agent-efficiency eval harness."""
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -21,13 +22,10 @@ EXPECTED_CASES = {
 }
 
 
-def _receipt(case_id: str, repo_head: str = "f1ee842f41f2192e71db7f754ad1500190e1547f") -> dict[str, object]:
+def _receipt(case_id: str) -> dict[str, object]:
     case = eval_tool.CASES[case_id]
     payload = eval_tool.template(case_id)
     payload.update({
-        "runId": f"{case_id}-run-1",
-        "startedAt": "2026-08-31T18:00:00+03:00",
-        "repoHead": repo_head,
         "subjectFilesOpened": list(case["opened"]),
         "resultAnchors": list(case["anchors"]),
         "testsProposed": list(case["tests"]),
@@ -40,15 +38,21 @@ def _receipt(case_id: str, repo_head: str = "f1ee842f41f2192e71db7f754ad1500190e
 
 def test_fixed_cases_are_small_concrete_and_fingerprinted() -> None:
     assert set(eval_tool.CASES) == EXPECTED_CASES
-    fingerprints = set()
+    prompt_fingerprints = set()
+    rubric_fingerprints = set()
     for case_id, case in eval_tool.CASES.items():
         assert 1 <= case["limit"] <= 8
         assert case["opened"] and case["anchors"] and case["tests"]
         assert "Открой не более" in case["task"]
-        fingerprint = eval_tool.case_fingerprint(case_id)
-        assert fingerprint.startswith("sha256:") and len(fingerprint) == 71
-        fingerprints.add(fingerprint)
-    assert len(fingerprints) == len(EXPECTED_CASES)
+        rendered = eval_tool.prompt(case_id)
+        expected_prompt = "sha256:" + hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+        assert eval_tool.case_fingerprint(case_id) == expected_prompt
+        prompt_fingerprints.add(expected_prompt)
+        rubric = eval_tool.rubric_fingerprint(case_id)
+        assert rubric.startswith("sha256:") and len(rubric) == 71
+        rubric_fingerprints.add(rubric)
+    assert len(prompt_fingerprints) == len(EXPECTED_CASES)
+    assert len(rubric_fingerprints) == len(EXPECTED_CASES)
 
 
 def test_prompts_are_read_only_cold_and_bounded() -> None:
@@ -58,6 +62,15 @@ def test_prompts_are_read_only_cold_and_bounded() -> None:
         assert "Memory отключена" in text
         assert "Никакого recursive scan" in text
         assert "После ответа остановись" in text
+
+
+def test_template_captures_actual_head_and_run_identity() -> None:
+    payload = eval_tool.template("chat-model-selector")
+    assert payload["repoHead"] == eval_tool._git_head()
+    assert payload["runId"].startswith("chat-model-selector-")
+    assert payload["startedAt"]
+    assert payload["caseFingerprint"] == eval_tool.case_fingerprint("chat-model-selector")
+    assert payload["rubricFingerprint"] == eval_tool.rubric_fingerprint("chat-model-selector")
 
 
 def test_clean_receipts_pass_all_gates_and_keep_tokens() -> None:
@@ -108,7 +121,7 @@ def test_reported_pass_with_missing_evidence_fails_gate() -> None:
     assert "reported-pass-with-violations" in result["violations"]
 
 
-def test_changed_fingerprint_fake_tokens_and_missing_provenance_are_invalid() -> None:
+def test_changed_fingerprints_fake_tokens_and_missing_provenance_are_invalid() -> None:
     payload = _receipt("studio-text-to-image")
     payload["caseFingerprint"] = "sha256:" + ("0" * 64)
     try:
@@ -116,7 +129,16 @@ def test_changed_fingerprint_fake_tokens_and_missing_provenance_are_invalid() ->
     except eval_tool.InvalidReceipt as exc:
         assert "caseFingerprint" in str(exc)
     else:
-        raise AssertionError("wrong case fingerprint must be rejected")
+        raise AssertionError("wrong prompt fingerprint must be rejected")
+
+    payload = _receipt("studio-text-to-image")
+    payload["rubricFingerprint"] = "sha256:" + ("0" * 64)
+    try:
+        eval_tool.validate(payload)
+    except eval_tool.InvalidReceipt as exc:
+        assert "rubricFingerprint" in str(exc)
+    else:
+        raise AssertionError("wrong rubric fingerprint must be rejected")
 
     payload = _receipt("studio-text-to-image")
     payload["inputTokens"] = "bytes/4"
@@ -135,6 +157,17 @@ def test_changed_fingerprint_fake_tokens_and_missing_provenance_are_invalid() ->
         assert "tokenSource" in str(exc)
     else:
         raise AssertionError("numeric tokens without Codex/API provenance must be rejected")
+
+
+def test_receipt_must_match_actual_checkout_head() -> None:
+    payload = _receipt("chat-model-selector")
+    payload["repoHead"] = "0" * 40
+    try:
+        eval_tool.validate(payload)
+    except eval_tool.InvalidReceipt as exc:
+        assert "current checkout HEAD" in str(exc)
+    else:
+        raise AssertionError("fabricated repoHead must be rejected")
 
 
 def test_absolute_paths_are_invalid_receipts() -> None:
@@ -159,6 +192,26 @@ def test_extra_routing_entries_count_as_subject_reads() -> None:
         item.startswith("extra-routing-as-subject")
         for item in result["violations"]
     )
+
+
+def test_proposed_tests_require_exact_paths() -> None:
+    payload = _receipt("studio-text-to-image")
+    payload["testsProposed"] = [
+        "frontend/e2e-critical-prompts.mjs",
+        "frontend/e2e-generate.mjs.not-a-file",
+    ]
+    payload["result"] = "fail"
+    result = eval_tool.validate(payload)
+    assert any(
+        item == "missing-test-hints:frontend/e2e-generate.mjs"
+        for item in result["violations"]
+    )
+
+    payload = _receipt("admin-last-admin-race")
+    payload["testsProposed"] = [
+        "backend/test_admin_actions.py::test_self_demotion_and_last_admin_blocked"
+    ]
+    assert eval_tool.validate(payload)["gatePassed"] is True
 
 
 def test_summary_requires_all_cases_same_sha_and_preserves_token_totals(tmp_path: Path) -> None:

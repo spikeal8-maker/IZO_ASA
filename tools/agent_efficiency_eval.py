@@ -10,11 +10,14 @@ import argparse
 import hashlib
 import json
 import re
+import subprocess
 import sys
-from datetime import datetime
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_VERSION = 1
 ROUTING_FILES = {"AGENTS.md", "AI_START_HERE.md", "docs/NOW.md"}
 TOKEN_FIELDS = ("inputTokens", "cachedInputTokens", "outputTokens")
@@ -97,8 +100,8 @@ CASES: dict[str, dict[str, Any]] = {
 }
 
 FIELDS = {
-    "schemaVersion", "caseId", "caseFingerprint", "runId", "startedAt",
-    "agent", "model", "repoHead", "coldSession", "memoryEnabled",
+    "schemaVersion", "caseId", "caseFingerprint", "rubricFingerprint", "runId",
+    "startedAt", "agent", "model", "repoHead", "coldSession", "memoryEnabled",
     "routingFilesOpened", "subjectFilesOpened", "resultAnchors",
     "largeFilesReadFully", "broadScans", "repeatedSearches", "toolCalls",
     "testsProposed", "testsRun", "ownerCorrections", "result",
@@ -111,21 +114,47 @@ class InvalidReceipt(ValueError):
     pass
 
 
-def case_fingerprint(case_id: str) -> str:
-    payload = {
-        "schemaVersion": SCHEMA_VERSION,
-        "caseId": case_id,
-        "common": COMMON,
-        "case": CASES[case_id],
-    }
-    canonical = json.dumps(
-        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")
-    return "sha256:" + hashlib.sha256(canonical).hexdigest()
+def _sha256_text(value: str) -> str:
+    return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _git_head() -> str:
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise InvalidReceipt("cannot capture repository HEAD") from exc
+    value = completed.stdout.strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{40}", value):
+        raise InvalidReceipt("git rev-parse HEAD returned an invalid SHA")
+    return value
 
 
 def prompt(case_id: str) -> str:
     return f"{COMMON}\nЗадача:\n{CASES[case_id]['task']}\n"
+
+
+def case_fingerprint(case_id: str) -> str:
+    return _sha256_text(prompt(case_id))
+
+
+def rubric_fingerprint(case_id: str) -> str:
+    case = CASES[case_id]
+    rubric = {
+        "schemaVersion": SCHEMA_VERSION,
+        "limit": case["limit"],
+        "opened": case["opened"],
+        "anchors": case["anchors"],
+        "tests": case["tests"],
+    }
+    return _sha256_text(
+        json.dumps(rubric, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    )
 
 
 def template(case_id: str) -> dict[str, Any]:
@@ -133,11 +162,12 @@ def template(case_id: str) -> dict[str, Any]:
         "schemaVersion": SCHEMA_VERSION,
         "caseId": case_id,
         "caseFingerprint": case_fingerprint(case_id),
-        "runId": "",
-        "startedAt": "",
+        "rubricFingerprint": rubric_fingerprint(case_id),
+        "runId": f"{case_id}-{uuid.uuid4().hex[:12]}",
+        "startedAt": datetime.now(timezone.utc).isoformat(),
         "agent": "Codex",
         "model": "unknown",
-        "repoHead": "",
+        "repoHead": _git_head(),
         "coldSession": True,
         "memoryEnabled": False,
         "routingFilesOpened": sorted(ROUTING_FILES),
@@ -161,12 +191,21 @@ def template(case_id: str) -> dict[str, Any]:
     }
 
 
+def _normalize_path(value: str, field: str) -> str:
+    normalized = value.replace("\\", "/").strip()
+    if (
+        not normalized
+        or re.match(r"^[A-Za-z]:/|^/", normalized)
+        or ".." in Path(normalized).parts
+    ):
+        raise InvalidReceipt(f"{field} must contain repository-relative paths")
+    return normalized
+
+
 def _paths(value: object, field: str) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
         raise InvalidReceipt(f"{field} must be a string list")
-    paths = [v.replace("\\", "/").strip() for v in value]
-    if any(not v or re.match(r"^[A-Za-z]:/|^/", v) or ".." in Path(v).parts for v in paths):
-        raise InvalidReceipt(f"{field} must contain repository-relative paths")
+    paths = [_normalize_path(v, field) for v in value]
     if len(paths) != len(set(paths)):
         raise InvalidReceipt(f"{field} contains duplicates")
     return paths
@@ -176,6 +215,15 @@ def _strings(value: object, field: str) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
         raise InvalidReceipt(f"{field} must be a string list")
     return value
+
+
+def _test_paths(value: object, field: str) -> set[str]:
+    entries = _strings(value, field)
+    paths: list[str] = []
+    for entry in entries:
+        path, _, _node = entry.partition("::")
+        paths.append(_normalize_path(path, field))
+    return set(paths)
 
 
 def _count(value: object, field: str) -> int:
@@ -202,13 +250,15 @@ def validate(data: object) -> dict[str, Any]:
     case = CASES[case_id]
 
     for field in (
-        "caseFingerprint", "runId", "startedAt", "agent", "model", "repoHead",
-        "tokenSource", "tokenEvidence", "notes"
+        "caseFingerprint", "rubricFingerprint", "runId", "startedAt", "agent",
+        "model", "repoHead", "tokenSource", "tokenEvidence", "notes"
     ):
         if not isinstance(data[field], str):
             raise InvalidReceipt(f"{field} must be a string")
     if data["caseFingerprint"] != case_fingerprint(case_id):
-        raise InvalidReceipt("caseFingerprint does not match the current fixed prompt")
+        raise InvalidReceipt("caseFingerprint does not match the rendered fixed prompt")
+    if data["rubricFingerprint"] != rubric_fingerprint(case_id):
+        raise InvalidReceipt("rubricFingerprint does not match the current gate rubric")
     if not data["runId"].strip():
         raise InvalidReceipt("runId is required")
     try:
@@ -217,6 +267,11 @@ def validate(data: object) -> dict[str, Any]:
         raise InvalidReceipt("startedAt must be ISO-8601") from exc
     if not re.fullmatch(r"[0-9a-f]{40}", data["repoHead"]):
         raise InvalidReceipt("repoHead must be a full lowercase Git SHA")
+    current_head = _git_head()
+    if data["repoHead"] != current_head:
+        raise InvalidReceipt(
+            f"repoHead does not match current checkout HEAD: {data['repoHead']} != {current_head}"
+        )
     if not isinstance(data["coldSession"], bool) or not isinstance(data["memoryEnabled"], bool):
         raise InvalidReceipt("coldSession and memoryEnabled must be booleans")
 
@@ -225,8 +280,8 @@ def validate(data: object) -> dict[str, Any]:
     anchors = set(_paths(data["resultAnchors"], "resultAnchors"))
     full_reads = set(_paths(data["largeFilesReadFully"], "largeFilesReadFully"))
     broad_scans = _strings(data["broadScans"], "broadScans")
-    proposed = "\n".join(_strings(data["testsProposed"], "testsProposed"))
-    _strings(data["testsRun"], "testsRun")
+    proposed_paths = _test_paths(data["testsProposed"], "testsProposed")
+    _test_paths(data["testsRun"], "testsRun")
     repeated = _count(data["repeatedSearches"], "repeatedSearches")
     corrections = _count(data["ownerCorrections"], "ownerCorrections")
     for field in ("toolCalls", "elapsedSeconds"):
@@ -279,7 +334,7 @@ def validate(data: object) -> dict[str, Any]:
         violations.append(f"repeated-searches:{repeated}")
     if corrections:
         violations.append(f"owner-corrections:{corrections}")
-    missing_tests = [value for value in case["tests"] if value not in proposed]
+    missing_tests = sorted(set(case["tests"]) - proposed_paths)
     if missing_tests:
         violations.append(f"missing-test-hints:{','.join(missing_tests)}")
     if data["result"] == "pass" and violations:
@@ -288,6 +343,10 @@ def validate(data: object) -> dict[str, Any]:
     return {
         "caseId": case_id,
         "caseFingerprint": data["caseFingerprint"],
+        "rubricFingerprint": data["rubricFingerprint"],
+        "runId": data["runId"],
+        "agent": data["agent"],
+        "model": data["model"],
         "repoHead": data["repoHead"],
         "reportedResult": data["result"],
         "gatePassed": data["result"] == "pass" and not violations,
@@ -319,6 +378,9 @@ def summarize(directory: Path) -> dict[str, Any]:
         raise InvalidReceipt(
             f"incomplete case set; expected={sorted(CASES)} actual={sorted(case_ids)}"
         )
+    run_ids = {row["runId"] for row in rows}
+    if len(run_ids) != len(rows):
+        raise InvalidReceipt("duplicate runId values")
     repo_heads = {row["repoHead"] for row in rows}
     if len(repo_heads) != 1:
         raise InvalidReceipt(f"receipts use different repoHead values: {sorted(repo_heads)}")
@@ -363,7 +425,7 @@ def main(argv: list[str] | None = None) -> int:
             for key, case in CASES.items():
                 print(
                     f"{key}\t{case['title']}\tmaxSubjectFiles={case['limit']}"
-                    f"\t{case_fingerprint(key)}"
+                    f"\tprompt={case_fingerprint(key)}\trubric={rubric_fingerprint(key)}"
                 )
         elif args.command == "prompt":
             print(prompt(args.case), end="")
