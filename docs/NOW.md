@@ -2,9 +2,9 @@
 status: canonical
 status_role: current-status-aggregator
 backlog_role: program-router
-updated: 2026-08-30
+updated: 2026-08-31
 status_effective_when: merged-to-main
-last_verified_main: 8e15a89aae71f71eed31a0ef490228cdbc854c7d
+last_verified_main: 11b087d8441cb109b50b1d1e863fdcfa73201d07
 completed_package: AI-CANONICAL-001
 completed_repair: AI-CANONICAL-REPAIR-001
 active_package: none
@@ -31,7 +31,7 @@ git rev-parse origin/main
 git worktree list
 ```
 
-- Проверенный `main`: `8e15a89aae71f71eed31a0ef490228cdbc854c7d`.
+- Проверенный `main`: `11b087d8441cb109b50b1d1e863fdcfa73201d07`.
 - Production release нельзя выводить из GitHub. Его подтверждают установленный
   runtime manifest и `/api/version` в рамках разрешённой live-проверки.
 - Код, merge, deployment и operational verification — разные состояния.
@@ -60,9 +60,11 @@ Baseline issue `#71` остаётся закреплён за SHA
 - `docs/context/frontend-studio.md` — студия, профиль и основные frontend routes.
 - `docs/context/video-gallery-feed.md` — видео, gallery и feed.
 - `docs/context/backend-auth-bots.md` — auth, trusted identity, Telegram/MAX.
+- `docs/context/admin-control-center.md` — админка, CRM и административные
+  экраны моделей/операций.
 
-Для chat, admin-models, billing, images, audio, 3D и release отдельные canonical
-карты ещё не завершены. До context-pilot использовать bounded discovery.
+Для chat, product billing, images, audio, 3D и release отдельные canonical карты
+ещё не завершены. До context-pilot использовать bounded discovery.
 
 ## 4. Generated evidence
 
