@@ -55,10 +55,37 @@ Before changing or promoting anything:
 5. Resolve the active backend SHA, release ID, database path and Caddy root from
    installed configuration and `/api/version`; do not infer them from the Git
    checkout.
-6. Confirm the runtime health check recognizes
+6. Confirm the process that will invoke the promoter is elevated. This is a
+   hard gate because WinSW service control cannot be delegated through a
+   medium-integrity Codex/terminal process:
+
+```powershell
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = [Security.Principal.WindowsPrincipal]::new($identity)
+if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    throw 'STOP: promotion requires an elevated Windows Administrator process.'
+}
+```
+
+7. From the exact clean canonical `main`, verify that the normalized tracked
+   promoter, installed promoter and installation receipt agree:
+
+```powershell
+$expectedCommit = git rev-parse HEAD
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\ops\release\install-project-promoter.ps1 `
+  -ExpectedCommit $expectedCommit `
+  -VerifyOnly
+```
+
+   Continue only after `PROMOTER_VERIFY_OK`. `PROMOTER_VERIFY_FAILED` means the
+   installed script is stale or lacks valid provenance. Install it only with
+   `install-project-promoter.ps1`, preserve its rollback copy/receipt, and then
+   repeat the complete preflight. Do not invoke the stale runtime script.
+8. Confirm the runtime health check recognizes
    `C:\IZO_ASA\runtime\project-release-maintenance.flag`. Back it up before any
    change. The promoter must fail closed if this contract is absent.
-7. Do not modify, disable or bypass AdGuard VPN, FRP, DNS or the VPS during an
+9. Do not modify, disable or bypass AdGuard VPN, FRP, DNS or the VPS during an
    application release.
 
 ## 4. Build and candidate preparation
@@ -93,21 +120,26 @@ commit, a rollback copy and its installation receipt.
 
 During promotion the promoter must:
 
-1. Acquire the global single-owner mutex.
-2. Validate marker SHA, candidate path, clean candidate checkout and immutable
+1. Reject a non-administrator process before acquiring the mutex, creating a
+   backup or invoking a service executable.
+2. Acquire the global single-owner mutex.
+3. Validate marker SHA, candidate path, clean candidate checkout and immutable
    frontend identity before stopping anything.
-3. Verify the installed health check honors the maintenance flag.
-4. Create `project-release-maintenance.flag` before the mutable window. The
+4. Compare its normalized installed hash and installation receipt with the
+   exact candidate's tracked promoter; fail before the mutable window on any
+   mismatch.
+5. Verify the installed health check honors the maintenance flag.
+6. Create `project-release-maintenance.flag` before the mutable window. The
    watchdog may observe services but must not start `IZOBackend` or `IZOCaddy`
    while this flag exists.
-5. Create a consistent SQLite hot backup while the old backend remains online,
+7. Create a consistent SQLite hot backup while the old backend remains online,
    and copy service/Caddy configuration into a timestamped rollback directory.
-6. Stop services, wait for stopped state and closed loopback ports, switch exact
+8. Stop services, wait for stopped state and closed loopback ports, switch exact
    paths and identities, then start and verify the services.
-7. On failure, restore the prior code/configuration and leave the additive live
+9. On failure, restore the prior code/configuration and leave the additive live
    database in place. Database restoration is a separate rehearsed operator
    action, never an automatic file copy.
-8. In outer cleanup, attempt to leave both services running, remove the
+10. In outer cleanup, attempt to leave both services running, remove the
    maintenance flag and release the mutex.
 
 Run the installed promoter only after every preceding gate passes:
@@ -148,6 +180,21 @@ If automatic rollback reports success, verify the previous exact release locally
 and publicly. If rollback fails, preserve all evidence and escalate as an
 incident; do not restore SQLite or alter networking without a separate approved
 recovery procedure.
+
+Use these exact classifications; do not collapse them into "deployment failed":
+
+| Evidence | Meaning | Required next action |
+|---|---|---|
+| Administrator check is `False` or `PROMOTION_PREFLIGHT_FAILED` mentions elevation | The invoking process cannot safely control WinSW services | Do not run the promoter. Open an elevated Administrator process and repeat every preflight gate. |
+| `PROMOTER_VERIFY_FAILED` or tracked/installed hashes differ | The installed promoter is stale, modified or has no matching receipt | Do not run it. Install the exact clean tracked promoter with the installer, retain its backup/receipt, then repeat preflight. |
+| `Backend stop failed with exit code -2147467259` together with WinSW "operation was cancelled" and a non-administrator token | The service command crossed the elevation boundary from an invalid process | Treat it as the one controlled failed promotion. Verify rollback; never retry from the same process. |
+| Installed promoter lacks the candidate's maintenance-flag guard | The watchdog can race the service switch even if the health script understands the flag | Stop before promotion and install the exact candidate promoter. Do not disable the watchdog manually. |
+| `promotion-current.json` is `rolled_back` | Candidate is not deployed, regardless of HTTP 200 from the restored site | Verify the previous exact release and report `BLOCKED`, not `DEPLOYED`. |
+
+For the 2026-08-31 incident, the non-administrator token and WinSW cancellation
+are the confirmed cause of the service-control failure. The stale installed
+promoter is a separate confirmed preflight defect and safety risk; available
+evidence does not prove it produced that exit code.
 
 ## 8. Required release record
 

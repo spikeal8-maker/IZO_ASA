@@ -13,6 +13,7 @@ $caddyExe = 'C:\IZO_ASA\runtime\services\caddy\IZOCaddy.exe'
 $operationsPath = 'C:\IZO_ASA\config\backup-operations.json'
 $promotionStatusPath = 'C:\IZO_ASA\health\promotion-current.json'
 $updateStatusPath = 'C:\IZO_ASA\health\update-current.json'
+$promoterInstallReceiptPath = 'C:\IZO_ASA\health\promoter-install-current.json'
 $releaseMaintenancePath = 'C:\IZO_ASA\runtime\project-release-maintenance.flag'
 $healthCheckPath = 'C:\IZO_ASA\ops\scripts\server-health-check.ps1'
 $git = 'C:\Users\admins\AppData\Local\Programs\Git\cmd\git.exe'
@@ -143,6 +144,34 @@ function Wait-LoopbackPortClosed {
     throw "Loopback port $Port remained open after its service was stopped."
 }
 
+function Get-NormalizedSha256 {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $text = [IO.File]::ReadAllText($Path).Replace("`r`n", "`n")
+    $bytes = [Text.Encoding]::UTF8.GetBytes($text)
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try {
+        $hash = $algorithm.ComputeHash($bytes)
+    } finally {
+        $algorithm.Dispose()
+    }
+    return 'sha256:' + ([BitConverter]::ToString($hash)).Replace('-', '').ToLowerInvariant()
+}
+
+function Test-IsWindowsAdministrator {
+    try {
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+        return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    } catch {
+        return $false
+    }
+}
+
+if (-not (Test-IsWindowsAdministrator)) {
+    throw 'PROMOTION_PREFLIGHT_FAILED: an elevated Windows Administrator process is required; no release or service command was run.'
+}
+
 $promotionMutex = [System.Threading.Mutex]::new(
     $false,
     'Global\IZO_ASA_ProjectReleasePromotion'
@@ -202,6 +231,7 @@ $rollback = "C:\IZO_ASA\rollback\$stamp-before-$short"
 $releaseId = ''
 $manifestPath = ''
 $frontendRoot = Join-Path $newRelease 'frontend\dist'
+$candidatePromoterPath = Join-Path $newRelease 'ops\release\promote-project-release.ps1'
 $hotBackupTool = Join-Path $newRelease 'tools\sqlite_hot_backup.py'
 $servicePythonTool = Join-Path $newRelease 'tools\ensure_service_python_runtime.py'
 $ltxLauncherSource = Join-Path $newRelease 'ops\ltx23\start-local-ltx-comfyui.ps1'
@@ -215,11 +245,21 @@ try {
         $hotBackupTool, $servicePythonTool, $serviceBasePython,
         $ltxLauncherSource,
         $backendXml, $backendExe, $caddyFile, $caddyExe, $database, $git,
-        $healthCheckPath
+        $healthCheckPath, $candidatePromoterPath, $promoterInstallReceiptPath
     )) {
         if (-not (Test-Path -LiteralPath $required)) {
             throw "Required promotion input is missing: $required"
         }
+    }
+
+    $installedPromoterHash = Get-NormalizedSha256 -Path $PSCommandPath
+    $candidatePromoterHash = Get-NormalizedSha256 -Path $candidatePromoterPath
+    $promoterReceipt = Get-Content -LiteralPath $promoterInstallReceiptPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ([string]$promoterReceipt.schema -ne 'izo.promoter-install.v1' -or
+        $installedPromoterHash -ne $candidatePromoterHash -or
+        [string]$promoterReceipt.source_sha256 -ne $candidatePromoterHash -or
+        [string]$promoterReceipt.installed_sha256 -ne $candidatePromoterHash) {
+        throw 'PROMOTION_PREFLIGHT_FAILED: installed promoter, candidate source and installation receipt do not match.'
     }
 
     # A candidate may contain a venv created by an interactive user Python. Its

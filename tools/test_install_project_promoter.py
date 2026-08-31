@@ -72,6 +72,37 @@ def _run(repo: Path, commit: str, tmp_path: Path, *extra: str) -> subprocess.Com
     )
 
 
+def _run_from_repo_without_root(
+    repo: Path, commit: str, tmp_path: Path, *extra: str
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            PWSH,
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(repo / "ops" / "release" / INSTALLER.name),
+            "-ExpectedCommit",
+            commit,
+            "-DestinationPath",
+            str(tmp_path / "runtime" / "promote-project-release.ps1"),
+            "-BackupRoot",
+            str(tmp_path / "rollback"),
+            "-ReceiptPath",
+            str(tmp_path / "health" / "promoter-install-current.json"),
+            "-GitPath",
+            GIT,
+            *extra,
+        ],
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        check=False,
+    )
+
+
 def test_installer_copies_exact_promoter_and_writes_receipt(tmp_path: Path) -> None:
     repo, commit = _repo(tmp_path)
     destination = tmp_path / "runtime" / "promote-project-release.ps1"
@@ -108,3 +139,42 @@ def test_installer_plan_only_is_read_only(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
     assert "PROMOTER_INSTALL_PLAN_OK" in result.stdout
     assert not (tmp_path / "runtime").exists()
+
+
+def test_installer_resolves_repo_root_from_its_script_path(tmp_path: Path) -> None:
+    repo, commit = _repo(tmp_path)
+    result = _run_from_repo_without_root(repo, commit, tmp_path, "-PlanOnly")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "PROMOTER_INSTALL_PLAN_OK" in result.stdout
+    assert not (tmp_path / "runtime").exists()
+
+
+def test_installer_verify_only_accepts_exact_installation_without_mutation(tmp_path: Path) -> None:
+    repo, commit = _repo(tmp_path)
+    install = _run(repo, commit, tmp_path)
+    assert install.returncode == 0, install.stdout + install.stderr
+    destination = tmp_path / "runtime" / "promote-project-release.ps1"
+    receipt = tmp_path / "health" / "promoter-install-current.json"
+    before_destination = destination.read_bytes()
+    before_receipt = receipt.read_bytes()
+
+    verify = _run(repo, commit, tmp_path, "-VerifyOnly")
+
+    assert verify.returncode == 0, verify.stdout + verify.stderr
+    assert "PROMOTER_VERIFY_OK" in verify.stdout
+    assert destination.read_bytes() == before_destination
+    assert receipt.read_bytes() == before_receipt
+
+
+def test_installer_verify_only_rejects_stale_runtime(tmp_path: Path) -> None:
+    repo, commit = _repo(tmp_path)
+    install = _run(repo, commit, tmp_path)
+    assert install.returncode == 0, install.stdout + install.stderr
+    destination = tmp_path / "runtime" / "promote-project-release.ps1"
+    destination.write_text("stale promoter\n", encoding="utf-8")
+
+    verify = _run(repo, commit, tmp_path, "-VerifyOnly")
+
+    assert verify.returncode != 0
+    assert "PROMOTER_VERIFY_FAILED" in verify.stderr

@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path,
+    [string]$RepoRoot = '',
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^[0-9a-fA-F]{40}$')]
     [string]$ExpectedCommit,
@@ -8,11 +8,24 @@ param(
     [string]$BackupRoot = 'C:\IZO_ASA\rollback',
     [string]$ReceiptPath = 'C:\IZO_ASA\health\promoter-install-current.json',
     [string]$GitPath = 'C:\Users\admins\AppData\Local\Programs\Git\cmd\git.exe',
-    [switch]$PlanOnly
+    [switch]$PlanOnly,
+    [switch]$VerifyOnly
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+
+if ($PlanOnly -and $VerifyOnly) {
+    throw 'PlanOnly and VerifyOnly cannot be used together.'
+}
+
+if (-not $RepoRoot.Trim()) {
+    $scriptPath = [string]$MyInvocation.MyCommand.Path
+    if (-not $scriptPath.Trim()) {
+        throw 'Installer script path could not be resolved. Pass -RepoRoot explicitly.'
+    }
+    $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $scriptPath))
+}
 
 function Invoke-GitText {
     param([string[]]$Arguments)
@@ -67,6 +80,30 @@ if ($untracked) {
 }
 
 $sourceHash = Get-NormalizedSha256 -Path $sourcePath
+if ($VerifyOnly) {
+    foreach ($required in @($DestinationPath, $ReceiptPath)) {
+        if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
+            throw "PROMOTER_VERIFY_FAILED required installed evidence is missing: $required"
+        }
+    }
+
+    $installedHash = Get-NormalizedSha256 -Path $DestinationPath
+    $receipt = Get-Content -LiteralPath $ReceiptPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ([string]$receipt.schema -ne 'izo.promoter-install.v1') {
+        throw 'PROMOTER_VERIFY_FAILED installation receipt schema is invalid.'
+    }
+    if ($installedHash -ne $sourceHash -or
+        [string]$receipt.source_sha256 -ne $sourceHash -or
+        [string]$receipt.installed_sha256 -ne $sourceHash) {
+        throw 'PROMOTER_VERIFY_FAILED installed promoter, tracked source and installation receipt do not match.'
+    }
+    if ([string]$receipt.commit -notmatch '^[0-9a-fA-F]{40}$') {
+        throw 'PROMOTER_VERIFY_FAILED installation receipt commit is invalid.'
+    }
+
+    Write-Host "PROMOTER_VERIFY_OK current=$actualCommit installedFrom=$($receipt.commit) sha=$sourceHash"
+    exit 0
+}
 if ($PlanOnly) {
     Write-Host "PROMOTER_INSTALL_PLAN_OK commit=$actualCommit source=$sourceHash"
     exit 0
