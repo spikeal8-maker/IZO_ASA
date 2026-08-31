@@ -12,6 +12,7 @@ from . import generation_queue
 from . import openrouter_availability
 from . import openrouter_image_economics
 from . import cloud_quote
+from . import chat_request_lifecycle
 from . import gallery_policy
 from . import gallery_eviction
 from . import gallery_query
@@ -64,6 +65,7 @@ __all__ = [
     "openrouter_availability",
     "openrouter_image_economics",
     "cloud_quote",
+    "chat_request_lifecycle",
     "gallery_policy",
     "gallery_eviction",
     "gallery_query",

@@ -25,7 +25,7 @@ from ...integrations.openrouter import (
     format_openrouter_public_error,
     request_openrouter_chat_completion,
 )
-from ...services import chat_billing, phone_chat_history
+from ...services import chat_billing, chat_request_lifecycle, phone_chat_history
 
 
 PROVIDER_ENDPOINTS = load_provider_endpoint_policy()
@@ -126,9 +126,7 @@ class PhoneChatDependencies:
     record_openrouter_availability: Callable[[int], None]
     record_event: Callable[..., None]
     openrouter_text_models: Callable[[], Any]
-    charge_tokens: Callable[..., dict[str, Any]]
-    refund_tokens: Callable[..., bool]
-    settle_tokens: Callable[..., dict[str, Any]] | None = None
+    request_lifecycle: chat_request_lifecycle.ChatRequestLifecycle | None
     connect_db: Callable[[], Any] | None = None
     usd_rub_snapshot: Callable[[], dict[str, Any]] | None = None
     openrouter_economy: Callable[[], dict[str, float]] | None = None
@@ -548,6 +546,24 @@ async def route_phone_chat(
 def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
     router = APIRouter()
 
+    def replay_or_raise(outcome: dict[str, Any]) -> dict[str, Any] | None:
+        state = str(outcome.get("state") or "")
+        if state == "succeeded":
+            response = outcome.get("response")
+            if isinstance(response, dict):
+                return response
+            raise HTTPException(503, "Не удалось восстановить сохранённый ответ чата.")
+        if state in {"conflict", "processing", "failed"}:
+            headers = None
+            if state == "processing":
+                headers = {"Retry-After": str(max(1, int(outcome.get("retry_after") or 1)))}
+            raise HTTPException(
+                int(outcome.get("status") or 503),
+                str(outcome.get("detail") or "Чат временно недоступен."),
+                headers=headers,
+            )
+        return None
+
     def trusted_user_id(request: Request) -> tuple[dict[str, Any], str]:
         trusted = deps.require_trusted_user(request)
         user_id = str(trusted.get("legacy_user_id") or "")
@@ -728,6 +744,23 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
             _phone_chat_image_payloads(req.images)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
+        lifecycle = deps.request_lifecycle
+        if lifecycle is None:
+            raise HTTPException(503, "Защита повторных запросов чата не настроена.")
+        fingerprint = chat_request_lifecycle.phone_chat_request_fingerprint(
+            messages=req.messages,
+            route=req.route,
+            model_id=req.modelId,
+            images=req.images,
+            thread_id=req.threadId,
+        )
+        replay = replay_or_raise(lifecycle.inspect(
+            user_id=user_id,
+            request_id=req.requestId,
+            fingerprint=fingerprint,
+        ))
+        if replay is not None:
+            return replay
         routed_req = req
         if req.threadId and deps.connect_db is not None:
             with deps.connect_db() as conn:
@@ -768,13 +801,19 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
             except (TypeError, ValueError) as exc:
                 raise HTTPException(503, "Для этой модели пока нет проверенной цены.") from exc
             selected_cost = float(reservation_quote["reservedTokens"])
-        charge = deps.charge_tokens(
+        claim = lifecycle.begin(
             user_id=user_id,
             token_cost=selected_cost,
             request_id=req.requestId,
+            fingerprint=fingerprint,
             provider=selected_provider,
             model=selected_model,
         )
+        replay = replay_or_raise(claim)
+        if replay is not None:
+            return replay
+        if claim.get("state") != "started" or not isinstance(claim.get("charge"), dict):
+            raise HTTPException(503, "Не удалось безопасно начать запрос чата.")
         started = time.monotonic()
         try:
             routed = await asyncio.wait_for(
@@ -786,93 +825,103 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
                 public_model_id, token_cost, token_kind = _public_id, selected_cost, selected_kind
             else:
                 reply, provider_payload, provider, model, public_model_id, token_cost, token_kind = routed
-        except ValueError as exc:
-            deps.refund_tokens(user_id=user_id, ledger_id=charge["ledger_id"], reason=str(exc))
-            raise HTTPException(400, str(exc)) from exc
-        except asyncio.TimeoutError as exc:
-            deps.refund_tokens(user_id=user_id, ledger_id=charge["ledger_id"], reason="timeout")
-            raise HTTPException(504, "Чат отвечает слишком долго. Повторите запрос.") from exc
-        except (httpx.HTTPError, RuntimeError) as exc:
-            deps.refund_tokens(user_id=user_id, ledger_id=charge["ledger_id"], reason=str(exc))
-            raise HTTPException(
-                502,
-                "Чат временно недоступен. Повторите позже или обратитесь в поддержку.",
-            ) from exc
-        usage = provider_payload.get("usage") if isinstance(provider_payload.get("usage"), dict) else {}
-        tool_runs = provider_payload.pop("_izo_tool_runs", []) if isinstance(provider_payload, dict) else []
-        tool_payloads = provider_payload.pop("_izo_tool_payloads", []) if isinstance(provider_payload, dict) else []
-        cost = extract_openrouter_generation_cost(provider_payload) if provider == "api" else 0
-        cost += sum(
-            extract_openrouter_generation_cost(item)
-            for item in tool_payloads
-            if isinstance(item, dict)
-        )
-        settlement: dict[str, Any] | None = None
-        if reservation_quote is not None and deps.settle_tokens is not None:
-            settlement = deps.settle_tokens(
-                user_id=user_id,
-                ledger_id=charge["ledger_id"],
-                quote=reservation_quote,
-                actual_cost_usd=cost if cost > 0 else None,
+            usage = provider_payload.get("usage") if isinstance(provider_payload.get("usage"), dict) else {}
+            tool_runs = provider_payload.pop("_izo_tool_runs", []) if isinstance(provider_payload, dict) else []
+            tool_payloads = provider_payload.pop("_izo_tool_payloads", []) if isinstance(provider_payload, dict) else []
+            cost = float(extract_openrouter_generation_cost(provider_payload) or 0) if provider == "api" else 0.0
+            cost += sum(
+                float(extract_openrouter_generation_cost(item) or 0)
+                for item in tool_payloads
+                if isinstance(item, dict)
             )
-            token_cost = float(settlement.get("settled_tokens") or selected_cost)
-            charge["new_balance"] = settlement.get("new_balance", charge.get("new_balance"))
-        deps.record_event(
-            "phone_chat_answered",
-            internal_user_id=trusted.get("internal_user_id"),
-            legacy_user_id=trusted.get("legacy_user_id"),
-            session_id=trusted.get("session_id"),
-            platform="web",
-            request=request,
-            properties={
-                "model": model,
-                "provider": provider,
-                "message_count": len(req.messages),
-                "input_chars": sum(len(turn.content) for turn in req.messages),
-                "image_count": len(req.images),
-                "output_chars": len(reply),
-                "latency_ms": round((time.monotonic() - started) * 1000),
-                "cost_usd": cost,
-                "product_token_cost": token_cost,
-                "product_token_kind": token_kind,
-                "provider_usage": usage,
-                "billing_quote": reservation_quote,
-                "billing_settlement": settlement,
-                "tools": [str(item.get("name") or "") for item in tool_runs if isinstance(item, dict)],
-            },
-        )
-        message_ids: dict[str, str] = {}
-        if req.threadId and deps.connect_db is not None:
-            with deps.connect_db() as conn:
-                message_ids = phone_chat_history.add_exchange(
-                    conn, user_id, req.threadId,
-                    user_content=req.messages[-1].content, assistant_content=reply,
-                    provider=provider, model=public_model_id, tools=tool_runs,
-                    charged_tokens=token_cost, token_kind=token_kind,
+            completion = lifecycle.complete(
+                user_id=user_id,
+                request_id=req.requestId,
+                fingerprint=fingerprint,
+                reply=reply,
+                provider=provider,
+                public_model_id=public_model_id,
+                usage=usage,
+                cost_usd=cost,
+                token_cost=token_cost,
+                token_kind=token_kind,
+                reservation_quote=reservation_quote,
+                tool_runs=tool_runs,
+                thread_id=req.threadId,
+                user_content=req.messages[-1].content,
+            )
+            response = replay_or_raise(completion)
+            if response is None:
+                raise RuntimeError("PHONE_CHAT_COMPLETION_OUTCOME_INVALID")
+            settlement = completion.get("settlement") if isinstance(completion.get("settlement"), dict) else None
+        except Exception as exc:
+            if isinstance(exc, ValueError):
+                status, detail, error_code = 400, str(exc), "invalid_provider_result"
+            elif isinstance(exc, asyncio.TimeoutError):
+                status, detail, error_code = 504, "Чат отвечает слишком долго. Повторите запрос.", "timeout"
+            elif isinstance(exc, HTTPException):
+                status = int(exc.status_code)
+                detail = str(exc.detail)
+                error_code = "http_error"
+            elif isinstance(exc, (httpx.HTTPError, RuntimeError)):
+                status, detail, error_code = (
+                    502,
+                    "Чат временно недоступен. Повторите позже или обратитесь в поддержку.",
+                    "provider_or_completion_error",
                 )
-                if len(phone_chat_history.list_messages(conn, user_id, req.threadId, limit=3)) <= 2:
-                    phone_chat_history.update_thread(
-                        conn, user_id, req.threadId,
-                        {"title": req.messages[-1].content.strip()[:42], "chatModelId": public_model_id},
-                    )
-                conn.commit()
-        return {
-            "ok": True,
-            "reply": reply,
-            "model": public_model_id,
-            "provider": provider,
-            "usage": usage,
-            "costUsd": cost,
-            "modelId": public_model_id,
-            "chargedTokens": token_cost,
-            "tokenKind": token_kind,
-            "tokenBalance": charge.get("new_balance"),
-            "dailyTokensUsed": charge.get("daily_tokens_used_after"),
-            "dailyTokensLimit": charge.get("daily_tokens_limit"),
-            "reservedTokens": float(reservation_quote["reservedTokens"]) if reservation_quote is not None else token_cost,
-            "billingStatus": settlement.get("status") if settlement is not None else "fixed",
-            "tools": tool_runs,
-            "messageId": message_ids.get("assistantMessageId"),
-        }
+            else:
+                status, detail, error_code = (
+                    502,
+                    "Чат временно недоступен. Повторите позже или обратитесь в поддержку.",
+                    "unexpected_chat_error",
+                )
+            try:
+                failure = lifecycle.fail(
+                    user_id=user_id,
+                    request_id=req.requestId,
+                    fingerprint=fingerprint,
+                    status=status,
+                    detail=detail,
+                    error_code=error_code,
+                )
+            except Exception as refund_exc:
+                raise HTTPException(
+                    503,
+                    "Не удалось подтвердить возврат токенов. Повторите запрос позже.",
+                ) from refund_exc
+            if failure.get("state") == "succeeded" and isinstance(failure.get("response"), dict):
+                return failure["response"]
+            raise HTTPException(
+                int(failure.get("status") or status),
+                str(failure.get("detail") or detail),
+            ) from exc
+        try:
+            deps.record_event(
+                "phone_chat_answered",
+                internal_user_id=trusted.get("internal_user_id"),
+                legacy_user_id=trusted.get("legacy_user_id"),
+                session_id=trusted.get("session_id"),
+                platform="web",
+                request=request,
+                properties={
+                    "model": model,
+                    "provider": provider,
+                    "message_count": len(req.messages),
+                    "input_chars": sum(len(turn.content) for turn in req.messages),
+                    "image_count": len(req.images),
+                    "output_chars": len(reply),
+                    "latency_ms": round((time.monotonic() - started) * 1000),
+                    "cost_usd": cost,
+                    "product_token_cost": response["chargedTokens"],
+                    "product_token_kind": token_kind,
+                    "provider_usage": usage,
+                    "billing_quote": reservation_quote,
+                    "billing_settlement": settlement,
+                    "tools": [str(item.get("name") or "") for item in tool_runs if isinstance(item, dict)],
+                },
+            )
+        except Exception:
+            pass
+        return response
 
     return router

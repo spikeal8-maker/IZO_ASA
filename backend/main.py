@@ -367,7 +367,7 @@ try:
         telegram_message_from_update,
         telegram_user_from_update,
     )
-    from .app.services import chat_billing
+    from .app.services import chat_billing, chat_request_lifecycle
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.services import (
         AccountRetentionWorker, cleanup_due_unverified_accounts, enforce_due_unverified_login,
@@ -419,7 +419,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         telegram_message_from_update,
         telegram_user_from_update,
     )
-    from app.services import chat_billing
+    from app.services import chat_billing, chat_request_lifecycle
 
 try:
     from .app.services.platform_status import (
@@ -519,8 +519,8 @@ try:
         ADMIN_NOTIFICATION_DELIVERY_MIGRATION, ADMIN_NOTIFICATIONS_MIGRATION,
         DbGuardError,
         LEGACY_BASELINE_MIGRATION,
-        PHONE_CHAT_HISTORY_MIGRATION, GENERATION_TRIAL_MIGRATION,
-        apply_account_verification_migration, apply_admin_notification_delivery_migration, apply_admin_notifications_migration, apply_phone_chat_history_migration, apply_generation_trial_migration,
+        PHONE_CHAT_HISTORY_MIGRATION, GENERATION_TRIAL_MIGRATION, PHONE_CHAT_REQUEST_LIFECYCLE_MIGRATION,
+        apply_account_verification_migration, apply_admin_notification_delivery_migration, apply_admin_notifications_migration, apply_phone_chat_history_migration, apply_generation_trial_migration, apply_phone_chat_request_lifecycle_migration,
         backfill_identity_core,
         collect_sqlite_guard_status,
         database_size_mb,
@@ -545,8 +545,8 @@ except ImportError:  # Direct `python backend/main.py` execution.
         ADMIN_NOTIFICATION_DELIVERY_MIGRATION, ADMIN_NOTIFICATIONS_MIGRATION,
         DbGuardError,
         LEGACY_BASELINE_MIGRATION,
-        PHONE_CHAT_HISTORY_MIGRATION, GENERATION_TRIAL_MIGRATION,
-        apply_account_verification_migration, apply_admin_notification_delivery_migration, apply_admin_notifications_migration, apply_phone_chat_history_migration, apply_generation_trial_migration,
+        PHONE_CHAT_HISTORY_MIGRATION, GENERATION_TRIAL_MIGRATION, PHONE_CHAT_REQUEST_LIFECYCLE_MIGRATION,
+        apply_account_verification_migration, apply_admin_notification_delivery_migration, apply_admin_notifications_migration, apply_phone_chat_history_migration, apply_generation_trial_migration, apply_phone_chat_request_lifecycle_migration,
         backfill_identity_core,
         collect_sqlite_guard_status,
         database_size_mb,
@@ -1869,7 +1869,7 @@ def init_db() -> None:
     with db() as conn:
         ensure_migration_ledger(
             conn,
-            supported_version=GENERATION_TRIAL_MIGRATION.version,
+            supported_version=PHONE_CHAT_REQUEST_LIFECYCLE_MIGRATION.version,
         )
         prepare_core_schema_group(conn)
         ensure_outbox_schema(conn)
@@ -1896,6 +1896,7 @@ def init_db() -> None:
         apply_account_verification_migration(conn, applied_at=now)
         apply_phone_chat_history_migration(conn, applied_at=now)
         apply_generation_trial_migration(conn, applied_at=now)
+        apply_phone_chat_request_lifecycle_migration(conn, applied_at=now)
 
 PROVIDER_CODE_PREFIX = {"web_email": "WEB", "telegram": "TG", "max": "MAX"}
 
@@ -17014,9 +17015,7 @@ app.include_router(create_phone_chat_router(PhoneChatDependencies(
     record_openrouter_availability=OPENROUTER_AVAILABILITY.record,
     record_event=record_event_log,
     openrouter_text_models=openrouter_text_models,
-    charge_tokens=lambda **kwargs: chat_billing.charge_chat_tokens_for_user(connect=db, get_tariffs=get_tariff_config, reconcile_tariff=_reconcile_user_tariff, **kwargs),
-    refund_tokens=lambda **kwargs: chat_billing.refund_chat_tokens_for_user(connect=db, **kwargs),
-    settle_tokens=lambda **kwargs: chat_billing.settle_chat_tokens_for_user(connect=db, **kwargs),
+    request_lifecycle=chat_request_lifecycle.ChatRequestLifecycle(connect=db, get_tariffs=get_tariff_config, reconcile_tariff=_reconcile_user_tariff),
     connect_db=db,
     usd_rub_snapshot=usd_rub_rate_snapshot,
     openrouter_economy=openrouter_economy_settings,

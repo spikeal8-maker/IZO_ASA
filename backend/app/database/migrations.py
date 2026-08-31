@@ -77,6 +77,12 @@ GENERATION_TRIAL_MIGRATION = MigrationDefinition(
     checksum="sha256:5785d5521fc23d241dbeaf89cfa509fc89d02c430e27a63d02c685315c8fd830",
 )
 
+PHONE_CHAT_REQUEST_LIFECYCLE_MIGRATION = MigrationDefinition(
+    version=7,
+    name="phone_chat_request_lifecycle",
+    checksum="sha256:efc1fe304f3907308c1ab8e9dda8c2876965451a407927b3632c2e89d83835e8",
+)
+
 
 ADMIN_NOTIFICATIONS_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS admin_notifications (
@@ -200,6 +206,29 @@ CREATE INDEX IF NOT EXISTS idx_generation_trial_user_state
     ON generation_trial_reservations(internal_user_id, state, reserved_at);
 """
 
+PHONE_CHAT_REQUEST_LIFECYCLE_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS phone_chat_requests (
+    user_id TEXT NOT NULL,
+    request_id TEXT NOT NULL,
+    request_fingerprint TEXT NOT NULL CHECK (length(request_fingerprint) = 64),
+    state TEXT NOT NULL CHECK (state IN ('processing', 'succeeded', 'failed')),
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    charged_ledger_id TEXT,
+    charge_json TEXT NOT NULL DEFAULT '{}',
+    response_json TEXT,
+    error_status INTEGER,
+    error_detail TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    lease_expires_at TEXT NOT NULL,
+    finished_at TEXT,
+    PRIMARY KEY(user_id, request_id)
+);
+CREATE INDEX IF NOT EXISTS idx_phone_chat_requests_state_lease
+    ON phone_chat_requests(state, lease_expires_at);
+"""
+
 
 def apply_admin_notifications_migration(
     conn: sqlite3.Connection,
@@ -269,6 +298,20 @@ def apply_generation_trial_migration(
     return record_applied_migration(
         conn,
         GENERATION_TRIAL_MIGRATION,
+        applied_at=applied_at,
+    )
+
+
+def apply_phone_chat_request_lifecycle_migration(
+    conn: sqlite3.Connection,
+    *,
+    applied_at: str,
+) -> bool:
+    """Apply the per-user idempotent phone-chat request ledger exactly once."""
+    conn.executescript(PHONE_CHAT_REQUEST_LIFECYCLE_SCHEMA_SQL)
+    return record_applied_migration(
+        conn,
+        PHONE_CHAT_REQUEST_LIFECYCLE_MIGRATION,
         applied_at=applied_at,
     )
 
