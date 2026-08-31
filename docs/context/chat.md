@@ -170,8 +170,7 @@ Forced tool должен стать structured backend contract. Текущий 
   `available=true` только при `price_confirmed`; UI поэтому может блокировать
   fixed-cost model при недоступном catalog. Direct fixed-cost POST при этом
   принимает published/enabled/tier-allowed model без catalog price.
-- `requestId` дедуплицирует только charge ledger; refund/settlement используют
-  ledger id, а provider/history/job при повторе не дедуплицируются.
+- CURRENT GAP: `requestId` не привязан к user/model/operation/outcome; replay может обойти charge или refund'нуть прежний success, а provider/history/job повторяются.
 - Auth — только trusted cookie session v2; не добавляй второй auth или legacy
   identity headers.
 - Private history/attachments/results не становятся public автоматически.

@@ -66,7 +66,7 @@ runtime-вариантами этого помощника, а не разным
 | Durable final image-tool state | GAP: отдельный best-effort PATCH может потеряться |
 | Полное refund-покрытие после charge | GAP: unknown provider и post-provider failures могут пройти без refund |
 | Ответ на языке пользователя | GAP: runtime prompt и web-search subrequest принудительно русские |
-| Полная idempotency одного `requestId` | GAP: дедуплицируется ledger, но не provider/history/job |
+| Безопасная idempotency одного `requestId` | GAP: ключ не привязан к user/operation/outcome; ledger и refund могут конфликтовать, provider/history/job повторяются |
 | Проверка visual capability до платного вызова | GAP: capability metadata и validation отсутствуют |
 | Mobile citation display | GAP: `web_search` tools фильтруются и source links не рендерятся |
 | Проверка реального image content | GAP: проверяются prefix/alphabet, но не decode/magic bytes |
@@ -162,10 +162,12 @@ Search OPTIONAL для устойчивых знаний, редактирова
 - Tool call является структурированным намерением, не выполненным результатом.
 - Пользователь должен видеть состояния pending, completed и failed.
 - Assistant text и tool state не должны противоречить друг другу.
-- CURRENT: повтор одного `requestId` дедуплицирует ledger charge, но снова
-  выполняет provider call, добавляет exchange и может создать новый image intent/job.
-- REQUIRED: повтор одного request id не создаёт повторное списание, provider
-  work, history exchange или job.
+- CURRENT GAP: lookup одного `requestId` не проверяет тот же trusted user, model
+  или operation и возвращает прежние ledger/`new_balance`; replay может обойти
+  charge, повторить provider/history/job, а failure path — refund'нуть прежний
+  успешный вызов.
+- REQUIRED: ключ связывается с trusted user и operation; повтор возвращает cached
+  final outcome без нового charge, refund, provider work, history exchange или job.
 - Forced tool должен передаваться отдельным validated field; скрытая инструкция
   в user content не является целевым контрактом.
 
@@ -236,6 +238,7 @@ Search OPTIONAL для устойчивых знаний, редактирова
 | Недостаточно средств | не вызывать provider; показать понятное действие для продолжения |
 | Timeout | сохранить однозначное состояние, выполнить idempotent refund и предложить повтор |
 | Ошибка settlement/telemetry/history после provider success | CURRENT GAP: refund не гарантирован; не обещать успешное сохранение или возврат |
+| Повтор/коллизия `requestId` | CURRENT GAP: небезопасный scope может обойти charge или конфликтно refund'нуть ранее успешный вызов |
 | В history есть assistant reply длиннее 4 000 символов | CURRENT GAP: следующий turn не доходит до provider из-за 4 000-character reconstruction schema |
 | Search не дал результата | сообщить об отсутствии подтверждения; не выдумывать источник |
 | Image job завершился ошибкой | показать failed state и безопасную возможность повторить |
@@ -268,7 +271,8 @@ Search OPTIONAL для устойчивых знаний, редактирова
 7. Visual input на поддерживаемой и неподдерживаемой модели.
 8. Недоступная платная модель, недостаток баланса и оба billing mode до provider
    call.
-9. Повтор одного `requestId` без двойного списания или duplicate job.
+9. Повтор и cross-user/cross-operation коллизия `requestId` без обхода charge,
+   conflicting refund, повторного provider work/history/job или утечки balance metadata.
 10. Попытка доступа к чужому thread/media получает отказ.
 11. Timeout возвращает исходное списание в usage/fixed mode и допускает
     безопасный повтор.

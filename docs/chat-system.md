@@ -295,11 +295,13 @@ endpoint.
 | GET | `/api/phone/chat/models` | тарифный каталог моделей |
 | POST | `/api/phone/chat` | получить один ответ |
 
-`requestId` является idempotency boundary только для charge ledger; связанные
-refund/settlement дедуплицируются по повторно используемому ledger id. Повтор всё
-ещё запускает provider route, добавляет history exchange и может вернуть новый
-image intent/job. Нельзя заменять `requestId` клиентским user id или доверять
-`X-OneNode-User`.
+CURRENT GAP: `requestId` ищет ранее созданный charge ledger только по самому
+ключу и не связывает его с trusted user, model, operation или финальным outcome.
+Другой запрос может переиспользовать прежние ledger/`new_balance`, обойти charge,
+а неуспешный replay — refund'нуть ранее успешный вызов. Provider route, history
+exchange и image intent/job при replay также выполняются снова. Поэтому текущий
+`requestId` нельзя считать безопасной idempotency boundary; целевой контракт
+должен связывать ключ с user/operation и возвращать cached final outcome.
 
 ## 9. Persistence
 
@@ -475,7 +477,7 @@ social bots.
 | Surface actions не имеют desktop/mobile parity | desktop media empty-state actions и preview/share; mobile quick prompts и download/animate | product decision + mobile parity issue |
 | Refund не покрывает unknown provider exception и post-provider settlement/telemetry/history failure | `phone_chat.py` exception boundary после charge | отдельная billing recovery issue с race/idempotency tests |
 | Runtime и web-search prompt принудительно русские | `PHONE_CHAT_SYSTEM_PROMPT`, `_web_search` | multilingual prompt/eval package |
-| `requestId` дедуплицирует ledger, но не provider/history/image job | charge service и POST route после duplicate result | end-to-end idempotency package |
+| `requestId` не привязан к user/model/operation/outcome и при replay может обойти charge или refund'нуть прежний success; provider/history/job тоже повторяются | charge lookup, refund path и POST route после duplicate result | billing-integrity + end-to-end idempotency package |
 | Visual capability не описана и не проверяется до платного provider call | model catalog/resolver и attachment path | capability schema + pre-charge validation |
 | Mobile не показывает structured web-search source links | desktop source renderer и mobile `ChatTools` filter | citation surface parity package |
 | Image data не декодируется и не сверяется с magic bytes | `_phone_chat_image_payloads` | content validation до charge/provider |
