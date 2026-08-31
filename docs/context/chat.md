@@ -3,63 +3,50 @@ status: canonical
 role: chat-agent-context
 scope: /chat and shared /phone/chat core
 audience: coding-agents
-evidence_base_sha: 11b087d8441cb109b50b1d1e863fdcfa73201d07
+evidence_base_sha: 7ea3c3b66a6b673707b67df91b74151c3474a9c6
+evidence_package: CHAT-IDEMPOTENCY-001
 status_effective_when: merged-to-main
 updated: 2026-08-31
 ---
 
 # Context: продуктовый чат `/chat`
 
-Назначение: минимальный канонический контекст для задач по desktop `/chat`,
-mobile `/phone/chat`, общей истории, assistant models, chat tools и chat billing.
-После Task Contract подробности находятся в
-[продуктовом и архитектурном контракте](../chat-system.md) и
-[контракте поведения AI-помощника](../chat-assistant-contract.md).
+Назначение: минимальный контекст для desktop `/chat`, mobile `/phone/chat`, общей
+истории, моделей, tools и billing. После Task Contract подробности находятся в
+[архитектурном контракте](../chat-system.md) и [контракте помощника](../chat-assistant-contract.md).
 
 ## Граница подсистемы
 
 - `/chat` — отдельная пользовательская страница и отдельный desktop workspace.
 - `/phone/chat` — отдельная mobile поверхность того же продукта.
-- Обе поверхности используют одну trusted identity, одну историю и backend
-  routes `/api/phone/chat*`.
+- Обе поверхности используют одну trusted identity, историю и routes `/api/phone/chat*`.
 - Сейчас desktop импортирует contracts/API из phone feature; это рабочее переиспользование, но не окончательная граница владения.
 - Чат является bounded feature внутри modular monolith, не микросервисом.
-- Общими platform services остаются auth, token ledger, providers, jobs, media,
-  transcription и telemetry.
+- Общими platform services остаются auth, ledger, providers, jobs, media, transcription и telemetry.
 
-Не называй существующий чат полностью автономной системой. Корректно:
-«отдельная продуктовая поверхность с частично выделенной feature-реализацией».
+Не называй чат полностью автономным: это отдельная продуктовая поверхность с частично выделенной feature-реализацией.
 
 ## Chat-specific reference после Task Contract
 
-Этот раздел не создаёт второй reading order. Сначала следуй
-[AI_START_HERE.md](../../AI_START_HERE.md) до Task Contract текущего package.
-После него используй [docs/chat-system.md](../chat-system.md), нужную route-строку
-в [generated frontend map](../generated/frontend-map.md) и
-`backend/SYMBOL_MAP.md`. Открывай только bounded source ranges. UI,
-orchestration, history, tools, billing, auth и SEO остаются разными packages и
-risk classes; проверь overlap до расширения domain.
+Сначала следуй [AI_START_HERE.md](../../AI_START_HERE.md) до Task Contract. Затем
+используй [chat-system.md](../chat-system.md), нужную строку [frontend map](../generated/frontend-map.md)
+и `backend/SYMBOL_MAP.md`; открывай только bounded ranges. UI, orchestration,
+history, tools, billing, auth и SEO — разные packages/risk classes.
 
 ## Frontend entrypoints
 
-- `frontend/src/App.tsx` — route `/chat` выбирает lazy `NewStudio`; route
-  `/phone/*` выбирает `PhoneApp`.
-- `frontend/src/studio/studioNavigation.ts` — path → tab `chat`, canonical и
-  client metadata.
-- `frontend/src/newUi.tsx` — общий studio shell; импортируй только bounded
-  диапазоны вокруг `DesktopChatWorkspace`, не читай файл целиком.
-- `frontend/src/desktopChat/DesktopChatWorkspace.tsx` — desktop history,
-  messages, composer, models, tools, voice, artifacts и responsive state.
+- `frontend/src/App.tsx` — `/chat` выбирает lazy `NewStudio`, `/phone/*` — `PhoneApp`.
+- `frontend/src/studio/studioNavigation.ts` — path → tab `chat`, canonical и client metadata.
+- `frontend/src/newUi.tsx` — studio shell; читай только bounded range вокруг `DesktopChatWorkspace`.
+- `frontend/src/desktopChat/DesktopChatWorkspace.tsx` — desktop history, messages, composer, models, tools, voice и artifacts.
 - `frontend/src/desktopChat/desktopChat.css` — desktop/mobile chat layout.
 - `frontend/src/phone/PhoneApp.tsx` — mobile platform shell.
 - `frontend/src/phone/features/chat/PhoneChatWorkspace.tsx` — mobile chat UI.
-- `frontend/src/phone/features/chat/api.ts` — shared-in-practice types и client
-  requests для desktop/mobile.
+- `frontend/src/phone/features/chat/api.ts` — shared-in-practice types и desktop/mobile requests.
 - `frontend/src/phone/features/chat/format.ts` — public text cleanup.
 - `frontend/src/phone/core/http.ts` — credentialed phone API transport.
 
-`DesktopChatWorkspace.tsx` превышает 1 200 строк. Новое поведение не добавлять в
-него без оценки extraction boundary и regression coverage.
+`DesktopChatWorkspace.tsx` превышает 1 200 строк; перед расширением оцени extraction boundary и regression coverage.
 
 ## Backend entrypoints
 
@@ -69,8 +56,10 @@ risk classes; проверь overlap до расширения domain.
   bounded context.
 - `backend/app/services/chat_billing.py` — config normalization, reservation,
   settlement, refund и usage report.
+- `backend/app/services/chat_request_lifecycle.py` — durable claim по
+  `(trusted user, requestId)`, fingerprint, replay, atomic completion и recovery.
 - `backend/app/database/migrations.py` — additive migration
-  `phone_chat_history`.
+  `phone_chat_history` и `phone_chat_request_lifecycle`.
 - `backend/app/integrations/ollama.py` — local transport.
 - `backend/app/integrations/openrouter.py` — API transport и public error policy.
 
@@ -82,15 +71,19 @@ dependency seam через `PhoneChatDependencies`.
 1. Frontend отправляет последний user turn, `threadId`, public `modelId`,
    `requestId` и до четырёх images.
 2. Backend разрешает trusted user и тариф; client user id не используется.
-3. History service загружает bounded messages только owned thread.
-4. Model resolver проверяет publication, enabled state, tariff и billing config.
-5. API billing выбирает usage reservation с verified price или compatibility
+3. Request lifecycle проверяет точный `(user_id, requestId)` и fingerprint:
+   completed возвращается из cache, conflict/processing/failed не доходят до
+   provider.
+4. History service загружает bounded messages только owned thread.
+5. Model resolver проверяет publication, enabled state, tariff и billing config.
+6. API billing выбирает usage reservation с verified price или compatibility
    fixed charge из `apiTokenCosts` при `usageBillingEnabled=false`.
-6. Semaphore ограничивает параллельные local/API chat calls.
-7. Общий system prompt и tools передаются Ollama или OpenRouter.
-8. Tool loop разрешает `web_search` и `generate_image`, не больше bounded rounds.
-9. Только явно caught provider failure/timeout возвращает charge; success
-   выполняет usage settlement, а unknown/post-provider failure может пройти без refund.
+7. Durable claim и charge фиксируются одной `BEGIN IMMEDIATE` transaction.
+8. Semaphore ограничивает параллельные local/API chat calls; общий system prompt
+   и tools передаются Ollama или OpenRouter.
+9. Settlement, history exchange и cached successful response фиксируются одной
+   transaction. Любая ошибка после charge до этого commit выполняет один refund
+   и сохраняет safe failed outcome; telemetry после commit — best-effort.
 10. Frontend завершает image job и best-effort PATCH'ит итоговый tool state;
     ignored PATCH failure может оставить stored state устаревшим.
 
@@ -115,6 +108,9 @@ dependency seam через `PhoneChatDependencies`.
   `context_chars` и timestamps.
 - `phone_chat_messages` хранит role/content/provider/public model/tools,
   charged tokens, token kind и timestamp.
+- `phone_chat_requests` хранит per-user `requestId`, request fingerprint,
+  resolved provider/model, charge ledger, lease, terminal outcome и cached public
+  response. Raw images в таблицу не пишутся: fingerprint содержит только hashes.
 - Delete thread каскадно удаляет messages.
 - Каждый read/update/delete проверяет owner через trusted identity.
 - Desktop и mobile показывают одну историю одного пользователя.
@@ -170,7 +166,12 @@ Forced tool должен стать structured backend contract. Текущий 
   `available=true` только при `price_confirmed`; UI поэтому может блокировать
   fixed-cost model при недоступном catalog. Direct fixed-cost POST при этом
   принимает published/enabled/tier-allowed model без catalog price.
-- CURRENT GAP: `requestId` не привязан к user/model/operation/outcome; replay может обойти charge или refund'нуть прежний success, а provider/history/job повторяются.
+- `POST /api/phone/chat` idempotent по `(trusted user, requestId)`: exact completed
+  replay возвращает тот же response, другой fingerprint получает 409, активный
+  request — 409 + `Retry-After`, stale request закрывается с одним refund.
+- Эта гарантия охватывает chat charge/provider/history и сохранённый tool intent.
+  Отдельный frontend-owned image job и его best-effort PATCH остаются отдельным
+  GAP и не считаются доказанно idempotent этим ledger.
 - Auth — только trusted cookie session v2; не добавляй второй auth или legacy
   identity headers.
 - Private history/attachments/results не становятся public автоматически.
@@ -189,7 +190,6 @@ Forced tool должен стать structured backend contract. Текущий 
 - Forced tool добавляет скрытый текст к user content; optimistic и stored text
   могут разойтись.
 - Финальный image-tool PATCH не durable и при failure оставляет stale state.
-- Refund не покрывает unknown provider и post-provider failure после charge.
 - Нет visual-capability validation; attachment может уйти в unsupported paid model.
 - Image content/magic bytes не проверяются до charge/provider.
 - Surface actions различаются: desktop имеет media/preview/share, mobile — quick prompts/download/animate.
@@ -225,6 +225,7 @@ Backend baseline:
 - `backend/test_phone_chat_tools.py`;
 - `backend/test_phone_chat_model_catalog.py`;
 - `backend/test_chat_billing.py`;
+- `backend/test_phone_chat_idempotency.py`;
 - `backend/test_assistant_runtime.py`;
 - `backend/test_integrations_ollama_module.py`;
 - `backend/test_integrations_openrouter_module.py`.

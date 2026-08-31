@@ -3,7 +3,8 @@ status: canonical
 role: chat-product-architecture-spec
 scope: /chat and shared /phone/chat core
 audience: product owners, designers, developers, QA and coding-agents
-evidence_base_sha: 11b087d8441cb109b50b1d1e863fdcfa73201d07
+evidence_base_sha: 7ea3c3b66a6b673707b67df91b74151c3474a9c6
+evidence_package: CHAT-IDEMPOTENCY-001
 status_effective_when: merged-to-main
 updated: 2026-08-31
 ---
@@ -399,10 +400,18 @@ internal.
   usage settlement. Однако текущий model-catalog route независимо от режима
   ставит `available=true` только при `price_confirmed`, поэтому обычный UI всё
   ещё зависит от live catalog. Это catalog/UI gate, а не проверка POST billing.
-- Idempotent refund исходного списания сейчас вызывается только в явно
-  перехваченных ветках `ValueError`, timeout, `httpx.HTTPError` и `RuntimeError`
-  вокруг provider route. Неизвестное исключение provider и ошибки последующих
-  settlement, telemetry или history writes эту refund-ветку не проходят.
+- `phone_chat_requests` связывает `(trusted user, requestId)` с canonical request
+  fingerprint, resolved provider/model, charge ledger, processing lease и
+  terminal public outcome. Completed replay возвращает cached response; другой
+  fingerprint получает 409, а active replay — 409 с `Retry-After`.
+- Claim + charge выполняются одной transaction. Settlement + history exchange +
+  successful cached response также выполняются одной transaction. Любая ошибка
+  после charge до committed success сохраняет deterministic failed outcome и
+  делает один idempotent refund; stale processing восстанавливается тем же путём.
+- Telemetry выполняется после success commit как best-effort и не может изменить
+  успешный outcome или запустить refund.
+- Граница не включает frontend-owned image generation job после сохранённого
+  tool intent: его durable finalization/PATCH остаются отдельным GAP.
 - TARGET: UI должен объяснять активный принцип цены и не описывать fixed-cost
   charge как расчёт по фактическому usage. CURRENT GAP: model-catalog route и в
   compatibility-режиме возвращает usage-based `description` и
@@ -475,9 +484,7 @@ social bots.
 | Forced tool кодируется скрытым text prefix и уменьшает фактический raw limit до 3 937/3 933 символов | desktop composer и backend 4 000-character validation | regression + structured-field issue |
 | Финальный image-tool state пишется отдельным best-effort PATCH | desktop image job completion и tool-state route | recovery/idempotency issue |
 | Surface actions не имеют desktop/mobile parity | desktop media empty-state actions и preview/share; mobile quick prompts и download/animate | product decision + mobile parity issue |
-| Refund не покрывает unknown provider exception и post-provider settlement/telemetry/history failure | `phone_chat.py` exception boundary после charge | отдельная billing recovery issue с race/idempotency tests |
 | Runtime и web-search prompt принудительно русские | `PHONE_CHAT_SYSTEM_PROMPT`, `_web_search` | multilingual prompt/eval package |
-| `requestId` не привязан к user/model/operation/outcome и при replay может обойти charge или refund'нуть прежний success; provider/history/job тоже повторяются | charge lookup, refund path и POST route после duplicate result | billing-integrity + end-to-end idempotency package |
 | Visual capability не описана и не проверяется до платного provider call | model catalog/resolver и attachment path | capability schema + pre-charge validation |
 | Mobile не показывает structured web-search source links | desktop source renderer и mobile `ChatTools` filter | citation surface parity package |
 | Image data не декодируется и не сверяется с magic bytes | `_phone_chat_image_payloads` | content validation до charge/provider |
@@ -542,6 +549,7 @@ Backend:
 - `backend/test_phone_chat_tools.py`;
 - `backend/test_phone_chat_model_catalog.py`;
 - `backend/test_chat_billing.py`;
+- `backend/test_phone_chat_idempotency.py`;
 - `backend/test_assistant_runtime.py`;
 - `backend/test_integrations_ollama_module.py`;
 - `backend/test_integrations_openrouter_module.py`.

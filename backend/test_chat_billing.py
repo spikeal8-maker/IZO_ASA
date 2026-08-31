@@ -80,6 +80,62 @@ def _database() -> sqlite3.Connection:
     return conn
 
 
+def test_same_request_id_is_independent_between_users() -> None:
+    conn = _database()
+    conn.execute("INSERT INTO users (id, token_balance) VALUES ('user-2', 10)")
+
+    first = charge_chat_tokens(
+        conn,
+        user_id="user-1",
+        token_cost=3,
+        request_id="shared-request",
+        provider="api",
+        model="provider/model",
+        daily_limit=25,
+    )
+    second = charge_chat_tokens(
+        conn,
+        user_id="user-2",
+        token_cost=3,
+        request_id="shared-request",
+        provider="api",
+        model="provider/model",
+        daily_limit=25,
+    )
+
+    balances = {
+        row["id"]: row["token_balance"]
+        for row in conn.execute("SELECT id,token_balance FROM users ORDER BY id")
+    }
+    assert first["ledger_id"] != second["ledger_id"]
+    assert balances == {"user-1": 7, "user-2": 7}
+
+
+def test_request_id_underscore_is_matched_literally() -> None:
+    conn = _database()
+    first = charge_chat_tokens(
+        conn,
+        user_id="user-1",
+        token_cost=1,
+        request_id="requestXliteral",
+        provider="api",
+        model="provider/model",
+        daily_limit=25,
+    )
+    second = charge_chat_tokens(
+        conn,
+        user_id="user-1",
+        token_cost=1,
+        request_id="request_literal",
+        provider="api",
+        model="provider/model",
+        daily_limit=25,
+    )
+
+    assert first["ledger_id"] != second["ledger_id"]
+    assert conn.execute("SELECT token_balance FROM users WHERE id='user-1'").fetchone()[0] == 8
+
+
 def test_local_chat_is_free_and_preserves_both_balances() -> None:
     conn = _database()
     charge = charge_chat_tokens(conn, user_id="user-1", token_cost=0, request_id="req-local-1", provider="local", model="gemma4:12b", daily_limit=25)

@@ -15,8 +15,7 @@ def _deps() -> PhoneChatDependencies:
         record_openrouter_availability=lambda _status: None,
         record_event=lambda *args, **kwargs: None,
         openrouter_text_models=lambda: [],
-        charge_tokens=lambda **kwargs: {},
-        refund_tokens=lambda **kwargs: True,
+        request_lifecycle=None,
     )
 
 

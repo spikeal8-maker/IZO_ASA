@@ -110,9 +110,12 @@ def charge_chat_tokens(
     if row is None:
         raise HTTPException(404, "Пользователь не найден.")
 
+    escaped_request_id = request_id.replace("%", "!%").replace("_", "!_")
     duplicate = conn.execute(
-        "SELECT id, meta_json FROM token_ledger WHERE reason IN ('free_chat','chat') AND meta_json LIKE ? ORDER BY created_at DESC LIMIT 1",
-        (f'%"request_id": "{request_id}"%',),
+        "SELECT id, meta_json FROM token_ledger WHERE user_id=? "
+        "AND reason IN ('free_chat','chat') AND meta_json LIKE ? ESCAPE '!' "
+        "ORDER BY created_at DESC LIMIT 1",
+        (user_id, f'%"request_id": "{escaped_request_id}"%'),
     ).fetchone()
     if duplicate is not None:
         meta = json.loads(duplicate["meta_json"] or "{}")
