@@ -108,7 +108,7 @@ routers.
       "label": "Соцсети",
       "entry_route": "/admin/social",
       "frontend": ["frontend/src/adminSocial.tsx"],
-      "backend": ["backend/app/api/routers/admin_operations.py"],
+      "backend": ["backend/app/api/routers/admin_operations.py", "backend/app/services/social_delivery.py"],
       "api_examples": ["/api/admin/social-v2", "/api/admin/social/{network}/check-v2"],
       "side_effects": ["provider-credentials", "publication-settings", "external-delivery"],
       "risk_floor": "standard",
@@ -116,7 +116,7 @@ routers.
       "risk_escalates_when": ["выполняется live verify, test delivery, credential change или publication"],
       "live_action_risk": "release-ops",
       "required_controls": ["trusted-admin", "audit", "secret-store", "explicit-live-authorization", "fake-provider-tests"],
-      "tests": ["backend/test_admin_social_router.py", "backend/test_social_providers.py"]
+      "tests": ["backend/test_admin_social_router.py", "backend/test_social_providers.py", "backend/test_social_delivery.py"]
     },
     {
       "id": "tariffs",
@@ -170,7 +170,7 @@ routers.
       "label": "Боты",
       "entry_route": "/admin/bots",
       "frontend": ["frontend/src/adminBots.tsx"],
-      "backend": ["backend/app/api/routers/bots_admin.py", "backend/app/services/bot_admin.py"],
+      "backend": ["backend/app/api/routers/bots_admin.py", "backend/app/services/bot_admin.py", "backend/app/services/bot_workers.py"],
       "api_examples": ["/api/admin/bots/status-v2", "/api/admin/bots/config-v2", "/api/admin/bots/telegram/set-webhook-v2"],
       "side_effects": ["bot-secret", "delivery-mode", "polling-owner", "webhook", "provider-call"],
       "risk_floor": "standard",
@@ -178,7 +178,7 @@ routers.
       "risk_escalates_when": ["меняется token, cursor, polling/webhook owner или выполняется provider action"],
       "live_action_risk": "release-ops",
       "required_controls": ["trusted-admin", "audit", "secret-store", "single-delivery-owner", "explicit-live-authorization", "fake-provider-tests"],
-      "tests": ["backend/test_admin_bots_v2.py", "backend/test_polling_health.py"]
+      "tests": ["backend/test_admin_bots_v2.py", "backend/test_polling_health.py", "backend/test_bot_runtime.py"]
     },
     {
       "id": "logs",
@@ -280,7 +280,7 @@ tests из затронутого продукта. Route-mocked visual E2E не
 ### 5. Notifications, social, mail или bots
 
 ```powershell
-python -m pytest -q backend/test_admin_notifications.py backend/test_admin_social_router.py backend/test_social_providers.py backend/test_admin_mail_v2.py backend/test_admin_bots_v2.py backend/test_polling_health.py
+python -m pytest -q backend/test_admin_notifications.py backend/test_admin_social_router.py backend/test_social_providers.py backend/test_social_delivery.py backend/test_admin_mail_v2.py backend/test_admin_bots_v2.py backend/test_polling_health.py backend/test_bot_runtime.py
 ```
 
 Тесты используют fake providers и temporary roots. Реальные verify, письмо,

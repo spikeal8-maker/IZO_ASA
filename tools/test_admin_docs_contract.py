@@ -189,6 +189,10 @@ def test_change_matrix_owners_tests_and_api_examples_exist() -> None:
     assert "backend/test_product_consistency_20e2b.py" in by_id["tariffs"]["tests"]
     assert "backend/test_social_providers.py" in by_id["notifications"]["tests"]
     assert "backend/test_social_providers.py" in by_id["social"]["tests"]
+    assert "backend/app/services/social_delivery.py" in by_id["social"]["backend"]
+    assert "backend/test_social_delivery.py" in by_id["social"]["tests"]
+    assert "backend/app/services/bot_workers.py" in by_id["bots"]["backend"]
+    assert "backend/test_bot_runtime.py" in by_id["bots"]["tests"]
     assert "backend/test_yookassa_connection_check.py" in by_id["payments"]["tests"]
     assert "/api/admin/payments/check-v2" in by_id["payments"]["api_examples"]
     assert any("config-v2" in gap for gap in by_id["payments"]["coverage_gaps"])
@@ -206,6 +210,8 @@ def test_change_recipes_keep_required_executable_gates() -> None:
         "pwsh -File tools/verify.ps1 -Mode Quick",
         "backend/test_product_consistency_20e2b.py",
         "backend/test_social_providers.py",
+        "backend/test_social_delivery.py",
+        "backend/test_bot_runtime.py",
         "backend/test_yookassa_connection_check.py",
         "test_config_ui_reload_requires_reason_clears_cache_and_logs",
         "POST /api/admin/payments/config-v2",
