@@ -102,7 +102,8 @@ FIELDS = {
     "routingFilesOpened", "subjectFilesOpened", "resultAnchors",
     "largeFilesReadFully", "broadScans", "repeatedSearches", "toolCalls",
     "testsProposed", "testsRun", "ownerCorrections", "result",
-    "inputTokens", "cachedInputTokens", "outputTokens", "elapsedSeconds", "notes",
+    "inputTokens", "cachedInputTokens", "outputTokens", "tokenSource",
+    "tokenEvidence", "elapsedSeconds", "notes",
 }
 
 
@@ -153,6 +154,8 @@ def template(case_id: str) -> dict[str, Any]:
         "inputTokens": None,
         "cachedInputTokens": None,
         "outputTokens": None,
+        "tokenSource": "unknown",
+        "tokenEvidence": "",
         "elapsedSeconds": 0,
         "notes": "",
     }
@@ -199,7 +202,8 @@ def validate(data: object) -> dict[str, Any]:
     case = CASES[case_id]
 
     for field in (
-        "caseFingerprint", "runId", "startedAt", "agent", "model", "repoHead", "notes"
+        "caseFingerprint", "runId", "startedAt", "agent", "model", "repoHead",
+        "tokenSource", "tokenEvidence", "notes"
     ):
         if not isinstance(data[field], str):
             raise InvalidReceipt(f"{field} must be a string")
@@ -228,19 +232,39 @@ def validate(data: object) -> dict[str, Any]:
     for field in ("toolCalls", "elapsedSeconds"):
         _count(data[field], field)
     token_values = {field: _tokens(data[field], field) for field in TOKEN_FIELDS}
+    if data["tokenSource"] not in {"unknown", "codex-ui", "codex-api"}:
+        raise InvalidReceipt("tokenSource must be unknown, codex-ui or codex-api")
+    any_token_known = any(value is not None for value in token_values.values())
+    if any_token_known and data["tokenSource"] == "unknown":
+        raise InvalidReceipt("numeric token counters require Codex/API tokenSource")
+    if any_token_known and not data["tokenEvidence"].strip():
+        raise InvalidReceipt("numeric token counters require non-empty tokenEvidence")
+    if not any_token_known and (
+        data["tokenSource"] != "unknown" or data["tokenEvidence"].strip()
+    ):
+        raise InvalidReceipt("unknown token counters require tokenSource=unknown and empty tokenEvidence")
     if data["result"] not in {"pass", "partial", "fail"}:
         raise InvalidReceipt("result must be pass, partial or fail")
 
     violations: list[str] = []
+    extra_routing = sorted(routing - ROUTING_FILES)
+    unlisted_full_reads = sorted(full_reads - set(subjects))
+    effective_subjects = set(subjects) | set(extra_routing) | full_reads
     if data["coldSession"] is not True:
         violations.append("not-a-cold-session")
     if data["memoryEnabled"] is not False:
         violations.append("memory-enabled")
     if not ROUTING_FILES <= routing:
         violations.append("missing-routing-files")
-    if len(subjects) > int(case["limit"]):
-        violations.append(f"subject-file-limit:{len(subjects)}>{case['limit']}")
-    missing_opened = sorted(set(case["opened"]) - set(subjects))
+    if extra_routing:
+        violations.append(f"extra-routing-as-subject:{','.join(extra_routing)}")
+    if unlisted_full_reads:
+        violations.append(f"full-read-not-listed-as-subject:{','.join(unlisted_full_reads)}")
+    if len(effective_subjects) > int(case["limit"]):
+        violations.append(
+            f"subject-file-limit:{len(effective_subjects)}>{case['limit']}"
+        )
+    missing_opened = sorted(set(case["opened"]) - effective_subjects)
     if missing_opened:
         violations.append(f"missing-opened:{','.join(missing_opened)}")
     missing_anchors = sorted(set(case["anchors"]) - anchors)
@@ -268,9 +292,11 @@ def validate(data: object) -> dict[str, Any]:
         "reportedResult": data["result"],
         "gatePassed": data["result"] == "pass" and not violations,
         "violations": violations,
-        "subjectFiles": len(subjects),
+        "subjectFiles": len(effective_subjects),
         "toolCalls": data["toolCalls"],
         "elapsedSeconds": data["elapsedSeconds"],
+        "tokenSource": data["tokenSource"],
+        "tokenEvidence": data["tokenEvidence"],
         **token_values,
     }
 
@@ -315,6 +341,10 @@ def summarize(directory: Path) -> dict[str, Any]:
         "totalElapsedSeconds": sum(row["elapsedSeconds"] for row in rows),
         "gatesPassed": sum(row["gatePassed"] for row in rows),
         "tokenTotals": token_totals,
+        "tokenSources": {
+            source: sum(row["tokenSource"] == source for row in rows)
+            for source in ("unknown", "codex-ui", "codex-api")
+        },
     }
 
 

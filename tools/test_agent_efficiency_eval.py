@@ -66,6 +66,8 @@ def test_clean_receipts_pass_all_gates_and_keep_tokens() -> None:
         payload["inputTokens"] = 100
         payload["cachedInputTokens"] = 20
         payload["outputTokens"] = 10
+        payload["tokenSource"] = "codex-ui"
+        payload["tokenEvidence"] = "Codex session usage panel"
         result = eval_tool.validate(payload)
         assert result["caseId"] == case_id
         assert result["gatePassed"] is True
@@ -90,6 +92,11 @@ def test_bad_agent_behavior_is_recorded_not_rejected() -> None:
     assert "broad-scans:1" in result["violations"]
     assert "repeated-searches:2" in result["violations"]
     assert "owner-corrections:1" in result["violations"]
+    assert result["subjectFiles"] == 2
+    assert any(
+        item.startswith("full-read-not-listed-as-subject")
+        for item in result["violations"]
+    )
 
 
 def test_reported_pass_with_missing_evidence_fails_gate() -> None:
@@ -101,7 +108,7 @@ def test_reported_pass_with_missing_evidence_fails_gate() -> None:
     assert "reported-pass-with-violations" in result["violations"]
 
 
-def test_changed_case_fingerprint_and_fake_tokens_are_invalid() -> None:
+def test_changed_fingerprint_fake_tokens_and_missing_provenance_are_invalid() -> None:
     payload = _receipt("studio-text-to-image")
     payload["caseFingerprint"] = "sha256:" + ("0" * 64)
     try:
@@ -120,6 +127,15 @@ def test_changed_case_fingerprint_and_fake_tokens_are_invalid() -> None:
     else:
         raise AssertionError("estimated token string must be rejected")
 
+    payload = _receipt("studio-text-to-image")
+    payload["inputTokens"] = 123
+    try:
+        eval_tool.validate(payload)
+    except eval_tool.InvalidReceipt as exc:
+        assert "tokenSource" in str(exc)
+    else:
+        raise AssertionError("numeric tokens without Codex/API provenance must be rejected")
+
 
 def test_absolute_paths_are_invalid_receipts() -> None:
     payload = _receipt("studio-text-to-image")
@@ -132,12 +148,27 @@ def test_absolute_paths_are_invalid_receipts() -> None:
         raise AssertionError("absolute path must be rejected")
 
 
+def test_extra_routing_entries_count_as_subject_reads() -> None:
+    payload = _receipt("chat-model-selector")
+    payload["result"] = "fail"
+    payload["routingFilesOpened"].append("backend/main.py")
+    result = eval_tool.validate(payload)
+    assert result["gatePassed"] is False
+    assert result["subjectFiles"] == 2
+    assert any(
+        item.startswith("extra-routing-as-subject")
+        for item in result["violations"]
+    )
+
+
 def test_summary_requires_all_cases_same_sha_and_preserves_token_totals(tmp_path: Path) -> None:
     for index, case_id in enumerate(sorted(EXPECTED_CASES), start=1):
         payload = _receipt(case_id)
         payload["inputTokens"] = index * 100
         payload["cachedInputTokens"] = None
         payload["outputTokens"] = index * 10
+        payload["tokenSource"] = "codex-api"
+        payload["tokenEvidence"] = "API usage object"
         (tmp_path / f"{case_id}.json").write_text(
             json.dumps(payload, ensure_ascii=False), encoding="utf-8"
         )
@@ -152,6 +183,7 @@ def test_summary_requires_all_cases_same_sha_and_preserves_token_totals(tmp_path
         "knownReceipts": 0,
         "value": None,
     }
+    assert result["tokenSources"]["codex-api"] == 3
 
     (tmp_path / "studio-text-to-image.json").unlink()
     try:

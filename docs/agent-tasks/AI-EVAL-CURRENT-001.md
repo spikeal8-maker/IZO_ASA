@@ -58,8 +58,11 @@ python tools/agent_efficiency_eval.py template chat-model-selector `
 - `subjectFilesOpened` — только реально открытые предметные файлы;
 - `resultAnchors` — корректно найденные owners/source paths, даже если они были
   получены из canonical context без отдельного чтения source;
-- плохое поведение не скрывается: broad scans, full reads и corrections
-  записываются и превращаются в `violations`, а не делают receipt нечитаемым.
+- плохое поведение не скрывается: broad scans, full reads, лишние routing entries
+  и corrections записываются и превращаются в `violations`, а не делают receipt
+  нечитаемым;
+- числовые token counters принимаются только вместе с `tokenSource` (`codex-ui`
+  или `codex-api`) и непустым `tokenEvidence`.
 
 Проверка:
 
@@ -79,7 +82,8 @@ python tools/agent_efficiency_eval.py summarize `
 
 ## Что измеряется
 
-- предметные файлы, открытые помимо routing docs;
+- предметные файлы, открытые помимо routing docs; лишние routing entries и
+  незаявленные full reads всё равно учитываются как предметные чтения;
 - найденные owners/anchors;
 - полные чтения защищённых монолитов;
 - broad/repeated searches;
@@ -101,7 +105,8 @@ Passing run должен:
 - открыть обязательные routing docs и нужную context-карту;
 - уложиться в 6–8 предметных файлов;
 - найти case-specific owners/anchors и targeted tests;
-- не читать защищённые монолиты целиком;
+- не читать защищённые монолиты целиком и не скрывать source-файлы в
+  `routingFilesOpened`;
 - не выполнять broad/repeated search;
 - не требовать коррекции владельца.
 
