@@ -95,6 +95,17 @@ def test_project_promoter_keeps_backend_online_during_rollback_snapshot() -> Non
 
     online_backup = '& "$newRelease\\backend\\.venv\\Scripts\\python.exe" $hotBackupTool'
     backend_stop = "& $backendExe stop"
+    elevation_guard = "if (-not (Test-IsWindowsAdministrator))"
+    promoter_parity_failure = "installed promoter, candidate source and installation receipt do not match"
+    assert elevation_guard in script
+    assert "an elevated Windows Administrator process is required" in script
+    assert script.index(elevation_guard) < script.index("Global\\IZO_ASA_ProjectReleasePromotion")
+    assert script.index(elevation_guard) < script.index(online_backup)
+    assert promoter_parity_failure in script
+    assert script.index(promoter_parity_failure) < script.index(online_backup)
+    assert script.index(promoter_parity_failure) < script.index(backend_stop)
+    assert "$candidatePromoterPath" in script
+    assert "$promoterInstallReceiptPath" in script
     assert online_backup in script
     assert script.index(online_backup) < script.index(backend_stop)
     assert "tools\\sqlite_hot_backup.py" in script

@@ -5,6 +5,12 @@
 
 Availability invariants:
 
+- promotion runs only from an elevated Windows Administrator process; a
+  medium-integrity Codex/terminal process must stop before invoking WinSW;
+- `install-project-promoter.ps1 -VerifyOnly` proves the normalized tracked,
+  installed and receipt hashes agree before candidate preparation;
+- the installed promoter independently compares itself with the candidate's
+  tracked promoter before backup or service control;
 - the global promotion mutex permits one release owner;
 - the promoter fails closed unless the installed health check recognizes
   `C:\IZO_ASA\runtime\project-release-maintenance.flag`;
@@ -33,3 +39,16 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\ops\release\install-project-promoter.ps1 `
   -ExpectedCommit <40-character-clean-commit-sha>
 ```
+
+Before every promotion, from the same exact clean commit, verify the installed
+copy without changing runtime state:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\ops\release\install-project-promoter.ps1 `
+  -ExpectedCommit <40-character-clean-commit-sha> `
+  -VerifyOnly
+```
+
+`PROMOTER_VERIFY_FAILED` is a hard stop. Install the promoter through the
+installer and re-run all preflight gates; never run the stale installed script.
