@@ -248,12 +248,18 @@ def template(case_id: str) -> dict[str, Any]:
 
 
 def _normalize_path(value: str, field: str) -> str:
-    normalized = value.replace("\\", "/").strip()
-    if (
-        not normalized
-        or re.match(r"^[A-Za-z]:/|^/", normalized)
-        or ".." in Path(normalized).parts
-    ):
+    raw = value.replace("\\", "/").strip()
+    if not raw or re.match(r"^[A-Za-z]:/|^/", raw):
+        raise InvalidReceipt(f"{field} must contain repository-relative paths")
+    parts: list[str] = []
+    for part in raw.split("/"):
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            raise InvalidReceipt(f"{field} must contain repository-relative paths")
+        parts.append(part)
+    normalized = "/".join(parts)
+    if not normalized:
         raise InvalidReceipt(f"{field} must contain repository-relative paths")
     return normalized
 

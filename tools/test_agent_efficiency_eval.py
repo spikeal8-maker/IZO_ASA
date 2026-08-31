@@ -65,6 +65,7 @@ def test_fixed_cases_are_small_concrete_and_fingerprinted() -> None:
 
 def test_rubric_fingerprint_covers_global_gate_rules(monkeypatch: pytest.MonkeyPatch) -> None:
     case_id = "chat-model-selector"
+    original_routing = set(eval_tool.ROUTING_FILES)
     original = eval_tool.rubric_fingerprint(case_id)
     rules = eval_tool.evaluator_rules()
     assert rules["version"] == eval_tool.EVALUATOR_RULES_VERSION
@@ -76,12 +77,15 @@ def test_rubric_fingerprint_covers_global_gate_rules(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(
         eval_tool,
         "ROUTING_FILES",
-        {*eval_tool.ROUTING_FILES, "docs/EXTRA-ROUTING.md"},
+        {*original_routing, "docs/EXTRA-ROUTING.md"},
     )
     assert eval_tool.rubric_fingerprint(case_id) != original
 
+    monkeypatch.setattr(eval_tool, "ROUTING_FILES", original_routing)
+    version_baseline = eval_tool.rubric_fingerprint(case_id)
+    assert version_baseline == original
     monkeypatch.setattr(eval_tool, "EVALUATOR_RULES_VERSION", 2)
-    assert eval_tool.rubric_fingerprint(case_id) != original
+    assert eval_tool.rubric_fingerprint(case_id) != version_baseline
 
 
 def test_prompts_are_read_only_cold_and_bounded() -> None:
@@ -190,6 +194,17 @@ def test_absolute_paths_are_invalid_receipts() -> None:
     payload["subjectFilesOpened"] = [r"E:\IZO_ASA_WORKSPACE\docs\context\frontend-studio.md"]
     with pytest.raises(eval_tool.InvalidReceipt, match="repository-relative"):
         eval_tool.validate(payload)
+
+
+def test_equivalent_relative_paths_cannot_bypass_protected_read_gate() -> None:
+    payload = _receipt("admin-last-admin-race")
+    payload["result"] = "fail"
+    payload["subjectFilesOpened"].append("./backend//main.py")
+    payload["largeFilesReadFully"] = ["./backend//main.py"]
+    result = eval_tool.validate(payload)
+    assert result["subjectFiles"] == 3
+    assert "protected-full-read:backend/main.py" in result["violations"]
+    assert eval_tool._normalize_path("./backend//main.py", "path") == "backend/main.py"
 
 
 def test_extra_routing_entries_count_as_subject_reads() -> None:
