@@ -24,8 +24,14 @@ backlog.
 - Текущие верхние разделы: dashboard, CRM, models, notifications, social,
   tariffs, payments, mail, bots и logs.
 - Доступ определяется server-side cookie session и ролью `admin`.
-- Общий HTTP wrapper: `frontend/src/adminApi.ts`; запросы используют
-  `credentials: include` и один refresh при `401`.
+- `frontend/src/adminApi.ts` — общий HTTP wrapper для части админки: он
+  использует `credentials: include` и один раз повторяет запрос после успешного
+  refresh при `401`. Это не сквозной инвариант всей админки:
+  `adminAnalytics.tsx` держит собственные `adminGet`/`adminPost` без refresh и
+  retry, а `adminModels.tsx`, `adminEnergy.tsx` и `adminVoice.tsx` используют
+  отдельные локальные wrappers со своим retry после `401`. Изменение auth или
+  session-refresh нужно проверять во всех этих владельцах, а не только в
+  `adminApi.ts`.
 - Backend admin route обязан применять `require_trusted_admin`; frontend-поле,
   `X-OneNode-User` и неподписанные provider payload не являются identity.
 - Каждая административная мутация должна быть auditable. Для критичного действия

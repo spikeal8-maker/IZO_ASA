@@ -80,5 +80,5 @@ Allowed patterns: только Markdown routing/status и contract test ново
 - `python -m pytest -q tools/test_context_docs.py tools/test_agent_instructions.py`
   — 7 passed.
 - `AI_START_HERE.md` — 120 строк, enforced budget сохранён.
-- `docs/context/admin-control-center.md` — 225 строк, context budget сохранён.
+- `docs/context/admin-control-center.md` — 231 строка, context budget сохранён.
 - Product source, generated maps, production runtime и providers не изменялись.
