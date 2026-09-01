@@ -26,6 +26,8 @@ C:\IZO_ASA\runtime\promote-project-release.ps1
 `start-public.bat`, `tools/publish-frontend-release.ps1` and
 `tools/restart-backend.ps1` belong to the repository-local bootstrap/manual
 topology. They are not production promotion commands on this server.
+`tools/verify.ps1` may invoke `restart-backend.ps1 -PreflightOnly` as a
+read-only release gate; that mode returns before every stop/restart operation.
 
 ## 2. Release states
 
@@ -82,21 +84,53 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
    installed script is stale or lacks valid provenance. Install it only with
    `install-project-promoter.ps1`, preserve its rollback copy/receipt, and then
    repeat the complete preflight. Do not invoke the stale runtime script.
-8. Confirm the runtime health check recognizes
+8. Run the read-only backend preflight from the same elevated process that will
+   own the release. When process metadata is visible, continue only after it
+   reports `ownership=installed-windows-service`. That classification proves
+   the listener/launcher/service PID chain, WinSW XML executable and arguments,
+   release virtual environment and immutable release SHA agree. It does not
+   restart the service:
+
+```powershell
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+  -File .\tools\restart-backend.ps1 `
+  -RepoRoot (Get-Location).Path `
+  -PythonPath .\backend\.venv\Scripts\python.exe `
+  -PreflightOnly
+```
+
+9. Confirm the runtime health check recognizes
    `C:\IZO_ASA\runtime\project-release-maintenance.flag`. Back it up before any
    change. The promoter must fail closed if this contract is absent.
-9. Do not modify, disable or bypass AdGuard VPN, FRP, DNS or the VPS during an
+10. Do not modify, disable or bypass AdGuard VPN, FRP, DNS or the VPS during an
    application release.
 
 ## 4. Build and candidate preparation
 
-1. Complete targeted tests and the appropriate Quick gate.
-2. For a release candidate, obtain one clean Full verification receipt bound to
-   the exact commit.
-3. Commit only the bounded package, inspect the staged diff for secrets, and
-   push it to `origin/main`.
-4. Require clean canonical `main`, `HEAD == origin/main`, and successful CI for
-   the same SHA.
+1. Complete targeted tests and the appropriate Quick gate on the feature branch.
+2. Commit only the bounded package, inspect the staged diff for secrets, open the
+   PR and require CI plus automated review before merge.
+3. In the canonical checkout, require clean `main`, `HEAD == origin/main`, and
+   successful CI for the same SHA. This is `PUSHED`, not `DEPLOYED`.
+4. From the elevated release-owner process, obtain one clean Full verification
+   receipt bound to that exact SHA:
+
+```powershell
+$sha = git rev-parse HEAD
+$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+$receipt = ".runtime\verification\full-$sha-$stamp.json"
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+  -File .\tools\verify.ps1 `
+  -Mode Full `
+  -RepoRoot (Get-Location).Path `
+  -PythonPath .\backend\.venv\Scripts\python.exe `
+  -RequireStableLiveSource `
+  -ReceiptPath $receipt
+```
+
+   Continue only after `VERIFY_OK` and `VERIFY_RECEIPT_WRITTEN`. The receipt
+   expires four hours after it is written. Validate/use it immediately; never
+   reuse an expired receipt or rerun a combined deployment command around it.
 5. Ask the installed updater to prepare the candidate:
 
 ```powershell
@@ -186,6 +220,8 @@ Use these exact classifications; do not collapse them into "deployment failed":
 | Evidence | Meaning | Required next action |
 |---|---|---|
 | Administrator check is `False` or `PROMOTION_PREFLIGHT_FAILED` mentions elevation | The invoking process cannot safely control WinSW services | Do not run the promoter. Open an elevated Administrator process and repeat every preflight gate. |
+| Backend preflight reports `unexpected Python process chain` or fails installed-service ownership | Listener ownership, service XML or immutable release identity is inconsistent, or the checkout lacks the ownership repair | Do not run updater/promoter. Diagnose PID chain, `IZOBackend.xml` and exact source; never bypass the ownership gate. |
+| Release verification receipt is expired | The four-hour exact-SHA verification window closed before candidate preparation/promotion | Do not reuse the combined command. Confirm clean exact `main`, then run one new Full verification to create a fresh receipt. |
 | `PROMOTER_VERIFY_FAILED` or tracked/installed hashes differ | The installed promoter is stale, modified or has no matching receipt | Do not run it. Install the exact clean tracked promoter with the installer, retain its backup/receipt, then repeat preflight. |
 | `Backend stop failed with exit code -2147467259` together with WinSW "operation was cancelled" and a non-administrator token | The service command crossed the elevation boundary from an invalid process | Treat it as the one controlled failed promotion. Verify rollback; never retry from the same process. |
 | Installed promoter lacks the candidate's maintenance-flag guard | The watchdog can race the service switch even if the health script understands the flag | Stop before promotion and install the exact candidate promoter. Do not disable the watchdog manually. |
