@@ -65,13 +65,17 @@ runtime files or the active production release.
 
 ## Verification evidence
 
-- Focused behavioral tests: `15 passed`, including exact ownership acceptance
-  and rejection of wrong service PID, launcher executable, launcher arguments
-  and release SHA.
+- Focused behavioral tests: `17 passed`, including exact ownership acceptance
+  and rejection of wrong service PID, launcher executable, launcher arguments,
+  release SHA, installed release root and service base Python.
 - `tools/verify.ps1 -Mode Quick`: `99 passed`, backend/Caddy live checks green,
   `VERIFY_OK`, source stable.
 - Real elevated `restart-backend.ps1 -PreflightOnly`:
   `ownership=installed-windows-service`, launcher PID owned by `IZOBackend`,
   `proxyHeadersDisabled=True`, exit code `0`.
+- Automated review required the installed release root and service base Python
+  to be pinned explicitly. Both findings were fixed with fail-closed behavioral
+  tests. A second UAC launch was cancelled before the elevated process started;
+  it made no runtime change and is not recorded as a successful re-verification.
 - The elevated check returned before every stop/restart operation. Installed
   services, release identity, data and network state were not changed.

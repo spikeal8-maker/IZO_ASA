@@ -22,6 +22,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $serviceOwnershipScript = Join-Path $PSScriptRoot "backend-service-ownership.ps1"
+$installedReleaseRoot = "C:\IZO_ASA\releases"
+$installedServiceBasePython = "C:\IZO_ASA\runtime\python311\python.exe"
 if (-not (Test-Path -LiteralPath $serviceOwnershipScript -PathType Leaf)) {
     throw "Backend service ownership helper was not found: $serviceOwnershipScript"
 }
@@ -164,7 +166,9 @@ function Get-BackendState {
                 $installedOwnership = Assert-IzoInstalledBackendServiceOwnership `
                     -ListenerProcess $process `
                     -LauncherProcess $launcherProcess `
-                    -Service $service
+                    -Service $service `
+                    -ExpectedReleaseRoot $installedReleaseRoot `
+                    -ExpectedBasePython $installedServiceBasePython
                 Assert-BackendCommand -CommandLine ([string]$launcherProcess.CommandLine) -ExpectedPort $ExpectedPort -ExpectedBind $ExpectedBind -RequireProxyIsolation:$RequireProxyIsolation
                 $runtimeLauncherProcessId = [int]$installedOwnership.RuntimeLauncherProcessId
                 $runtimeLauncherExecutablePath = [string]$installedOwnership.RuntimeLauncherExecutablePath

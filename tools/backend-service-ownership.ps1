@@ -59,6 +59,10 @@ function Assert-IzoInstalledBackendServiceOwnership {
         [object]$LauncherProcess,
         [Parameter(Mandatory = $true)]
         [object]$Service,
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedReleaseRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedBasePython,
         [string]$ExpectedServiceName = "IZOBackend"
     )
 
@@ -78,6 +82,13 @@ function Assert-IzoInstalledBackendServiceOwnership {
     $listenerExecutable = ConvertTo-IzoFullPath -Path ([string]$ListenerProcess.ExecutablePath) -Label "Backend listener executable"
     if (-not [IO.Path]::GetFileName($listenerExecutable).Equals("python.exe", [StringComparison]::OrdinalIgnoreCase)) {
         throw "Backend listener is not a Python executable: $listenerExecutable"
+    }
+    $requiredBasePython = ConvertTo-IzoFullPath -Path $ExpectedBasePython -Label "Installed backend base Python"
+    if (-not (Test-Path -LiteralPath $requiredBasePython -PathType Leaf)) {
+        throw "Installed backend base Python was not found: $requiredBasePython"
+    }
+    if (-not $listenerExecutable.Equals($requiredBasePython, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Backend listener does not match the configured service base Python."
     }
     $launcherExecutable = ConvertTo-IzoFullPath -Path ([string]$LauncherProcess.ExecutablePath) -Label "Backend launcher executable"
 
@@ -117,6 +128,11 @@ function Assert-IzoInstalledBackendServiceOwnership {
     $configuredSha = [string]$gitCommitNodes[0].value
     if ($configuredSha -notmatch '^[0-9a-fA-F]{40}$' -or -not $configuredSha.Equals($releaseDirectorySha, [StringComparison]::OrdinalIgnoreCase)) {
         throw "Backend service XML release SHA does not match its immutable release directory."
+    }
+    $installedReleaseRoot = ConvertTo-IzoFullPath -Path $ExpectedReleaseRoot -Label "Installed release root"
+    $requiredWorkingDirectory = [IO.Path]::GetFullPath((Join-Path (Join-Path $installedReleaseRoot $configuredSha) "backend"))
+    if (-not $workingDirectory.Equals($requiredWorkingDirectory, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Backend service working directory is outside the installed release root."
     }
 
     $configuredArguments = ConvertTo-IzoNormalizedArguments -Arguments ([string]$serviceConfig.service.arguments)

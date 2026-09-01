@@ -207,6 +207,10 @@ def test_preflight_accepts_only_a_contract_verified_installed_service_chain() ->
     assert "AllowInstalledServiceProcess" in source
     assert 'Get-CimInstance Win32_Service -Filter "Name=\'IZOBackend\'"' in source
     assert "Assert-IzoInstalledBackendServiceOwnership" in source
+    assert '$installedReleaseRoot = "C:\\IZO_ASA\\releases"' in source
+    assert '$installedServiceBasePython = "C:\\IZO_ASA\\runtime\\python311\\python.exe"' in source
+    assert "-ExpectedReleaseRoot $installedReleaseRoot" in source
+    assert "-ExpectedBasePython $installedServiceBasePython" in source
     assert 'RuntimeOwnership = "installed-windows-service"' in (
         ROOT / "tools" / "backend-service-ownership.ps1"
     ).read_text(encoding="utf-8")

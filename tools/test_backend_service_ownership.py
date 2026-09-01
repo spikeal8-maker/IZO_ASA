@@ -51,6 +51,8 @@ def _fixture(tmp_path: Path) -> tuple[dict[str, object], dict[str, object], dict
         "ParentProcessId": 200,
         "ExecutablePath": str(tmp_path / "runtime" / "python311" / "python.exe"),
     }
+    Path(str(listener["ExecutablePath"])).parent.mkdir(parents=True)
+    Path(str(listener["ExecutablePath"])).write_bytes(b"fixture")
     launcher_process = {
         "ProcessId": 200,
         "ParentProcessId": 100,
@@ -80,11 +82,14 @@ def _run(
     environment = os.environ.copy()
     environment["IZO_OWNERSHIP_HELPER"] = str(HELPER)
     environment["IZO_OWNERSHIP_FIXTURE"] = str(fixture_path)
+    environment["IZO_EXPECTED_RELEASE_ROOT"] = str(tmp_path / "releases")
+    environment["IZO_EXPECTED_BASE_PYTHON"] = str(tmp_path / "runtime" / "python311" / "python.exe")
     command = (
         ". $env:IZO_OWNERSHIP_HELPER;"
         "$fixture=Get-Content -LiteralPath $env:IZO_OWNERSHIP_FIXTURE -Raw | ConvertFrom-Json;"
         "$result=Assert-IzoInstalledBackendServiceOwnership "
-        "-ListenerProcess $fixture.listener -LauncherProcess $fixture.launcher -Service $fixture.service;"
+        "-ListenerProcess $fixture.listener -LauncherProcess $fixture.launcher -Service $fixture.service "
+        "-ExpectedReleaseRoot $env:IZO_EXPECTED_RELEASE_ROOT -ExpectedBasePython $env:IZO_EXPECTED_BASE_PYTHON;"
         "$result | ConvertTo-Json -Compress"
     )
     return subprocess.run(
@@ -117,6 +122,8 @@ def test_accepts_exact_running_service_process_and_release_contract(tmp_path: Pa
         ("launcher_executable", "does not match the service XML executable"),
         ("launcher_arguments", "do not match the service XML contract"),
         ("release_sha", "release SHA does not match"),
+        ("release_root", "outside the installed release root"),
+        ("base_python", "does not match the configured service base Python"),
     ],
 )
 def test_rejects_mismatched_installed_service_contract(
@@ -133,6 +140,21 @@ def test_rejects_mismatched_installed_service_contract(
         service_xml = Path(str(service["PathName"]).strip('"')).with_suffix(".xml")
         service_xml.write_text(
             service_xml.read_text(encoding="utf-8").replace('value="aaaaaaaa', 'value="baaaaaaa'),
+            encoding="utf-8",
+        )
+    elif mutation == "base_python":
+        listener["ExecutablePath"] = str(tmp_path / "unsupported" / "python.exe")
+
+    if mutation == "release_root":
+        original_root = tmp_path / "releases"
+        alternate_root = tmp_path / "other-releases"
+        original_root.rename(alternate_root)
+        launcher["ExecutablePath"] = str(launcher["ExecutablePath"]).replace(str(original_root), str(alternate_root))
+        launcher["CommandLine"] = str(launcher["CommandLine"]).replace(str(original_root), str(alternate_root))
+        service_exe = Path(str(service["PathName"]).strip('"'))
+        service_xml = service_exe.with_suffix(".xml")
+        service_xml.write_text(
+            service_xml.read_text(encoding="utf-8").replace(str(original_root), str(alternate_root)),
             encoding="utf-8",
         )
 
