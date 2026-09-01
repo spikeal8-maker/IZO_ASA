@@ -21,6 +21,12 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+$serviceOwnershipScript = Join-Path $PSScriptRoot "backend-service-ownership.ps1"
+if (-not (Test-Path -LiteralPath $serviceOwnershipScript -PathType Leaf)) {
+    throw "Backend service ownership helper was not found: $serviceOwnershipScript"
+}
+. $serviceOwnershipScript
+
 if (-not $RepoRoot.Trim()) {
     $scriptPath = [string]$MyInvocation.MyCommand.Path
     if (-not $scriptPath.Trim()) {
@@ -94,7 +100,8 @@ function Get-BackendState {
         [string]$ExpectedBind,
         [string]$ExpectedPython,
         [switch]$RequireProxyIsolation,
-        [switch]$AllowOpaqueServiceProcess
+        [switch]$AllowOpaqueServiceProcess,
+        [switch]$AllowInstalledServiceProcess
     )
 
     $listeners = @(Get-NetTCPConnection -LocalPort $ExpectedPort -State Listen -ErrorAction SilentlyContinue)
@@ -147,7 +154,31 @@ function Get-BackendState {
             }
             $launcherPython = [System.IO.Path]::GetFullPath([string]$launcherProcess.ExecutablePath)
             if (-not $launcherPython.Equals($requiredPython, [System.StringComparison]::OrdinalIgnoreCase)) {
-                throw "Backend uses an unexpected Python process chain: listener=$actualPython parent=$launcherPython"
+                if (-not $AllowInstalledServiceProcess) {
+                    throw "Backend uses an unexpected Python process chain: listener=$actualPython parent=$launcherPython"
+                }
+                $service = Get-CimInstance Win32_Service -Filter "Name='IZOBackend'" -ErrorAction SilentlyContinue
+                if ($null -eq $service) {
+                    throw "Backend uses an unexpected Python process chain and the IZOBackend service could not be inspected."
+                }
+                $installedOwnership = Assert-IzoInstalledBackendServiceOwnership `
+                    -ListenerProcess $process `
+                    -LauncherProcess $launcherProcess `
+                    -Service $service
+                Assert-BackendCommand -CommandLine ([string]$launcherProcess.CommandLine) -ExpectedPort $ExpectedPort -ExpectedBind $ExpectedBind -RequireProxyIsolation:$RequireProxyIsolation
+                $runtimeLauncherProcessId = [int]$installedOwnership.RuntimeLauncherProcessId
+                $runtimeLauncherExecutablePath = [string]$installedOwnership.RuntimeLauncherExecutablePath
+                $runtimeOwnership = [string]$installedOwnership.RuntimeOwnership
+                return [pscustomobject]@{
+                    ProcessId = [int]$listener.OwningProcess
+                    RuntimeLauncherProcessId = $runtimeLauncherProcessId
+                    RuntimeLauncherExecutablePath = $runtimeLauncherExecutablePath
+                    RuntimeOwnership = $runtimeOwnership
+                    Address = [string]$listener.LocalAddress
+                    CommandLine = [string]$process.CommandLine
+                    ExecutablePath = [string]$process.ExecutablePath
+                    ProxyHeadersDisabled = [bool]($process.CommandLine -match "(?i)(?:^|\s)--no-proxy-headers(?:\s|$)")
+                }
             }
             Assert-BackendCommand -CommandLine ([string]$launcherProcess.CommandLine) -ExpectedPort $ExpectedPort -ExpectedBind $ExpectedBind -RequireProxyIsolation:$RequireProxyIsolation
             $runtimeLauncherProcessId = [int]$launcherProcess.ProcessId
@@ -363,7 +394,7 @@ $oldState = $null
 if ($existingListeners.Count -eq 0 -and $actualRestart -and $AllowColdStart) {
     Write-Host "BACKEND_COLD_START port=$Port"
 } else {
-    $oldState = Get-BackendState -ExpectedPort $Port -ExpectedBind $BindAddress -ExpectedPython $expectedOldPython -RequireProxyIsolation -AllowOpaqueServiceProcess:$PreflightOnly
+    $oldState = Get-BackendState -ExpectedPort $Port -ExpectedBind $BindAddress -ExpectedPython $expectedOldPython -RequireProxyIsolation -AllowOpaqueServiceProcess:$PreflightOnly -AllowInstalledServiceProcess:$PreflightOnly
     if (-not (Test-BackendHealth -Uri $healthUri -TimeoutSeconds $HealthProbeTimeoutSeconds)) {
         throw "Current backend failed health preflight: $healthUri"
     }
