@@ -84,12 +84,16 @@ def _run(
     environment["IZO_OWNERSHIP_FIXTURE"] = str(fixture_path)
     environment["IZO_EXPECTED_RELEASE_ROOT"] = str(tmp_path / "releases")
     environment["IZO_EXPECTED_BASE_PYTHON"] = str(tmp_path / "runtime" / "python311" / "python.exe")
+    environment["IZO_EXPECTED_SERVICE_EXECUTABLE"] = str(
+        tmp_path / "runtime" / "services" / "backend" / "IZOBackend.exe"
+    )
     command = (
         ". $env:IZO_OWNERSHIP_HELPER;"
         "$fixture=Get-Content -LiteralPath $env:IZO_OWNERSHIP_FIXTURE -Raw | ConvertFrom-Json;"
         "$result=Assert-IzoInstalledBackendServiceOwnership "
         "-ListenerProcess $fixture.listener -LauncherProcess $fixture.launcher -Service $fixture.service "
-        "-ExpectedReleaseRoot $env:IZO_EXPECTED_RELEASE_ROOT -ExpectedBasePython $env:IZO_EXPECTED_BASE_PYTHON;"
+        "-ExpectedReleaseRoot $env:IZO_EXPECTED_RELEASE_ROOT -ExpectedBasePython $env:IZO_EXPECTED_BASE_PYTHON "
+        "-ExpectedServiceExecutable $env:IZO_EXPECTED_SERVICE_EXECUTABLE;"
         "$result | ConvertTo-Json -Compress"
     )
     return subprocess.run(
@@ -124,6 +128,7 @@ def test_accepts_exact_running_service_process_and_release_contract(tmp_path: Pa
         ("release_sha", "release SHA does not match"),
         ("release_root", "outside the installed release root"),
         ("base_python", "does not match the configured service base Python"),
+        ("service_executable", "outside the installed runtime location"),
     ],
 )
 def test_rejects_mismatched_installed_service_contract(
@@ -144,6 +149,15 @@ def test_rejects_mismatched_installed_service_contract(
         )
     elif mutation == "base_python":
         listener["ExecutablePath"] = str(tmp_path / "unsupported" / "python.exe")
+    elif mutation == "service_executable":
+        service_exe = Path(str(service["PathName"]).strip('"'))
+        alternate_dir = tmp_path / "alternate-service"
+        alternate_dir.mkdir()
+        alternate_exe = alternate_dir / service_exe.name
+        alternate_xml = alternate_exe.with_suffix(".xml")
+        service_exe.rename(alternate_exe)
+        service_exe.with_suffix(".xml").rename(alternate_xml)
+        service["PathName"] = f'"{alternate_exe}"'
 
     if mutation == "release_root":
         original_root = tmp_path / "releases"

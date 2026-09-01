@@ -63,6 +63,8 @@ function Assert-IzoInstalledBackendServiceOwnership {
         [string]$ExpectedReleaseRoot,
         [Parameter(Mandatory = $true)]
         [string]$ExpectedBasePython,
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedServiceExecutable,
         [string]$ExpectedServiceName = "IZOBackend"
     )
 
@@ -93,6 +95,10 @@ function Assert-IzoInstalledBackendServiceOwnership {
     $launcherExecutable = ConvertTo-IzoFullPath -Path ([string]$LauncherProcess.ExecutablePath) -Label "Backend launcher executable"
 
     $serviceExecutable = Get-IzoServiceExecutablePath -PathName ([string]$Service.PathName)
+    $requiredServiceExecutable = ConvertTo-IzoFullPath -Path $ExpectedServiceExecutable -Label "Installed backend service executable"
+    if (-not $serviceExecutable.Equals($requiredServiceExecutable, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Backend service executable is outside the installed runtime location."
+    }
     if (-not (Test-Path -LiteralPath $serviceExecutable -PathType Leaf)) {
         throw "Backend service executable was not found: $serviceExecutable"
     }

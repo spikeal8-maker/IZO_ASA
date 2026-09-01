@@ -65,9 +65,10 @@ runtime files or the active production release.
 
 ## Verification evidence
 
-- Focused behavioral tests: `17 passed`, including exact ownership acceptance
+- Focused behavioral tests: `18 passed`, including exact ownership acceptance
   and rejection of wrong service PID, launcher executable, launcher arguments,
-  release SHA, installed release root and service base Python.
+  release SHA, installed release root, service base Python and registered WinSW
+  executable location.
 - `tools/verify.ps1 -Mode Quick`: `99 passed`, backend/Caddy live checks green,
   `VERIFY_OK`, source stable.
 - Real elevated `restart-backend.ps1 -PreflightOnly`:
@@ -77,5 +78,7 @@ runtime files or the active production release.
   to be pinned explicitly. Both findings were fixed with fail-closed behavioral
   tests. A second UAC launch was cancelled before the elevated process started;
   it made no runtime change and is not recorded as a successful re-verification.
+- Follow-up review required the registered WinSW executable to match the exact
+  installed runtime path; this finding is also fixed with a fail-closed test.
 - The elevated check returned before every stop/restart operation. Installed
   services, release identity, data and network state were not changed.
