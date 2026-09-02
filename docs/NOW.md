@@ -2,9 +2,11 @@
 status: canonical
 status_role: current-status-aggregator
 backlog_role: program-router
-updated: 2026-08-31
+updated: 2026-09-02
 status_effective_when: merged-to-main
-last_verified_main: 513e1ae60d1c0ff8acd4dbf804f593bec90f490f
+last_verified_main: d223c179d5944bc208cace867d5e93bc1341a3aa
+production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa
+production_release_verified_at: 2026-09-02T00:08:04+03:00
 completed_package: AI-CANONICAL-001
 completed_repair: AI-CANONICAL-REPAIR-001
 active_package: none
@@ -31,7 +33,11 @@ git rev-parse origin/main
 git worktree list
 ```
 
-- Проверенный `main`: `513e1ae60d1c0ff8acd4dbf804f593bec90f490f`.
+- Последний подтверждённый production release из чистого `main`:
+  `d223c179d5944bc208cace867d5e93bc1341a3aa`. Локальный и публичный
+  `/api/version` подтвердили этот SHA после promotion stage `complete`; этот
+  documentation package ещё не развёрнут. Подробный разбор:
+  [инцидент и восстановление 2026-09-01/02](production-release-incident-20260902.md).
 - Production release нельзя выводить из GitHub. Его подтверждают установленный
   runtime manifest и `/api/version` в рамках разрешённой live-проверки.
 - Код, merge, deployment и operational verification — разные состояния.
@@ -93,7 +99,8 @@ Generated evidence читается точечно. Большие JSON, symbol 
 - Phone product: `docs/phone-platform-master-plan-20260824.md`; только для
   `/phone` и связанных capabilities.
 - Production release: `docs/production-release-runbook.md`; только для
-  release/rollback/live diagnosis.
+  release/rollback/live diagnosis. Подтверждённый разбор последнего сбоя:
+  `docs/production-release-incident-20260902.md`.
 - Backup/restore: `docs/backup-restore-runbook-20260713.md` и
   `docs/yandex-disk-backup-runbook-20260716.md`.
 - Старые engineering, transformation, hardening и phase documents — reference
