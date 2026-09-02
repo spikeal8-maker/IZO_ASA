@@ -131,6 +131,11 @@ powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
    Continue only after `VERIFY_OK` and `VERIFY_RECEIPT_WRITTEN`. The receipt
    expires four hours after it is written. Validate/use it immediately; never
    reuse an expired receipt or rerun a combined deployment command around it.
+   A generated administrator wrapper is a one-shot envelope around its embedded
+   evidence. If any gate fails, preserve its complete output and determine
+   whether the mutable promotion window began. A fresh attempt requires a new
+   preflight and receipt; changing the clock, editing the receipt or invoking
+   the same wrapper again cannot make it valid.
 5. Ask the installed updater to prepare the candidate:
 
 ```powershell
@@ -185,8 +190,11 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 
 ## 6. Acceptance after promotion
 
-Require `promotion-current.json` stage `complete` and
-`update-current.json` status `INSTALLED`, both bound to the expected SHA/release.
+Before promotion, the updater's successful candidate state is
+`PROMOTION_PENDING`. After promotion, require `promotion-current.json` stage
+`complete` and `update-current.json` status `INSTALLED`, both bound to the
+expected SHA/release. Do not wait for `PROMOTION_PENDING` after a successful
+promoter has already advanced the updater state.
 Then verify:
 
 - `IZOBackend` and `IZOCaddy` are running and own only the expected loopback
@@ -231,6 +239,13 @@ For the 2026-08-31 incident, the non-administrator token and WinSW cancellation
 are the confirmed cause of the service-control failure. The stale installed
 promoter is a separate confirmed preflight defect and safety risk; available
 evidence does not prove it produced that exit code.
+
+The 2026-09-01/02 expired-receipt and installed Python-chain failures, the
+fail-closed ownership repair, and the first verified successful deployment are
+recorded in
+[`production-release-incident-20260902.md`](production-release-incident-20260902.md).
+Future agents must use its symptom table as incident evidence while continuing
+to follow this runbook as the active procedure.
 
 ## 8. Required release record
 

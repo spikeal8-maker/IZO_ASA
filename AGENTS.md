@@ -188,11 +188,19 @@ Report states exactly:
 - Detect installed topology from runtime evidence. On the installed
   Windows-service topology, use its updater/promoter workflow and maintenance
   flag; do not substitute legacy start/restart scripts.
+- A generated administrator wrapper and its exact-SHA receipt are one-shot
+  evidence, not a retry interface. After an expired receipt or failed gate,
+  preserve the result, prove whether mutation began, and create fresh evidence;
+  never rerun the same wrapper.
+- A WinSW-owned release launcher and installed base-Python listener may be the
+  valid production chain. Accept it only when the repository preflight reports
+  `ownership=installed-windows-service`; never bypass the gate or kill guessed
+  Python processes.
 - Deploy only clean canonical `main` when `HEAD == origin/main` and the receipt
   names that exact SHA. Never deploy uncommitted WIP.
 - After an authorized deploy, verify local and public routes, health/version,
-  listener ownership, release identity and logs. UI work also needs
-  desktop/mobile browser evidence.
+  listener ownership, release identity, updater status `INSTALLED`, promotion
+  stage `complete` and logs. UI work also needs desktop/mobile browser evidence.
 - HTTP 200 alone does not prove UI behavior or provider operation.
 
 ## 12. Documentation and current state
