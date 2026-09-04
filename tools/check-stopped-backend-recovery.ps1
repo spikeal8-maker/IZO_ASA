@@ -24,6 +24,7 @@ $promotionPath = 'C:\IZO_ASA\health\promotion-current.json'
 $updatePath = 'C:\IZO_ASA\health\update-current.json'
 $architectureContractPath = Join-Path $root 'architecture\contract.json'
 $caddyRuntimeScript = Join-Path $root 'tools\caddy-runtime.ps1'
+$runtimeListenerScript = Join-Path $root 'tools\check-runtime-listeners.ps1'
 
 if ($PlanOnly) {
     Write-Host "STOPPED_BACKEND_RECOVERY_PLAN check=$Check root=$root"
@@ -53,7 +54,8 @@ foreach ($path in @(
     $promotionPath,
     $updatePath,
     $architectureContractPath,
-    $caddyRuntimeScript
+    $caddyRuntimeScript,
+    $runtimeListenerScript
 )) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         throw "Stopped-backend recovery evidence is missing: $path"
@@ -221,9 +223,10 @@ if (
     throw 'Production database integrity or migration ledger verification failed.'
 }
 $contract = Get-Content -LiteralPath $architectureContractPath -Raw -Encoding UTF8 | ConvertFrom-Json
+$currentMin = [int]$contract.release_contract.schema_compatibility.min_version
 $currentMax = [int]$contract.release_contract.schema_compatibility.max_version
 $oldMax = [int]$oldManifest.schema_compatibility.max_version
-if ($currentMax -lt [int]$database.user_version) {
+if ($currentMin -gt [int]$database.user_version -or $currentMax -lt [int]$database.user_version) {
     throw 'Current exact source does not support the live database schema.'
 }
 if ($oldMax -ge [int]$database.user_version) {
@@ -239,7 +242,10 @@ if ($Check -eq 'Backend') {
     if ($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-f]{40}$') {
         throw 'Current exact source commit could not be resolved.'
     }
-    Write-Host "STOPPED_BACKEND_RECOVERY_PREFLIGHT_OK current=$head previous=$oldSha schema=$($database.user_version) currentMax=$currentMax previousMax=$oldMax"
+    if ($head -eq [string]$promotion.NewSha) {
+        throw 'Current exact source is the already-failed candidate; a corrective commit is required.'
+    }
+    Write-Host "STOPPED_BACKEND_RECOVERY_PREFLIGHT_OK current=$head previous=$oldSha failed=$($promotion.NewSha) schema=$($database.user_version) currentMin=$currentMin currentMax=$currentMax previousMax=$oldMax"
     exit 0
 }
 
@@ -257,6 +263,16 @@ if (
     throw 'IZOCaddy WinSW service must own the single pinned Caddy IPv4 loopback listener on port 5173.'
 }
 if ($Check -eq 'Listeners') {
+    $listenerOutput = @(
+        & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+            -File $runtimeListenerScript -RepoRoot $root `
+            -ContractPath $architectureContractPath -AllowStoppedInstalledBackend 2>&1
+    )
+    $listenerExitCode = $LASTEXITCODE
+    $listenerOutput | ForEach-Object { Write-Host $_ }
+    if ($listenerExitCode -ne 0) {
+        throw "Global runtime listener validation failed with exit code $listenerExitCode."
+    }
     Write-Host "STOPPED_BACKEND_RECOVERY_LISTENERS_OK backend=stopped apiPort=closed caddy=running caddyPid=$($caddyListenerState.Process.ProcessId) servicePid=$($caddyService.ProcessId)"
     exit 0
 }

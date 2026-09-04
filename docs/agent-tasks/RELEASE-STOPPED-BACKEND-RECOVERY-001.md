@@ -24,8 +24,10 @@ domain: release-incident-recovery
 riskClass: high-assurance
 declaredFiles:
   - tools/check-stopped-backend-recovery.ps1
+  - tools/check-runtime-listeners.ps1
   - tools/verify.ps1
   - tools/test_stopped_backend_recovery_script.py
+  - tools/test_runtime_listener_contract.py
   - docs/production-release-runbook.md
   - docs/agent-tasks/RELEASE-STOPPED-BACKEND-RECOVERY-001.md
   - docs/generated/architecture-inventory.json
@@ -33,7 +35,7 @@ declaredFiles:
 acceptance:
   - recovery mode is Full-only, receipt-only and stable-source-only
   - no recovery check starts/stops services or writes production state
-  - rolled_back, PROMOTION_FAILED, stopped WinSW, closed API port, read-only SQLite integrity, exact migration ledger, schema ranges and WinSW-owned Caddy fallback are all proved
+  - rolled_back, PROMOTION_FAILED, corrective SHA, stopped WinSW, closed API port, global process/listener safety, read-only SQLite integrity, exact migration ledger, both schema bounds and WinSW-owned Caddy fallback are all proved
   - ordinary Full behavior remains unchanged
 requiredEvidence:
   - focused tool tests and generated-map check
@@ -53,8 +55,8 @@ rollbackBoundary: Revert the recovery-gate commit; it performs no live mutation 
 - Recovery `PlanOnly`: `Backend`, `Listeners` and `Edge` each completed.
 - Verifier `PlanOnly`: Full recovery routed only the three unavailable live
   gates through the bounded checker and retained every remaining Full gate.
-- Focused tests: `26 passed` for the recovery checker, verifier, receipt and
-  release-resilience contracts.
+- Focused tests: `31 passed` for the recovery checker, global listener checker,
+  verifier, receipt and release-resilience contracts.
 - Generated architecture, backend and frontend maps: checks passed; no
   generated diff was required.
 - Ordinary Quick verification reached its unchanged live backend preflight and

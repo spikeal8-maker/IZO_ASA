@@ -234,15 +234,19 @@ A subsequent corrective commit may use the bounded stopped-backend recovery
 gate only when all of the following are true:
 
 - the corrective exact SHA is clean canonical `main`, is on `origin/main`, and
-  has successful exact-SHA CI plus automated review;
+  has successful exact-SHA CI plus automated review, and differs from the
+  recorded failed candidate SHA;
 - `promotion-current.json` is `rolled_back`, `update-current.json` is
   `PROMOTION_FAILED`, the installed `IZOBackend` service is stopped and port
   8000 is closed;
 - installed XML still identifies the previous immutable release, while its
   manifest does not support the live schema;
 - read-only SQLite `quick_check` passes, every applied migration ledger row
-  matches the corrective source by version, name and checksum, and the
-  corrective release contract supports that exact live schema;
+  matches the corrective source by version, name and checksum, and the full
+  corrective release compatibility range contains that exact live schema;
+- the ordinary contract-wide process/listener scan passes with only the
+  explicitly stopped installed API listener treated as absent, so no stale
+  full-application process owns another port;
 - the `IZOCaddy` WinSW service owns the single pinned Caddy loopback listener
   on 5173, serves the previous immutable frontend on static SPA routes, and
   returns the expected 502 for the stopped API;
