@@ -451,7 +451,6 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
   const submit = async () => {
     if (!authed) return onRequireAuth()
     const rawContent = text.trim() || (images.length ? 'Опиши прикреплённое изображение.' : '')
-    const content = forcedTool === 'web_search' ? `Обязательно используй инструмент web_search для этого запроса. ${rawContent}` : forcedTool === 'generate_image' ? `Обязательно используй инструмент generate_image для этого запроса. ${rawContent}` : rawContent
     if (!rawContent || busy || selectedModel?.available === false) return
     let thread = current
     try {
@@ -484,15 +483,17 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
       setText('')
       setForcedTool('auto')
       const attached = [...images]
+      const toolChoice = forcedTool
       setImages([])
       setBusy(true)
       setError('')
       const answer = await sendChatMessage({
         threadId: thread.id,
-        content,
+        content: rawContent,
         modelId,
         images: attached,
         requestId: makeId(),
+        toolChoice,
       })
       const assistantId = answer.messageId || pendingId
       let tools = answer.tools || []

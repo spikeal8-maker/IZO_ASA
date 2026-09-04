@@ -24,6 +24,7 @@ def phone_chat_request_fingerprint(
     *,
     messages: list[Any],
     route: str,
+    tool_choice: str = "auto",
     model_id: str | None,
     images: list[str],
     thread_id: str | None,
@@ -47,6 +48,11 @@ def phone_chat_request_fingerprint(
         ],
         "threadId": str(thread_id or ""),
     }
+    if tool_choice != "auto":
+        # Keep the default request byte-compatible with fingerprints written
+        # before structured tool selection existed. Explicit choices still get
+        # distinct hashes, so they cannot replay or recover an automatic call.
+        payload["toolChoice"] = str(tool_choice)
     canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 

@@ -25,7 +25,7 @@ from ...integrations.openrouter import (
     format_openrouter_public_error,
     request_openrouter_chat_completion,
 )
-from ...services import chat_billing, chat_request_lifecycle, phone_chat_history
+from ...services import chat_billing, chat_request_lifecycle, chat_tool_policy, phone_chat_history
 
 
 PROVIDER_ENDPOINTS = load_provider_endpoint_policy()
@@ -92,6 +92,7 @@ class PhoneChatTurn(BaseModel):
 class PhoneChatRequest(BaseModel):
     messages: list[PhoneChatTurn] = Field(min_length=1, max_length=100)
     route: Literal["auto", "local", "api"] = "auto"
+    toolChoice: Literal["auto", "web_search", "generate_image"] = "auto"
     modelId: str | None = Field(default=None, max_length=200)
     requestId: str = Field(default_factory=lambda: uuid.uuid4().hex, min_length=8, max_length=100, pattern=r"^[A-Za-z0-9._:-]+$")
     images: list[str] = Field(default_factory=list, max_length=4)
@@ -205,12 +206,46 @@ def _required_web_query(req: PhoneChatRequest) -> str:
     """Guarantee a search for explicit live-data requests if a small model misses tool selection."""
 
     latest = req.messages[-1].content.strip()
+    if req.toolChoice != "auto":
+        return ""
     normalized = re.sub(r"\s+", " ", latest.lower())
     explicit_search = re.search(r"\b(найди|поищи|посмотри|проверь)\b.{0,80}\b(интернет|сеть|онлайн|сайт)", normalized)
     live_weather = re.search(r"\b(погода|температура|прогноз)\b", normalized) and re.search(
         r"\b(сейчас|сегодня|завтра|текущ|какая|какой|москв|город|на улице)\w*\b", normalized
     )
     return latest[:500] if explicit_search or live_weather else ""
+
+
+def _required_search_arguments(req: PhoneChatRequest, provider_context: str = "") -> dict[str, Any]:
+    return chat_tool_policy.required_search_arguments(req.messages, req.images, provider_context)
+
+
+def _forced_search_model_arguments(req: PhoneChatRequest, arguments: dict[str, Any]) -> dict[str, Any]:
+    return chat_tool_policy.forced_search_model_arguments(req.messages, req.images, arguments)
+
+
+def _explicit_image_aspect_ratio(req: PhoneChatRequest) -> str | None:
+    return chat_tool_policy.explicit_image_aspect_ratio(req.messages)
+
+
+def _requested_image_aspect_ratio(req: PhoneChatRequest) -> str:
+    return chat_tool_policy.requested_image_aspect_ratio(req.messages)
+
+
+def _forced_image_model_arguments(req: PhoneChatRequest, arguments: dict[str, Any]) -> dict[str, Any]:
+    return chat_tool_policy.forced_image_model_arguments(req.messages, req.images, arguments)
+
+
+def _required_image_arguments(req: PhoneChatRequest, provider_context: str = "") -> dict[str, Any]:
+    return chat_tool_policy.required_image_arguments(req.messages, req.images, provider_context)
+
+
+def _round_tools(req: PhoneChatRequest, used_tools: set[str]) -> list[dict[str, Any]]:
+    return chat_tool_policy.round_tools(req.toolChoice, used_tools, PHONE_CHAT_TOOLS)
+
+
+def _tool_allowed(req: PhoneChatRequest, name: str) -> bool:
+    return chat_tool_policy.tool_allowed(req.toolChoice, name)
 
 
 def _assistant_message(payload: dict[str, Any]) -> dict[str, Any]:
@@ -302,7 +337,28 @@ async def _execute_tool(name: str, arguments: dict[str, Any], deps: PhoneChatDep
     return {"ok": False, "error": "Неизвестный инструмент."}, {}
 
 
-async def _prime_required_web_search(
+async def _append_synthetic_tool_call(
+    *,
+    name: str,
+    arguments_value: dict[str, Any],
+    messages: list[dict[str, Any]],
+    deps: PhoneChatDependencies,
+    config: dict[str, Any],
+    openrouter_style: bool,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    async def execute_tool(tool_name: str, arguments: dict[str, Any]):
+        return await _execute_tool(tool_name, arguments, deps, config)
+
+    return await chat_tool_policy.append_synthetic_tool_call(
+        name=name,
+        arguments=arguments_value,
+        messages=messages,
+        execute_tool=execute_tool,
+        openrouter_style=openrouter_style,
+    )
+
+
+async def _prime_required_tool(
     req: PhoneChatRequest,
     messages: list[dict[str, Any]],
     deps: PhoneChatDependencies,
@@ -310,21 +366,16 @@ async def _prime_required_web_search(
     *,
     openrouter_style: bool,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], set[str]]:
-    query = _required_web_query(req)
-    if not query:
-        return [], [], set()
-    call_id = f"call_{uuid.uuid4().hex[:12]}"
-    result, provider_payload = await _execute_tool("web_search", {"query": query}, deps, config)
-    arguments: Any = json.dumps({"query": query}, ensure_ascii=False) if openrouter_style else {"query": query}
-    messages.append({
-        "role": "assistant",
-        "content": "",
-        "tool_calls": [{"id": call_id, "type": "function", "function": {"name": "web_search", "arguments": arguments}}],
-    })
-    tool_message = {"role": "tool", "content": json.dumps(result, ensure_ascii=False)}
-    tool_message["tool_call_id" if openrouter_style else "tool_name"] = call_id if openrouter_style else "web_search"
-    messages.append(tool_message)
-    return [{"name": "web_search", **result}], [provider_payload] if provider_payload else [], {"web_search"}
+    async def execute_tool(name: str, arguments: dict[str, Any]):
+        return await _execute_tool(name, arguments, deps, config)
+
+    return await chat_tool_policy.prime_required_tool(
+        tool_choice=req.toolChoice,
+        messages=messages,
+        required_web_query=_required_web_query(req),
+        execute_tool=execute_tool,
+        openrouter_style=openrouter_style,
+    )
 
 
 def _openrouter_text_content(payload: dict[str, Any]) -> str:
@@ -405,28 +456,49 @@ async def phone_chat_ollama(
     model = str(config.get("localModel") or "gemma4:31b-cloud")
     keep_alive = os.getenv("OLLAMA_KEEP_ALIVE", "-1").strip() or "-1"
     timeout = max(10, min(180, int(config.get("localTimeoutSeconds") or 45)))
-    tool_runs, tool_payloads, used_tools = await _prime_required_web_search(
+    tool_runs, tool_payloads, used_tools = await _prime_required_tool(
         req, messages, deps, config, openrouter_style=False,
     )
     payload: dict[str, Any] = {}
     for _round in range(3):
+        round_tools = _round_tools(req, used_tools)
         body = {
             "model": model,
             "stream": False,
             "think": False,
             "keep_alive": int(keep_alive) if keep_alive.lstrip("+-").isdigit() else keep_alive,
             "messages": messages,
-            "tools": PHONE_CHAT_TOOLS,
             "options": {
                 "temperature": 0.35,
                 "num_predict": 1000,
                 "num_ctx": max(4096, min(32768, int(config.get("localNumCtx") or 16384))),
             },
         }
+        if round_tools:
+            body["tools"] = round_tools
         content, raw_payload = await request_ollama_chat_message(body=body, timeout_seconds=timeout)
         payload = raw_payload if isinstance(raw_payload, dict) else {}
         calls = _tool_calls(payload)
         if not calls:
+            if req.toolChoice != "auto" and req.toolChoice not in used_tools:
+                arguments_value = (
+                    _required_image_arguments(req, content)
+                    if req.toolChoice == "generate_image"
+                    else _required_search_arguments(req, content)
+                )
+                tool_run, provider_payload = await _append_synthetic_tool_call(
+                    name=req.toolChoice,
+                    arguments_value=arguments_value,
+                    messages=messages,
+                    deps=deps,
+                    config=config,
+                    openrouter_style=False,
+                )
+                tool_runs.append(tool_run)
+                if provider_payload:
+                    tool_payloads.append(provider_payload)
+                used_tools.add(req.toolChoice)
+                continue
             reply = _public_tool_reply(content, used_tools)
             if not reply:
                 raise RuntimeError("Чат не вернул ответ.")
@@ -436,6 +508,14 @@ async def phone_chat_ollama(
         messages.append({**_assistant_message(payload), "role": "assistant"})
         for call in calls[:2]:
             name, arguments, _call_id = _tool_call(call)
+            if not _tool_allowed(req, name):
+                result = {"ok": False, "error": "Этот инструмент не выбран для текущего запроса."}
+                messages.append({"role": "tool", "tool_name": name, "content": json.dumps(result, ensure_ascii=False)})
+                continue
+            if name == "generate_image" and req.toolChoice == "generate_image":
+                arguments = _forced_image_model_arguments(req, arguments)
+            if name == "web_search" and req.toolChoice == "web_search":
+                arguments = _forced_search_model_arguments(req, arguments)
             if name in used_tools:
                 result, provider_payload = {"ok": False, "error": "Этот инструмент уже использован в текущем ответе."}, {}
             else:
@@ -478,12 +558,15 @@ async def phone_chat_openrouter(
         }
     model = str(config.get("apiModel") or PROVIDER_ENDPOINTS.prompt_improve_model)
     timeout = max(10, min(90, int(config.get("apiTimeoutSeconds") or 30)))
-    tool_runs, tool_payloads, used_tools = await _prime_required_web_search(
+    tool_runs, tool_payloads, used_tools = await _prime_required_tool(
         req, messages, deps, config, openrouter_style=True,
     )
     payload: dict[str, Any] = {}
     for _round in range(3):
-        body = {"model": model, "messages": messages, "tools": PHONE_CHAT_TOOLS, "temperature": 0.35, "max_tokens": 1000}
+        body = {"model": model, "messages": messages, "temperature": 0.35, "max_tokens": 1000}
+        round_tools = _round_tools(req, used_tools)
+        if round_tools:
+            body["tools"] = round_tools
         status_code, raw_payload = await request_openrouter_chat_completion(
             base_url=PROVIDER_ENDPOINTS.openrouter_base_url,
             headers=headers,
@@ -503,7 +586,32 @@ async def phone_chat_openrouter(
         deps.record_openrouter_availability(200)
         calls = _tool_calls(payload)
         if not calls:
-            reply = _public_tool_reply(_openrouter_text_content(payload), used_tools)
+            try:
+                content = _openrouter_text_content(payload)
+            except RuntimeError:
+                content = ""
+            if req.toolChoice != "auto" and req.toolChoice not in used_tools:
+                arguments_value = (
+                    _required_image_arguments(req, content)
+                    if req.toolChoice == "generate_image"
+                    else _required_search_arguments(req, content)
+                )
+                tool_run, provider_payload = await _append_synthetic_tool_call(
+                    name=req.toolChoice,
+                    arguments_value=arguments_value,
+                    messages=messages,
+                    deps=deps,
+                    config=config,
+                    openrouter_style=True,
+                )
+                tool_runs.append(tool_run)
+                if provider_payload:
+                    tool_payloads.append(provider_payload)
+                used_tools.add(req.toolChoice)
+                if payload:
+                    tool_payloads.append(payload)
+                continue
+            reply = _public_tool_reply(content, used_tools)
             if not reply:
                 raise RuntimeError("Чат не вернул ответ.")
             payload["_izo_tool_runs"] = tool_runs
@@ -512,6 +620,14 @@ async def phone_chat_openrouter(
         messages.append({**_assistant_message(payload), "role": "assistant"})
         for call in calls[:2]:
             name, arguments, call_id = _tool_call(call)
+            if not _tool_allowed(req, name):
+                result = {"ok": False, "error": "Этот инструмент не выбран для текущего запроса."}
+                messages.append({"role": "tool", "tool_call_id": call_id, "content": json.dumps(result, ensure_ascii=False)})
+                continue
+            if name == "generate_image" and req.toolChoice == "generate_image":
+                arguments = _forced_image_model_arguments(req, arguments)
+            if name == "web_search" and req.toolChoice == "web_search":
+                arguments = _forced_search_model_arguments(req, arguments)
             if name in used_tools:
                 result, provider_payload = {"ok": False, "error": "Этот инструмент уже использован в текущем ответе."}, {}
             else:
@@ -521,6 +637,8 @@ async def phone_chat_openrouter(
             if provider_payload:
                 tool_payloads.append(provider_payload)
             messages.append({"role": "tool", "tool_call_id": call_id, "content": json.dumps(result, ensure_ascii=False)})
+        if payload:
+            tool_payloads.append(payload)
     raise RuntimeError("Чат превысил допустимое число вызовов инструментов.")
 
 
@@ -750,6 +868,7 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
         fingerprint = chat_request_lifecycle.phone_chat_request_fingerprint(
             messages=req.messages,
             route=req.route,
+            tool_choice=req.toolChoice,
             model_id=req.modelId,
             images=req.images,
             thread_id=req.threadId,

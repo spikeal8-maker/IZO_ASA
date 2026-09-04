@@ -3,10 +3,10 @@ status: canonical
 role: chat-agent-context
 scope: /chat and shared /phone/chat core
 audience: coding-agents
-evidence_base_sha: 7ea3c3b66a6b673707b67df91b74151c3474a9c6
-evidence_package: CHAT-IDEMPOTENCY-001
+evidence_base_sha: 4ed17f0849b291ccb493513dcf3f599312739004
+evidence_package: CHAT-STRUCTURED-TOOLS-001
 status_effective_when: merged-to-main
-updated: 2026-08-31
+updated: 2026-09-04
 ---
 
 # Context: продуктовый чат `/chat`
@@ -69,9 +69,9 @@ dependency seam через `PhoneChatDependencies`.
 ## Текущий request flow
 
 1. Frontend отправляет последний user turn, `threadId`, public `modelId`,
-   `requestId` и до четырёх images.
+   validated `toolChoice`, `requestId` и до четырёх images.
 2. Backend разрешает trusted user и тариф; client user id не используется.
-3. Request lifecycle проверяет точный `(user_id, requestId)` и fingerprint:
+3. Request lifecycle проверяет точный `(user_id, requestId)` и fingerprint; явный `toolChoice` входит в hash, а `auto` сохраняет legacy-compatible hash:
    completed возвращается из cache, conflict/processing/failed не доходят до
    provider.
 4. History service загружает bounded messages только owned thread.
@@ -141,26 +141,28 @@ admin-only остаются local runtime/workflow names. Их нельзя см
 
 ### `web_search`
 
-- Нужен для изменяемых сведений и прямых просьб найти/проверить.
+- Forced search сначала строит самостоятельный query из bounded history/attachment; vague fallback включает контекст беседы.
 - Provider citations доходят до tools; desktop показывает links, mobile их фильтрует.
 - Search failure не разрешает выдумывать актуальный ответ.
 
 ### `generate_image`
 
-- Tool request содержит prompt и validated aspect ratio.
+- Tool request содержит prompt и validated aspect ratio; forced image сначала использует bounded history/attachment модели, а fallback сохраняет контекст и явный формат.
 - Tool request не равен готовому изображению.
 - Реальный результат появляется только после durable generation job.
 - Result/error пишется в assistant message отдельным PATCH без provider envelope;
   failure сейчас игнорируется и может оставить stale tool state.
 
-Forced tool должен стать structured backend contract. Текущий hidden text prefix
-в desktop UI — известный defect; не закрепляй его новыми consumers.
+Forced tool является structured backend contract: `toolChoice` принимает только
+`auto`, `web_search` или `generate_image` и не изменяет user content. Явный выбор
+входит в durable fingerprint; `auto` сохраняет legacy fingerprint и model-driven
+selection. До запуска provider видит только выбранный tool; после выполнения он убирается, и assistant формирует итоговый ответ; вызов другого tool отклоняется до любого side effect.
 
 ## Billing, auth и privacy
 
 - `local:izo-chat` бесплатен.
 - При `usageBillingEnabled=true` API model требует verified catalog price/курс и
-  проходит reservation/settlement. При `false` действует настроенный fixed
+  проходит reservation/settlement с учётом каждого main/tool provider round. При `false` действует настроенный fixed
   `apiTokenCosts` без live-price verification и settlement в POST branch.
 - Независимо от billing mode текущий `GET /api/phone/chat/models` выставляет
   `available=true` только при `price_confirmed`; UI поэтому может блокировать
@@ -187,8 +189,6 @@ Forced tool должен стать structured backend contract. Текущий 
 - Picker перегружен недоступными моделями и не объясняет best-for.
 - Local answer может занимать около минуты; streaming/cancel отсутствуют.
 - Desktop formatter не поддерживает полный Markdown/nested lists.
-- Forced tool добавляет скрытый текст к user content; optimistic и stored text
-  могут разойтись.
 - Финальный image-tool PATCH не durable и при failure оставляет stale state.
 - Нет visual-capability validation; attachment может уйти в unsupported paid model.
 - Image content/magic bytes не проверяются до charge/provider.
@@ -203,7 +203,7 @@ Forced tool должен стать structured backend contract. Текущий 
 - Тонкий desktop workspace с отдельными history/composer/model/tool/artifact
   components.
 - Явные backend orchestration/history/billing/tool seams.
-- Structured assistant profiles и forced tools.
+- Structured assistant profiles; forced tools уже передаются отдельным field.
 - Streaming/cancel и устойчивый Markdown renderer.
 - Общая history совместима с текущими desktop/mobile consumers.
 - Никакого микросервиса, второй БД или второго auth.

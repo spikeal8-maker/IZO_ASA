@@ -3,10 +3,10 @@ status: canonical
 role: chat-product-architecture-spec
 scope: /chat and shared /phone/chat core
 audience: product owners, designers, developers, QA and coding-agents
-evidence_base_sha: 7ea3c3b66a6b673707b67df91b74151c3474a9c6
-evidence_package: CHAT-IDEMPOTENCY-001
+evidence_base_sha: 4ed17f0849b291ccb493513dcf3f599312739004
+evidence_package: CHAT-STRUCTURED-TOOLS-001
 status_effective_when: merged-to-main
-updated: 2026-08-31
+updated: 2026-09-04
 ---
 
 # Чат ИЗО АСА — продуктовый и архитектурный контракт
@@ -117,10 +117,9 @@ URL, lazy-loaded workspace, стили, история, composer, каталог
 
 ### 4.3. Сообщение
 
-- Backend schema ограничивает итоговый пользовательский `content` 4 000
-  символами. CURRENT GAP: desktop проверяет 4 000 символов `rawContent`, а затем
-  добавляет скрытый forced-tool prefix; поэтому web-search запрос длиннее 3 937
-  и image-tool запрос длиннее 3 933 символов отклоняются backend validation.
+- Backend и desktop ограничивают пользовательский `content` 4 000 символами.
+  Выбор обязательного инструмента передаётся отдельным validated `toolChoice` и
+  не уменьшает этот лимит.
 - Разрешены до четырёх JPEG/PNG/WebP изображений.
 - CURRENT GAP: выбранная model не проверяется на visual capability до charge и
   provider call; unsupported attachment может завершиться ошибкой или быть проигнорирован.
@@ -129,10 +128,8 @@ URL, lazy-loaded workspace, стили, история, composer, каталог
 - Enter отправляет сообщение; Shift+Enter добавляет строку.
 - Pending, error и completed должны быть различимы визуально и для assistive
   technology.
-- REQUIRED: отображаемый пользователю текст должен совпадать с сохранённым в
-  истории. CURRENT GAP: forced-tool flow показывает optimistic `rawContent`, но
-  сохраняет user `content` со скрытым instruction prefix до перехода на
-  structured field.
+- Отображаемый пользователю текст совпадает с отправленным и сохранённым в
+  истории: structured `toolChoice` не изменяет user content.
 
 ### 4.4. Модели
 
@@ -191,6 +188,7 @@ flowchart LR
 | Backend router | `backend/app/api/routers/phone_chat.py` |
 | История | `backend/app/services/phone_chat_history.py` |
 | Chat billing | `backend/app/services/chat_billing.py` |
+| Tool policy | `backend/app/services/chat_tool_policy.py` |
 | Frontend regression | `frontend/e2e-desktop-chat.mjs` |
 | Backend contracts | `backend/test_phone_chat_history.py`, `backend/test_phone_chat_tools.py`, `backend/test_chat_billing.py` |
 
@@ -259,7 +257,14 @@ flowchart LR
 5. Usage branch проверяет catalog price/курс и резервирует максимум; fixed-cost
    branch списывает настроенный `apiTokenCosts` без live-price quote.
 6. Запрос проходит через concurrency semaphore в Ollama или OpenRouter.
-7. Модель может вызвать `web_search` или `generate_image`.
+7. В `toolChoice=auto` модель может вызвать `web_search` или `generate_image`, а
+   fingerprint остаётся совместимым с ранее сохранёнными auto-запросами. Явный
+   выбор входит в fingerprint и гарантирует tool до итогового ответа без правки
+   user text. До исполнения provider получает только выбранный tool, после него
+   tool убирается. Для forced search/image модель сначала выводит самостоятельный
+   query или prompt/ratio из bounded history и attachment; fallback сохраняет контекст.
+   Каждый оплачиваемый OpenRouter round до `continue`, как и provider subtool,
+   добавляется к итоговой стоимости settlement и аналитики.
 8. Явно перехваченные `ValueError`, timeout, `httpx.HTTPError` и `RuntimeError`
    во время provider route возвращают исходное списание в обоих режимах. После
    успешного provider call settlement выполняется только для usage reservation,
@@ -294,15 +299,14 @@ endpoint.
 | GET | `/api/phone/chat/threads/{thread_id}/messages` | thread и messages |
 | PATCH | `/api/phone/chat/threads/{thread_id}/messages/{message_id}/tools` | сохранить итог tool |
 | GET | `/api/phone/chat/models` | тарифный каталог моделей |
-| POST | `/api/phone/chat` | получить один ответ |
+| POST | `/api/phone/chat` | получить один ответ; `toolChoice` принимает `auto`, `web_search` или `generate_image` |
 
-CURRENT GAP: `requestId` ищет ранее созданный charge ledger только по самому
-ключу и не связывает его с trusted user, model, operation или финальным outcome.
-Другой запрос может переиспользовать прежние ledger/`new_balance`, обойти charge,
-а неуспешный replay — refund'нуть ранее успешный вызов. Provider route, history
-exchange и image intent/job при replay также выполняются снова. Поэтому текущий
-`requestId` нельзя считать безопасной idempotency boundary; целевой контракт
-должен связывать ключ с user/operation и возвращать cached final outcome.
+`requestId` связан с trusted user и fingerprint стабильного client input,
+включая model, route, `toolChoice`, thread, сообщения и hashes изображений.
+Exact completed replay возвращает cached outcome без нового charge, provider
+work или history exchange; другой fingerprint получает `409`. Эта гарантия
+охватывает сохранённый tool intent, но не отдельный frontend-owned image job и
+его best-effort final PATCH.
 
 ## 9. Persistence
 
@@ -311,7 +315,9 @@ Migration `phone_chat_history` в `backend/app/database/migrations.py` созд�
 - `phone_chat_threads`: owner, title, chat/image/video model, context size,
   created/updated timestamps;
 - `phone_chat_messages`: role, content, provider, public model, tool JSON,
-  charged tokens, token kind и timestamp.
+  charged tokens, token kind и timestamp;
+- `phone_chat_requests`: per-user `requestId`, fingerprint, provider/model,
+  charge, lease, terminal outcome и cached public response.
 
 Owner-check выполняется в каждом history operation. Production SQLite/WAL/SHM
 никогда не используются как тестовые fixtures. Любое изменение schema — новая
@@ -370,6 +376,8 @@ internal.
 
 - Используется для погоды, новостей, цен, расписаний, прямого «найди/проверь» и
   другой изменяемой информации.
+- При явном выборе модель сначала видит bounded history и attachment и формирует
+  самостоятельный query; пустой или указательный query заменяется bounded fallback.
 - Ответ должен опираться на найденные источники. Desktop отображает provider
   citations отдельными ссылками; mobile `ChatTools` фильтрует `web_search` и не
   показывает structured source links — это surface parity GAP.
@@ -384,9 +392,10 @@ internal.
   assistant message. CURRENT GAP: PATCH failure игнорируется и может оставить
   stale requested/running state; durable finalization является target contract.
 
-Выбор «обязательного инструмента» должен быть отдельным validated request field.
-Добавление скрытой инструкции к пользовательскому тексту считается временным
-дефектом, а не целевым контрактом.
+Выбор «обязательного инструмента» передаётся отдельным validated `toolChoice`.
+Допустимы `auto`, `web_search` и `generate_image`; выбор входит в request
+fingerprint, гарантирует первый запуск указанного tool и не изменяет user text.
+Tool call с другим именем отклоняется до исполнения и не попадает в public tools.
 
 ## 12. Billing
 
@@ -481,7 +490,6 @@ social bots.
 | Model picker перегружен недоступными technical models и слабыми описаниями | `DesktopChatWorkspace.tsx`, model catalog route/test | product acceptance + отдельная issue |
 | Local ответ может занимать около минуты; streaming и cancel отсутствуют | router latency event и desktop request flow | измеренный baseline + streaming package |
 | Formatter не поддерживает полноценный Markdown и nested lists | `frontend/src/phone/features/chat/format.ts`, `frontend/phoneChat.test.ts` | characterization + renderer issue |
-| Forced tool кодируется скрытым text prefix и уменьшает фактический raw limit до 3 937/3 933 символов | desktop composer и backend 4 000-character validation | regression + structured-field issue |
 | Финальный image-tool state пишется отдельным best-effort PATCH | desktop image job completion и tool-state route | recovery/idempotency issue |
 | Surface actions не имеют desktop/mobile parity | desktop media empty-state actions и preview/share; mobile quick prompts и download/animate | product decision + mobile parity issue |
 | Runtime и web-search prompt принудительно русские | `PHONE_CHAT_SYSTEM_PROMPT`, `_web_search` | multilingual prompt/eval package |

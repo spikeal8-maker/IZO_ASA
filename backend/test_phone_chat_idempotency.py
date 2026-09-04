@@ -18,6 +18,22 @@ THREAD_ID = "abcdef12"
 MODEL_ID = "provider/model"
 
 
+def test_auto_fingerprint_matches_pre_tool_choice_ledger_format() -> None:
+    common = {
+        "messages": [{"role": "user", "content": "hello"}],
+        "route": "auto",
+        "model_id": MODEL_ID,
+        "images": [],
+        "thread_id": None,
+    }
+
+    automatic = chat_request_lifecycle.phone_chat_request_fingerprint(**common)
+    forced = chat_request_lifecycle.phone_chat_request_fingerprint(**common, tool_choice="generate_image")
+
+    assert automatic == "756b0e8ab0f66534193e6941d25ffff908115cf5185c3ce91a71594dc9961068"
+    assert forced != automatic
+
+
 def _database(path, *, users: tuple[str, ...] = ("user-1",), with_thread: bool = False) -> None:
     with sqlite3.connect(path) as conn:
         conn.executescript(
@@ -121,11 +137,18 @@ def _app(deps: PhoneChatDependencies) -> FastAPI:
     return app
 
 
-def _payload(*, request_id: str, content: str = "Повтори безопасно", thread_id: str | None = None) -> dict:
+def _payload(
+    *,
+    request_id: str,
+    content: str = "Повтори безопасно",
+    thread_id: str | None = None,
+    tool_choice: str = "auto",
+) -> dict:
     payload = {
         "messages": [{"role": "user", "content": content}],
         "modelId": MODEL_ID,
         "requestId": request_id,
+        "toolChoice": tool_choice,
     }
     if thread_id:
         payload["threadId"] = thread_id
@@ -181,6 +204,30 @@ def test_reused_request_id_with_different_payload_is_rejected_before_provider(tm
     assert conflict.status_code == 409
     assert "requestId" in conflict.json()["detail"]
     assert provider_calls == [1]
+
+
+def test_reused_request_id_with_different_tool_choice_is_rejected_before_provider_and_charge(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "tool-choice-conflict.sqlite3"
+    _database(path)
+    provider_calls = [0]
+    monkeypatch.setattr(phone_chat, "route_phone_chat", _successful_route(provider_calls))
+    app = _app(_deps(path))
+
+    with TestClient(app) as client:
+        first = client.post(
+            "/api/phone/chat",
+            json=_payload(request_id="request-tool-conflict-1", tool_choice="web_search"),
+        )
+        conflict = client.post(
+            "/api/phone/chat",
+            json=_payload(request_id="request-tool-conflict-1", tool_choice="generate_image"),
+        )
+
+    assert first.status_code == 200
+    assert conflict.status_code == 409
+    assert provider_calls == [1]
+    with _connect(path)() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM token_ledger WHERE reason='chat'").fetchone()[0] == 1
 
 
 def test_same_request_id_is_independent_between_authenticated_users(tmp_path, monkeypatch) -> None:
