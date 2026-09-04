@@ -4,10 +4,10 @@ implementation_status: partial
 role: chat-assistant-behavior-contract
 scope: externally observable behavior of the IZO Chat assistant
 audience: product owners, designers, developers, QA and coding-agents
-evidence_base_sha: 7ea3c3b66a6b673707b67df91b74151c3474a9c6
-evidence_package: CHAT-IDEMPOTENCY-001
+evidence_base_sha: 4ed17f0849b291ccb493513dcf3f599312739004
+evidence_package: CHAT-STRUCTURED-TOOLS-001
 status_effective_when: merged-to-main
-updated: 2026-08-31
+updated: 2026-09-04
 ---
 
 # ИЗО Чат — контракт поведения AI-помощника
@@ -63,7 +63,7 @@ runtime-вариантами этого помощника, а не разным
 | Изображения как контекст | CURRENT |
 | `web_search` и `generate_image` | CURRENT |
 | Surface action parity | GAP: mobile не имеет desktop media/preview/share controls |
-| Структурированный forced-tool request | GAP: используется скрытый text prefix |
+| Структурированный forced-tool request | CURRENT: validated explicit `toolChoice` не меняет user content и входит в fingerprint; `auto` сохраняет legacy hash |
 | Durable final image-tool state | GAP: отдельный best-effort PATCH может потеряться |
 | Полное refund-покрытие chat request после charge | CURRENT: до atomic success любое исключение закрывает request и возвращает charge ровно один раз |
 | Ответ на языке пользователя | GAP: runtime prompt и web-search subrequest принудительно русские |
@@ -170,8 +170,12 @@ Search OPTIONAL для устойчивых знаний, редактирова
 - CURRENT boundary: cached `generate_image` intent не создаёт job на backend.
   Frontend-owned запуск image job и final PATCH пока не имеют общего durable
   idempotency contract и остаются GAP из раздела 7.3.
-- Forced tool должен передаваться отдельным validated field; скрытая инструкция
-  в user content не является целевым контрактом.
+- CURRENT: forced tool передаётся отдельным validated `toolChoice`; явный выбор
+  гарантирует запуск tool, не меняет user content и входит в collision-safe
+  fingerprint. `auto` сохраняет совместимость с legacy request ledger. До
+  исполнения provider получает только выбранный tool, после исполнения — ни
+  одного forced tool, чтобы не повторять действие. Если provider всё же вернул
+  другое имя tool, backend отклоняет вызов до side effect и не публикует его.
 
 ### 7.2. `web_search`
 
@@ -181,11 +185,23 @@ Search OPTIONAL для устойчивых знаний, редактирова
 видны на обеих поверхностях. При отсутствии результатов помощник либо уточняет
 запрос, либо честно сообщает, что подтверждение не найдено.
 
+При forced search provider сначала формирует самостоятельный query из bounded
+history и attachment. Если tool не вызван либо query остаётся указательным вроде
+«проверь это», fallback включает предыдущие реплики и уточнение модели.
+
 ### 7.3. `generate_image`
 
 Вход: пользовательский замысел, нормализованный prompt и допустимое соотношение
 сторон. Выход первого шага: tool intent. Готовым результатом считается только
 успешно завершённый generation job с сохранённым result state.
+
+При forced image provider сначала формирует prompt и ratio из bounded history и
+attachment. Если он не вызвал tool, fallback сохраняет разговорный контекст и
+распознаёт явно заданные `1:1`, `9:16`, `16:9`, `3:2` и словесную ориентацию,
+не смешивая её с предметными словами вроде «портрет» или «обложка альбома».
+Отрицённое значение отбрасывается. При нескольких разных утвердительных
+форматах deterministic override не применяется: различие между холстом и
+объектом внутри изображения разрешает provider по контексту.
 
 ## 8. Изображения и media
 
@@ -230,6 +246,8 @@ Search OPTIONAL для устойчивых знаний, редактирова
   Direct fixed-cost POST всё же принимает published/enabled/tier-allowed model.
 - Текст помощника не показывает внутреннюю provider economics или секретные
   коэффициенты.
+- Usage settlement и аналитика суммируют каждый оплачиваемый main-model round и
+  provider subtool payload, включая раунд до forced-image fallback.
 
 ## 11. Ошибки и degraded mode
 
@@ -255,7 +273,8 @@ Search OPTIONAL для устойчивых знаний, редактирова
 ## 12. Формат ответа
 
 - Основной ответ хранится и отображается как один и тот же public text.
-- Internal tool envelopes и hidden forcing instructions не показываются.
+- Internal tool envelopes не показываются; structured `toolChoice` не входит в
+  public или сохранённый user text.
 - Источники отделяются от текста, но визуально связаны с поддерживаемым тезисом.
 - Code blocks, списки и ссылки должны рендериться предсказуемо на desktop/mobile.
 - Pending/error/completed состояния доступны не только через цвет.

@@ -86,7 +86,7 @@ SHA. Это не `DEPLOYED` и не `OPERATIONALLY VERIFIED`.
   "evidence_artifact_algorithm": "sha256-normalized-text-v1",
   "evidence_artifacts": [
     {"path": "backend/main.py", "fingerprint": "sha256:8de1431470ef71f63cf5d81839e81607f8d7bbc18524beb6a0471cdd537b5532"},
-    {"path": "backend/SYMBOL_MAP.md", "fingerprint": "sha256:9a1057a976de2c4a04d75af23a3d8afe604ad1e1429e0ae42bf13531f629c515"},
+    {"path": "backend/SYMBOL_MAP.md", "fingerprint": "sha256:b9d603e35ff35afe520e6abb6135836bc02c116af8b1f85f0b2d467a194645d7"},
     {"path": "backend/test_admin_v2.py", "fingerprint": "sha256:5a1f82340e0f0ab18a9f6bbe91c3d3d644c4c8069ec36222284463fdbafd0dad"},
     {"path": "backend/test_admin_password_reset.py", "fingerprint": "sha256:42625c68b02dc766e87f50b5d063ce51c5d41afac781268e8e566c225e9f8145"},
     {"path": "backend/test_admin_actions.py", "fingerprint": "sha256:6379e9bd7ed0c5788e830b56c1d2ba1d2707361e934ba74a62cedd48dd2f5912"},

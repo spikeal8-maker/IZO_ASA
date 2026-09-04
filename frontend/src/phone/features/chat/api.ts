@@ -98,6 +98,7 @@ export async function sendChatMessage(input: {
   modelId: string
   images: string[]
   requestId: string
+  toolChoice?: 'auto' | 'web_search' | 'generate_image'
 }): Promise<{
   reply: string
   modelId: string
@@ -110,7 +111,7 @@ export async function sendChatMessage(input: {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       messages: [{ role: 'user', content: input.content }], threadId: input.threadId,
-      modelId: input.modelId, route: 'auto', requestId: input.requestId, images: input.images,
+      modelId: input.modelId, route: 'auto', toolChoice: input.toolChoice || 'auto', requestId: input.requestId, images: input.images,
     }),
   })
 }

@@ -7,6 +7,7 @@ const longThread = { ...thread, id: 'desktop-chat-long', title: 'Очень дл
 const savedThreads = [thread, longThread, ...Array.from({ length: 18 }, (_, index) => ({ ...thread, id: `desktop-chat-${index}`, title: `Сохранённый диалог ${index + 1}`, updatedAt: `2026-08-25T${String(22 - index).padStart(2, '0')}:00:00Z` }))]
 const longMessages = Array.from({ length: 36 }, (_, index) => ({ id: `long-${index}`, role: index % 2 ? 'assistant' : 'user', content: `Сообщение ${index + 1}. ${'Длинный текст для проверки устойчивой прокрутки чата. '.repeat(4)}`, provider: 'local', model: 'local:izo-chat', tools: [], chargedTokens: 0, tokenKind: 'free', createdAt: new Date().toISOString(), status: 'done' }))
 const image = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%221024%22 height=%221024%22%3E%3Crect width=%221024%22 height=%221024%22 fill=%22%23b72ad8%22/%3E%3C/svg%3E'
+const chatRequests = []
 
 function assert(condition, message) { if (!condition) throw new Error(message) }
 
@@ -50,10 +51,13 @@ try {
       { id: 'local:izo-chat', name: 'ИЗО Чат', provider: 'local', tokenCost: 0, tokenKind: 'free', description: 'Базовая модель', contextChars: 60000, available: true },
       { id: 'provider/pro', name: 'Профессиональная модель', provider: 'api', tokenCost: .2, tokenKind: 'main', description: 'Облачная модель', contextChars: 60000, inputPerMillionUsd: .12, outputPerMillionUsd: .34, inputPerMillionProductTokens: 2.34, outputPerMillionProductTokens: 6.63, retailPerMillionProductTokens: 6.63, available: false, unavailableReason: 'Недоступна на вашем тарифе' },
     ] }))
-    if (url.pathname === '/api/phone/chat') return route.fulfill(json({ ok: true, reply: 'Нашёл свежую информацию и подготовил изображение.', modelId: 'local:izo-chat', chargedTokens: 0, tokenKind: 'free', messageId: 'assistant-1', tools: [
+    if (url.pathname === '/api/phone/chat') {
+      chatRequests.push(route.request().postDataJSON())
+      return route.fulfill(json({ ok: true, reply: 'Нашёл свежую информацию и подготовил изображение.', modelId: 'local:izo-chat', chargedTokens: 0, tokenKind: 'free', messageId: 'assistant-1', tools: [
       { name: 'web_search', ok: true, query: 'Москва', sources: [{ title: 'Источник погоды', url: 'https://example.test/weather' }] },
       { name: 'generate_image', status: 'requested', prompt: 'Москва после дождя', aspectRatio: '1:1' },
-    ] }))
+      ] }))
+    }
     if (url.pathname === '/api/model-access') return route.fulfill(json({ modes: { text_to_image: { models: [{ id: 'server:local_flux_klein', label: 'ИЗО Base', provider: 'comfyui', modelProfile: 'local_flux_klein', tokenHint: 1, supportedResolutionIds: ['sq-hd'] }], presets: { fast: 'server:local_flux_klein' } } } }))
     if (url.pathname === '/api/video/config') return route.fulfill(json({ modes: { text_to_video: [{ id: 'video/test', provider: 'openrouter', name: 'Видео Тест', description: 'Тестовая видеомодель', supportedResolutions: ['720p'], supportedAspectRatios: ['16:9'], supportedDurations: [4], generateAudio: true, publicPricing: { fromTokens: 3 } }], image_to_video: [], first_last_frame: [], reference_to_video: [] }, videoSlots: 1 }))
     if (url.pathname === '/api/generate') return route.fulfill(json({ id: 'desktop-image-job' }))
@@ -123,7 +127,6 @@ try {
   await page.getByRole('button', { name: 'Добавить файл или выбрать инструмент' }).click()
   await page.getByRole('menuitem', { name: /Найти в интернете/ }).click()
   assert(await page.getByRole('button', { name: 'Убрать обязательный инструмент' }).count() === 1, 'forced chat tool was not selected')
-  await page.getByRole('button', { name: 'Убрать обязательный инструмент' }).click()
   await page.getByPlaceholder('Сообщение…').focus()
   await page.evaluate(() => {
     const transfer = new DataTransfer()
@@ -133,9 +136,12 @@ try {
   await page.locator('.dc-attachments img').waitFor()
   assert(await page.locator('.dc-attachments img').count() === 1, 'clipboard image was not attached')
   await page.locator('.dc-attachments button').click()
-  await page.getByPlaceholder('Сообщение…').fill('Найди погоду и создай изображение Москвы')
+  const exactUserText = 'Найди погоду и создай изображение Москвы'
+  await page.getByPlaceholder('Сообщение…').fill(exactUserText)
   await page.getByRole('button', { name: 'Отправить' }).click()
   await page.getByText('Нашёл свежую информацию и подготовил изображение.').waitFor()
+  assert(chatRequests.at(-1)?.toolChoice === 'web_search', 'selected tool was not sent as a structured field')
+  assert(chatRequests.at(-1)?.messages?.[0]?.content === exactUserText, 'hidden tool instruction changed the user message')
   await page.getByText('Источник погоды').waitFor()
   await page.getByAltText('Созданное изображение').first().waitFor()
   assert(await page.locator('.thread-item.active.kind-image').count() === 1, 'image chat is missing its image marker in history')
