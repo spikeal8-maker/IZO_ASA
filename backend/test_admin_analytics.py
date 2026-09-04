@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -244,6 +245,11 @@ def test_user_detail_analytics_safe(temp_db):
 
 
 def test_user_dossier_access_models_and_paginated_history(temp_db):
+    event_day = datetime.now(timezone.utc) - timedelta(days=1)
+
+    def event_time(hour: int, minute: int = 0, second: int = 0) -> str:
+        return event_day.replace(hour=hour, minute=minute, second=second, microsecond=0).isoformat()
+
     tok = make_admin()
     with TestClient(main.app) as c:
         register(c, "dossier@example.com")
@@ -252,20 +258,20 @@ def test_user_dossier_access_models_and_paginated_history(temp_db):
             iuid, uid = identity["internal_user_id"], identity["legacy_user_id"]
             conn.execute(
                 "INSERT INTO auth_login_attempts (id,internal_user_id,provider,identifier,success,failure_reason,ip_address,platform,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                ("login-dossier-failed", iuid, "web_email", "dossier@example.com", 0, "bad_password", "10.20.30.40", "web", "2026-08-20T10:00:00+00:00"),
+                ("login-dossier-failed", iuid, "web_email", "dossier@example.com", 0, "bad_password", "10.20.30.40", "web", event_time(10)),
             )
             conn.execute(
                 "INSERT INTO jobs (id,user_id,mode,provider,status,progress,prompt_original,prompt_translated,settings_json,created_at,completed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                ("job-dossier", uid, "text_to_image", "openrouter", "completed", 100, "real dossier prompt", "", json.dumps({"openrouterModel": "test/image-model", "openrouterCostUsd": 0.125, "openrouterBilling": {"actualCostUsd": 0.125, "actualCostRub": 12.5}}), "2026-08-20T11:00:00+00:00", "2026-08-20T11:00:05+00:00"),
+                ("job-dossier", uid, "text_to_image", "openrouter", "completed", 100, "real dossier prompt", "", json.dumps({"openrouterModel": "test/image-model", "openrouterCostUsd": 0.125, "openrouterBilling": {"actualCostUsd": 0.125, "actualCostRub": 12.5}}), event_time(11), event_time(11, 0, 5)),
             )
             conn.execute(
                 "INSERT INTO images (id,user_id,job_id,url,thumbnail_url,width,height,mode,provider,prompt_original,settings_json,stored_bytes,is_favorite,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                ("image-dossier", uid, "job-dossier", "/api/media/image.webp", "/api/media/image-thumb.webp", 1024, 1024, "text_to_image", "openrouter", "real dossier prompt", json.dumps({"openrouterModel": "test/image-model"}), 2345678, 0, "2026-08-20T11:00:05+00:00"),
+                ("image-dossier", uid, "job-dossier", "/api/media/image.webp", "/api/media/image-thumb.webp", 1024, 1024, "text_to_image", "openrouter", "real dossier prompt", json.dumps({"openrouterModel": "test/image-model"}), 2345678, 0, event_time(11, 0, 5)),
             )
-            conn.execute("INSERT INTO token_ledger (id,user_id,delta,reason,meta_json,created_at) VALUES (?,?,?,?,?,?)", ("charge-dossier", uid, -3, "generation", json.dumps({"jobId": "job-dossier", "token_cost": 3, "daily_part": 0, "balance_part": 3}), "2026-08-20T11:00:00+00:00"))
-            conn.execute("INSERT INTO token_ledger (id,user_id,delta,reason,meta_json,created_at) VALUES (?,?,?,?,?,?)", ("refund-dossier", uid, 1, "generation_refund", json.dumps({"jobId": "job-dossier", "token_cost": 1, "balance_part": 1}), "2026-08-20T11:01:00+00:00"))
-            conn.execute("INSERT INTO invoices (id,invoice_code,internal_user_id,user_id,status,currency,total_amount,tokens_total,reason,created_at,updated_at,cancelled_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", ("invoice-dossier", "INV-DOSSIER", iuid, uid, "cancelled", "RUB", 1990, 0, "user_checkout", "2026-08-20T12:00:00+00:00", "2026-08-20T12:01:00+00:00", "2026-08-20T12:01:00+00:00"))
-            conn.execute("INSERT INTO payments (id,invoice_id,internal_user_id,user_id,status,amount,currency,method,provider,reason,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", ("payment-dossier", "invoice-dossier", iuid, uid, "failed", 1990, "RUB", "bank_card", "yookassa", "user_checkout", "2026-08-20T12:00:30+00:00", "2026-08-20T12:00:45+00:00"))
+            conn.execute("INSERT INTO token_ledger (id,user_id,delta,reason,meta_json,created_at) VALUES (?,?,?,?,?,?)", ("charge-dossier", uid, -3, "generation", json.dumps({"jobId": "job-dossier", "token_cost": 3, "daily_part": 0, "balance_part": 3}), event_time(11)))
+            conn.execute("INSERT INTO token_ledger (id,user_id,delta,reason,meta_json,created_at) VALUES (?,?,?,?,?,?)", ("refund-dossier", uid, 1, "generation_refund", json.dumps({"jobId": "job-dossier", "token_cost": 1, "balance_part": 1}), event_time(11, 1)))
+            conn.execute("INSERT INTO invoices (id,invoice_code,internal_user_id,user_id,status,currency,total_amount,tokens_total,reason,created_at,updated_at,cancelled_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", ("invoice-dossier", "INV-DOSSIER", iuid, uid, "cancelled", "RUB", 1990, 0, "user_checkout", event_time(12), event_time(12, 1), event_time(12, 1)))
+            conn.execute("INSERT INTO payments (id,invoice_id,internal_user_id,user_id,status,amount,currency,method,provider,reason,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", ("payment-dossier", "invoice-dossier", iuid, uid, "failed", 1990, "RUB", "bank_card", "yookassa", "user_checkout", event_time(12, 0, 30), event_time(12, 0, 45)))
         detail = c.get(f"/api/admin/users/{iuid}/analytics-v2", headers=bearer(tok))
         logins = c.get(f"/api/admin/users/{iuid}/history-v2?section=logins&limit=1", headers=bearer(tok))
         generations = c.get(f"/api/admin/users/{iuid}/history-v2?section=generations", headers=bearer(tok))
