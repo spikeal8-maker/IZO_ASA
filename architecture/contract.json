@@ -438,7 +438,7 @@
     ],
     "schema_compatibility": {
       "min_version": 1,
-      "max_version": 6
+      "max_version": 7
     },
     "manifest_fields": [
       "manifest_version",
