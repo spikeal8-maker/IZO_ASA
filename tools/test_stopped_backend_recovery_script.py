@@ -53,11 +53,18 @@ def test_stopped_backend_recovery_has_fail_closed_evidence() -> None:
         "Port 8000 must be closed",
         "mode=ro",
         "PRAGMA quick_check",
+        "ledger_matches_definitions",
         "currentMax",
         "previousMax",
+        "Get-IzoFrontendListenerState",
+        "ParentProcessId",
+        "'/chat'",
+        "izo-release",
         "Stopped backend must produce an explicit 502",
     ):
         assert required in source
+    assert "'/feed'" not in source
+    assert "'/gallery'" not in source
     for forbidden in ("Start-Service", "Stop-Service", "Set-Content", "Remove-Item"):
         assert forbidden not in source
 

@@ -33,7 +33,7 @@ declaredFiles:
 acceptance:
   - recovery mode is Full-only, receipt-only and stable-source-only
   - no recovery check starts/stops services or writes production state
-  - rolled_back, PROMOTION_FAILED, stopped WinSW, closed API port, read-only SQLite integrity, schema ranges and Caddy fallback are all proved
+  - rolled_back, PROMOTION_FAILED, stopped WinSW, closed API port, read-only SQLite integrity, exact migration ledger, schema ranges and WinSW-owned Caddy fallback are all proved
   - ordinary Full behavior remains unchanged
 requiredEvidence:
   - focused tool tests and generated-map check

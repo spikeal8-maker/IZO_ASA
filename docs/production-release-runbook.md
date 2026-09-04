@@ -240,10 +240,12 @@ gate only when all of the following are true:
   8000 is closed;
 - installed XML still identifies the previous immutable release, while its
   manifest does not support the live schema;
-- read-only SQLite `quick_check` and migration-ledger checks pass, and the
+- read-only SQLite `quick_check` passes, every applied migration ledger row
+  matches the corrective source by version, name and checksum, and the
   corrective release contract supports that exact live schema;
-- Caddy remains the single loopback listener on 5173, serves the previous
-  immutable frontend, and returns the expected 502 for the stopped API;
+- the `IZOCaddy` WinSW service owns the single pinned Caddy loopback listener
+  on 5173, serves the previous immutable frontend on static SPA routes, and
+  returns the expected 502 for the stopped API;
 - the maintenance flag is absent and the installed health check retains its
   maintenance guard.
 

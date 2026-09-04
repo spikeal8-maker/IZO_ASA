@@ -23,6 +23,7 @@ $maintenanceFlagPath = 'C:\IZO_ASA\runtime\project-release-maintenance.flag'
 $promotionPath = 'C:\IZO_ASA\health\promotion-current.json'
 $updatePath = 'C:\IZO_ASA\health\update-current.json'
 $architectureContractPath = Join-Path $root 'architecture\contract.json'
+$caddyRuntimeScript = Join-Path $root 'tools\caddy-runtime.ps1'
 
 if ($PlanOnly) {
     Write-Host "STOPPED_BACKEND_RECOVERY_PLAN check=$Check root=$root"
@@ -51,7 +52,8 @@ foreach ($path in @(
     $healthCheckPath,
     $promotionPath,
     $updatePath,
-    $architectureContractPath
+    $architectureContractPath,
+    $caddyRuntimeScript
 )) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         throw "Stopped-backend recovery evidence is missing: $path"
@@ -152,20 +154,51 @@ if (-not (Test-Path -LiteralPath $databasePath -PathType Leaf)) {
     throw 'Installed production database is missing.'
 }
 $previousDiagnosticPath = [Environment]::GetEnvironmentVariable('IZO_RECOVERY_DB_PATH', 'Process')
+$previousDiagnosticRoot = [Environment]::GetEnvironmentVariable('IZO_RECOVERY_REPO_ROOT', 'Process')
 try {
     [Environment]::SetEnvironmentVariable('IZO_RECOVERY_DB_PATH', $databasePath, 'Process')
+    [Environment]::SetEnvironmentVariable('IZO_RECOVERY_REPO_ROOT', $root, 'Process')
     $databaseOutput = @(& $PythonPath -c @'
+import importlib.util
 import json
 import os
 import sqlite3
+import sys
+from pathlib import Path
 
 path = os.environ["IZO_RECOVERY_DB_PATH"].replace("\\", "/")
+repo_root = Path(os.environ["IZO_RECOVERY_REPO_ROOT"])
+migrations_path = repo_root / "backend" / "app" / "database" / "migrations.py"
+spec = importlib.util.spec_from_file_location("izo_recovery_migrations", migrations_path)
+if spec is None or spec.loader is None:
+    raise RuntimeError("migration definitions could not be loaded")
+migrations = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = migrations
+spec.loader.exec_module(migrations)
+definitions = sorted(
+    (value.version, value.name, value.checksum)
+    for value in vars(migrations).values()
+    if isinstance(value, migrations.MigrationDefinition)
+)
+if len({definition[0] for definition in definitions}) != len(definitions):
+    raise RuntimeError("duplicate migration definition version")
+
 connection = sqlite3.connect("file:" + path + "?mode=ro", uri=True)
 try:
+    user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+    applied = [
+        (int(version), str(name), str(checksum))
+        for version, name, checksum in connection.execute(
+            "SELECT version, name, checksum FROM schema_migrations ORDER BY version"
+        ).fetchall()
+    ]
+    expected = [definition for definition in definitions if definition[0] <= user_version]
     report = {
         "quick_check": connection.execute("PRAGMA quick_check").fetchone()[0],
-        "user_version": int(connection.execute("PRAGMA user_version").fetchone()[0]),
-        "ledger_max": int(connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] or 0),
+        "user_version": user_version,
+        "ledger_max": int(applied[-1][0] if applied else 0),
+        "definition_max": int(definitions[-1][0] if definitions else 0),
+        "ledger_matches_definitions": applied == expected,
     }
 finally:
     connection.close()
@@ -177,8 +210,14 @@ print(json.dumps(report, separators=(",", ":")))
     $database = ([string]$databaseOutput[-1]) | ConvertFrom-Json
 } finally {
     [Environment]::SetEnvironmentVariable('IZO_RECOVERY_DB_PATH', $previousDiagnosticPath, 'Process')
+    [Environment]::SetEnvironmentVariable('IZO_RECOVERY_REPO_ROOT', $previousDiagnosticRoot, 'Process')
 }
-if ([string]$database.quick_check -ne 'ok' -or [int]$database.user_version -ne [int]$database.ledger_max) {
+if (
+    [string]$database.quick_check -ne 'ok' -or
+    [int]$database.user_version -ne [int]$database.ledger_max -or
+    [int]$database.definition_max -lt [int]$database.user_version -or
+    $database.ledger_matches_definitions -ne $true
+) {
     throw 'Production database integrity or migration ledger verification failed.'
 }
 $contract = Get-Content -LiteralPath $architectureContractPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -204,13 +243,21 @@ if ($Check -eq 'Backend') {
     exit 0
 }
 
-$caddyService = Get-Service -Name 'IZOCaddy' -ErrorAction Stop
-$caddyListeners = @(Get-NetTCPConnection -State Listen -LocalPort 5173 -ErrorAction SilentlyContinue)
-if ([string]$caddyService.Status -ne 'Running' -or $caddyListeners.Count -ne 1 -or [string]$caddyListeners[0].LocalAddress -ne '127.0.0.1') {
-    throw 'IZOCaddy must own exactly one IPv4 loopback listener on port 5173.'
+$caddyService = Get-CimInstance Win32_Service -Filter "Name='IZOCaddy'" -ErrorAction Stop
+. $caddyRuntimeScript
+$caddyRuntime = Get-IzoCaddyRuntime -RepoRoot $root -RequireInstalled
+$caddyListenerState = Get-IzoFrontendListenerState -Runtime $caddyRuntime -Port 5173
+if (
+    [string]$caddyService.State -ne 'Running' -or
+    [int]$caddyService.ProcessId -le 0 -or
+    [string]$caddyListenerState.Kind -ne 'caddy' -or
+    [string]$caddyListenerState.Listener.LocalAddress -ne '127.0.0.1' -or
+    [int]$caddyListenerState.Process.ParentProcessId -ne [int]$caddyService.ProcessId
+) {
+    throw 'IZOCaddy WinSW service must own the single pinned Caddy IPv4 loopback listener on port 5173.'
 }
 if ($Check -eq 'Listeners') {
-    Write-Host "STOPPED_BACKEND_RECOVERY_LISTENERS_OK backend=stopped apiPort=closed caddy=running caddyPid=$($caddyListeners[0].OwningProcess)"
+    Write-Host "STOPPED_BACKEND_RECOVERY_LISTENERS_OK backend=stopped apiPort=closed caddy=running caddyPid=$($caddyListenerState.Process.ProcessId) servicePid=$($caddyService.ProcessId)"
     exit 0
 }
 
@@ -220,9 +267,10 @@ if ($caddyText -notmatch [regex]::Escape($releasePath)) {
     throw 'Caddy frontend root does not match the rolled-back release manifest.'
 }
 $hostHeader = @{ Host = 'izo.alikinas.ru' }
-foreach ($route in @('/', '/feed', '/gallery')) {
+$releaseMarker = 'name=' + [char]34 + 'izo-release' + [char]34 + ' content=' + [char]34 + [string]$oldManifest.release_id + [char]34
+foreach ($route in @('/', '/chat')) {
     $edge = Get-HttpStatus -Uri "http://127.0.0.1:5173$route" -Headers $hostHeader
-    if ($edge.Status -ne 200 -or [string]$edge.Response.Headers['X-IZO-Release'] -ne [string]$oldManifest.release_id) {
+    if ($edge.Status -ne 200 -or -not ([string]$edge.Response.Content).Contains($releaseMarker)) {
         throw "Rolled-back static edge route failed: $route"
     }
 }
