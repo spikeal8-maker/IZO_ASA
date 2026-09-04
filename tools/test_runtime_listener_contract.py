@@ -33,6 +33,29 @@ def _plan() -> subprocess.CompletedProcess[str]:
     )
 
 
+def _recovery_plan() -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            str(POWERSHELL),
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(SCRIPT),
+            "-PlanOnly",
+            "-AllowStoppedInstalledBackend",
+            "-RepoRoot",
+            str(ROOT),
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+
+
 def test_listener_contract_reserves_exact_roles_and_full_app_port() -> None:
     contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
     listeners = {item["id"]: item for item in contract["listeners"]}
@@ -79,6 +102,13 @@ def test_plan_only_is_deterministic_and_does_not_inspect_live_ports() -> None:
     assert "RUNTIME_LISTENER_PRESENT" not in first.stdout
 
 
+def test_recovery_plan_declares_the_stopped_backend_exception() -> None:
+    result = _recovery_plan()
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "allowStoppedInstalledBackend=True" in result.stdout
+
+
 def test_runtime_checker_is_read_only_and_fail_closed() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
 
@@ -91,6 +121,7 @@ def test_runtime_checker_is_read_only_and_fail_closed() -> None:
     assert "service config id does not match" in source
     assert "RUNTIME_LISTENER_SERVICE_VERIFIED" in source
     assert "full application owns forbidden listener" in source
+    assert "Stopped-backend listener exception requires" in source
     assert "required listener is absent" in source
     assert "listener process mismatch" in source
     assert "listener command mismatch" in source

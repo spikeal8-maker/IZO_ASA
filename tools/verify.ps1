@@ -7,6 +7,7 @@ param(
     [string]$NpmPath = "",
     [string]$ReceiptPath = "",
     [switch]$RequireStableLiveSource,
+    [switch]$StoppedBackendRecovery,
     [switch]$PlanOnly
 )
 
@@ -153,6 +154,7 @@ $architectureInventoryScript = Join-Path $toolsDirectory "generate_architecture_
 $frontendMapScript = Join-Path $toolsDirectory "generate_frontend_map.mjs"
 $runtimeListenerScript = Join-Path $toolsDirectory "check-runtime-listeners.ps1"
 $restartScript = Join-Path $toolsDirectory "restart-backend.ps1"
+$stoppedBackendRecoveryScript = Join-Path $toolsDirectory "check-stopped-backend-recovery.ps1"
 $receiptTool = Join-Path $toolsDirectory "release_verification_receipt.py"
 $caddyInstallScript = Join-Path $toolsDirectory "install-caddy.ps1"
 $caddyCheckScript = Join-Path $toolsDirectory "check-caddy-edge.ps1"
@@ -167,6 +169,7 @@ foreach ($requiredPath in @(
     $frontendMapScript,
     $runtimeListenerScript,
     $restartScript,
+    $stoppedBackendRecoveryScript,
     $receiptTool,
     $caddyInstallScript,
     $caddyCheckScript
@@ -223,6 +226,13 @@ $quickTests = @(
 $fullTests = @("-m", "pytest", "-q", "backend", "tools")
 $usesLiveChecks = $Mode -ne "CI"
 $usesFullSuite = $Mode -ne "Quick"
+if ($StoppedBackendRecovery -and (
+    $Mode -ne "Full" -or
+    -not $ReceiptPath.Trim() -or
+    -not $RequireStableLiveSource
+)) {
+    throw "StoppedBackendRecovery requires Full mode, RequireStableLiveSource and a receipt path."
+}
 if ($ReceiptPath.Trim() -and -not $usesFullSuite) {
     throw "Release receipts require Full or CI verification mode."
 }
@@ -257,9 +267,15 @@ if ($PlanOnly) {
     }
     if ($usesLiveChecks) {
         Write-Host "VERIFY_PLAN_STEP source_snapshot before_after=true requireStable=$RequireStableLiveSource"
-        Write-Host "VERIFY_PLAN_STEP backend_preflight command=restart-backend.ps1 -PreflightOnly"
-        Write-Host "VERIFY_PLAN_STEP runtime_listener_contract command=check-runtime-listeners.ps1"
-        Write-Host "VERIFY_PLAN_STEP caddy_edge_live command=check-caddy-edge.ps1"
+        if ($StoppedBackendRecovery) {
+            Write-Host "VERIFY_PLAN_STEP backend_preflight command=check-stopped-backend-recovery.ps1 -Check Backend"
+            Write-Host "VERIFY_PLAN_STEP runtime_listener_contract command=check-stopped-backend-recovery.ps1 -Check Listeners"
+            Write-Host "VERIFY_PLAN_STEP caddy_edge_live command=check-stopped-backend-recovery.ps1 -Check Edge"
+        } else {
+            Write-Host "VERIFY_PLAN_STEP backend_preflight command=restart-backend.ps1 -PreflightOnly"
+            Write-Host "VERIFY_PLAN_STEP runtime_listener_contract command=check-runtime-listeners.ps1"
+            Write-Host "VERIFY_PLAN_STEP caddy_edge_live command=check-caddy-edge.ps1"
+        }
     }
     if ($usesFullSuite) {
         Write-Host "VERIFY_PLAN_STEP pytest scope=backend+tools"
@@ -314,14 +330,23 @@ if ($usesLiveChecks) {
         [Environment]::SetEnvironmentVariable($environmentName, $null, "Process")
     }
     try {
-        Invoke-NativeStep `
-            -Name "backend_preflight" `
-            -FilePath "powershell.exe" `
-            -ArgumentList @(
+        $backendPreflightArguments = if ($StoppedBackendRecovery) {
+            @(
+                "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                "-File", $stoppedBackendRecoveryScript,
+                "-Check", "Backend", "-RepoRoot", $resolvedRoot, "-PythonPath", $python
+            )
+        } else {
+            @(
                 "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                 "-File", $restartScript,
                 "-PreflightOnly", "-RepoRoot", $resolvedRoot, "-PythonPath", $python
-            ) `
+            )
+        }
+        Invoke-NativeStep `
+            -Name "backend_preflight" `
+            -FilePath "powershell.exe" `
+            -ArgumentList $backendPreflightArguments `
             -WorkingDirectory $resolvedRoot
     } finally {
         foreach ($environmentName in $preflightEnvironmentNames) {
@@ -369,24 +394,45 @@ if ($usesFullSuite) {
         -WorkingDirectory $resolvedRoot
 }
 if ($usesLiveChecks) {
-    Invoke-NativeStep `
-        -Name "runtime_listener_contract" `
-        -FilePath "powershell.exe" `
-        -ArgumentList @(
-            "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-            "-File", $runtimeListenerScript,
-            "-RepoRoot", $resolvedRoot,
-            "-ContractPath", $architectureContract
-        ) `
-        -WorkingDirectory $resolvedRoot
-    Invoke-NativeStep `
-        -Name "caddy_edge_live" `
-        -FilePath "powershell.exe" `
-        -ArgumentList @(
-            "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-            "-File", $caddyCheckScript, "-RepoRoot", $resolvedRoot
-        ) `
-        -WorkingDirectory $resolvedRoot
+    if ($StoppedBackendRecovery) {
+        Invoke-NativeStep `
+            -Name "runtime_listener_contract" `
+            -FilePath "powershell.exe" `
+            -ArgumentList @(
+                "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                "-File", $stoppedBackendRecoveryScript,
+                "-Check", "Listeners", "-RepoRoot", $resolvedRoot, "-PythonPath", $python
+            ) `
+            -WorkingDirectory $resolvedRoot
+        Invoke-NativeStep `
+            -Name "caddy_edge_live" `
+            -FilePath "powershell.exe" `
+            -ArgumentList @(
+                "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                "-File", $stoppedBackendRecoveryScript,
+                "-Check", "Edge", "-RepoRoot", $resolvedRoot, "-PythonPath", $python
+            ) `
+            -WorkingDirectory $resolvedRoot
+    } else {
+        Invoke-NativeStep `
+            -Name "runtime_listener_contract" `
+            -FilePath "powershell.exe" `
+            -ArgumentList @(
+                "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                "-File", $runtimeListenerScript,
+                "-RepoRoot", $resolvedRoot,
+                "-ContractPath", $architectureContract
+            ) `
+            -WorkingDirectory $resolvedRoot
+        Invoke-NativeStep `
+            -Name "caddy_edge_live" `
+            -FilePath "powershell.exe" `
+            -ArgumentList @(
+                "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                "-File", $caddyCheckScript, "-RepoRoot", $resolvedRoot
+            ) `
+            -WorkingDirectory $resolvedRoot
+    }
 }
 
 $testEnvironmentNames = @(
@@ -506,6 +552,7 @@ $summary = [ordered]@{
     sourceBytes = if ($null -ne $afterSnapshot) { $afterSnapshot.Bytes } else { $null }
     sourceSha256 = if ($null -ne $afterSnapshot) { $afterSnapshot.Sha256 } else { $null }
     sourceStable = $sourceStable
+    stoppedBackendRecovery = [bool]$StoppedBackendRecovery
 }
 if ($ReceiptPath.Trim()) {
     $summaryJson = $summary | ConvertTo-Json -Compress

@@ -2,6 +2,7 @@
 param(
     [string]$RepoRoot = "",
     [string]$ContractPath = "",
+    [switch]$AllowStoppedInstalledBackend,
     [switch]$PlanOnly
 )
 
@@ -186,7 +187,7 @@ if ($allowedFullAppPorts.Count -eq 0) {
 }
 
 if ($PlanOnly) {
-    Write-Host "RUNTIME_LISTENER_PLAN root=$resolvedRoot contract=$ContractPath"
+    Write-Host "RUNTIME_LISTENER_PLAN root=$resolvedRoot contract=$ContractPath allowStoppedInstalledBackend=$([bool]$AllowStoppedInstalledBackend)"
     foreach ($listenerConfig in $listeners) {
         $required = [bool]$listenerConfig.required_local
         $processNames = @($listenerConfig.process_names) -join ","
@@ -201,6 +202,18 @@ if ($PlanOnly) {
     return
 }
 
+if ($AllowStoppedInstalledBackend) {
+    $backendService = Get-CimInstance Win32_Service -Filter "Name='IZOBackend'" -ErrorAction Stop
+    $backendListeners = @(Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue)
+    if (
+        [string]$backendService.State -ne 'Stopped' -or
+        [int]$backendService.ProcessId -ne 0 -or
+        $backendListeners.Count -ne 0
+    ) {
+        throw 'Stopped-backend listener exception requires a stopped IZOBackend service, service PID 0 and a closed port 8000.'
+    }
+}
+
 $errors = New-Object System.Collections.Generic.List[string]
 [int]$warningCount = 0
 [int]$presentCount = 0
@@ -211,7 +224,9 @@ foreach ($listenerConfig in $listeners) {
     $listenerId = [string]$listenerConfig.id
     $expectedBind = [string]$listenerConfig.bind
     $port = [int]$listenerConfig.port
-    $required = [bool]$listenerConfig.required_local
+    $required = [bool]$listenerConfig.required_local -and -not (
+        $AllowStoppedInstalledBackend -and $listenerId -eq 'api' -and $port -eq 8000
+    )
     $bindEnforcement = [string](Get-OptionalProperty -InputObject $listenerConfig -Name "bind_enforcement" -DefaultValue "error")
     $tcpListeners = @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
 

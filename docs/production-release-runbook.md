@@ -223,6 +223,60 @@ and publicly. If rollback fails, preserve all evidence and escalate as an
 incident; do not restore SQLite or alter networking without a separate approved
 recovery procedure.
 
+### Stopped-backend recovery after an additive schema advance
+
+If a single failed promotion reports `rolled_back`, but the restored backend
+cannot start because the live additive SQLite schema is newer than the previous
+immutable release manifest, do not edit that manifest, the candidate or the
+database. Do not rerun the failed candidate.
+
+A subsequent corrective commit may use the bounded stopped-backend recovery
+gate only when all of the following are true:
+
+- the corrective exact SHA is clean canonical `main`, is on `origin/main`, and
+  has successful exact-SHA CI plus automated review, and differs from the
+  recorded failed candidate SHA;
+- `promotion-current.json` is `rolled_back`, `update-current.json` is
+  `PROMOTION_FAILED`, the installed `IZOBackend` service is stopped and port
+  8000 is closed;
+- installed XML still identifies the previous immutable release, while its
+  manifest does not support the live schema;
+- read-only SQLite `quick_check` passes, every applied migration ledger row
+  matches the corrective source by version, name and checksum, and the full
+  corrective release compatibility range contains that exact live schema;
+- the ordinary contract-wide process/listener scan passes with only the
+  explicitly stopped installed API listener treated as absent, so no stale
+  full-application process owns another port;
+- the `IZOCaddy` WinSW service owns the single pinned Caddy loopback listener
+  on 5173, serves the previous immutable frontend on static SPA routes, and
+  returns the expected 502 for the stopped API;
+- the maintenance flag is absent and the installed health check retains its
+  maintenance guard.
+
+From the same elevated process that will own recovery, obtain one new Full
+receipt with those fail-closed checks replacing only the three unavailable live
+backend gates:
+
+```powershell
+$sha = git rev-parse HEAD
+$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+$receipt = ".runtime\verification\recovery-full-$sha-$stamp.json"
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+  -File .\tools\verify.ps1 `
+  -Mode Full `
+  -RepoRoot (Get-Location).Path `
+  -PythonPath .\backend\.venv\Scripts\python.exe `
+  -RequireStableLiveSource `
+  -StoppedBackendRecovery `
+  -ReceiptPath $receipt
+```
+
+The receipt remains a normal exact-SHA Full receipt and all code, build, source
+stability and non-backend live gates still run. After it succeeds, prepare a new
+candidate and run the installed promoter once for the corrective SHA. This path
+does not authorize database restoration, manual service-XML switching or edits
+inside an immutable release.
+
 Use these exact classifications; do not collapse them into "deployment failed":
 
 | Evidence | Meaning | Required next action |
