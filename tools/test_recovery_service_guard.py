@@ -34,11 +34,11 @@ function Test-IzoRepositoryLockStale { param($Owner) return $script:stale }
 function Get-CimInstance { param($ClassName,$Filter,$ErrorAction) if($Filter -ne "Name='IZOBackend'"){throw 'unexpected service query'}; return $script:state }
 function Get-Service { param($Name,$ErrorAction) if($Name -ne 'IZOBackend'){throw 'unexpected service'}; return $script:state }
 function Get-NetTCPConnection { param($State,$LocalPort,$ErrorAction) if($LocalPort -ne 8000){throw 'unexpected port'} }
+function Get-IzoServiceRecoveryDelays { param($ServiceName) if($ServiceName -ne 'IZOBackend'){throw 'unexpected service'}; return @(10000,30000,120000) }
 function sc.exe {
     param($Command,$Name,$Option,$Value)
     if($Name -ne 'IZOBackend'){throw 'unexpected SCM service'}
     $global:LASTEXITCODE=0
-    if($Command -eq 'qfailure'){return 'RESTART -- Delay = 120000 milliseconds.'}
     if($Command -ne 'config' -or $Option -ne 'start=' -or $Value -notin @('auto','delayed-auto')){throw 'unexpected SCM command'}
     if($script:failRestore){throw 'injected restore failure'}
     $script:events.Add("restore:$Value")
@@ -101,6 +101,17 @@ Assert-True (Test-Path -LiteralPath $testFlag) 'maintenance gap before promoter'
 Close-IzoRecoveryServiceGuard -Guard $g
 Assert-True (-not (Test-Path -LiteralPath $testFlag)) 'owned flag was not removed'
 Assert-True (Test-Path -LiteralPath $testJournal) 'journal was removed'
+""")
+
+
+@pytest.mark.parametrize("failure", ["empty", "too_long", "read_error"])
+def test_unusable_native_recovery_config_fails_before_mutation(tmp_path: Path, failure: str) -> None:
+    query_body = {"empty": "return @()", "too_long": "return @(700000)", "read_error": "throw 'injected native query failure'"}[failure]
+    run_guard(tmp_path, "function Get-IzoServiceRecoveryDelays { param($ServiceName) " + query_body + " }\n" + r"""
+Assert-Throws {New-TestGuard} '*'
+Assert-True ($script:events.Count -eq 0) 'configuration failure changed service'
+Assert-True (-not (Test-Path -LiteralPath $testFlag)) 'configuration failure created maintenance'
+Assert-True (-not (Test-Path -LiteralPath $testJournal)) 'configuration failure created journal'
 """)
 
 

@@ -291,6 +291,16 @@ explicitly instead of silently taking over or deleting the flag. Test the
 executable failure/cleanup paths on fake services with Windows PowerShell 5.1;
 `PlanOnly` does not prove service lifecycle behavior.
 
+Recovery delays come from the read-only Windows `QueryServiceConfig2` API in
+`ops/release/service-recovery-config.ps1`, not from parsing `sc.exe qfailure`.
+The 72a446e9 attempt failed before mutation because an elevated ru-RU console
+returned no matches for the English delay pattern, despite that pattern working
+in the development shell. A separate elevated PowerShell 5.1 probe reproduced
+zero text matches while the native reader returned 10000/30000/120000 ms without
+changing service state. Validate environment-dependent adapters in the actual
+elevated host before building another release envelope; mock-only checks do not
+prove console language or native ABI compatibility.
+
 With that guard held by the elevated process, obtain one new Full
 receipt with those fail-closed checks replacing only the three unavailable live
 backend gates:
