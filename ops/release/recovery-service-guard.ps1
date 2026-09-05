@@ -1,6 +1,7 @@
 # Dot-source after tools/repository-operation-lock.ps1. This guard belongs to
 # the existing production-release owner; it is not another locking mechanism.
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'service-recovery-config.ps1')
 
 function Assert-IzoRecoveryAdministrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -79,12 +80,9 @@ function New-IzoRecoveryServiceGuard {
     if ([string]$service.StartMode -ne 'Auto' -or $service.DelayedAutoStart -isnot [bool]) {
         throw 'Recovery requires an Automatic service with a known delayed-start setting.'
     }
-    $failureOutput = @(& sc.exe qfailure IZOBackend)
-    if ($LASTEXITCODE -ne 0) { throw 'Unable to inspect IZOBackend SCM recovery delays.' }
-    $delayMatches = [regex]::Matches(($failureOutput -join "`n"), 'Delay\s*=\s*(\d+)\s+milliseconds')
-    if ($delayMatches.Count -eq 0) { throw 'SCM recovery delay format is unsupported; no service changed.' }
-    $drainSeconds = [math]::Ceiling((($delayMatches | ForEach-Object { [double]$_.Groups[1].Value } |
-        Measure-Object -Maximum).Maximum) / 1000) + 10
+    $delays = @(Get-IzoServiceRecoveryDelays -ServiceName 'IZOBackend')
+    if ($delays.Count -eq 0) { throw 'SCM recovery actions are missing; no service changed.' }
+    $drainSeconds = [math]::Ceiling((($delays | Measure-Object -Maximum).Maximum) / 1000) + 10
     if ($drainSeconds -gt 600) { throw 'SCM recovery delay exceeds the bounded recovery window.' }
     $guard = [pscustomobject]@{
         Schema = 'izo.recovery-service-guard.v1'
