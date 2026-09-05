@@ -88,9 +88,12 @@ foreach ($path in @(
         throw "Stopped-backend recovery evidence is missing: $path"
     }
 }
-if (Test-Path -LiteralPath $maintenanceFlagPath) {
-    throw 'Release maintenance flag exists; another mutable operation may be active.'
-}
+. (Join-Path $root 'tools\repository-operation-lock.ps1')
+. (Join-Path $root 'ops\release\recovery-service-guard.ps1')
+$guardHead = ([string](& git.exe -C $root rev-parse HEAD)).Trim()
+if ($LASTEXITCODE -ne 0) { throw 'Recovery source commit could not be resolved.' }
+$null = Assert-IzoRecoveryMaintenance -RepoRoot $root -ExpectedSha $guardHead `
+    -MaintenancePath $maintenanceFlagPath -RequireStopped
 
 function Get-ServiceEnvironmentValue {
     param([xml]$Document, [string]$Name)
