@@ -236,9 +236,13 @@ gate only when all of the following are true:
 - the corrective exact SHA is clean canonical `main`, is on `origin/main`, and
   has successful exact-SHA CI plus automated review, and differs from the
   recorded failed candidate SHA;
-- `promotion-current.json` is `rolled_back`, `update-current.json` is
-  `PROMOTION_FAILED`, the installed `IZOBackend` service is stopped and port
-  8000 is closed;
+- `promotion-current.json` is `rolled_back`; `update-current.json` is either the
+  historical `PROMOTION_FAILED` record or `PROMOTION_PENDING` for a clean,
+  successful-CI corrective SHA that is the current exact source or its Git
+  ancestor, plus the previous active SHA and exact candidate path; the pending
+  form additionally requires a matching pending marker and clean candidate Git
+  checkout with the canonical origin;
+- the installed `IZOBackend` service is stopped and port 8000 is closed;
 - installed XML still identifies the previous immutable release, while its
   manifest does not support the live schema;
 - read-only SQLite `quick_check` passes, every applied migration ledger row
@@ -291,6 +295,7 @@ Use these exact classifications; do not collapse them into "deployment failed":
 |---|---|---|
 | Administrator check is `False` or `PROMOTION_PREFLIGHT_FAILED` mentions elevation | The invoking process cannot safely control WinSW services | Do not run the promoter. Open an elevated Administrator process and repeat every preflight gate. |
 | Recovery preflight reports that `GetFullPath` has no two-argument overload | The recovery checker is incompatible with Windows PowerShell 5.1; verification did not complete | Preserve the one-shot result, prove whether any mutation began and create a reviewed corrective commit with a fresh wrapper. Never rerun the failed wrapper. |
+| Recovery preflight sees `PROMOTION_PENDING` for a clean corrective SHA | The background updater safely advanced its current state after the historical rollback; it can name the current source or lag at a verified ancestor until its next run, and this is not a new promotion | Require ancestry plus exact update/pending-marker/candidate Git identity. After Full, `ForcePrepare` must bind promotion to the current exact SHA. Never rewrite the state files. |
 | Backend preflight reports `unexpected Python process chain` or fails installed-service ownership | Listener ownership, service XML or immutable release identity is inconsistent, or the checkout lacks the ownership repair | Do not run updater/promoter. Diagnose PID chain, `IZOBackend.xml` and exact source; never bypass the ownership gate. |
 | Release verification receipt is expired | The four-hour exact-SHA verification window closed before candidate preparation/promotion | Do not reuse the combined command. Confirm clean exact `main`, then run one new Full verification to create a fresh receipt. |
 | `PROMOTER_VERIFY_FAILED` or tracked/installed hashes differ | The installed promoter is stale, modified or has no matching receipt | Do not run it. Install the exact clean tracked promoter with the installer, retain its backup/receipt, then repeat preflight. |
