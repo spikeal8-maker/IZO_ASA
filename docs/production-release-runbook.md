@@ -257,6 +257,14 @@ From the same elevated process that will own recovery, obtain one new Full
 receipt with those fail-closed checks replacing only the three unavailable live
 backend gates:
 
+The installed recovery host uses Windows PowerShell 5.1. Before opening the
+elevated one-shot window, run all three recovery `PlanOnly` checks through
+`powershell.exe` and require
+`pathComparison=windows-powershell-5.1-compatible`. Do not approve a checker
+that calls `.Equals(...)` or `.StartsWith(...)` directly on an unparenthesized
+static `GetFullPath(...)` expression: PowerShell 5.1 can bind the instance-call
+arguments to `GetFullPath` and fail before the read-only evidence is collected.
+
 ```powershell
 $sha = git rev-parse HEAD
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -282,6 +290,7 @@ Use these exact classifications; do not collapse them into "deployment failed":
 | Evidence | Meaning | Required next action |
 |---|---|---|
 | Administrator check is `False` or `PROMOTION_PREFLIGHT_FAILED` mentions elevation | The invoking process cannot safely control WinSW services | Do not run the promoter. Open an elevated Administrator process and repeat every preflight gate. |
+| Recovery preflight reports that `GetFullPath` has no two-argument overload | The recovery checker is incompatible with Windows PowerShell 5.1; verification did not complete | Preserve the one-shot result, prove whether any mutation began and create a reviewed corrective commit with a fresh wrapper. Never rerun the failed wrapper. |
 | Backend preflight reports `unexpected Python process chain` or fails installed-service ownership | Listener ownership, service XML or immutable release identity is inconsistent, or the checkout lacks the ownership repair | Do not run updater/promoter. Diagnose PID chain, `IZOBackend.xml` and exact source; never bypass the ownership gate. |
 | Release verification receipt is expired | The four-hour exact-SHA verification window closed before candidate preparation/promotion | Do not reuse the combined command. Confirm clean exact `main`, then run one new Full verification to create a fresh receipt. |
 | `PROMOTER_VERIFY_FAILED` or tracked/installed hashes differ | The installed promoter is stale, modified or has no matching receipt | Do not run it. Install the exact clean tracked promoter with the installer, retain its backup/receipt, then repeat preflight. |

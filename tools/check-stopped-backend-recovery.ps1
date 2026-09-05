@@ -26,8 +26,34 @@ $architectureContractPath = Join-Path $root 'architecture\contract.json'
 $caddyRuntimeScript = Join-Path $root 'tools\caddy-runtime.ps1'
 $runtimeListenerScript = Join-Path $root 'tools\check-runtime-listeners.ps1'
 
+function Test-IzoNormalizedPathEquals {
+    param([string]$Left, [string]$Right)
+
+    $normalizedLeft = [IO.Path]::GetFullPath($Left)
+    $normalizedRight = [IO.Path]::GetFullPath($Right)
+    return [string]::Equals($normalizedLeft, $normalizedRight, [StringComparison]::OrdinalIgnoreCase)
+}
+
+function Test-IzoNormalizedPathWithin {
+    param([string]$Path, [string]$Root)
+
+    $normalizedPath = [IO.Path]::GetFullPath($Path)
+    $normalizedRoot = [IO.Path]::GetFullPath($Root)
+    if (-not $normalizedRoot.EndsWith([string][IO.Path]::DirectorySeparatorChar)) {
+        $normalizedRoot += [IO.Path]::DirectorySeparatorChar
+    }
+    return $normalizedPath.StartsWith($normalizedRoot, [StringComparison]::OrdinalIgnoreCase)
+}
+
 if ($PlanOnly) {
+    $pathCompatibilityRoot = Join-Path $root '.stopped-backend-recovery-path-probe'
+    $pathCompatibilityChild = Join-Path $pathCompatibilityRoot 'manifest.json'
+    if (-not (Test-IzoNormalizedPathEquals -Left $root -Right $root) -or
+        -not (Test-IzoNormalizedPathWithin -Path $pathCompatibilityChild -Root $pathCompatibilityRoot)) {
+        throw 'Stopped-backend recovery normalized-path compatibility probe failed.'
+    }
     Write-Host "STOPPED_BACKEND_RECOVERY_PLAN check=$Check root=$root"
+    Write-Host 'STOPPED_BACKEND_RECOVERY_PLAN_STEP pathComparison=windows-powershell-5.1-compatible'
     Write-Host 'STOPPED_BACKEND_RECOVERY_PLAN_STEP state=rolled_back,promotion_failed'
     Write-Host 'STOPPED_BACKEND_RECOVERY_PLAN_STEP backend=installed-service-stopped,port-8000-closed'
     Write-Host 'STOPPED_BACKEND_RECOVERY_PLAN_STEP database=read-only-quick-check,schema-supported-by-current-contract'
@@ -95,10 +121,7 @@ if ([string]$service.Status -ne 'Stopped' -or [string]$registered.State -ne 'Sto
     throw 'IZOBackend must be a registered stopped service with no service PID.'
 }
 $registeredExecutable = ([string]$registered.PathName).Trim().Trim('"')
-if (-not [IO.Path]::GetFullPath($registeredExecutable).Equals(
-    [IO.Path]::GetFullPath($expectedServiceExecutable),
-    [StringComparison]::OrdinalIgnoreCase
-)) {
+if (-not (Test-IzoNormalizedPathEquals -Left $registeredExecutable -Right $expectedServiceExecutable)) {
     throw 'IZOBackend is not registered to the installed WinSW executable.'
 }
 $backendListeners = @(Get-NetTCPConnection -State Listen -LocalPort 8000 -ErrorAction SilentlyContinue)
@@ -131,12 +154,12 @@ if ([string]$promotion.NewSha -notmatch '^[0-9a-f]{40}$' -or [string]$update.Rem
 $oldRelease = [IO.Path]::GetFullPath("C:\IZO_ASA\releases\$oldSha")
 $expectedPython = [IO.Path]::GetFullPath((Join-Path $oldRelease 'backend\.venv\Scripts\python.exe'))
 $expectedWorkingDirectory = [IO.Path]::GetFullPath((Join-Path $oldRelease 'backend'))
-if (-not [IO.Path]::GetFullPath([string]$backendXml.service.executable).Equals($expectedPython, [StringComparison]::OrdinalIgnoreCase) -or
-    -not [IO.Path]::GetFullPath([string]$backendXml.service.workingdirectory).Equals($expectedWorkingDirectory, [StringComparison]::OrdinalIgnoreCase)) {
+if (-not (Test-IzoNormalizedPathEquals -Left ([string]$backendXml.service.executable) -Right $expectedPython) -or
+    -not (Test-IzoNormalizedPathEquals -Left ([string]$backendXml.service.workingdirectory) -Right $expectedWorkingDirectory)) {
     throw 'Installed backend XML does not point to the rolled-back immutable release.'
 }
 if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf) -or
-    -not [IO.Path]::GetFullPath($manifestPath).StartsWith($oldRelease + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+    -not (Test-IzoNormalizedPathWithin -Path $manifestPath -Root $oldRelease)) {
     throw 'Rolled-back release manifest is missing or outside the rolled-back release.'
 }
 $oldManifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json

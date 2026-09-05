@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -40,12 +41,19 @@ def test_stopped_backend_recovery_plan_is_explicit_and_read_only(check: str) -> 
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
+    assert "pathComparison=windows-powershell-5.1-compatible" in result.stdout
     assert f"STOPPED_BACKEND_RECOVERY_PLAN_OK check={check}" in result.stdout
 
 
 def test_stopped_backend_recovery_has_fail_closed_evidence() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
 
+    assert "function Test-IzoNormalizedPathEquals" in source
+    assert "function Test-IzoNormalizedPathWithin" in source
+    assert not re.search(
+        r"\[IO\.Path\]::GetFullPath\([^\r\n]*\)\.(?:Equals|StartsWith)\(",
+        source,
+    )
     for required in (
         "rolled_back",
         "PROMOTION_FAILED",
