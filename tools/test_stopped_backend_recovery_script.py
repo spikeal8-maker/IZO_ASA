@@ -57,6 +57,15 @@ def test_stopped_backend_recovery_has_fail_closed_evidence() -> None:
     for required in (
         "rolled_back",
         "PROMOTION_FAILED",
+        "PROMOTION_PENDING",
+        "pending-release-promotion.json",
+        "Pending corrective candidate is not bound to a distinct exact SHA and successful CI",
+        "Pending corrective candidate is not the current exact source or its canonical ancestor",
+        "Pending corrective candidate marker does not match updater evidence",
+        "Pending corrective candidate checkout has an unexpected Git HEAD",
+        "Pending corrective candidate checkout has an unexpected Git origin",
+        "Pending corrective candidate checkout has tracked or untracked changes",
+        "update=$updateStatus",
         "IZOBackend must be a registered stopped service",
         "Port 8000 must be closed",
         "mode=ro",
@@ -77,6 +86,11 @@ def test_stopped_backend_recovery_has_fail_closed_evidence() -> None:
         assert required in source
     assert "'/feed'" not in source
     assert "'/gallery'" not in source
+    assert "$currentHead -eq [string]$promotion.NewSha" in source
+    assert "git.exe -C $root merge-base --is-ancestor $pendingSha $currentHead" in source
+    assert "[string]$update.ActiveSha -ne $oldSha" in source
+    assert "[string]$update.CiStatus -ne 'success'" in source
+    assert "Test-IzoNormalizedPathEquals -Left ([string]$update.CandidatePath)" in source
     for forbidden in ("Start-Service", "Stop-Service", "Set-Content", "Remove-Item"):
         assert forbidden not in source
 

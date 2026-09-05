@@ -22,6 +22,7 @@ $healthCheckPath = 'C:\IZO_ASA\ops\scripts\server-health-check.ps1'
 $maintenanceFlagPath = 'C:\IZO_ASA\runtime\project-release-maintenance.flag'
 $promotionPath = 'C:\IZO_ASA\health\promotion-current.json'
 $updatePath = 'C:\IZO_ASA\health\update-current.json'
+$pendingPromotionPath = 'C:\IZO_ASA\runtime\pending-release-promotion.json'
 $architectureContractPath = Join-Path $root 'architecture\contract.json'
 $caddyRuntimeScript = Join-Path $root 'tools\caddy-runtime.ps1'
 $runtimeListenerScript = Join-Path $root 'tools\check-runtime-listeners.ps1'
@@ -54,7 +55,7 @@ if ($PlanOnly) {
     }
     Write-Host "STOPPED_BACKEND_RECOVERY_PLAN check=$Check root=$root"
     Write-Host 'STOPPED_BACKEND_RECOVERY_PLAN_STEP pathComparison=windows-powershell-5.1-compatible'
-    Write-Host 'STOPPED_BACKEND_RECOVERY_PLAN_STEP state=rolled_back,promotion_failed'
+    Write-Host 'STOPPED_BACKEND_RECOVERY_PLAN_STEP state=rolled_back,update-promotion_failed-or-clean-canonical-promotion_pending'
     Write-Host 'STOPPED_BACKEND_RECOVERY_PLAN_STEP backend=installed-service-stopped,port-8000-closed'
     Write-Host 'STOPPED_BACKEND_RECOVERY_PLAN_STEP database=read-only-quick-check,schema-supported-by-current-contract'
     Write-Host 'STOPPED_BACKEND_RECOVERY_PLAN_STEP caddy=running,loopback-5173,previous-release-static-edge'
@@ -128,14 +129,19 @@ $backendListeners = @(Get-NetTCPConnection -State Listen -LocalPort 8000 -ErrorA
 if ($backendListeners.Count -ne 0) {
     throw 'Port 8000 must be closed for stopped-backend recovery verification.'
 }
+$currentHead = ([string](& git.exe -C $root rev-parse HEAD)).Trim().ToLowerInvariant()
+if ($LASTEXITCODE -ne 0 -or $currentHead -notmatch '^[0-9a-f]{40}$') {
+    throw 'Current exact source commit could not be resolved.'
+}
+$currentOrigin = ([string](& git.exe -C $root remote get-url origin)).Trim()
+if ($LASTEXITCODE -ne 0 -or $currentOrigin -notmatch 'spikeal8-maker/IZO_ASA(?:\.git)?$') {
+    throw 'Current exact source has an unexpected Git origin.'
+}
 
 $promotion = Get-Content -LiteralPath $promotionPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $update = Get-Content -LiteralPath $updatePath -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($promotion.Ok -ne $false -or [string]$promotion.Stage -ne 'rolled_back') {
     throw 'Promotion evidence is not a completed automatic rollback.'
-}
-if ([string]$update.Status -ne 'PROMOTION_FAILED') {
-    throw 'Updater evidence is not PROMOTION_FAILED.'
 }
 
 $backendXml = [xml](Get-Content -LiteralPath $backendXmlPath -Raw -Encoding UTF8)
@@ -148,8 +154,56 @@ if ($oldSha -notmatch '^[0-9a-f]{40}$') {
 if ([string]$promotion.PreviousSha -ne $oldSha -or [string]$update.ActiveSha -ne $oldSha) {
     throw 'Rollback status, updater status and installed backend commit do not agree.'
 }
-if ([string]$promotion.NewSha -notmatch '^[0-9a-f]{40}$' -or [string]$update.RemoteSha -ne [string]$promotion.NewSha) {
-    throw 'Failed candidate identity is inconsistent.'
+if ([string]$promotion.NewSha -notmatch '^[0-9a-f]{40}$') {
+    throw 'Failed candidate identity is invalid.'
+}
+$updateStatus = [string]$update.Status
+if ($updateStatus -eq 'PROMOTION_FAILED') {
+    if ([string]$update.RemoteSha -ne [string]$promotion.NewSha) {
+        throw 'Failed candidate identity is inconsistent.'
+    }
+} elseif ($updateStatus -eq 'PROMOTION_PENDING') {
+    $pendingSha = ([string]$update.RemoteSha).ToLowerInvariant()
+    $expectedCandidatePath = "C:\IZO_ASA\releases\$pendingSha"
+    if (
+        $pendingSha -notmatch '^[0-9a-f]{40}$' -or
+        $pendingSha -eq [string]$promotion.NewSha -or
+        [string]$update.CiStatus -ne 'success' -or
+        -not (Test-IzoNormalizedPathEquals -Left ([string]$update.CandidatePath) -Right $expectedCandidatePath)
+    ) {
+        throw 'Pending corrective candidate is not bound to a distinct exact SHA and successful CI.'
+    }
+    & git.exe -C $root merge-base --is-ancestor $pendingSha $currentHead
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Pending corrective candidate is not the current exact source or its canonical ancestor.'
+    }
+    if (-not (Test-Path -LiteralPath $pendingPromotionPath -PathType Leaf)) {
+        throw 'Pending corrective candidate marker is missing.'
+    }
+    $pendingPromotion = Get-Content -LiteralPath $pendingPromotionPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (
+        [string]$pendingPromotion.NewSha -ne $pendingSha -or
+        -not (Test-IzoNormalizedPathEquals -Left ([string]$pendingPromotion.CandidatePath) -Right $expectedCandidatePath)
+    ) {
+        throw 'Pending corrective candidate marker does not match updater evidence.'
+    }
+    if (-not (Test-Path -LiteralPath $expectedCandidatePath -PathType Container)) {
+        throw 'Pending corrective candidate checkout is missing.'
+    }
+    $candidateHead = ([string](& git.exe -C $expectedCandidatePath rev-parse HEAD)).Trim().ToLowerInvariant()
+    if ($LASTEXITCODE -ne 0 -or $candidateHead -ne $pendingSha) {
+        throw 'Pending corrective candidate checkout has an unexpected Git HEAD.'
+    }
+    $candidateOrigin = ([string](& git.exe -C $expectedCandidatePath remote get-url origin)).Trim()
+    if ($LASTEXITCODE -ne 0 -or $candidateOrigin -notmatch 'spikeal8-maker/IZO_ASA(?:\.git)?$') {
+        throw 'Pending corrective candidate checkout has an unexpected Git origin.'
+    }
+    $candidateChanges = @(& git.exe -C $expectedCandidatePath status --porcelain)
+    if ($LASTEXITCODE -ne 0 -or $candidateChanges.Count -ne 0) {
+        throw 'Pending corrective candidate checkout has tracked or untracked changes.'
+    }
+} else {
+    throw "Updater evidence has unsupported recovery status: $updateStatus"
 }
 $oldRelease = [IO.Path]::GetFullPath("C:\IZO_ASA\releases\$oldSha")
 $expectedPython = [IO.Path]::GetFullPath((Join-Path $oldRelease 'backend\.venv\Scripts\python.exe'))
@@ -261,14 +315,10 @@ if ($healthText -notmatch [regex]::Escape($maintenanceFlagPath)) {
 }
 
 if ($Check -eq 'Backend') {
-    $head = ([string](@(& git.exe -C $root rev-parse HEAD)[0])).Trim()
-    if ($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-f]{40}$') {
-        throw 'Current exact source commit could not be resolved.'
-    }
-    if ($head -eq [string]$promotion.NewSha) {
+    if ($currentHead -eq [string]$promotion.NewSha) {
         throw 'Current exact source is the already-failed candidate; a corrective commit is required.'
     }
-    Write-Host "STOPPED_BACKEND_RECOVERY_PREFLIGHT_OK current=$head previous=$oldSha failed=$($promotion.NewSha) schema=$($database.user_version) currentMin=$currentMin currentMax=$currentMax previousMax=$oldMax"
+    Write-Host "STOPPED_BACKEND_RECOVERY_PREFLIGHT_OK current=$currentHead previous=$oldSha failed=$($promotion.NewSha) update=$updateStatus schema=$($database.user_version) currentMin=$currentMin currentMax=$currentMax previousMax=$oldMax"
     exit 0
 }
 
