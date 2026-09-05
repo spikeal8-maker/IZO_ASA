@@ -50,6 +50,8 @@ def test_stopped_backend_recovery_has_fail_closed_evidence() -> None:
 
     assert "function Test-IzoNormalizedPathEquals" in source
     assert "function Test-IzoNormalizedPathWithin" in source
+    assert 'Assert-IzoRecoveryMaintenance' in source
+    assert '-MaintenancePath $maintenanceFlagPath -RequireStopped' in source
     assert not re.search(
         r"\[IO\.Path\]::GetFullPath\([^\r\n]*\)\.(?:Equals|StartsWith)\(",
         source,

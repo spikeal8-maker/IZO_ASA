@@ -242,7 +242,8 @@ gate only when all of the following are true:
   ancestor, plus the previous active SHA and exact candidate path; the pending
   form additionally requires a matching pending marker and clean candidate Git
   checkout with the canonical origin;
-- the installed `IZOBackend` service is stopped and port 8000 is closed;
+- the installed `IZOBackend` service has `Disabled` startup during recovery,
+  is stopped with service PID zero, and port 8000 is closed;
 - installed XML still identifies the previous immutable release, while its
   manifest does not support the live schema;
 - read-only SQLite `quick_check` passes, every applied migration ledger row
@@ -254,10 +255,43 @@ gate only when all of the following are true:
 - the `IZOCaddy` WinSW service owns the single pinned Caddy loopback listener
   on 5173, serves the previous immutable frontend on static SPA routes, and
   returns the expected 502 for the stopped API;
-- the maintenance flag is absent and the installed health check retains its
-  maintenance guard.
+- the maintenance flag belongs to the live `production-release` lock owner,
+  names this source SHA and checkout, and the installed health check retains
+  its maintenance guard. A missing, foreign or stale flag is rejected.
 
-From the same elevated process that will own recovery, obtain one new Full
+SCM failure actions are independent of the health-check maintenance flag.
+Windows can already have restart actions queued for 10, 30 or 120 seconds later;
+observing 30 seconds stopped does not prove quiescence. The failed
+`deploy-dde6630b-20260905-100313` attempt demonstrated this race before Full ran.
+Use `ops/release/recovery-service-guard.ps1` from the elevated release owner:
+
+1. After the normal exact-main, CI, promoter and operation-lock gates, create
+   `New-IzoRecoveryServiceGuard` with this checkout, SHA and a unique journal in
+   `.runtime`. It exclusively creates maintenance and journals original
+   Automatic startup, including the original delayed-auto setting, before
+   changing the identified installed service.
+2. Call `Suspend-IzoRecoveryBackend`. It disables startup before stopping the
+   service once, then requires Stopped/PID-zero/port-closed state. Keep the guard
+   active through **all recovery checks, Full verification and ForcePrepare**.
+3. After validating the new receipt and candidate, call
+   `Restore-IzoRecoveryStartup -ForPromotion`. It waits out the maximum actual
+   SCM delay while startup is still disabled, restores the original Automatic
+   and delayed-auto setting (using SCM on Windows PowerShell 5.1), and retains
+   maintenance until the installed promoter takes over. Invoke that promoter
+   once; it replaces and removes the maintenance record in its normal workflow.
+4. In `finally`, call `Close-IzoRecoveryServiceGuard` before releasing the
+   repository lock. It restores Automatic even after a stop/check failure and
+   removes only its own maintenance record. Report a cleanup failure as an
+   incident, never as deployment success. Preserve the journal.
+
+Do not edit recovery actions, service XML or watchdog tasks. If the owner
+process is killed or the host reboots mid-recovery, the journal records the
+original startup setting; the next owner must diagnose that interrupted hold
+explicitly instead of silently taking over or deleting the flag. Test the
+executable failure/cleanup paths on fake services with Windows PowerShell 5.1;
+`PlanOnly` does not prove service lifecycle behavior.
+
+With that guard held by the elevated process, obtain one new Full
 receipt with those fail-closed checks replacing only the three unavailable live
 backend gates:
 
@@ -295,6 +329,7 @@ Use these exact classifications; do not collapse them into "deployment failed":
 |---|---|---|
 | Administrator check is `False` or `PROMOTION_PREFLIGHT_FAILED` mentions elevation | The invoking process cannot safely control WinSW services | Do not run the promoter. Open an elevated Administrator process and repeat every preflight gate. |
 | Recovery preflight reports that `GetFullPath` has no two-argument overload | The recovery checker is incompatible with Windows PowerShell 5.1; verification did not complete | Preserve the one-shot result, prove whether any mutation began and create a reviewed corrective commit with a fresh wrapper. Never rerun the failed wrapper. |
+| A stopped/PID-zero check fails immediately after a 30-second stopped observation | SCM may still have restart actions queued; the observed quiet interval did not hold the service stopped | Preserve the failed attempt. Use the owned recovery service guard across Full and preparation, restore startup before promotion, and verify cleanup. Do not repeat Stop-Service in a loop. |
 | Recovery preflight sees `PROMOTION_PENDING` for a clean corrective SHA | The background updater safely advanced its current state after the historical rollback; it can name the current source or lag at a verified ancestor until its next run, and this is not a new promotion | Require ancestry plus exact update/pending-marker/candidate Git identity. After Full, `ForcePrepare` must bind promotion to the current exact SHA. Never rewrite the state files. |
 | Backend preflight reports `unexpected Python process chain` or fails installed-service ownership | Listener ownership, service XML or immutable release identity is inconsistent, or the checkout lacks the ownership repair | Do not run updater/promoter. Diagnose PID chain, `IZOBackend.xml` and exact source; never bypass the ownership gate. |
 | Release verification receipt is expired | The four-hour exact-SHA verification window closed before candidate preparation/promotion | Do not reuse the combined command. Confirm clean exact `main`, then run one new Full verification to create a fresh receipt. |
