@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
 import re
+import runpy
 import shutil
+import sqlite3
 import subprocess
+import sys
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -15,12 +20,13 @@ SCRIPT = ROOT / "tools" / "check-stopped-backend-recovery.ps1"
 VERIFY = ROOT / "tools" / "verify.ps1"
 
 
-def run_powershell_probe(script: str) -> subprocess.CompletedProcess[str]:
+def run_powershell_probe(script: str, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     powershell = shutil.which("powershell.exe")
     if not powershell:
         pytest.skip("Windows PowerShell is unavailable")
     env = os.environ.copy()
     env["IZO_TEST_RECOVERY_CHECKER"] = str(SCRIPT)
+    env.update(extra_env or {})
     encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
     return subprocess.run(
         [powershell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded],
@@ -78,6 +84,71 @@ Write-Output 'DATABASE_URL_CONVERSION_OK databaseOpened=False serviceAccessed=Fa
 """)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "DATABASE_URL_CONVERSION_OK databaseOpened=False serviceAccessed=False" in result.stdout
+
+
+@pytest.mark.parametrize("case", ["valid", "mismatched", "corrupt", "missing"])
+def test_complete_database_probe_uses_native_python_and_read_only_temp_sqlite(tmp_path: Path, case: str) -> None:
+    database_path = tmp_path / "synthetic данные with spaces.sqlite3"
+    if case == "corrupt":
+        database_path.write_bytes(b"synthetic corrupt SQLite fixture")
+    elif case != "missing":
+        definitions = runpy.run_path(str(ROOT / "backend/app/database/migrations.py"))
+        rows = sorted(
+            (value.version, value.name, value.checksum)
+            for value in definitions.values()
+            if isinstance(value, definitions["MigrationDefinition"])
+        )
+        with closing(sqlite3.connect(database_path)) as connection:
+            connection.execute("CREATE TABLE schema_migrations (version INTEGER, name TEXT, checksum TEXT)")
+            connection.executemany("INSERT INTO schema_migrations VALUES (?, ?, ?)", rows)
+            connection.execute(f"PRAGMA user_version={rows[-1][0]}")
+            if case == "mismatched":
+                connection.execute("UPDATE schema_migrations SET checksum='synthetic-mismatch' WHERE version=1")
+            connection.commit()
+    before = database_path.read_bytes() if database_path.exists() else None
+    result = run_powershell_probe(r"""
+Set-StrictMode -Version Latest
+$ErrorActionPreference='Stop'
+$root=Split-Path -Parent (Split-Path -Parent $env:IZO_TEST_RECOVERY_CHECKER)
+$PythonPath=$env:IZO_TEST_RECOVERY_PYTHON
+$databasePath=$env:IZO_TEST_RECOVERY_TEMP_DB
+# Execute the complete production database block, not a rewritten test probe.
+# Its boundary excludes live service, XML and production-root discovery.
+$source=[IO.File]::ReadAllText($env:IZO_TEST_RECOVERY_CHECKER)
+$start=$source.IndexOf('$previousDiagnosticPath =')
+$end=$source.IndexOf('$contract =', $start)
+if ($start -lt 0 -or $end -le $start) {throw 'Production database block was not found'}
+$probe=[scriptblock]::Create($source.Substring($start, $end-$start))
+$env:IZO_RECOVERY_DB_PATH='sentinel database'
+$env:IZO_RECOVERY_REPO_ROOT='sentinel root'
+$succeeded=$false; $failure=''; $database=$null
+try { . $probe; $succeeded=$true } catch { $failure=$_.Exception.Message }
+$environmentRestored=($env:IZO_RECOVERY_DB_PATH -eq 'sentinel database' -and $env:IZO_RECOVERY_REPO_ROOT -eq 'sentinel root')
+$report=[ordered]@{ok=$succeeded; error=$failure; database=$database; environmentRestored=$environmentRestored; errorPreferenceRestored=($ErrorActionPreference -eq 'Stop')}
+'PROBE_RESULT=' + ($report | ConvertTo-Json -Compress -Depth 4)
+""", {
+        "IZO_TEST_RECOVERY_TEMP_DB": str(database_path),
+        "IZO_TEST_RECOVERY_PYTHON": sys.executable,
+    })
+    assert result.returncode == 0, result.stdout + result.stderr
+    report_line = next(line for line in result.stdout.splitlines() if line.startswith("PROBE_RESULT="))
+    report = json.loads(report_line.removeprefix("PROBE_RESULT="))
+    assert report["environmentRestored"] is True
+    assert report["errorPreferenceRestored"] is True
+    assert "SyntaxError" not in report["error"]
+    if case == "valid":
+        assert report["ok"] is True, report["error"]
+        assert report["database"]["quick_check"] == "ok"
+        assert report["database"]["ledger_matches_definitions"] is True
+    else:
+        assert report["ok"] is False
+        expected_error = {
+            "mismatched": "Production database integrity or migration ledger verification failed",
+            "corrupt": "file is not a database",
+            "missing": "unable to open database file",
+        }[case]
+        assert expected_error in report["error"]
+    assert (database_path.read_bytes() if database_path.exists() else None) == before
 
 
 @pytest.mark.parametrize("check", ["Backend", "Listeners", "Edge"])

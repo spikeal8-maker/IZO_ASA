@@ -326,6 +326,20 @@ exercise the same conversion helper without reading a database or service.
 Run `tools/test_stopped_backend_recovery_script.py` before preparing another
 one-shot wrapper; a plan that only prints intended steps is not this evidence.
 
+The subsequent dd7e6507 attempt passed that conversion but failed at the native
+Python boundary: Windows PowerShell 5.1 removed embedded quotes from the probe
+passed through `python -c`, which produced a syntax error before SQLite opened.
+Send the probe source through stdin (`python -`), not a multiline native command
+argument. Capture native stderr with a locally restored error preference, then
+enforce its exit code so an operator receives the complete diagnostic. The
+regression suite executes the **entire production database probe block** through
+PowerShell and Python against temporary SQLite fixtures: matching ledger,
+mismatched ledger, corrupt file and missing file. It checks unchanged fixture
+bytes and restored environment/error preferences. Do not replace that coverage
+with source-string assertions or PlanOnly; do not use the live database as a
+fixture. The dd7e6507 envelope restored delayed Automatic startup and removed
+its owned maintenance flag, but produced no receipt or promotion.
+
 ```powershell
 $sha = git rev-parse HEAD
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'

@@ -254,7 +254,7 @@ $previousDiagnosticRoot = [Environment]::GetEnvironmentVariable('IZO_RECOVERY_RE
 try {
     [Environment]::SetEnvironmentVariable('IZO_RECOVERY_DB_PATH', $databasePath, 'Process')
     [Environment]::SetEnvironmentVariable('IZO_RECOVERY_REPO_ROOT', $root, 'Process')
-    $databaseOutput = @(& $PythonPath -c @'
+    $databaseProbeCode = @'
 import importlib.util
 import json
 import os
@@ -299,8 +299,18 @@ try:
 finally:
     connection.close()
 print(json.dumps(report, separators=(",", ":")))
-'@ 2>&1)
-    if ($LASTEXITCODE -ne 0 -or $databaseOutput.Count -eq 0) {
+'@
+    $previousNativeErrorPreference = $ErrorActionPreference
+    try {
+        # PS 5.1 strips embedded quotes from native -c arguments. Stdin preserves source.
+        # Capture the complete diagnostic before enforcing the native exit code.
+        $ErrorActionPreference = 'Continue'
+        $databaseOutput = @($databaseProbeCode | & $PythonPath - 2>&1)
+        $databaseExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousNativeErrorPreference
+    }
+    if ($databaseExitCode -ne 0 -or $databaseOutput.Count -eq 0) {
         throw "Read-only database verification failed: $($databaseOutput -join [Environment]::NewLine)"
     }
     $database = ([string]$databaseOutput[-1]) | ConvertFrom-Json
