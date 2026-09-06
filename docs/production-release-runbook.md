@@ -313,6 +313,19 @@ that calls `.Equals(...)` or `.StartsWith(...)` directly on an unparenthesized
 static `GetFullPath(...)` expression: PowerShell 5.1 can bind the instance-call
 arguments to `GetFullPath` and fail before the read-only evidence is collected.
 
+Also require `databaseUrl=windows-powershell-5.1-compatible`. The 599bc470
+attempt proved that service hold and failure cleanup worked, but exposed another
+parser ambiguity in the SQLite URL conversion: the comma in inline `-replace`
+was parsed as a second `GetFullPath` argument. That attempt did not reach the
+database probe, Full receipt or promotion. Normalize the URL into a local string
+before passing it to single-argument `GetFullPath`; never weaken the approved
+root or read-only database checks. The regression suite now executes synthetic
+SQLite URL conversion in Windows PowerShell 5.1 and inspects the parsed arity
+of **every** `GetFullPath` call in this checker. All three `PlanOnly` variants
+exercise the same conversion helper without reading a database or service.
+Run `tools/test_stopped_backend_recovery_script.py` before preparing another
+one-shot wrapper; a plan that only prints intended steps is not this evidence.
+
 ```powershell
 $sha = git rev-parse HEAD
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'

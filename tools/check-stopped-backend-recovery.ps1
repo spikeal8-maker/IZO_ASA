@@ -46,6 +46,17 @@ function Test-IzoNormalizedPathWithin {
     return $normalizedPath.StartsWith($normalizedRoot, [StringComparison]::OrdinalIgnoreCase)
 }
 
+function Convert-IzoRecoveryDatabasePath {
+    param([string]$DatabaseUrl)
+
+    if ($DatabaseUrl -notmatch '^sqlite:///') {
+        throw 'Stopped-backend recovery supports only the installed SQLite topology.'
+    }
+    # Keep -replace outside the method call: its comma becomes a second argument in PS 5.1.
+    $nativePath = ($DatabaseUrl -replace '^sqlite:///', '') -replace '/', '\'
+    return [IO.Path]::GetFullPath($nativePath)
+}
+
 if ($PlanOnly) {
     $pathCompatibilityRoot = Join-Path $root '.stopped-backend-recovery-path-probe'
     $pathCompatibilityChild = Join-Path $pathCompatibilityRoot 'manifest.json'
@@ -53,8 +64,14 @@ if ($PlanOnly) {
         -not (Test-IzoNormalizedPathWithin -Path $pathCompatibilityChild -Root $pathCompatibilityRoot)) {
         throw 'Stopped-backend recovery normalized-path compatibility probe failed.'
     }
+    $databaseCompatibilityUrl = 'sqlite:///' + $pathCompatibilityChild.Replace('\', '/')
+    $databaseCompatibilityPath = Convert-IzoRecoveryDatabasePath -DatabaseUrl $databaseCompatibilityUrl
+    if (-not (Test-IzoNormalizedPathEquals -Left $databaseCompatibilityPath -Right $pathCompatibilityChild)) {
+        throw 'Stopped-backend recovery database URL compatibility probe failed.'
+    }
     Write-Host "STOPPED_BACKEND_RECOVERY_PLAN check=$Check root=$root"
     Write-Host 'STOPPED_BACKEND_RECOVERY_PLAN_STEP pathComparison=windows-powershell-5.1-compatible'
+    Write-Host 'STOPPED_BACKEND_RECOVERY_PLAN_STEP databaseUrl=windows-powershell-5.1-compatible'
     Write-Host 'STOPPED_BACKEND_RECOVERY_PLAN_STEP state=rolled_back,update-promotion_failed-or-clean-canonical-promotion_pending'
     Write-Host 'STOPPED_BACKEND_RECOVERY_PLAN_STEP backend=installed-service-stopped,port-8000-closed'
     Write-Host 'STOPPED_BACKEND_RECOVERY_PLAN_STEP database=read-only-quick-check,schema-supported-by-current-contract'
@@ -224,10 +241,7 @@ if ([string]$oldManifest.git_sha -ne $oldSha -or $oldManifest.dirty -ne $false) 
     throw 'Rolled-back release manifest identity is invalid.'
 }
 
-if ($databaseUrl -notmatch '^sqlite:///') {
-    throw 'Stopped-backend recovery supports only the installed SQLite topology.'
-}
-$databasePath = [IO.Path]::GetFullPath(($databaseUrl -replace '^sqlite:///', '') -replace '/', '\')
+$databasePath = Convert-IzoRecoveryDatabasePath -DatabaseUrl $databaseUrl
 $allowedDatabaseRoots = @('C:\IZO_ASA\', 'F:\IZO_ASA\', 'F:\IZO_ASA_StandbyData\')
 if (-not ($allowedDatabaseRoots | Where-Object { $databasePath.StartsWith($_, [StringComparison]::OrdinalIgnoreCase) })) {
     throw 'Installed database path is outside approved production roots.'
