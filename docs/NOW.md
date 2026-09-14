@@ -3,17 +3,17 @@ status: canonical
 status_role: current-status-aggregator
 backlog_role: program-router
 updated: 2026-09-14
-source_main_at_status_update: 9eac361ae5c52be8d7f1f7596ea99c5bf31e1397
+source_main_at_status_update: 46f3910d10793138d44d8a3fcbc57a8ee0509686
 last_verified_main: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_verified_at: 2026-09-02T00:08:04+03:00
-completed_package: AI-EVAL-BASELINE-DEFER-001
-active_package: AI-PACKAGE-001
-active_task_contract: github-issue-101
+completed_package: AI-PACKAGE-001
+active_package: STAB-MAIN-GUARD-001
+active_task_contract: github-issue-102
 baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a
 baseline_status: deferred-required-before-AI-CONTEXT-PILOT-001
 blocker: none
-next_candidate: STAB-MAIN-GUARD-001
+next_candidate: AI-ENFORCE-001
 ---
 # IZO_ASA — NOW
 
@@ -33,7 +33,7 @@ git rev-parse origin/main
 git worktree list
 ```
 Source `main` при последнем status transition:
-`9eac361ae5c52be8d7f1f7596ea99c5bf31e1397`.
+`46f3910d10793138d44d8a3fcbc57a8ee0509686`.
 
 Последний отдельно operationally verified production release:
 `d223c179d5944bc208cace867d5e93bc1341a3aa` от 2026-09-02. Не выводить deploy
@@ -41,15 +41,9 @@ Source `main` при последнем status transition:
 
 ## 2. Активный stabilization package
 
-Активен `AI-PACKAGE-001`, issue #101.
-Цель package: versioned Task Manifest, один writer/worktree, shared registry между
-sibling worktrees, overlap detection, controlled scope expansion и safe finish.
-Product frontend/backend/runtime behavior в этом package не меняется.
-
-Bootstrap для самого #101 выполняется по существующим repository rules через
-отдельную feature branch/worktree: package создаёт CLI, которым будут обязаны
-пользоваться последующие implementation packages.
-Следующий package после успешного #101: `STAB-MAIN-GUARD-001` (#102).
+Active: `STAB-MAIN-GUARD-001`, issue #102.
+`AI-PACKAGE-001` (#101) completed: canonical `tools/agent.ps1`, versioned TOML
+manifest, shared registry and one-writer ownership. Next: `AI-ENFORCE-001` (#103).
 
 ## 3. Frozen baseline — deferred, not waived
 
@@ -88,7 +82,6 @@ backend/SYMBOL_MAP.md
 
 ## 5. Главные незакрытые capabilities
 
-- package registry/one-writer ownership;
 - remote `main` protection от ordinary coding agents;
 - machine-enforced scope и file/coupling health;
 - scoped/bounded context tooling;

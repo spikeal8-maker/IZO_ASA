@@ -207,6 +207,7 @@ def test_verify_script_defaults_to_full_mode() -> None:
     assert '$usesLiveChecks = $Mode -ne "CI"' in source
     assert '"tools/test_backup_restore.py"' in source
     assert '"tools/test_generate_architecture_inventory.py"' in source
+    assert '"tools/test_agent_package.py"' in source
     assert '"tools/test_frontend_release_identity.py"' in source
     assert '"tools/test_runtime_listener_contract.py"' in source
     assert '"tools/test_caddy_edge_contract.py"' in source
