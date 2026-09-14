@@ -3,13 +3,16 @@ status: canonical
 status_role: current-status-aggregator
 backlog_role: program-router
 updated: 2026-09-14
-source_main_at_status_update: 9128f99f825bdd4533dd68c44b5e2f4586719f7f
+source_main_at_status_update: 193d2c92e786691d80a74d86db10d3615df2ad2c
 last_verified_main: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_verified_at: 2026-09-02T00:08:04+03:00
 completed_package: STAB-MASTER-SPEC-001
-active_package: none
-next_candidate: AI-EVAL-BASELINE-001
+active_package: AI-EVAL-BASELINE-001
+active_task_contract: github-issue-71
+baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a
+blocker: independent-cold-agent-executor-unavailable
+next_candidate: AI-PACKAGE-001
 ---
 
 # IZO_ASA — NOW
@@ -30,45 +33,33 @@ git rev-parse origin/main
 git worktree list
 ```
 
-Source `main` на момент подготовки этого status package:
-`9128f99f825bdd4533dd68c44b5e2f4586719f7f`.
+Source `main` при активации baseline:
+`193d2c92e786691d80a74d86db10d3615df2ad2c`.
 
 Последний отдельно operationally verified production release:
 `d223c179d5944bc208cace867d5e93bc1341a3aa` от 2026-09-02. Не выводить deploy
 из GitHub: production подтверждается installed runtime evidence и `/api/version`.
 
-## 2. Stabilization program
+## 2. Активный stabilization package
 
-Завершённая основа:
+Активен read-only package `AI-EVAL-BASELINE-001`, issue #71.
 
-- `AI-CANONICAL-001` — merged, `NOT DEPLOYED`;
-- `AI-CANONICAL-REPAIR-001` — merged, `NOT DEPLOYED`;
-- master stabilization specification — этот PR после merge.
-
-Активного implementation package нет. Следующий кандидат после merge:
+Frozen source для всех трёх cold cases:
 
 ```text
-AI-EVAL-BASELINE-001
+ecb02bf84ae21a46711c9b38b61784147fb9fc0a
 ```
 
-Это существующий read-only issue #71. Не создавать дублирующий baseline package.
+Требуются три действительно независимые сессии/worktrees Case A/B/C. Текущая
+длинная implementation-сессия не считается cold receipt. На момент активации
+доступный remote coding executor не отвечает, поэтому package имеет подтверждённый
+blocker `independent-cold-agent-executor-unavailable`.
 
-Далее идти только по dependency order master-spec. Ключевые gates:
+До трёх receipts запрещено активировать code-bearing `AI-PACKAGE-001` без
+отдельного owner-approved изменения dependency contract. Product/repository
+writes, deploy, restart и provider actions в baseline запрещены.
 
-```text
-baseline
-→ package ownership + remote main guard
-→ fail-closed scope + architecture health
-→ bounded context
-→ product/supply-chain/test-health floor
-→ isolated dev env + affected tests
-→ Docker DEV/TEST
-→ touch-driven decomposition
-→ data/recovery/runtime/performance floor
-→ contract/drift
-→ final cold eval
-→ optional container readiness/production
-```
+Следующий package после успешного baseline: `AI-PACKAGE-001`.
 
 ## 3. Context и generated evidence
 
@@ -96,18 +87,13 @@ backend/SYMBOL_MAP.md
 
 - package registry/one-writer ownership;
 - remote `main` protection от ordinary coding agents;
-- machine-enforced scope;
-- file/coupling health gate;
+- machine-enforced scope и file/coupling health;
 - scoped/bounded context tooling;
-- current critical product-flow contract;
-- supply-chain vulnerability/license gate;
-- test-health/flakiness/warning gate;
-- isolated dev environment;
-- affected-test router;
+- critical product-flow + supply-chain + test-health floor;
+- isolated dev environment + affected-test router;
 - Docker DEV/TEST;
-- hotspot decomposition;
-- restore rehearsal/data-integrity gate;
-- worker/runtime health + deterministic performance budgets;
+- frontend/backend hotspot decomposition;
+- restore/data-integrity + runtime/performance floor;
 - contract graph/drift automation;
 - final cold eval.
 

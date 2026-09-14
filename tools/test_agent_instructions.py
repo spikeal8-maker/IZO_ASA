@@ -205,11 +205,13 @@ def _assert_program_and_package_status() -> None:
 
     now = _text(ROOT / "docs" / "NOW.md")
     assert "completed_package: STAB-MASTER-SPEC-001" in now
-    assert "active_package: none" in now
-    assert "active_task_contract:" not in now
-    assert "next_candidate: AI-EVAL-BASELINE-001" in now
-    assert "Активного implementation package нет" in now
-    assert "Следующий кандидат после merge" in now
+    assert "active_package: AI-EVAL-BASELINE-001" in now
+    assert "active_task_contract: github-issue-71" in now
+    assert "baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a" in now
+    assert "blocker: independent-cold-agent-executor-unavailable" in now
+    assert "next_candidate: AI-PACKAGE-001" in now
+    assert "Активен read-only package `AI-EVAL-BASELINE-001`" in now
+    assert "До трёх receipts запрещено активировать code-bearing `AI-PACKAGE-001`" in now
 
 
 def assert_agent_instruction_contracts() -> None:
