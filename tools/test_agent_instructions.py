@@ -25,6 +25,7 @@ REQUIRED = (
     ROOT / "docs" / "stabilization-optimization-master-spec.md",
     ROOT / "docs" / "agent-tasks" / "AI-CANONICAL-001.md",
     ROOT / "docs" / "agent-tasks" / "AI-CANONICAL-REPAIR-001.md",
+    ROOT / "docs" / "agent-tasks" / "AI-EVAL-BASELINE-DEFER-001.md",
     *ADAPTERS,
 )
 CANONICAL_ROUTING_DOCS = (
@@ -203,15 +204,30 @@ def _assert_program_and_package_status() -> None:
     assert "completion_effective_when: closeout-source-merged-to-main" in repair
     assert "deployment: none" in repair
 
+    amendment = _text(
+        ROOT / "docs" / "agent-tasks" / "AI-EVAL-BASELINE-DEFER-001.md"
+    )
+    assert "status: active-program-amendment" in amendment
+    assert "record_role: dependency-amendment" in amendment
+    assert "ecb02bf84ae21a46711c9b38b61784147fb9fc0a" in amendment
+    assert "The frozen baseline is deferred, not waived." in amendment
+    assert "AI-CONTEXT-PILOT-001` (#107)" in amendment
+    assert "AI-EVAL-001` (#123)" in amendment
+    assert "all three receipts exist before #107 starts" in amendment
+
     now = _text(ROOT / "docs" / "NOW.md")
-    assert "completed_package: STAB-MASTER-SPEC-001" in now
-    assert "active_package: AI-EVAL-BASELINE-001" in now
-    assert "active_task_contract: github-issue-71" in now
+    assert "completed_package: AI-EVAL-BASELINE-DEFER-001" in now
+    assert "active_package: AI-PACKAGE-001" in now
+    assert "active_task_contract: github-issue-101" in now
     assert "baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a" in now
-    assert "blocker: independent-cold-agent-executor-unavailable" in now
-    assert "next_candidate: AI-PACKAGE-001" in now
-    assert "Активен read-only package `AI-EVAL-BASELINE-001`" in now
-    assert "До трёх receipts запрещено активировать code-bearing `AI-PACKAGE-001`" in now
+    assert "baseline_status: deferred-required-before-AI-CONTEXT-PILOT-001" in now
+    assert "blocker: none" in now
+    assert "next_candidate: STAB-MAIN-GUARD-001" in now
+    assert "Активен `AI-PACKAGE-001`, issue #101." in now
+    assert "deferred, not waived" in now
+    assert "Запрещено активировать" in now
+    assert "`AI-CONTEXT-PILOT-001` (#107)" in now
+    assert "`AI-EVAL-001` (#123)" in now
 
 
 def assert_agent_instruction_contracts() -> None:
@@ -225,6 +241,7 @@ def assert_agent_instruction_contracts() -> None:
         ROOT / "docs" / "agent-control-plane.md": 250,
         ROOT / "docs" / "agent-tasks" / "AI-CANONICAL-001.md": 120,
         ROOT / "docs" / "agent-tasks" / "AI-CANONICAL-REPAIR-001.md": 150,
+        ROOT / "docs" / "agent-tasks" / "AI-EVAL-BASELINE-DEFER-001.md": 120,
     }
     for path, maximum in limits.items():
         count = len(_lines(path))
