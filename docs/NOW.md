@@ -2,27 +2,24 @@
 status: canonical
 status_role: current-status-aggregator
 backlog_role: program-router
-updated: 2026-09-02
-status_effective_when: merged-to-main
+updated: 2026-09-14
+source_main_at_status_update: 9128f99f825bdd4533dd68c44b5e2f4586719f7f
 last_verified_main: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_verified_at: 2026-09-02T00:08:04+03:00
-completed_package: AI-CANONICAL-001
-completed_repair: AI-CANONICAL-REPAIR-001
+completed_package: STAB-MASTER-SPEC-001
 active_package: none
-next_candidate: AI-INSTRUCTION-SCOPE-001
+next_candidate: AI-EVAL-BASELINE-001
 ---
 
 # IZO_ASA — NOW
 
-Это единственный агрегатор текущего состояния и маршрутизатор программ. Порядок
-чтения определён только в `AI_START_HERE.md`.
+Это единственный current-status aggregator/router. Порядок чтения определяет
+только `AI_START_HERE.md`. Подробный stabilization backlog находится в
+`docs/stabilization-optimization-master-spec.md`, agent-specific capabilities —
+в `docs/agent-control-plane.md`.
 
-Статусные переходы этого файла действуют только после merge соответствующего
-source в canonical `main`. Feature branch не может сама разблокировать следующий
-package.
-
-## 1. Определи факты динамически
+## 1. Перед работой
 
 ```powershell
 git rev-parse --show-toplevel
@@ -33,92 +30,110 @@ git rev-parse origin/main
 git worktree list
 ```
 
-- Последний подтверждённый production release из чистого `main`:
-  `d223c179d5944bc208cace867d5e93bc1341a3aa`. Локальный и публичный
-  `/api/version` подтвердили этот SHA после promotion stage `complete`; этот
-  documentation package ещё не развёрнут. Подробный разбор:
-  [инцидент и восстановление 2026-09-01/02](production-release-incident-20260902.md).
-- Production release нельзя выводить из GitHub. Его подтверждают установленный
-  runtime manifest и `/api/version` в рамках разрешённой live-проверки.
-- Код, merge, deployment и operational verification — разные состояния.
+Source `main` на момент подготовки этого status package:
+`9128f99f825bdd4533dd68c44b5e2f4586719f7f`.
 
-## 2. Agent Control Plane
+Последний отдельно operationally verified production release:
+`d223c179d5944bc208cace867d5e93bc1341a3aa` от 2026-09-02. Не выводить deploy
+из GitHub: production подтверждается installed runtime evidence и `/api/version`.
 
-Завершено:
+## 2. Stabilization program
 
-- `AI-CANONICAL-001`: PR `#73`, merge
-  `49a19e271e4e0e71d1fa6f871f828f0a233cfbdf`, `NOT DEPLOYED`.
-- `AI-CANONICAL-REPAIR-001`: final reviewed head
-  `8f1de5a167ca94a334e5df274da479cf0beab0ee`, CI run `33312197937`, PR `#75`,
-  merge `8e15a89aae71f71eed31a0ef490228cdbc854c7d`, `NOT DEPLOYED`.
-- Closeout tracking: issue `#76`.
+Завершённая основа:
 
-Сейчас активного implementation package нет. Следующий кандидат —
-`AI-INSTRUCTION-SCOPE-001`; он не активен и требует отдельный owner-approved
-Task Contract, branch и gates.
+- `AI-CANONICAL-001` — merged, `NOT DEPLOYED`;
+- `AI-CANONICAL-REPAIR-001` — merged, `NOT DEPLOYED`;
+- master stabilization specification — этот PR после merge.
 
-Baseline issue `#71` остаётся закреплён за SHA
-`ecb02bf84ae21a46711c9b38b61784147fb9fc0a`. Issue `#72` — широкая родительская
-спецификация; её нельзя передавать одному агенту как единый package.
+Активного implementation package нет. Следующий кандидат после merge:
 
-## 3. Доступные context-карты
+```text
+AI-EVAL-BASELINE-001
+```
 
-- [docs/context/frontend-studio.md](context/frontend-studio.md) — студия,
-  профиль и основные frontend routes.
-- [docs/context/video-gallery-feed.md](context/video-gallery-feed.md) — видео,
-  gallery и feed.
-- [docs/context/backend-auth-bots.md](context/backend-auth-bots.md) — auth,
-  trusted identity, Telegram/MAX.
-- [docs/context/chat.md](context/chat.md) — desktop/mobile chat, общая история,
-  модели, инструменты и chat billing. Полные контракты:
-  [архитектура продукта](chat-system.md) и
-  [поведение AI-помощника](chat-assistant-contract.md).
-- [docs/context/admin-control-center.md](context/admin-control-center.md) —
-  админка, CRM и административные экраны моделей/операций.
+Это существующий read-only issue #71. Не создавать дублирующий baseline package.
 
-Для product billing, images, audio, 3D и release отдельные canonical карты
-ещё не завершены. До context-pilot использовать bounded discovery.
+Далее идти только по dependency order master-spec. Ключевые gates:
 
-## 4. Generated evidence
+```text
+baseline
+→ package ownership + remote main guard
+→ fail-closed scope + architecture health
+→ bounded context
+→ product/supply-chain/test-health floor
+→ isolated dev env + affected tests
+→ Docker DEV/TEST
+→ touch-driven decomposition
+→ data/recovery/runtime/performance floor
+→ contract/drift
+→ final cold eval
+→ optional container readiness/production
+```
+
+## 3. Context и generated evidence
+
+Доступные context cards:
+
+- `docs/context/frontend-studio.md`;
+- `docs/context/video-gallery-feed.md`;
+- `docs/context/backend-auth-bots.md`;
+- `docs/context/chat.md`;
+- `docs/context/admin-control-center.md`.
+
+Для отсутствующей domain card использовать bounded discovery, не broad scan.
+
+Generated evidence:
 
 ```text
 docs/generated/frontend-map.md
-docs/generated/frontend-map.json
 docs/generated/architecture-inventory.md
-docs/generated/architecture-inventory.json
 backend/SYMBOL_MAP.md
 ```
 
-Generated evidence читается точечно. Большие JSON, symbol maps и монолиты не
-загружаются целиком без обоснованной необходимости.
+Большие JSON/maps/monoliths читать точечно.
 
-## 5. Программные и продуктовые lanes
+## 4. Главные незакрытые capabilities
 
-- Agent-development: `docs/agent-control-plane.md`.
-- Chat product/architecture: [docs/chat-system.md](chat-system.md).
-- Phone product: `docs/phone-platform-master-plan-20260824.md`; только для
-  `/phone` и связанных capabilities.
-- Production release: `docs/production-release-runbook.md`; только для
-  release/rollback/live diagnosis. Подтверждённый разбор последнего сбоя:
-  `docs/production-release-incident-20260902.md`.
-- Backup/restore: `docs/backup-restore-runbook-20260713.md` и
+- package registry/one-writer ownership;
+- remote `main` protection от ordinary coding agents;
+- machine-enforced scope;
+- file/coupling health gate;
+- scoped/bounded context tooling;
+- current critical product-flow contract;
+- supply-chain vulnerability/license gate;
+- test-health/flakiness/warning gate;
+- isolated dev environment;
+- affected-test router;
+- Docker DEV/TEST;
+- hotspot decomposition;
+- restore rehearsal/data-integrity gate;
+- worker/runtime health + deterministic performance budgets;
+- contract graph/drift automation;
+- final cold eval.
+
+## 5. Self-audit cadence
+
+1. После каждого implementation package — Package Health Gate.
+2. После каждых трёх merged implementation packages — Architecture Checkpoint.
+3. После каждой фазы — Phase Acceptance Gate + bounded cold-agent case.
+
+Protected hotspots не растут. После extraction budget снижается в том же package.
+Security/dependency/data/recovery regressions также могут остановить feature flow.
+
+## 6. Program lanes
+
+- stabilization master: `docs/stabilization-optimization-master-spec.md`;
+- agent development: `docs/agent-control-plane.md`;
+- chat: `docs/chat-system.md`;
+- phone: `docs/phone-platform-master-plan-20260824.md`;
+- production release: `docs/production-release-runbook.md`;
+- backup/restore: `docs/backup-restore-runbook-20260713.md`,
   `docs/yandex-disk-backup-runbook-20260716.md`.
-- Старые engineering, transformation, hardening и phase documents — reference
-  evidence, не автоматически активный backlog.
 
-## 6. Известные ограничения
-
-- `main` пока не защищён обязательной branch protection; нужны registry, locks,
-  hooks, CI и один интегратор.
-- Scoped `backend/frontend/ops/docs AGENTS.md`, isolated dev environment,
-  affected-test router, contract graph и cold eval automation ещё не внедрены.
-- Крупные `backend/main.py`, `newUi.tsx`, `adminModels.tsx` и CSS остаются
-  дорогими. Использовать context/maps/symbol ranges до декомпозиции.
-- Фактические tokens учитываются только по данным агента/API.
+Historical phase/engineering documents are evidence, not active backlog.
 
 ## 7. Когда обновлять NOW
 
-Обновляй этот файл в том же commit, когда меняются завершённый/активный/следующий
-package, canonical context-карты, подтверждённый source/release state, blocker
-или маршрутизация к contracts. Не добавляй длинные логи, PID и непроверенные
-claims.
+Обновлять только при смене completed/active/next package, blocker, canonical map,
+verified source/release state или program routing. Не добавлять длинные логи,
+implementation detail или package receipts.

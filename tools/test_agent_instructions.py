@@ -22,6 +22,7 @@ REQUIRED = (
     ROOT / "docs" / "NOW.md",
     ROOT / "docs" / "current-status.md",
     ROOT / "docs" / "agent-control-plane.md",
+    ROOT / "docs" / "stabilization-optimization-master-spec.md",
     ROOT / "docs" / "agent-tasks" / "AI-CANONICAL-001.md",
     ROOT / "docs" / "agent-tasks" / "AI-CANONICAL-REPAIR-001.md",
     *ADAPTERS,
@@ -167,9 +168,21 @@ def _assert_program_and_package_status() -> None:
     assert "status: active-program" in program
     assert "canonical: true" in program
     assert "daily_context: false" in program
+    assert "master_spec: docs/stabilization-optimization-master-spec.md" in program
     assert "AI-CANONICAL-REPAIR-001" in program
     assert "merge `8e15a89aae71f71eed31a0ef490228cdbc854c7d`" in program
-    assert "Активного implementation package нет" in program
+    assert "baseline issue #71" in program
+
+    master = _text(ROOT / "docs" / "stabilization-optimization-master-spec.md")
+    assert "status: owner-directed-master-spec" in master
+    assert "daily_context: false" in master
+    assert "current_status_owner: docs/NOW.md" in master
+    assert "agent_program: docs/agent-control-plane.md" in master
+    assert "production_change_authorized: false" in master
+    assert "AI-EVAL-BASELINE-001" in master
+    assert "STAB-MAIN-GUARD-001" in master
+    assert "AI-ENFORCE-001" in master
+    assert "BOT-STABILITY ACCEPTED" in master
 
     first = _text(ROOT / "docs" / "agent-tasks" / "AI-CANONICAL-001.md")
     assert "status: completed" in first
@@ -191,13 +204,12 @@ def _assert_program_and_package_status() -> None:
     assert "deployment: none" in repair
 
     now = _text(ROOT / "docs" / "NOW.md")
-    assert "status_effective_when: merged-to-main" in now
-    assert "completed_package: AI-CANONICAL-001" in now
-    assert "completed_repair: AI-CANONICAL-REPAIR-001" in now
+    assert "completed_package: STAB-MASTER-SPEC-001" in now
     assert "active_package: none" in now
     assert "active_task_contract:" not in now
-    assert "next_candidate: AI-INSTRUCTION-SCOPE-001" in now
-    assert "Feature branch не может сама разблокировать" in now
+    assert "next_candidate: AI-EVAL-BASELINE-001" in now
+    assert "Активного implementation package нет" in now
+    assert "Следующий кандидат после merge" in now
 
 
 def assert_agent_instruction_contracts() -> None:

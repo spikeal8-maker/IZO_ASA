@@ -3,7 +3,8 @@ status: active-program
 canonical: true
 daily_context: false
 program: IZO_ASA Agent Control Plane
-updated: 2026-08-30
+master_spec: docs/stabilization-optimization-master-spec.md
+updated: 2026-09-14
 repository: spikeal8-maker/IZO_ASA
 ---
 
@@ -11,162 +12,211 @@ repository: spikeal8-maker/IZO_ASA
 
 ## 1. Назначение
 
-Программа делает работу разработчиков и AI-агентов ограниченной, проверяемой и
-воспроизводимой. Это reference document, а не ежедневный обязательный контекст.
-Порядок чтения определён только в `AI_START_HERE.md`.
+Это agent-specific subprogram master-ТЗ. Он отвечает только за то, чтобы coding
+agents работали ограниченно, воспроизводимо и проверяемо. Общий порядок, включая
+product contract, supply-chain, recovery, runtime health и Docker, задаёт
+`docs/stabilization-optimization-master-spec.md`. Текущий исполняемый package
+определяет только `docs/NOW.md`.
 
 ```text
-запрос владельца
+owner request
 → Task Contract
-→ domain и risk class
-→ ограниченный context packet
-→ отдельный worktree и package ownership
-→ изолированная тестовая среда
-→ изменение в заявленном scope
-→ targeted verification и пользовательское evidence
-→ один clean commit интегратору
-→ обновление context/eval по фактическому drift
+→ domain/risk/change class
+→ package/worktree ownership
+→ remote main guard
+→ machine-enforced scope
+→ bounded context
+→ isolated environment
+→ affected verification
+→ Package Health Gate
+→ clean PR
 ```
 
-Главный принцип: документация объясняет правила, инструменты их проверяют и
-обеспечивают.
+Главный принцип: документация объясняет правила; tooling/permissions/hooks/CI/locks
+обеспечивают их технически.
 
-## 2. Что переиспользуется
+## 2. Переиспользовать, не дублировать
 
-Не создавать параллельные реализации:
-
-- корневой `AGENTS.md` и существующий `docs/context/`;
+- `AGENTS.md`, `AI_START_HERE.md`, `docs/NOW.md`;
+- `docs/context/*`;
 - generated frontend/backend/architecture maps;
-- `tools/repository-operation-lock.ps1` и `tools/verify.ps1`;
-- временные DB/media roots и fake providers в CI;
-- действующие release, backup и production-safety contracts.
+- `architecture/contract.json`;
+- `tools/repository-operation-lock.ps1`;
+- `tools/verify.ps1`;
+- temporary DB/media roots и fake providers;
+- release/backup/production safety contracts.
 
-## 3. Что не смешивается с базовым контуром
+Запрещены второй Task registry, второй agent CLI, второй context hierarchy, второй
+repository lock и второй architecture inventory.
 
-До завершения управляющих пакетов не объединять с ними redesign, массовую
-декомпозицию монолитов, миграцию платформы, Maya, deploy/restart, реальные
-платежи/webhook/письма/provider calls или массовое перемещение документации.
+## 3. Завершённая основа
 
-## 4. Состояние программы
+- `AI-CANONICAL-001`: PR #73, merge `49a19e271e4e0e71d1fa6f871f828f0a233cfbdf`, `NOT DEPLOYED`.
+- `AI-CANONICAL-REPAIR-001`: PR #75, merge `8e15a89aae71f71eed31a0ef490228cdbc854c7d`, `NOT DEPLOYED`.
+- baseline issue #71 существует и закрывается первым.
 
-Завершено:
+## 4. Agent capability order
 
-- `AI-CANONICAL-001`: PR `#73`, merge
-  `49a19e271e4e0e71d1fa6f871f828f0a233cfbdf`, `NOT DEPLOYED`.
-- `AI-CANONICAL-REPAIR-001`: final reviewed head
-  `8f1de5a167ca94a334e5df274da479cf0beab0ee`, CI `33312197937`, PR `#75`,
-  merge `8e15a89aae71f71eed31a0ef490228cdbc854c7d`, `NOT DEPLOYED`.
-- Status closeout tracked by issue `#76`.
+### 0. `AI-EVAL-BASELINE-001`
 
-Активного implementation package нет. Следующий кандидат:
+Read-only cold-agent baseline issue #71. Product writes запрещены.
 
-- `AI-INSTRUCTION-SCOPE-001` — уменьшить постоянный root context и добавить
-  scoped `backend/frontend/ops/docs AGENTS.md`.
+### 1. `AI-PACKAGE-001`
 
-Он начинается только с отдельного owner-approved Task Contract. Baseline issue
-`#71` остаётся read-only экспериментом на старом SHA.
+- machine-readable Task Manifest;
+- `changeClass` + budgets;
+- shared registry through Git common dir;
+- worktree lifecycle;
+- one-writer ownership;
+- overlap detection;
+- controlled scope expansion;
+- reuse existing repository lock.
 
-## 5. Последовательность оставшихся пакетов
+### 2. `STAB-MAIN-GUARD-001`
 
-1. `AI-INSTRUCTION-SCOPE-001`
-   - сократить root policy;
-   - вынести предметные правила в четыре scoped-файла;
-   - измерять полный обязательный context budget.
+Agent Control Plane не считается fail-closed, пока ordinary coding credential
+может обновить remote `main`. Preferred: GitHub ruleset/branch protection.
+Fallback при ограничениях плана: coding-agent credentials не имеют права писать
+`refs/heads/main`; merge credential принадлежит только integration owner.
 
-2. `AI-CONTEXT-SCHEMA-001`
-   - metadata schema для существующих трёх context-карт;
-   - deterministic generated index и path/fingerprint validation;
-   - без новых domain-карт.
+Local hooks являются дополнительной, но не основной защитой.
 
-3. `AI-CONTEXT-PILOT-001`
-   - только `chat` и `admin-models`;
-   - bounded `agent context`;
-   - повторить соответствующие baseline cases.
+### 3. `AI-ENFORCE-001`
 
-4. `AI-SYMBOL-CONTEXT-001`
-   - symbol, imports, callers/callees, routes, tests и bounded line window;
-   - без чтения гигантских файлов целиком.
+- versioned package/scope guards;
+- forbidden paths;
+- file/LOC budgets;
+- dependency/migration/global-config scope checks;
+- integration lock;
+- CI validation;
+- fail closed при undeclared diff.
 
-5. `AI-CONTEXT-EXPAND-001`
-   - images, billing, audio, 3D и release-ops после успешного пилота.
+### 4. `STAB-SIZE-001`
 
-6. `AI-PACKAGE-001`
-   - Task Contract schema;
-   - shared registry через Git common dir;
-   - worktree lifecycle, declared/discovered scope и overlap detection;
-   - расширить существующий repository lock, не писать второй.
+Не отдельная система. Расширяет `architecture/contract.json` и существующий
+architecture inventory: protected `net non-growth`, thresholds, trends и coupling
+health.
 
-7. `AI-ENFORCE-001`
-   - versioned hooks, package ID/scope guards, integration lock и CI validation.
+### 5. Bounded context
 
-8. `AI-DEV-ENV-001`
-   - temporary DB/media/secrets, fake providers, fixtures, unique ports,
-     preview и cleanup receipt.
+Последовательно:
 
-9. `AI-VERIFY-001`
-   - affected-test routing, compact logs, visual/functional evidence и один Full
-     на clean integration candidate.
+1. `AI-INSTRUCTION-SCOPE-001`;
+2. `AI-CONTEXT-SCHEMA-001`;
+3. `AI-CONTEXT-PILOT-001`;
+4. `AI-SYMBOL-CONTEXT-001`;
+5. `AI-CONTEXT-EXPAND-001`.
 
-10. `AI-CONTRACT-GRAPH-001`
-    - UI → API → service → DB → worker → provider → billing;
-    - `unknown` вместо догадок.
+Target: relevant policies/domain/symbols/routes/tests/source windows вместо broad
+monolith reads.
 
-11. `AI-EVAL-001`
-    - полный cold eval, сравнение с baseline и решение о rollout.
+### 6. `AI-DEV-ENV-001`
 
-12. `AI-DECOMPOSE-*`
-    - постепенное уменьшение `backend/main.py`, `newUi.tsx`,
-      `adminModels.tsx`, крупных CSS и legacy boundaries.
+- temporary DB/media/secrets;
+- fake providers;
+- fixtures;
+- unique ports;
+- preview/cleanup receipt.
 
-Issue `#72` остаётся родительской спецификацией и не исполняется одним агентом.
+### 7. `AI-VERIFY-001`
 
-## 6. Целевая CLI-поверхность
+- affected-test routing;
+- compact logs;
+- visual/functional evidence;
+- один Full на clean integration candidate.
+
+### 8. `AI-DECOMPOSE-*`
+
+Только после scope/context/env/verify foundations. Правило:
+
+```text
+characterize
+→ extract without behavior change
+→ verify parity
+→ lower budget
+→ separate behavior package
+```
+
+### 9. `AI-CONTRACT-GRAPH-001`
+
+UI → API → service → DB → worker → provider → billing/media. `unknown` вместо
+догадок. Master program добавляет общий drift gate поверх graph/evidence.
+
+### 10. `AI-EVAL-001`
+
+Финальный independent cold eval против baseline.
+
+Product contract, supply-chain, test-health, recovery, runtime health, performance
+и Docker packages определяет master-ТЗ; они не дублируются здесь.
+
+## 5. Единая CLI
 
 ```powershell
 .\tools\agent.ps1 doctor
-.\tools\agent.ps1 context -Domain chat
-.\tools\agent.ps1 symbol -Path backend/main.py -Symbol phone_chat_ollama
-.\tools\agent.ps1 start -Manifest .\tasks\CHAT-001.yaml
+.\tools\agent.ps1 start -Manifest .\tasks\TASK.yaml
+.\tools\agent.ps1 context
+.\tools\agent.ps1 symbol -Path <path> -Symbol <name>
 .\tools\agent.ps1 status
-.\tools\agent.ps1 scope-add -Path frontend/src/example.tsx -Reason "..."
+.\tools\agent.ps1 scope-add -Path <path> -Reason "..."
 .\tools\agent.ps1 env-up
 .\tools\agent.ps1 verify
+.\tools\agent.ps1 audit
 .\tools\agent.ps1 finish
 .\tools\agent.ps1 eval -Suite smoke
 ```
 
-Отсутствующая команда не должна имитироваться ручной процедурой, выдаваемой за
-техническое enforcement.
+Отсутствующая команда не имитируется ручной процедурой, выдаваемой за enforcement.
 
-## 7. Бюджеты и метрики
+## 6. Self-audit cadence
+
+После каждого implementation package:
+
+- scope/diff;
+- file/coupling growth;
+- protected budgets;
+- targeted tests;
+- generated/context drift;
+- secret/provider/dependency safety;
+- user acceptance evidence.
+
+После каждых трёх merged implementation packages — Architecture Checkpoint.
+После каждой фазы — Phase Acceptance Gate + bounded cold-agent case.
+
+## 7. Целевые метрики
 
 ```text
-core instructions:          ≤ 12–16 KiB
-domain + Task Contract:     ≤ 12–16 KiB
-bounded source/test context: измеряется отдельно
+core instructions:              ≤12–16 KiB
+domain + Task Contract:         ≤12–16 KiB
+ordinary UI source reads:       <15, target ≤8
+micro-ui production files:      ≤3 by default
+undeclared cross-domain diff:   0
+protected hotspot growth:       0
+repeated broad scan:            0
+first-pass acceptance:          ≥80%
+ordinary-agent direct main:     0
+Full per integration candidate: 1
 ```
 
-- first-pass acceptance ≥ 70%;
-- обычная UI-задача читает < 15 source-файлов;
-- незаявленные cross-domain changes = 0;
-- direct agent pushes в `main` = 0;
-- один Full на integration candidate;
-- repeated broad scan без новой причины = 0;
-- фактические tokens — только по данным Codex/API.
+Tokens учитываются только по фактическим данным агента/API.
 
-## 8. Merge и release gates
+## 8. Merge/release rules
 
-Каждый package имеет Task Contract/issue и feature branch, не расширяет scope
-молча, проходит targeted checks и требуемый Quick, ждёт CI и automated review,
-разбирает все findings, передаёт один self-contained PR и не выполняет
-production-действия без отдельной авторизации.
+Каждый package имеет Task Contract + feature worktree, не расширяет scope молча,
+проходит targeted checks/required Quick/CI, выполняет Package Health Gate, ждёт
+review и передаёт self-contained PR.
 
-`CODE COMPLETE`, `VERIFIED`, `MERGED`, `DEPLOYED` и
-`OPERATIONALLY VERIFIED` не объединяются.
+`CODE COMPLETE`, `VERIFIED`, `MERGED`, `DEPLOYED`, `OPERATIONALLY VERIFIED` не
+объединяются. Production/provider actions требуют отдельной authorization.
 
-## 9. Definition of done программы
+## 9. Definition of Done Agent Control Plane
 
-Новый агент без истории чата определяет repo/worktree, формирует Task Contract,
-получает bounded context, не читает монолиты целиком без причины, не пересекается
-с другим package, использует isolated environment, запускает релевантные gates,
-предъявляет evidence, передаёт clean commit и проходит eval лучше baseline.
+1. Cold agent определяет правильный repo/domain/package без истории чата.
+2. Task scope ограничен технически.
+3. Ordinary coding-agent не может писать remote `main`.
+4. Один writer не пересекает другой package.
+5. Protected hotspots невозможно незаметно раздувать.
+6. Bounded context заменяет broad monolith scans.
+7. Test environment изолирована от production.
+8. Affected verification объяснимо выбирается автоматически.
+9. Self-audit evidence формируется до handoff.
+10. Final cold eval ≥80% first-pass и лучше baseline.
