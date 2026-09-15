@@ -1,0 +1,80 @@
+manifestVersion = 1
+id = "AI-ENFORCE-001"
+baseSha = "5c0f2ebb05c729650371612ed2dcfce22f95cd7c"
+goal = "Enforce package scope, exact base, path and diff budgets fail-closed in local agent workflows and CI."
+userOutcome = "Undeclared, forbidden or over-budget changes cannot become a green package."
+beforeScenario = "Task manifests and ownership exist, but committed and working diffs are not uniformly machine-enforced."
+afterScenario = "One canonical enforcement engine validates local and CI package diffs with stable failure codes."
+nonGoals = [
+  "product behavior changes",
+  "architecture size metadata expansion",
+  "context generation",
+  "dev sandbox",
+  "affected test routing",
+  "deployment",
+]
+declaredFiles = [
+  "tools/agent_system/enforce.py",
+  "tools/agent_system/package.py",
+  "tools/agent.ps1",
+  ".githooks/pre-commit",
+  ".githooks/pre-push",
+  "tools/test_agent_enforce.py",
+  "tools/verify.ps1",
+  "tools/test_verify_script.py",
+  "tools/test_ci_workflow.py",
+  ".github/workflows/ci.yml",
+  "docs/NOW.md",
+  "docs/agent-control-plane.md",
+  "tools/test_agent_instructions.py",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+]
+protectedFilesTouched = [
+]
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+maxProductionFiles = 0
+maxChangedLines = 1100
+acceptance = [
+  "Undeclared and forbidden paths fail with stable normalized diagnostics.",
+  "Exact base and PR target drift fail closed.",
+  "File and changed-line budgets are enforced deterministically.",
+  "High-impact dependency, workflow, migration and architecture changes require exact manifest intent.",
+  "Local mode validates working state and ownership; CI mode trusts committed Git evidence only.",
+  "Hook bypass cannot bypass CI enforcement.",
+  "No product, runtime, provider or production-data changes.",
+]
+requiredEvidence = [
+  "focused enforcement tests",
+  "Quick verification",
+  "exact-head GitHub CI",
+  "complete diff review",
+]
+targetedTests = [
+  "tools/test_agent_enforce.py",
+  "tools/test_agent_package.py",
+  "tools/test_verify_script.py",
+  "tools/test_ci_workflow.py",
+  "tools/test_agent_instructions.py",
+]
+fileGrowthExpectations = [
+  "enforce.py remains at or below 420 lines",
+  "focused enforcement tests remain at or below 420 lines",
+  "no product hotspot growth",
+]
+forbiddenOperations = [
+  "deploy",
+  "restart",
+  "production-data",
+  "provider-call",
+  "direct-main",
+]
+rollbackBoundary = "Revert enforcement engine and local/CI wiring while preserving package ownership, main guard and product/runtime state."

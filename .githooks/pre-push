@@ -6,4 +6,6 @@ if [ -z "$repo_root" ]; then
   exit 2
 fi
 python_cmd="${IZO_PYTHON_PATH:-python}"
+cd "$repo_root"
+"$python_cmd" -m tools.agent_system.enforce --repo-root "$repo_root" local
 exec "$python_cmd" "$repo_root/tools/agent_system/main_guard.py" pre-push
