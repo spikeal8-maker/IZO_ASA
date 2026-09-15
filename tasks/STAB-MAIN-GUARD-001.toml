@@ -1,0 +1,80 @@
+manifestVersion = 1
+id = "STAB-MAIN-GUARD-001"
+baseSha = "e00b528fa7ecfd2e62ddc38046e4f1390332d921"
+goal = "Physically prevent ordinary coding-agent workflows from mutating remote main while preserving feature-branch and reviewed integration flow."
+userOutcome = "Ordinary coding agents cannot update refs/heads/main and receive early local denial for main-target pushes."
+beforeScenario = "Remote main is unprotected and ordinary coding paths can technically move it."
+afterScenario = "Local main-target mutations fail early and a separately evidenced remote credential boundary denies ordinary main writes."
+nonGoals = [
+  "product behavior changes",
+  "full package diff enforcement",
+  "deployment or restart",
+  "production topology changes",
+]
+declaredFiles = [
+  "tools/agent_system/main_guard.py",
+  "tools/agent.ps1",
+  "tools/test_agent_main_guard.py",
+  "docs/NOW.md",
+  "docs/agent-control-plane.md",
+  "tools/test_agent_instructions.py",
+]
+allowedPatterns = [
+  ".githooks/**",
+  "tools/install-agent-hooks.ps1",
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+  ".github/**",
+]
+protectedFilesTouched = [
+]
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+maxProductionFiles = 0
+maxChangedLines = 350
+acceptance = [
+  "Local guard rejects refs/heads/main targets.",
+  "Feature branch targets remain allowed.",
+  "Versioned pre-push hook delegates to the canonical guard.",
+  "Remote ordinary coding identity is proven unable to mutate upstream main.",
+  "No product/runtime/deploy changes.",
+]
+requiredEvidence = [
+  "focused main-guard tests",
+  "agent lifecycle status",
+  "exact-head GitHub CI",
+  "remote-denial evidence",
+  "complete diff review",
+]
+targetedTests = [
+  "tools/test_agent_main_guard.py",
+  "tools/test_agent_package.py",
+  "tools/test_agent_instructions.py",
+]
+fileGrowthExpectations = [
+  "new main_guard module remains below 500 lines",
+  "no product hotspot growth",
+]
+forbiddenOperations = [
+  "deploy",
+  "restart",
+  "provider-call",
+  "production-data",
+  "direct-main",
+]
+rollbackBoundary = "Revert local guard/hook/status wiring and separately remove external credential boundary only through owner-controlled integration path."
+
+[[scopeExpansions]]
+path = ".githooks/**"
+reason = "Versioned local main-target push and commit guards for STAB-MAIN-GUARD-001"
+recordedAtUtc = "2026-09-15T04:55:36.113959Z"
+
+[[scopeExpansions]]
+path = "tools/install-agent-hooks.ps1"
+reason = "Idempotent repository-local activation of versioned hooks"
+recordedAtUtc = "2026-09-15T04:55:37.454121Z"

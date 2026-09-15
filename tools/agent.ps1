@@ -1,11 +1,12 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0, Mandatory = $true)]
-    [ValidateSet("doctor", "start", "status", "scope-add", "finish", "context", "symbol", "env-up", "verify", "audit", "eval")]
+    [ValidateSet("doctor", "start", "status", "scope-add", "finish", "main-guard", "context", "symbol", "env-up", "verify", "audit", "eval")]
     [string]$Command,
     [string]$Manifest = "",
     [string]$Path = "",
     [string]$Reason = "",
+    [string]$Ref = "",
     [string]$WorktreePath = "",
     [string]$RepoRoot = ""
 )
@@ -28,6 +29,17 @@ if (Test-Path -LiteralPath $projectPython -PathType Leaf) {
         $pythonCommand = Get-Command python -ErrorAction Stop
     }
     $python = $pythonCommand.Source
+}
+
+if ($Command -eq "main-guard") {
+    if (-not $Ref.Trim()) { throw "-Ref is required for agent main-guard." }
+    Push-Location -LiteralPath $RepoRoot
+    try {
+        & $python -m tools.agent_system.main_guard check-target --ref $Ref
+        exit $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
 }
 
 $arguments = @("-m", "tools.agent_system.package", "--repo-root", $RepoRoot, $Command)
