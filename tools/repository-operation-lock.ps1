@@ -6,7 +6,10 @@ param(
     [string]$Kind = "",
     [string]$Token = "",
     [string]$Command = "",
-    [string]$TokenOutFile = ""
+    [string]$TokenOutFile = "",
+    [ValidateSet("worktree", "common-repository")]
+    [string]$StorageScope = "worktree",
+    [int]$OwnerProcessId = 0
 )
 
 # REL-LOCK-001: single-flight repository operations.
@@ -18,12 +21,9 @@ param(
 #   release  - release the lock when the caller presents the matching token.
 #   status   - print the current owner metadata without mutating anything.
 #
-# The lock is a directory under .runtime\locks\<kind>. Acquisition is atomic:
-# owner metadata is staged in a unique directory first and then moved into
-# place with Directory.Move, which fails if the destination already exists.
-# A lock is stale only when its recorded owner PID no longer exists or the
-# process occupying that PID has a different start time (PID reuse). Age or
-# TTL alone never invalidates a live owner.
+# The default lock is a directory under .runtime\locks\<kind>. Acquisition is
+# atomic. common-repository scope instead stores it under the Git common dir so
+# sibling worktrees contend on the same lock.
 
 Set-StrictMode -Version Latest
 
@@ -36,11 +36,29 @@ function Get-IzoRepositoryLockTokenVariable {
 function Get-IzoRepositoryLockPath {
     param(
         [string]$RepoRoot,
-        [string]$Kind
+        [string]$Kind,
+        [ValidateSet("worktree", "common-repository")]
+        [string]$StorageScope = "worktree"
     )
 
     if ($Kind -notmatch "^[a-z0-9][a-z0-9-]{0,63}$") {
         throw "Repository operation lock kind must be a short lowercase slug: '$Kind'"
+    }
+    if ($StorageScope -eq "common-repository") {
+        $gitCommand = Get-Command git.exe -ErrorAction SilentlyContinue
+        if ($null -eq $gitCommand) { $gitCommand = Get-Command git -ErrorAction Stop }
+        $commonOutput = @(& $gitCommand.Source -C $RepoRoot rev-parse --git-common-dir 2>$null)
+        $gitExitCode = $LASTEXITCODE
+        $commonDir = $commonOutput | Select-Object -First 1
+        if ($gitExitCode -ne 0 -or -not ([string]$commonDir).Trim()) {
+            throw "Git common directory could not be resolved for repository: $RepoRoot"
+        }
+        $commonPath = if ([IO.Path]::IsPathRooted(([string]$commonDir).Trim())) {
+            [IO.Path]::GetFullPath(([string]$commonDir).Trim())
+        } else {
+            [IO.Path]::GetFullPath((Join-Path $RepoRoot ([string]$commonDir).Trim()))
+        }
+        return Join-Path (Join-Path (Join-Path $commonPath "izo-agent") "locks") $Kind
     }
     return Join-Path (Join-Path $RepoRoot ".runtime\locks") $Kind
 }
@@ -48,11 +66,11 @@ function Get-IzoRepositoryLockPath {
 function Get-IzoProcessStartText {
     param([int]$ProcessId)
 
-    $process = Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId" -ErrorAction SilentlyContinue
-    if ($null -eq $process -or $null -eq $process.CreationDate) {
+    try {
+        return [System.Diagnostics.Process]::GetProcessById($ProcessId).StartTime.ToUniversalTime().ToString("o")
+    } catch {
         return ""
     }
-    return ([DateTime]$process.CreationDate).ToUniversalTime().ToString("o")
 }
 
 function Get-IzoRepositoryLockOwner {
@@ -95,11 +113,13 @@ function Lock-IzoRepositoryOperation {
         [Parameter(Mandatory = $true)][string]$RepoRoot,
         [Parameter(Mandatory = $true)][string]$Kind,
         [string]$OperationCommand = "",
-        [int]$OwnerProcessId = $PID
+        [int]$OwnerProcessId = $PID,
+        [ValidateSet("worktree", "common-repository")]
+        [string]$StorageScope = "worktree"
     )
 
     $resolvedRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
-    $lockPath = Get-IzoRepositoryLockPath -RepoRoot $resolvedRoot -Kind $Kind
+    $lockPath = Get-IzoRepositoryLockPath -RepoRoot $resolvedRoot -Kind $Kind -StorageScope $StorageScope
     $lockRoot = Split-Path -Parent $lockPath
     $tokenVariable = Get-IzoRepositoryLockTokenVariable -Kind $Kind
     New-Item -ItemType Directory -Force -Path $lockRoot | Out-Null
@@ -194,13 +214,17 @@ if ($Action) {
             # Batch launchers invoke this CLI in a transient PowerShell; the
             # durable owner is the launcher shell itself, so record the parent
             # process (the cmd.exe running the .bat) as the lock owner.
-            $parentPid = [int](Get-CimInstance Win32_Process -Filter "ProcessId=$PID").ParentProcessId
-            $ownerPid = if ($parentPid -gt 0 -and (Get-IzoProcessStartText -ProcessId $parentPid)) { $parentPid } else { $PID }
+            $ownerPid = $OwnerProcessId
+            if ($ownerPid -le 0) {
+                $parentPid = [int](Get-CimInstance Win32_Process -Filter "ProcessId=$PID").ParentProcessId
+                $ownerPid = if ($parentPid -gt 0 -and (Get-IzoProcessStartText -ProcessId $parentPid)) { $parentPid } else { $PID }
+            }
             $handle = Lock-IzoRepositoryOperation `
                 -RepoRoot $RepoRoot `
                 -Kind $Kind `
                 -OperationCommand $Command `
-                -OwnerProcessId $ownerPid
+                -OwnerProcessId $ownerPid `
+                -StorageScope $StorageScope
             if ($TokenOutFile.Trim()) {
                 Set-Content -LiteralPath $TokenOutFile -Value $handle.Token -Encoding ASCII -NoNewline
             }
@@ -210,7 +234,7 @@ if ($Action) {
             if (-not $Token.Trim()) {
                 throw "-Token is required to release a repository operation lock."
             }
-            $lockPath = Get-IzoRepositoryLockPath -RepoRoot (Resolve-Path -LiteralPath $RepoRoot).Path -Kind $Kind
+            $lockPath = Get-IzoRepositoryLockPath -RepoRoot (Resolve-Path -LiteralPath $RepoRoot).Path -Kind $Kind -StorageScope $StorageScope
             $owner = Get-IzoRepositoryLockOwner -LockPath $lockPath
             if ($null -eq $owner) {
                 Write-Host "REPOSITORY_OPERATION_LOCK_ALREADY_RELEASED kind=$Kind"
@@ -222,7 +246,7 @@ if ($Action) {
             }
         }
         "status" {
-            $lockPath = Get-IzoRepositoryLockPath -RepoRoot (Resolve-Path -LiteralPath $RepoRoot).Path -Kind $Kind
+            $lockPath = Get-IzoRepositoryLockPath -RepoRoot (Resolve-Path -LiteralPath $RepoRoot).Path -Kind $Kind -StorageScope $StorageScope
             $owner = Get-IzoRepositoryLockOwner -LockPath $lockPath
             if ($null -eq $owner) {
                 Write-Host "REPOSITORY_OPERATION_LOCK_FREE kind=$Kind"

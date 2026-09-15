@@ -1,0 +1,42 @@
+manifestVersion = 1
+id = "AI-PACKAGE-001"
+baseSha = "46f3910d10793138d44d8a3fcbc57a8ee0509686"
+goal = "Create deterministic package and worktree lifecycle with shared one-writer ownership."
+userOutcome = "Coding agents use one CLI and cannot silently overlap write ownership across sibling worktrees."
+beforeScenario = "Package ownership exists only as policy; sibling worktrees do not share one machine-readable registry."
+afterScenario = "Versioned manifests, shared registry, common-repository lock scope, overlap detection, scope expansion and safe finish are executable."
+nonGoals = ["product behavior changes", "full diff or CI scope firewall", "remote main protection", "bounded domain context generation", "isolated provider or database environment", "affected-test routing"]
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+declaredFiles = [
+  "tools/agent.ps1",
+  "tools/agent_system/__init__.py",
+  "tools/agent_system/package.py",
+  "tools/agent_system/registry.py",
+  "tools/test_agent_package.py",
+  "tasks/AI-PACKAGE-001.toml",
+  "tools/repository-operation-lock.ps1",
+  "tools/verify.ps1",
+  "tools/test_verify_script.py",
+  "docs/NOW.md",
+  "tools/test_agent_instructions.py",
+]
+allowedPatterns = []
+forbiddenPatterns = ["backend/**", "frontend/**", "ops/**", "architecture/**", ".github/**"]
+protectedFilesTouched = []
+maxProductionFiles = 0
+maxChangedLines = 1000
+acceptance = [
+  "Sibling worktrees share registry and common-repository lock.",
+  "Overlapping ownership fails before second acquisition.",
+  "Draft manifest becomes canonical worktree tasks manifest without mutating control main.",
+  "Scope expansion updates canonical manifest and registry atomically.",
+  "Dirty worktree retains ownership as blocked-dirty.",
+  "Existing release and Full verification lock behavior remains compatible.",
+]
+requiredEvidence = ["focused package tests", "Quick verification", "GitHub CI on exact candidate SHA", "complete diff review"]
+targetedTests = ["tools/test_agent_package.py", "tools/test_repository_operation_lock.py", "tools/test_verify_script.py", "tools/test_context_docs.py"]
+fileGrowthExpectations = ["new handwritten Python modules remain at or below 500 lines", "no product hotspot growth"]
+forbiddenOperations = ["deploy", "restart", "provider-call", "production-data", "direct-main"]
+rollbackBoundary = "Revert package tooling, common lock scope extension and status wiring; product/runtime/data remain untouched."
