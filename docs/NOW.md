@@ -2,18 +2,18 @@
 status: canonical
 status_role: current-status-aggregator
 backlog_role: program-router
-updated: 2026-09-14
-source_main_at_status_update: 46f3910d10793138d44d8a3fcbc57a8ee0509686
+updated: 2026-09-15
+source_main_at_status_update: 3a3da254d1e4d86fbdd87e9add6b2f3ee9bbc3e2
 last_verified_main: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_verified_at: 2026-09-02T00:08:04+03:00
-completed_package: AI-PACKAGE-001
-active_package: STAB-MAIN-GUARD-001
-active_task_contract: github-issue-102
+completed_package: STAB-MAIN-GUARD-001
+active_package: AI-ENFORCE-001
+active_task_contract: github-issue-103
 baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a
 baseline_status: deferred-required-before-AI-CONTEXT-PILOT-001
 blocker: none
-next_candidate: AI-ENFORCE-001
+next_candidate: STAB-SIZE-001
 ---
 # IZO_ASA — NOW
 
@@ -33,7 +33,7 @@ git rev-parse origin/main
 git worktree list
 ```
 Source `main` при последнем status transition:
-`46f3910d10793138d44d8a3fcbc57a8ee0509686`.
+`3a3da254d1e4d86fbdd87e9add6b2f3ee9bbc3e2`.
 
 Последний отдельно operationally verified production release:
 `d223c179d5944bc208cace867d5e93bc1341a3aa` от 2026-09-02. Не выводить deploy
@@ -41,9 +41,9 @@ Source `main` при последнем status transition:
 
 ## 2. Активный stabilization package
 
-Active: `STAB-MAIN-GUARD-001`, issue #102.
-`AI-PACKAGE-001` (#101) completed: canonical `tools/agent.ps1`, versioned TOML
-manifest, shared registry and one-writer ownership. Next: `AI-ENFORCE-001` (#103).
+Active: `AI-ENFORCE-001`, issue #103.
+`STAB-MAIN-GUARD-001` (#102) completed: D2 coding workspace is upstream read-only;
+versioned hooks reject direct main targets. Next: `STAB-SIZE-001` (#104).
 
 ## 3. Frozen baseline — deferred, not waived
 
@@ -82,7 +82,6 @@ backend/SYMBOL_MAP.md
 
 ## 5. Главные незакрытые capabilities
 
-- remote `main` protection от ordinary coding agents;
 - machine-enforced scope и file/coupling health;
 - scoped/bounded context tooling;
 - critical product-flow + supply-chain + test-health floor;
