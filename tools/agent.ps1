@@ -42,6 +42,15 @@ if ($Command -eq "main-guard") {
     }
 }
 
+if ($Command -eq "verify") {
+    Push-Location -LiteralPath $RepoRoot
+    try {
+        & $python -m tools.agent_system.enforce --repo-root $RepoRoot local
+        exit $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
+}
 $arguments = @("-m", "tools.agent_system.package", "--repo-root", $RepoRoot, $Command)
 switch ($Command) {
     "start" {

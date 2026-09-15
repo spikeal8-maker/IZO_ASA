@@ -3,17 +3,17 @@ status: canonical
 status_role: current-status-aggregator
 backlog_role: program-router
 updated: 2026-09-15
-source_main_at_status_update: 3a3da254d1e4d86fbdd87e9add6b2f3ee9bbc3e2
+source_main_at_status_update: 5c0f2ebb05c729650371612ed2dcfce22f95cd7c
 last_verified_main: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_verified_at: 2026-09-02T00:08:04+03:00
-completed_package: STAB-MAIN-GUARD-001
-active_package: AI-ENFORCE-001
-active_task_contract: github-issue-103
+completed_package: AI-ENFORCE-001
+active_package: STAB-SIZE-001
+active_task_contract: github-issue-104
 baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a
 baseline_status: deferred-required-before-AI-CONTEXT-PILOT-001
 blocker: none
-next_candidate: STAB-SIZE-001
+next_candidate: AI-INSTRUCTION-SCOPE-001
 ---
 # IZO_ASA — NOW
 
@@ -33,7 +33,7 @@ git rev-parse origin/main
 git worktree list
 ```
 Source `main` при последнем status transition:
-`3a3da254d1e4d86fbdd87e9add6b2f3ee9bbc3e2`.
+`5c0f2ebb05c729650371612ed2dcfce22f95cd7c`.
 
 Последний отдельно operationally verified production release:
 `d223c179d5944bc208cace867d5e93bc1341a3aa` от 2026-09-02. Не выводить deploy
@@ -41,9 +41,9 @@ Source `main` при последнем status transition:
 
 ## 2. Активный stabilization package
 
-Active: `AI-ENFORCE-001`, issue #103.
-`STAB-MAIN-GUARD-001` (#102) completed: D2 coding workspace is upstream read-only;
-versioned hooks reject direct main targets. Next: `STAB-SIZE-001` (#104).
+Active: `STAB-SIZE-001`, issue #104.
+`AI-ENFORCE-001` (#103) completed: manifest scope, exact-base and diff budgets are fail-closed;
+local hooks and pull-request CI use one validator. Next: `AI-INSTRUCTION-SCOPE-001` (#105).
 
 ## 3. Frozen baseline — deferred, not waived
 
@@ -82,7 +82,7 @@ backend/SYMBOL_MAP.md
 
 ## 5. Главные незакрытые capabilities
 
-- machine-enforced scope и file/coupling health;
+- protected hotspot size и coupling health;
 - scoped/bounded context tooling;
 - critical product-flow + supply-chain + test-health floor;
 - isolated dev environment + affected-test router;

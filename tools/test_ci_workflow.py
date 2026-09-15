@@ -31,9 +31,12 @@ def test_ci_workflow_uses_pinned_self_hosted_windows_toolchain_and_lockfiles() -
     assert (ROOT / ".node-version").read_text(encoding="utf-8").strip() == "24.14.1"
     assert len(FULL_SHA_ACTION.findall(source)) == 1
     assert "persist-credentials: false" in source
+    assert "Enforce package scope" in source
+    assert "tools.agent_system.enforce" in source
+    assert "IZO_PR_BASE_SHA" in source
     assert "clean: true" in source
-    assert "fetch-depth: 1" in source
-    assert source.count("shell: powershell") == 4
+    assert "fetch-depth: 2" in source
+    assert source.count("shell: powershell") == 5
     assert "shell: pwsh" not in source
 
 
