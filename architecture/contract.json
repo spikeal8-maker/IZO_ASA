@@ -387,24 +387,42 @@
     "backend/static/gallery/index.html"
   ],
   "file_limits": [
-    {"path": "backend/main.py", "max_lines": 19750},
-    {"path": "frontend/src/newStudioV3.css", "max_lines": 6400},
-    {"path": "frontend/src/newUi.tsx", "max_lines": 3950},
-    {"path": "frontend/src/LegacyApp.tsx", "max_lines": 3700},
-    {"path": "frontend/src/newUi.css", "max_lines": 3400},
-    {"path": "frontend/src/index.css", "max_lines": 2650},
-    {"path": "backend/static/feed/index.html", "max_lines": 2200},
-    {"path": "frontend/src/adminModels.tsx", "max_lines": 2300},
-    {"path": "backend/test_feed_v2.py", "max_lines": 2600}
+    {"path": "backend/main.py", "max_lines": 19750, "protected": true, "non_growth": true, "owner": "backend-composition", "category": "backend-hotspot"},
+    {"path": "frontend/src/newStudioV3.css", "max_lines": 6400, "protected": true, "non_growth": true, "owner": "frontend-studio", "category": "frontend-style-hotspot"},
+    {"path": "frontend/src/newUi.tsx", "max_lines": 3950, "protected": true, "non_growth": true, "owner": "frontend-studio", "category": "frontend-ui-hotspot"},
+    {"path": "frontend/src/LegacyApp.tsx", "max_lines": 3700, "protected": true, "non_growth": true, "owner": "frontend-legacy", "category": "frontend-legacy-hotspot"},
+    {"path": "frontend/src/newUi.css", "max_lines": 3400, "protected": true, "non_growth": true, "owner": "frontend-studio", "category": "frontend-style-hotspot"},
+    {"path": "frontend/src/index.css", "max_lines": 2650, "protected": true, "non_growth": true, "owner": "frontend-shell", "category": "frontend-style-hotspot"},
+    {"path": "backend/static/feed/index.html", "max_lines": 2200, "protected": true, "non_growth": true, "owner": "feed-static", "category": "static-ui-hotspot"},
+    {"path": "frontend/src/adminModels.tsx", "max_lines": 2300, "protected": true, "non_growth": true, "owner": "admin-models", "category": "frontend-admin-hotspot"},
+    {"path": "backend/test_feed_v2.py", "max_lines": 2600, "protected": true, "non_growth": true, "owner": "feed-tests", "category": "test-hotspot"}
   ],
   "symbol_limits": [
     {
       "path": "backend/main.py",
       "max_top_level_functions": 725,
       "max_top_level_classes": 83,
-      "max_routes": 238
+      "max_routes": 238,
+      "protected": true,
+      "non_growth": true,
+      "owner": "backend-composition",
+      "category": "backend-hotspot"
     }
   ],
+  "source_size_policy": {
+    "normal_max_lines": 500,
+    "soft_max_lines": 750,
+    "trend_window_packages": 3,
+    "trend_growth_percent": 15,
+    "roots": ["backend", "frontend/src", "frontend/public", "tools"],
+    "extensions": [".py", ".ts", ".tsx", ".js", ".mjs", ".css", ".html", ".ps1"],
+    "classifications": [
+      {"pattern": "docs/generated/**", "kind": "generated", "rationale": "Generated architecture and context evidence is owned by deterministic generators."},
+      {"pattern": "backend/SYMBOL_MAP.md", "kind": "generated", "rationale": "Generated backend symbol map is owned by tools/generate_backend_map.py."},
+      {"pattern": "frontend/node_modules/**", "kind": "vendor", "rationale": "Installed frontend dependencies are not handwritten repository source."},
+      {"pattern": "backend/.venv/**", "kind": "vendor", "rationale": "Local Python environment is not handwritten repository source."}
+    ]
+  },
   "release_contract": {
     "python_version_file": ".python-version",
     "node_version_file": ".node-version",

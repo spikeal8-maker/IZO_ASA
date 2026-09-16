@@ -316,3 +316,21 @@ def test_parallel_overlapping_start_has_one_winner(tmp_path: Path) -> None:
     assert not any(thread.is_alive() for thread in threads)
     assert results.count("ok") == 1, results
     assert any("SCOPE_OVERLAP" in result or "REPOSITORY_OPERATION_LOCK_BUSY" in result for result in results if result != "ok")
+
+
+def test_size_review_roundtrip_and_duplicate_paths_fail(tmp_path: Path) -> None:
+    _repo, base = _make_repo(tmp_path / "repo")
+    review = '\n[[sizeReviews]]\npath = "tools/large.py"\nrationale = "Cohesive temporary module with decomposition follow-up."\n'
+    draft = tmp_path / "review.toml"
+    draft.write_text(_manifest_text("PKG-SIZE", base) + review, encoding="utf-8")
+    manifest = parse_manifest(draft)
+    assert len(manifest.size_reviews) == 1
+    assert manifest.size_reviews[0].path == "tools/large.py"
+    canonical = tmp_path / "tasks" / "PKG-SIZE.toml"
+    canonical.parent.mkdir()
+    canonical.write_text(render_manifest(manifest), encoding="utf-8")
+    assert parse_manifest(canonical) == manifest
+    duplicate = tmp_path / "duplicate.toml"
+    duplicate.write_text(_manifest_text("PKG-SIZE", base) + review + review, encoding="utf-8")
+    with pytest.raises(AgentPackageError, match="MANIFEST_SIZE_REVIEW_INVALID"):
+        parse_manifest(duplicate)

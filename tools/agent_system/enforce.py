@@ -18,6 +18,7 @@ from .package import (
     scope_items,
 )
 from .registry import load_registry, registry_lock
+from tools.architecture_size_contract import evaluate_size_delta, measurement_paths
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 MANIFEST_RE = re.compile(r"^tasks/[A-Z0-9][A-Z0-9-]{2,79}\.toml$")
@@ -283,6 +284,48 @@ def validate(manifest: TaskManifest, evidence: Evidence, repo: Path) -> list[dic
     return findings
 
 
+
+ARCHITECTURE_CONTRACT = "architecture/contract.json"
+
+def _size_policy_findings(repo: Path, manifest: TaskManifest, evidence: Evidence) -> list[dict[str, str]]:
+    base_result = _run(repo, "show", f"{manifest.base_sha}:{ARCHITECTURE_CONTRACT}")
+    candidate_contract = repo / ARCHITECTURE_CONTRACT
+    if base_result.returncode:
+        if candidate_contract.exists():
+            raise EnforcementError("ARCHITECTURE_SIZE_CONTRACT_INVALID", path=ARCHITECTURE_CONTRACT, detail="base contract unavailable")
+        return []
+    try:
+        base_policy = json.loads(base_result.stdout)
+        candidate_policy = json.loads(candidate_contract.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise EnforcementError("ARCHITECTURE_SIZE_CONTRACT_INVALID", path=ARCHITECTURE_CONTRACT, detail=str(exc)) from exc
+    changed = set(evidence.paths)
+    added = {
+        change.paths[-1] for change in evidence.changes
+        if change.paths and change.status[:1] in {"A", "C", "?"}
+    }
+    base_paths, candidate_paths = measurement_paths(base_policy, changed, added)
+    base_texts: dict[str, str] = {}
+    candidate_texts: dict[str, str] = {}
+    for path in sorted(base_paths):
+        result = _run(repo, "show", f"{manifest.base_sha}:{path}")
+        if result.returncode:
+            raise EnforcementError("ARCHITECTURE_SIZE_CONTRACT_INVALID", path=path, detail="base source unavailable")
+        base_texts[path] = result.stdout
+    for path in sorted(candidate_paths):
+        candidate = repo / Path(*PurePosixPath(path).parts)
+        if candidate.is_file() and not _escapes_repo(repo, path):
+            try:
+                candidate_texts[path] = candidate.read_text(encoding="utf-8")
+            except UnicodeDecodeError as exc:
+                raise EnforcementError("ARCHITECTURE_SIZE_CONTRACT_INVALID", path=path, detail="handwritten source is not UTF-8 text") from exc
+    reviews = {item.path: item.rationale for item in manifest.size_reviews}
+    return evaluate_size_delta(
+        base_policy, candidate_policy, changed_paths=changed, added_paths=added,
+        base_texts=base_texts, candidate_texts=candidate_texts,
+        change_class=manifest.change_class, size_reviews=reviews,
+    )
+
 def _ci_manifest(repo: Path, target_base: str) -> tuple[TaskManifest, Evidence]:
     _ensure_commit(repo, target_base, fetch_missing=True)
     ancestor = _run(repo, "merge-base", "--is-ancestor", target_base, "HEAD")
@@ -344,6 +387,8 @@ def _receipt(mode: str, repo: Path, manifest: TaskManifest, evidence: Evidence,
 def run_local(repo: Path) -> int:
     manifest, evidence = _local_manifest(repo)
     findings = validate(manifest, evidence, repo)
+    if not any(item.get("code") == "PATH_ESCAPE" for item in findings):
+        findings.extend(_size_policy_findings(repo, manifest, evidence))
     receipt = _receipt("local", repo, manifest, evidence, findings)
     stream = sys.stderr if findings else sys.stdout
     print(("ENFORCE_FAIL " if findings else "ENFORCE_OK ") + json.dumps(receipt, sort_keys=True), file=stream)
@@ -351,6 +396,8 @@ def run_local(repo: Path) -> int:
 def run_ci(repo: Path, target_base: str) -> int:
     manifest, evidence = _ci_manifest(repo, target_base)
     findings = validate(manifest, evidence, repo)
+    if not any(item.get("code") == "PATH_ESCAPE" for item in findings):
+        findings.extend(_size_policy_findings(repo, manifest, evidence))
     receipt = _receipt("ci", repo, manifest, evidence, findings)
     stream = sys.stderr if findings else sys.stdout
     print(("ENFORCE_FAIL " if findings else "ENFORCE_OK ") + json.dumps(receipt, sort_keys=True), file=stream)

@@ -3,17 +3,17 @@ status: canonical
 status_role: current-status-aggregator
 backlog_role: program-router
 updated: 2026-09-15
-source_main_at_status_update: 5c0f2ebb05c729650371612ed2dcfce22f95cd7c
+source_main_at_status_update: 297c9891ccb7e834ebc66c520ba6e8c15ddb9f12
 last_verified_main: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_verified_at: 2026-09-02T00:08:04+03:00
-completed_package: AI-ENFORCE-001
-active_package: STAB-SIZE-001
-active_task_contract: github-issue-104
+completed_package: STAB-SIZE-001
+active_package: AI-INSTRUCTION-SCOPE-001
+active_task_contract: github-issue-105
 baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a
 baseline_status: deferred-required-before-AI-CONTEXT-PILOT-001
 blocker: none
-next_candidate: AI-INSTRUCTION-SCOPE-001
+next_candidate: AI-CONTEXT-SCHEMA-001
 ---
 # IZO_ASA — NOW
 
@@ -33,7 +33,7 @@ git rev-parse origin/main
 git worktree list
 ```
 Source `main` при последнем status transition:
-`5c0f2ebb05c729650371612ed2dcfce22f95cd7c`.
+`297c9891ccb7e834ebc66c520ba6e8c15ddb9f12`.
 
 Последний отдельно operationally verified production release:
 `d223c179d5944bc208cace867d5e93bc1341a3aa` от 2026-09-02. Не выводить deploy
@@ -41,9 +41,9 @@ Source `main` при последнем status transition:
 
 ## 2. Активный stabilization package
 
-Active: `STAB-SIZE-001`, issue #104.
-`AI-ENFORCE-001` (#103) completed: manifest scope, exact-base and diff budgets are fail-closed;
-local hooks and pull-request CI use one validator. Next: `AI-INSTRUCTION-SCOPE-001` (#105).
+Active: `AI-INSTRUCTION-SCOPE-001`, issue #105.
+`STAB-SIZE-001` (#104) completed: protected hotspot non-growth and reviewed source-size policy are machine-enforced;
+architecture inventory owns the size metadata. Next: `AI-CONTEXT-SCHEMA-001` (#106).
 
 ## 3. Frozen baseline — deferred, not waived
 
@@ -82,7 +82,7 @@ backend/SYMBOL_MAP.md
 
 ## 5. Главные незакрытые capabilities
 
-- protected hotspot size и coupling health;
+- coupling/ownership health;
 - scoped/bounded context tooling;
 - critical product-flow + supply-chain + test-health floor;
 - isolated dev environment + affected-test router;

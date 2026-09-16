@@ -18,7 +18,7 @@ from .registry import AgentRegistryError, active_entries, atomic_write_text, loa
 ID_RE = re.compile(r"^[A-Z0-9][A-Z0-9-]{2,79}$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 RISK_CLASSES = {"low", "standard", "high-assurance", "release-ops"}
-MANIFEST_KEYS = {"manifestVersion", "id", "baseSha", "goal", "userOutcome", "beforeScenario", "afterScenario", "nonGoals", "domain", "riskClass", "changeClass", "declaredFiles", "allowedPatterns", "forbiddenPatterns", "protectedFilesTouched", "maxProductionFiles", "maxChangedLines", "acceptance", "requiredEvidence", "targetedTests", "fileGrowthExpectations", "forbiddenOperations", "rollbackBoundary", "scopeExpansions"}
+MANIFEST_KEYS = {"manifestVersion", "id", "baseSha", "goal", "userOutcome", "beforeScenario", "afterScenario", "nonGoals", "domain", "riskClass", "changeClass", "declaredFiles", "allowedPatterns", "forbiddenPatterns", "protectedFilesTouched", "maxProductionFiles", "maxChangedLines", "acceptance", "requiredEvidence", "targetedTests", "fileGrowthExpectations", "forbiddenOperations", "rollbackBoundary", "scopeExpansions", "sizeReviews"}
 TEXT_KEYS = ("goal", "userOutcome", "beforeScenario", "afterScenario", "domain", "rollbackBoundary")
 BLOCKED_ROOTS = {".git", ".runtime", "node_modules", ".venv"}
 class AgentPackageError(RuntimeError):
@@ -28,6 +28,10 @@ class ScopeExpansion:
     path: str
     reason: str
     recorded_at_utc: str
+@dataclass(frozen=True)
+class SizeReview:
+    path: str
+    rationale: str
 @dataclass(frozen=True)
 class TaskManifest:
     manifest_version: int
@@ -54,6 +58,7 @@ class TaskManifest:
     forbidden_operations: tuple[str, ...]
     rollback_boundary: str
     scope_expansions: tuple[ScopeExpansion, ...] = ()
+    size_reviews: tuple[SizeReview, ...] = ()
 def _git(repo: Path, *args: str, check: bool = True) -> str:
     result = subprocess.run(["git", "-C", str(repo), *args], text=True, capture_output=True, check=False)
     if check and result.returncode:
@@ -124,7 +129,20 @@ def parse_manifest(path: Path) -> TaskManifest:
         if not isinstance(item, dict) or set(item) != {"path", "reason", "recordedAtUtc"}:
             raise AgentPackageError("MANIFEST_SCOPE_EXPANSION_INVALID")
         expansions.append(ScopeExpansion(normalize_scope(item["path"], allow_subtree=True), _clean_text(item["reason"], "scopeExpansions.reason"), _clean_text(item["recordedAtUtc"], "scopeExpansions.recordedAtUtc")))
-    return TaskManifest(1, package_id, base_sha, *(_clean_text(data[key], key) for key in ("goal", "userOutcome", "beforeScenario", "afterScenario")), _string_list(data, "nonGoals"), _clean_text(data["domain"], "domain"), data["riskClass"], data["changeClass"], _string_list(data, "declaredFiles", scope=True, subtree=False), _string_list(data, "allowedPatterns", scope=True), _string_list(data, "forbiddenPatterns", scope=True), _string_list(data, "protectedFilesTouched", scope=True, subtree=False), data["maxProductionFiles"], data["maxChangedLines"], *(_string_list(data, key) for key in ("acceptance", "requiredEvidence", "targetedTests", "fileGrowthExpectations", "forbiddenOperations")), _clean_text(data["rollbackBoundary"], "rollbackBoundary"), tuple(expansions))
+    reviews_raw = data.get("sizeReviews", [])
+    if not isinstance(reviews_raw, list):
+        raise AgentPackageError("MANIFEST_SIZE_REVIEW_INVALID")
+    reviews: list[SizeReview] = []
+    review_paths: set[str] = set()
+    for item in reviews_raw:
+        if not isinstance(item, dict) or set(item) != {"path", "rationale"}:
+            raise AgentPackageError("MANIFEST_SIZE_REVIEW_INVALID")
+        review_path = normalize_scope(item["path"], allow_subtree=False)
+        if review_path in review_paths:
+            raise AgentPackageError("MANIFEST_SIZE_REVIEW_INVALID duplicate-path")
+        review_paths.add(review_path)
+        reviews.append(SizeReview(review_path, _clean_text(item["rationale"], "sizeReviews.rationale")))
+    return TaskManifest(1, package_id, base_sha, *(_clean_text(data[key], key) for key in ("goal", "userOutcome", "beforeScenario", "afterScenario")), _string_list(data, "nonGoals"), _clean_text(data["domain"], "domain"), data["riskClass"], data["changeClass"], _string_list(data, "declaredFiles", scope=True, subtree=False), _string_list(data, "allowedPatterns", scope=True), _string_list(data, "forbiddenPatterns", scope=True), _string_list(data, "protectedFilesTouched", scope=True, subtree=False), data["maxProductionFiles"], data["maxChangedLines"], *(_string_list(data, key) for key in ("acceptance", "requiredEvidence", "targetedTests", "fileGrowthExpectations", "forbiddenOperations")), _clean_text(data["rollbackBoundary"], "rollbackBoundary"), tuple(expansions), tuple(reviews))
 def _q(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 def _arr(name: str, values: tuple[str, ...]) -> list[str]:
@@ -139,6 +157,8 @@ def render_manifest(m: TaskManifest) -> str:
     lines.append(f"rollbackBoundary = {_q(m.rollback_boundary)}")
     for expansion in m.scope_expansions:
         lines.extend(["", "[[scopeExpansions]]", f"path = {_q(expansion.path)}", f"reason = {_q(expansion.reason)}", f"recordedAtUtc = {_q(expansion.recorded_at_utc)}"])
+    for review in m.size_reviews:
+        lines.extend(["", "[[sizeReviews]]", f"path = {_q(review.path)}", f"rationale = {_q(review.rationale)}"])
     return "\n".join(lines) + "\n"
 def manifest_fingerprint(m: TaskManifest) -> str:
     return hashlib.sha256(render_manifest(m).encode("utf-8")).hexdigest()

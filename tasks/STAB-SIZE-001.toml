@@ -1,0 +1,80 @@
+manifestVersion = 1
+id = "STAB-SIZE-001"
+baseSha = "297c9891ccb7e834ebc66c520ba6e8c15ddb9f12"
+goal = "Enforce protected hotspot non-growth and reviewed new-source size policy from architecture/contract.json."
+userOutcome = "Hotspot growth, budget inflation and oversized new handwritten modules fail automatically."
+beforeScenario = "Absolute file and symbol ceilings exist, but package-relative non-growth and new-source size rules do not."
+afterScenario = "One reviewed architecture size contract drives deterministic inventory metadata and exact-base package enforcement."
+nonGoals = [
+  "product behavior changes",
+  "hotspot decomposition itself",
+  "context generation",
+  "docker",
+  "deployment",
+]
+declaredFiles = [
+  "architecture/contract.json",
+  "tools/architecture_size_contract.py",
+  "tools/generate_architecture_inventory.py",
+  "tools/test_generate_architecture_inventory.py",
+  "docs/generated/architecture-inventory.json",
+  "docs/generated/architecture-inventory.md",
+  "tools/agent_system/enforce.py",
+  "tools/test_agent_enforce.py",
+  "tools/agent_system/package.py",
+  "tools/test_agent_package.py",
+  "docs/NOW.md",
+  "tools/test_agent_instructions.py",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  ".github/**",
+]
+protectedFilesTouched = [
+]
+domain = "architecture-quality"
+riskClass = "standard"
+changeClass = "architecture"
+maxProductionFiles = 0
+maxChangedLines = 1000
+acceptance = [
+  "Protected ordinary changes cannot grow independently even below old absolute maxima.",
+  "Extraction must shrink protected files and lower the same-commit budget.",
+  "Protected file and symbol budget inflation fails.",
+  "New handwritten source size boundaries 500/501/750/751 are deterministic.",
+  "Reviewed contract metadata is the sole protected-size policy owner.",
+  "Generated architecture inventory stays deterministic and current.",
+  "No product/runtime/provider/data changes.",
+]
+requiredEvidence = [
+  "focused architecture-size tests",
+  "agent enforcement receipt",
+  "generated inventory check",
+  "Quick verification",
+  "exact-head GitHub CI",
+  "complete architecture-contract diff review",
+]
+targetedTests = [
+  "tools/test_generate_architecture_inventory.py",
+  "tools/test_agent_enforce.py",
+  "tools/test_agent_package.py",
+  "tools/test_agent_instructions.py",
+]
+fileGrowthExpectations = [
+  "new shared size-contract helper remains bounded",
+  "architecture inventory generator does not become a larger hotspot",
+  "enforcement remains bounded and reuses the shared contract",
+  "no product hotspot growth",
+]
+forbiddenOperations = [
+  "deploy",
+  "restart",
+  "production-data",
+  "provider-call",
+  "direct-main",
+]
+rollbackBoundary = "Revert architecture size metadata/helper/enforcement additions while preserving package ownership, main guard and product/runtime state."
