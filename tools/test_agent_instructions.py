@@ -216,14 +216,14 @@ def _assert_program_and_package_status() -> None:
     assert "all three receipts exist before #107 starts" in amendment
 
     now = _text(ROOT / "docs" / "NOW.md")
-    assert "completed_package: AI-ENFORCE-001" in now
-    assert "active_package: STAB-SIZE-001" in now
-    assert "active_task_contract: github-issue-104" in now
+    assert "completed_package: STAB-SIZE-001" in now
+    assert "active_package: AI-INSTRUCTION-SCOPE-001" in now
+    assert "active_task_contract: github-issue-105" in now
     assert "baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a" in now
     assert "baseline_status: deferred-required-before-AI-CONTEXT-PILOT-001" in now
     assert "blocker: none" in now
-    assert "next_candidate: AI-INSTRUCTION-SCOPE-001" in now
-    assert "Active: `STAB-SIZE-001`, issue #104." in now
+    assert "next_candidate: AI-CONTEXT-SCHEMA-001" in now
+    assert "Active: `AI-INSTRUCTION-SCOPE-001`, issue #105." in now
     assert "deferred, not waived" in now
     assert "Запрещено активировать" in now
     assert "`AI-CONTEXT-PILOT-001` (#107)" in now

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -274,3 +275,49 @@ def test_symlink_escape_fails_safe_when_supported(tmp_path: Path) -> None:
     manifest = _manifest(declared=("escape.txt",))
     findings = validate(manifest, _evidence("escape.txt"), repo)
     assert any(item["code"] == "PATH_ESCAPE" for item in findings)
+
+
+def _install_size_contract(repo: Path, file_limits: list[dict[str, object]] | None = None) -> str:
+    contract = {
+        "file_limits": file_limits or [], "symbol_limits": [],
+        "source_size_policy": {
+            "normal_max_lines": 500, "soft_max_lines": 750,
+            "trend_window_packages": 3, "trend_growth_percent": 15,
+            "roots": ["src"], "extensions": [".py"], "classifications": [],
+        },
+    }
+    path = repo / "architecture" / "contract.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(contract, indent=2) + "\n", encoding="utf-8")
+    _git(repo, "add", "."); _git(repo, "commit", "-m", "size contract"); _git(repo, "push", "origin", "main")
+    return _git(repo, "rev-parse", "HEAD")
+
+
+def test_ci_enforces_protected_non_growth_from_base_contract(tmp_path: Path, capsys) -> None:
+    repo, _ = _repo(tmp_path)
+    hot = repo / "src" / "hot.py"
+    hot.write_text("x\n" * 5, encoding="utf-8")
+    limit = {
+        "path": "src/hot.py", "max_lines": 10, "protected": True, "non_growth": True,
+        "owner": "test", "category": "hotspot",
+    }
+    base = _install_size_contract(repo, [limit])
+    manifest = _manifest(base=base, declared=("src/hot.py",))
+    tasks = repo / "tasks"; tasks.mkdir(exist_ok=True)
+    (tasks / f"{manifest.id}.toml").write_text(render_manifest(manifest), encoding="utf-8")
+    hot.write_text("x\n" * 6, encoding="utf-8")
+    _git(repo, "add", "."); _git(repo, "commit", "-m", "grow hotspot")
+    assert run_ci(repo, base) == 2
+    assert "PROTECTED_FILE_GROWTH" in capsys.readouterr().err
+
+
+def test_ci_requires_review_for_new_501_line_source(tmp_path: Path, capsys) -> None:
+    repo, _ = _repo(tmp_path)
+    base = _install_size_contract(repo)
+    manifest = _manifest(base=base, declared=("src/new.py",), max_lines=1000)
+    tasks = repo / "tasks"; tasks.mkdir(exist_ok=True)
+    (tasks / f"{manifest.id}.toml").write_text(render_manifest(manifest), encoding="utf-8")
+    (repo / "src" / "new.py").write_text("x\n" * 501, encoding="utf-8")
+    _git(repo, "add", "."); _git(repo, "commit", "-m", "large source")
+    assert run_ci(repo, base) == 2
+    assert "SIZE_REVIEW_REQUIRED" in capsys.readouterr().err

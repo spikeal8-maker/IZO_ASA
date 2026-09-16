@@ -19,8 +19,10 @@ from typing import Any, Iterable
 
 try:  # package import in pytest; direct import when executed from tools/
     from .generate_backend_map import Route, dotted_name, parse_source
+    from .architecture_size_contract import collect_file_limits, collect_symbol_limits, validate_size_contract
 except ImportError:  # pragma: no cover - exercised by the CLI
     from generate_backend_map import Route, dotted_name, parse_source
+    from architecture_size_contract import collect_file_limits, collect_symbol_limits, validate_size_contract
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -337,58 +339,9 @@ def collect_frontend_api_literals(root: Path) -> list[dict[str, Any]]:
     ]
 
 
-def collect_file_limits(root: Path, policy: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
-    rows: list[dict[str, Any]] = []
-    errors: list[str] = []
-    for item in policy.get("file_limits", []):
-        relative = str(item["path"])
-        path = root / relative
-        if not path.is_file():
-            errors.append(f"file limit target missing: {relative}")
-            continue
-        lines = len(path.read_text(encoding="utf-8").splitlines())
-        maximum = int(item["max_lines"])
-        rows.append({"path": relative, "lines": lines, "max_lines": maximum, "remaining": maximum - lines})
-        if lines > maximum:
-            errors.append(f"file line budget exceeded: {relative} has {lines}, maximum {maximum}")
-    return sorted(rows, key=lambda item: item["path"]), errors
-
-
-def collect_symbol_limits(root: Path, policy: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
-    rows: list[dict[str, Any]] = []
-    errors: list[str] = []
-    for item in policy.get("symbol_limits", []):
-        relative = str(item["path"])
-        path = root / relative
-        if not path.is_file():
-            errors.append(f"symbol limit target missing: {relative}")
-            continue
-        symbols, routes = parse_source(path)
-        counts = {
-            "top_level_functions": sum(symbol.kind.endswith("function") for symbol in symbols),
-            "top_level_classes": sum(symbol.kind == "class" for symbol in symbols),
-            "routes": len(routes),
-        }
-        row: dict[str, Any] = {"path": relative, **counts}
-        for count_name, maximum_name in (
-            ("top_level_functions", "max_top_level_functions"),
-            ("top_level_classes", "max_top_level_classes"),
-            ("routes", "max_routes"),
-        ):
-            maximum = int(item[maximum_name])
-            row[maximum_name] = maximum
-            row[f"remaining_{count_name}"] = maximum - counts[count_name]
-            if counts[count_name] > maximum:
-                errors.append(
-                    f"file symbol budget exceeded: {relative} has {counts[count_name]} "
-                    f"{count_name}, maximum {maximum}"
-                )
-        rows.append(row)
-    return sorted(rows, key=lambda item: item["path"]), errors
-
-
 def validate_policy_semantics(policy: dict[str, Any]) -> list[str]:
     errors: list[str] = []
+    errors.extend(validate_size_contract(policy))
     route_role = str(policy.get("default_route_process_role", "")).strip()
     if not route_role:
         errors.append("default route process role is missing")
@@ -593,6 +546,11 @@ def build_inventory(root: Path, policy: dict[str, Any]) -> tuple[dict[str, Any],
         "runtime_guards": policy.get("runtime_guards", {}),
         "file_limits": file_limits,
         "symbol_limits": symbol_limits,
+        "source_size_policy": policy.get("source_size_policy", {}),
+        "size_trend_evidence": {
+            "status": "unknown",
+            "reason": "Merged-package trend automation belongs to STAB-DRIFT-001 (#122).",
+        },
         "release_contract": release,
         "source_contract": "architecture/contract.json",
     }
@@ -600,7 +558,7 @@ def build_inventory(root: Path, policy: dict[str, Any]) -> tuple[dict[str, Any],
 
 
 def render_json(inventory: dict[str, Any]) -> str:
-    return json.dumps(inventory, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    return json.dumps(inventory, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
 
 
 def _md_cell(value: Any) -> str:
@@ -671,17 +629,28 @@ def render_markdown(inventory: dict[str, Any]) -> str:
     for item in frontend["api_literals"]:
         lines.append(f"| `{_md_cell(item['path'])}` | {_md_cell(', '.join(item['sources']))} |")
 
-    lines.extend(["", "## Large-file budgets", "", "| Path | Current | Maximum | Remaining |", "|---|---:|---:|---:|"])
+    lines.extend(["", "## Large-file budgets", "", "| Path | Owner | Category | Protected | Non-growth | Current | Maximum | Remaining |", "|---|---|---|---|---|---:|---:|---:|"])
     for item in inventory["file_limits"]:
-        lines.append(f"| `{item['path']}` | {item['lines']} | {item['max_lines']} | {item['remaining']} |")
+        lines.append(f"| `{item['path']}` | {_md_cell(item.get('owner', ''))} | {_md_cell(item.get('category', ''))} | {str(bool(item.get('protected'))).lower()} | {str(bool(item.get('non_growth'))).lower()} | {item['lines']} | {item['max_lines']} | {item['remaining']} |")
 
-    lines.extend(["", "## Symbol budgets", "", "| Path | Functions | Maximum | Classes | Maximum | Routes | Maximum |", "|---|---:|---:|---:|---:|---:|---:|"])
+    lines.extend(["", "## Symbol budgets", "", "| Path | Owner | Category | Protected | Functions | Maximum | Classes | Maximum | Routes | Maximum |", "|---|---|---|---|---:|---:|---:|---:|---:|---:|"])
     for item in inventory["symbol_limits"]:
         lines.append(
-            f"| `{item['path']}` | {item['top_level_functions']} | {item['max_top_level_functions']} | "
-            f"{item['top_level_classes']} | {item['max_top_level_classes']} | "
+            f"| `{item['path']}` | {_md_cell(item.get('owner', ''))} | {_md_cell(item.get('category', ''))} | {str(bool(item.get('protected'))).lower()} | "
+            f"{item['top_level_functions']} | {item['max_top_level_functions']} | {item['top_level_classes']} | {item['max_top_level_classes']} | "
             f"{item['routes']} | {item['max_routes']} |"
         )
+
+    source_policy = inventory.get("source_size_policy", {})
+    lines.extend(["", "## Handwritten source-size policy", "", f"- Normal maximum: {source_policy.get('normal_max_lines', 'unknown')} lines", f"- Soft-review maximum: {source_policy.get('soft_max_lines', 'unknown')} lines", f"- Roots: {_md_cell(', '.join(source_policy.get('roots', [])))}", f"- Extensions: {_md_cell(', '.join(source_policy.get('extensions', [])))}", "- Reviewed classifications:"])
+    for item in source_policy.get("classifications", []):
+        lines.append(f"  - `{item['pattern']}` -> {item['kind']}: {item['rationale']}")
+    trend = inventory.get("size_trend_evidence", {})
+    lines.append(
+        f"- Three-package trend: window={source_policy.get('trend_window_packages', 'unknown')}, "
+        f"growth threshold={source_policy.get('trend_growth_percent', 'unknown')}%, "
+        f"evidence={trend.get('status', 'unknown')} ({trend.get('reason', '')})"
+    )
 
     release = inventory["release_contract"]
     lines.extend(

@@ -147,23 +147,36 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 ## Large-file budgets
 
-| Path | Current | Maximum | Remaining |
-|---|---:|---:|---:|
-| `backend/main.py` | 19749 | 19750 | 1 |
-| `backend/static/feed/index.html` | 2124 | 2200 | 76 |
-| `backend/test_feed_v2.py` | 2346 | 2600 | 254 |
-| `frontend/src/LegacyApp.tsx` | 3600 | 3700 | 100 |
-| `frontend/src/adminModels.tsx` | 2300 | 2300 | 0 |
-| `frontend/src/index.css` | 2501 | 2650 | 149 |
-| `frontend/src/newStudioV3.css` | 6071 | 6400 | 329 |
-| `frontend/src/newUi.css` | 3143 | 3400 | 257 |
-| `frontend/src/newUi.tsx` | 3695 | 3950 | 255 |
+| Path | Owner | Category | Protected | Non-growth | Current | Maximum | Remaining |
+|---|---|---|---|---|---:|---:|---:|
+| `backend/main.py` | backend-composition | backend-hotspot | true | true | 19749 | 19750 | 1 |
+| `backend/static/feed/index.html` | feed-static | static-ui-hotspot | true | true | 2124 | 2200 | 76 |
+| `backend/test_feed_v2.py` | feed-tests | test-hotspot | true | true | 2346 | 2600 | 254 |
+| `frontend/src/LegacyApp.tsx` | frontend-legacy | frontend-legacy-hotspot | true | true | 3600 | 3700 | 100 |
+| `frontend/src/adminModels.tsx` | admin-models | frontend-admin-hotspot | true | true | 2300 | 2300 | 0 |
+| `frontend/src/index.css` | frontend-shell | frontend-style-hotspot | true | true | 2501 | 2650 | 149 |
+| `frontend/src/newStudioV3.css` | frontend-studio | frontend-style-hotspot | true | true | 6071 | 6400 | 329 |
+| `frontend/src/newUi.css` | frontend-studio | frontend-style-hotspot | true | true | 3143 | 3400 | 257 |
+| `frontend/src/newUi.tsx` | frontend-studio | frontend-ui-hotspot | true | true | 3695 | 3950 | 255 |
 
 ## Symbol budgets
 
-| Path | Functions | Maximum | Classes | Maximum | Routes | Maximum |
-|---|---:|---:|---:|---:|---:|---:|
-| `backend/main.py` | 683 | 725 | 77 | 83 | 189 | 238 |
+| Path | Owner | Category | Protected | Functions | Maximum | Classes | Maximum | Routes | Maximum |
+|---|---|---|---|---:|---:|---:|---:|---:|---:|
+| `backend/main.py` | backend-composition | backend-hotspot | true | 683 | 725 | 77 | 83 | 189 | 238 |
+
+## Handwritten source-size policy
+
+- Normal maximum: 500 lines
+- Soft-review maximum: 750 lines
+- Roots: backend, frontend/src, frontend/public, tools
+- Extensions: .py, .ts, .tsx, .js, .mjs, .css, .html, .ps1
+- Reviewed classifications:
+  - `docs/generated/**` -> generated: Generated architecture and context evidence is owned by deterministic generators.
+  - `backend/SYMBOL_MAP.md` -> generated: Generated backend symbol map is owned by tools/generate_backend_map.py.
+  - `frontend/node_modules/**` -> vendor: Installed frontend dependencies are not handwritten repository source.
+  - `backend/.venv/**` -> vendor: Local Python environment is not handwritten repository source.
+- Three-package trend: window=3, growth threshold=15%, evidence=unknown (Merged-package trend automation belongs to STAB-DRIFT-001 (#122).)
 
 ## Release identity baseline
 
