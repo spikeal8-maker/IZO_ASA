@@ -151,6 +151,7 @@ $packageFile = Join-Path $frontendDirectory "package.json"
 $mapScript = Join-Path $toolsDirectory "generate_backend_map.py"
 $architectureContract = Join-Path $resolvedRoot "architecture\contract.json"
 $architectureInventoryScript = Join-Path $toolsDirectory "generate_architecture_inventory.py"
+$contextIndexScript = Join-Path $toolsDirectory "generate_context_index.py"
 $frontendMapScript = Join-Path $toolsDirectory "generate_frontend_map.mjs"
 $runtimeListenerScript = Join-Path $toolsDirectory "check-runtime-listeners.ps1"
 $restartScript = Join-Path $toolsDirectory "restart-backend.ps1"
@@ -166,6 +167,7 @@ foreach ($requiredPath in @(
     $mapScript,
     $architectureContract,
     $architectureInventoryScript,
+    $contextIndexScript,
     $frontendMapScript,
     $runtimeListenerScript,
     $restartScript,
@@ -208,6 +210,7 @@ $quickTests = @(
     "-m", "pytest", "-q",
     "tools/test_generate_backend_map.py",
     "tools/test_generate_architecture_inventory.py",
+    "tools/test_agent_context.py",
     "tools/test_context_docs.py",
     "tools/test_agent_package.py",
     "tools/test_agent_enforce.py",
@@ -262,6 +265,7 @@ if ($PlanOnly) {
     Write-Host "VERIFY_PLAN_STEP py_compile files=$($pythonFiles.Count)"
     Write-Host "VERIFY_PLAN_STEP backend_map_check command=python tools/generate_backend_map.py --check"
     Write-Host "VERIFY_PLAN_STEP architecture_inventory_check command=python tools/generate_architecture_inventory.py --check"
+    Write-Host "VERIFY_PLAN_STEP context_index_check command=python tools/generate_context_index.py --check"
     Write-Host "VERIFY_PLAN_STEP frontend_map_check command=node tools/generate_frontend_map.mjs --check"
     if ($usesFullSuite) {
         Write-Host "VERIFY_PLAN_STEP caddy_runtime_integrity command=install-caddy.ps1 pinned=true"
@@ -375,6 +379,7 @@ for ($offset = 0; $offset -lt $pythonFiles.Count; $offset += $compileBatchSize) 
 }
 Invoke-NativeStep -Name "backend_map_check" -FilePath $python -ArgumentList @($mapScript, "--check") -WorkingDirectory $resolvedRoot
 Invoke-NativeStep -Name "architecture_inventory_check" -FilePath $python -ArgumentList @($architectureInventoryScript, "--check") -WorkingDirectory $resolvedRoot
+Invoke-NativeStep -Name "context_index_check" -FilePath $python -ArgumentList @($contextIndexScript, "--check") -WorkingDirectory $resolvedRoot
 Invoke-NativeStep -Name "frontend_map_check" -FilePath $node -ArgumentList @($frontendMapScript, "--check") -WorkingDirectory $resolvedRoot
 if ($usesFullSuite) {
     Invoke-NativeStep `

@@ -39,6 +39,8 @@ GENERATED_EVIDENCE = (
     ROOT / "docs" / "generated" / "frontend-map.json",
     ROOT / "docs" / "generated" / "architecture-inventory.md",
     ROOT / "docs" / "generated" / "architecture-inventory.json",
+    ROOT / "docs" / "generated" / "context-index.md",
+    ROOT / "docs" / "generated" / "context-index.json",
     ROOT / "backend" / "SYMBOL_MAP.md",
 )
 
@@ -271,15 +273,15 @@ def _assert_program_and_package_status() -> None:
     assert "all three receipts exist before #107 starts" in amendment
 
     now = _text(ROOT / "docs" / "NOW.md")
-    assert "completed_package: AI-INSTRUCTION-SCOPE-001" in now
-    assert "active_package: AI-CONTEXT-SCHEMA-001" in now
-    assert "active_task_contract: github-issue-106" in now
+    assert "completed_package: AI-CONTEXT-SCHEMA-001" in now
+    assert "active_package: AI-EVAL-BASELINE-001" in now
+    assert "active_task_contract: github-issue-71" in now
     assert "baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a" in now
-    assert "baseline_status: deferred-required-before-AI-CONTEXT-PILOT-001" in now
-    assert "blocker: none" in now
+    assert "baseline_status: active-required-before-AI-CONTEXT-PILOT-001" in now
+    assert "blocker: cold-executor-and-coding-credential-isolation-required" in now
     assert "next_candidate: AI-CONTEXT-PILOT-001" in now
-    assert "Active: `AI-CONTEXT-SCHEMA-001`, issue #106." in now
-    assert "deferred, not waived" in now
+    assert "Active: `AI-EVAL-BASELINE-001`, issue #71." in now
+    assert "Frozen baseline — active hard gate" in now
     assert "Запрещено активировать" in now
     assert "`AI-CONTEXT-PILOT-001` (#107)" in now
     assert "`AI-EVAL-001` (#123)" in now

@@ -1,3 +1,14 @@
+---
+status: canonical
+domain: frontend-studio
+read_when: ["image-studio","profile","paint"]
+source_paths: ["frontend/src/newUi.tsx","frontend/src/PaintWorkbench.tsx","frontend/src/ProfilePage.tsx","frontend/src/TopBarV3.tsx"]
+test_paths: ["frontend/e2e-studio-resilience.mjs"]
+related_domains: ["video-gallery-feed"]
+forbidden_paths: ["unknown"]
+owner: frontend-studio
+---
+
 # Context: frontend studio (новый UI)
 
 Назначение: минимальный контекст для задач по студии генерации (routes `/`,

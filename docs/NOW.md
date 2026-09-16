@@ -3,16 +3,16 @@ status: canonical
 status_role: current-status-aggregator
 backlog_role: program-router
 updated: 2026-09-16
-source_main_at_status_update: fbdb04aa6c523b3d18a2060071a760a70367c4f6
+source_main_at_status_update: 87a226dc7984ae5f56db0f497ed9c7f7151fd239
 last_verified_main: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_verified_at: 2026-09-02T00:08:04+03:00
-completed_package: AI-INSTRUCTION-SCOPE-001
-active_package: AI-CONTEXT-SCHEMA-001
-active_task_contract: github-issue-106
+completed_package: AI-CONTEXT-SCHEMA-001
+active_package: AI-EVAL-BASELINE-001
+active_task_contract: github-issue-71
 baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a
-baseline_status: deferred-required-before-AI-CONTEXT-PILOT-001
-blocker: none
+baseline_status: active-required-before-AI-CONTEXT-PILOT-001
+blocker: cold-executor-and-coding-credential-isolation-required
 next_candidate: AI-CONTEXT-PILOT-001
 ---
 # IZO_ASA — NOW
@@ -33,7 +33,7 @@ git rev-parse origin/main
 git worktree list
 ```
 Source `main` при последнем status transition:
-`fbdb04aa6c523b3d18a2060071a760a70367c4f6`.
+`87a226dc7984ae5f56db0f497ed9c7f7151fd239`.
 
 Последний отдельно operationally verified production release:
 `d223c179d5944bc208cace867d5e93bc1341a3aa` от 2026-09-02. Не выводить deploy
@@ -41,10 +41,10 @@ Source `main` при последнем status transition:
 
 ## 2. Активный stabilization package
 
-Active: `AI-CONTEXT-SCHEMA-001`, issue #106.
-`AI-INSTRUCTION-SCOPE-001` (#105) completed: root policy now owns only global invariants; backend/frontend/ops/docs use nearest scoped policies. Next: `AI-CONTEXT-PILOT-001` (#107), gated by baseline #71.
+Active: `AI-EVAL-BASELINE-001`, issue #71.
+`AI-CONTEXT-SCHEMA-001` (#106) completed: five context cards now use one validated schema and deterministic generated index. Next: `AI-CONTEXT-PILOT-001` (#107), blocked until baseline #71 has three accepted cold receipts.
 
-## 3. Frozen baseline — deferred, not waived
+## 3. Frozen baseline — active hard gate
 
 `AI-EVAL-BASELINE-001`, issue #71, остаётся обязательным. Frozen source:
 ```text
@@ -75,6 +75,8 @@ Generated evidence:
 ```text
 docs/generated/frontend-map.md
 docs/generated/architecture-inventory.md
+docs/generated/context-index.md
+docs/generated/context-index.json
 backend/SYMBOL_MAP.md
 ```
 Большие JSON/maps/monoliths читать точечно.
