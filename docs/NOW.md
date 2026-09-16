@@ -2,18 +2,18 @@
 status: canonical
 status_role: current-status-aggregator
 backlog_role: program-router
-updated: 2026-09-15
-source_main_at_status_update: 297c9891ccb7e834ebc66c520ba6e8c15ddb9f12
+updated: 2026-09-16
+source_main_at_status_update: fbdb04aa6c523b3d18a2060071a760a70367c4f6
 last_verified_main: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_verified_at: 2026-09-02T00:08:04+03:00
-completed_package: STAB-SIZE-001
-active_package: AI-INSTRUCTION-SCOPE-001
-active_task_contract: github-issue-105
+completed_package: AI-INSTRUCTION-SCOPE-001
+active_package: AI-CONTEXT-SCHEMA-001
+active_task_contract: github-issue-106
 baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a
 baseline_status: deferred-required-before-AI-CONTEXT-PILOT-001
 blocker: none
-next_candidate: AI-CONTEXT-SCHEMA-001
+next_candidate: AI-CONTEXT-PILOT-001
 ---
 # IZO_ASA — NOW
 
@@ -33,7 +33,7 @@ git rev-parse origin/main
 git worktree list
 ```
 Source `main` при последнем status transition:
-`297c9891ccb7e834ebc66c520ba6e8c15ddb9f12`.
+`fbdb04aa6c523b3d18a2060071a760a70367c4f6`.
 
 Последний отдельно operationally verified production release:
 `d223c179d5944bc208cace867d5e93bc1341a3aa` от 2026-09-02. Не выводить deploy
@@ -41,9 +41,8 @@ Source `main` при последнем status transition:
 
 ## 2. Активный stabilization package
 
-Active: `AI-INSTRUCTION-SCOPE-001`, issue #105.
-`STAB-SIZE-001` (#104) completed: protected hotspot non-growth and reviewed source-size policy are machine-enforced;
-architecture inventory owns the size metadata. Next: `AI-CONTEXT-SCHEMA-001` (#106).
+Active: `AI-CONTEXT-SCHEMA-001`, issue #106.
+`AI-INSTRUCTION-SCOPE-001` (#105) completed: root policy now owns only global invariants; backend/frontend/ops/docs use nearest scoped policies. Next: `AI-CONTEXT-PILOT-001` (#107), gated by baseline #71.
 
 ## 3. Frozen baseline — deferred, not waived
 
