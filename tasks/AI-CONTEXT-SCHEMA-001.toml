@@ -1,0 +1,91 @@
+manifestVersion = 1
+id = "AI-CONTEXT-SCHEMA-001"
+baseSha = "87a226dc7984ae5f56db0f497ed9c7f7151fd239"
+goal = "Give the five existing canonical context cards one strict metadata schema and generate one deterministic context index."
+userOutcome = "Cold agents can route to bounded domain context from validateable repository data instead of hand-maintained lists or broad scans."
+beforeScenario = "Five context cards use mixed or missing front matter and test_context_docs.py owns a manual central list."
+afterScenario = "All five existing cards expose one schema, discovery is metadata-driven, and deterministic JSON/Markdown context indexes validate routing and paths."
+nonGoals = [
+  "new context domains",
+  "context pilot",
+  "symbol retrieval",
+  "product behavior changes",
+  "docker",
+  "deployment",
+]
+declaredFiles = [
+  "docs/context/admin-control-center.md",
+  "docs/context/backend-auth-bots.md",
+  "docs/context/chat.md",
+  "docs/context/frontend-studio.md",
+  "docs/context/video-gallery-feed.md",
+  "docs/generated/context-index.json",
+  "docs/generated/context-index.md",
+  "tools/generate_context_index.py",
+  "tools/test_context_docs.py",
+  "tools/test_agent_context.py",
+  "tools/verify.ps1",
+  "tools/test_verify_script.py",
+  "docs/NOW.md",
+]
+allowedPatterns = [
+  "tools/test_agent_instructions.py",
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  ".github/**",
+]
+protectedFilesTouched = [
+]
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+maxProductionFiles = 0
+maxChangedLines = 1100
+acceptance = [
+  "Exactly the five existing canonical context cards validate under one metadata schema and no new context card is added.",
+  "Context discovery comes from card metadata rather than a hand-maintained central list.",
+  "Duplicate domain or read_when ownership fails closed.",
+  "Declared repository paths must exist unless the literal value is unknown.",
+  "Generated JSON and Markdown indexes are deterministic and --check detects drift.",
+  "Card fingerprints depend only on normalized declared metadata/source/test paths, not whole-repository SHA.",
+  "Quick and CI remain deterministic; product/runtime/provider/deploy behavior is unchanged.",
+  "Closeout makes baseline #71 the active hard gate before AI-CONTEXT-PILOT-001 (#107).",
+]
+requiredEvidence = [
+  "five-card metadata migration receipt",
+  "deterministic context-index JSON and Markdown",
+  "duplicate-domain and duplicate-read_when negative tests",
+  "missing-path and explicit-unknown tests",
+  "fingerprint stability and sensitivity tests",
+  "agent enforcement receipt",
+  "Quick PlanOnly and exact-head CI",
+]
+targetedTests = [
+  "tools/test_agent_context.py",
+  "tools/test_context_docs.py",
+  "tools/test_verify_script.py",
+  "tools/test_agent_instructions.py",
+  "tools/test_agent_enforce.py",
+]
+fileGrowthExpectations = [
+  "new generator remains <=500 lines",
+  "new focused test module remains <=500 lines",
+  "existing context cards remain within current 100-250 line review bounds",
+  "no product source growth",
+]
+forbiddenOperations = [
+  "deploy",
+  "restart",
+  "production-data",
+  "provider-call",
+  "direct-main",
+]
+rollbackBoundary = "Revert context-card metadata, context-index generator/artifacts, verification wiring and status transition without touching product/runtime/data state."
+
+[[scopeExpansions]]
+path = "tools/test_agent_instructions.py"
+reason = "NOW closeout to baseline #71 requires the existing canonical status assertions to change in the same package."
+recordedAtUtc = "2026-09-16T18:37:06.112652Z"

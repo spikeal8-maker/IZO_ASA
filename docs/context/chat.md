@@ -1,5 +1,12 @@
 ---
 status: canonical
+domain: chat
+read_when: ["chat","phone-chat","chat-models-tools-history"]
+source_paths: ["frontend/src/desktopChat/DesktopChatWorkspace.tsx","frontend/src/phone/features/chat/PhoneChatWorkspace.tsx","backend/app/api/routers/phone_chat.py","backend/app/services/phone_chat_history.py","backend/app/services/chat_billing.py"]
+test_paths: ["frontend/phoneChat.test.ts","backend/test_phone_chat_history.py","backend/test_phone_chat_tools.py","backend/test_chat_billing.py"]
+related_domains: ["backend-auth-bots"]
+forbidden_paths: ["unknown"]
+owner: chat-platform
 role: chat-agent-context
 scope: /chat and shared /phone/chat core
 audience: coding-agents
@@ -8,13 +15,11 @@ evidence_package: CHAT-STRUCTURED-TOOLS-001
 status_effective_when: merged-to-main
 updated: 2026-09-04
 ---
-
 # Context: продуктовый чат `/chat`
 
 Назначение: минимальный контекст для desktop `/chat`, mobile `/phone/chat`, общей
 истории, моделей, tools и billing. После Task Contract подробности находятся в
 [архитектурном контракте](../chat-system.md) и [контракте помощника](../chat-assistant-contract.md).
-
 ## Граница подсистемы
 
 - `/chat` — отдельная пользовательская страница и отдельный desktop workspace.
@@ -25,14 +30,12 @@ updated: 2026-09-04
 - Общими platform services остаются auth, ledger, providers, jobs, media, transcription и telemetry.
 
 Не называй чат полностью автономным: это отдельная продуктовая поверхность с частично выделенной feature-реализацией.
-
 ## Chat-specific reference после Task Contract
 
 Сначала следуй [AI_START_HERE.md](../../AI_START_HERE.md) до Task Contract. Затем
 используй [chat-system.md](../chat-system.md), нужную строку [frontend map](../generated/frontend-map.md)
 и `backend/SYMBOL_MAP.md`; открывай только bounded ranges. UI, orchestration,
 history, tools, billing, auth и SEO — разные packages/risk classes.
-
 ## Frontend entrypoints
 
 - `frontend/src/App.tsx` — `/chat` выбирает lazy `NewStudio`, `/phone/*` — `PhoneApp`.
@@ -47,7 +50,6 @@ history, tools, billing, auth и SEO — разные packages/risk classes.
 - `frontend/src/phone/core/http.ts` — credentialed phone API transport.
 
 `DesktopChatWorkspace.tsx` превышает 1 200 строк; перед расширением оцени extraction boundary и regression coverage.
-
 ## Backend entrypoints
 
 - `backend/app/api/routers/phone_chat.py` — trusted routes, model routing,
@@ -65,7 +67,6 @@ history, tools, billing, auth и SEO — разные packages/risk classes.
 
 Новая business logic не возвращается в `backend/main.py`. Router уже имеет
 dependency seam через `PhoneChatDependencies`.
-
 ## Текущий request flow
 
 1. Frontend отправляет последний user turn, `threadId`, public `modelId`,
@@ -86,7 +87,6 @@ dependency seam через `PhoneChatDependencies`.
    и сохраняет safe failed outcome; telemetry после commit — best-effort.
 10. Frontend завершает image job и best-effort PATCH'ит итоговый tool state;
     ignored PATCH failure может оставить stored state устаревшим.
-
 ## HTTP contracts
 
 - `GET /api/phone/chat/threads` — последние owned threads.

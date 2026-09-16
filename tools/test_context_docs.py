@@ -11,16 +11,13 @@ import re
 from pathlib import Path
 
 from test_agent_instructions import assert_agent_instruction_contracts
+from tools.generate_context_index import discover_cards
 
 ROOT = Path(__file__).resolve().parents[1]
 
-CONTEXT_DOCS = [
-    ROOT / "docs" / "context" / "admin-control-center.md",
-    ROOT / "docs" / "context" / "backend-auth-bots.md",
-    ROOT / "docs" / "context" / "chat.md",
-    ROOT / "docs" / "context" / "frontend-studio.md",
-    ROOT / "docs" / "context" / "video-gallery-feed.md",
-]
+def _context_docs() -> list[Path]:
+    return [ROOT / card.path for card in discover_cards(ROOT)]
+
 ADMIN_GUIDE = ROOT / "docs" / "admin-panel-guide.md"
 LEGACY_ADMIN_SPEC = ROOT / "docs" / "admin-panel-product-spec.md"
 
@@ -43,14 +40,14 @@ MARKDOWN_LINK_PATTERN = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 
 
 def test_context_docs_exist_within_size_bounds() -> None:
-    for doc in CONTEXT_DOCS:
+    for doc in _context_docs():
         assert doc.is_file(), f"missing context doc: {doc.name}"
         lines = doc.read_text(encoding="utf-8").count("\n") + 1
         assert 100 <= lines <= 250, f"{doc.name} must stay 100-250 lines, has {lines}"
 
 
 def test_context_docs_reference_only_existing_files() -> None:
-    for doc in CONTEXT_DOCS:
+    for doc in _context_docs():
         text = doc.read_text(encoding="utf-8")
         for referenced in PATH_PATTERN.findall(text):
             assert (ROOT / referenced).exists(), f"{doc.name} references missing {referenced}"

@@ -73,6 +73,7 @@ def test_full_plan_contains_every_local_gate_without_execution() -> None:
     assert "py_compile" in result.stdout
     assert "backend_map_check" in result.stdout
     assert "architecture_inventory_check" in result.stdout
+    assert "context_index_check" in result.stdout
     assert "source_snapshot before_after=true" in result.stdout
     assert "restart-backend.ps1 -PreflightOnly" in result.stdout
     assert "runtime_listener_contract command=check-runtime-listeners.ps1" in result.stdout
@@ -81,6 +82,7 @@ def test_full_plan_contains_every_local_gate_without_execution() -> None:
     assert "caddy_edge_live" in result.stdout
     assert "pytest scope=backend+tools" in result.stdout
     assert "architecture_inventory_check" in result.stdout
+    assert "context_index_check" in result.stdout
     assert "frontend_lint" in result.stdout
     assert "frontend_build" in result.stdout
     assert "frontend_release_identity" in result.stdout
@@ -148,6 +150,7 @@ def test_quick_plan_runs_only_static_and_tool_contract_gates() -> None:
     assert "py_compile" in result.stdout
     assert "backend_map_check" in result.stdout
     assert "architecture_inventory_check" in result.stdout
+    assert "context_index_check" in result.stdout
     assert "runtime_listener_contract command=check-runtime-listeners.ps1" in result.stdout
     assert "caddy_edge_live command=check-caddy-edge.ps1" in result.stdout
     assert "pytest scope=tool-contracts" in result.stdout

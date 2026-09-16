@@ -1,3 +1,14 @@
+---
+status: canonical
+domain: backend-auth-bots
+read_when: ["auth","telegram-max","trusted-identity"]
+source_paths: ["backend/main.py","backend/app/security/permissions.py","backend/app/security/bot_login.py","backend/app/services/bot_admin.py","backend/app/integrations/telegram.py"]
+test_paths: ["backend/test_cookie_session.py","backend/test_feed_v2.py"]
+related_domains: ["admin-control-center"]
+forbidden_paths: ["unknown"]
+owner: backend-auth-bots
+---
+
 # Context: backend auth, identity и боты
 
 Назначение: минимальный контекст для задач по аутентификации, сессиям,

@@ -1,30 +1,29 @@
 ---
 status: canonical
-context_role: scoped-domain-map
 domain: admin-control-center
+read_when: ["admin","crm","admin-models"]
+source_paths: ["frontend/src/AdminApp.tsx","frontend/src/adminApi.ts","frontend/src/adminModels.tsx","backend/main.py"]
+test_paths: ["backend/test_admin_v2.py","backend/test_admin_actions.py","backend/test_admin_bots_v2.py"]
+related_domains: ["backend-auth-bots"]
+forbidden_paths: ["unknown"]
+owner: admin-platform
+context_role: scoped-domain-map
 updated: 2026-08-31
 verified_source_sha: 11b087d8441cb109b50b1d1e863fdcfa73201d07
 ---
-
 # Context: админка и административные изменения
 
-Назначение: bounded-контекст для задач по `/admin`, CRM, административным
-каталогам моделей, тарифам, платежам, почте, ботам, уведомлениям, соцсетям и
-логам. Общая пользовательская картина находится в
+Назначение: bounded-контекст для задач по `/admin`, CRM, административным каталогам моделей, тарифам, платежам, почте, ботам, уведомлениям, соцсетям и логам. Общая пользовательская картина находится в
 `docs/admin-panel-guide.md`.
 
-Проверяемая матрица ownership, API examples, side effects, risk и tests вместе
-с точными командами находится в `docs/admin-change-contract.md`.
+Проверяемая матрица ownership, API examples, side effects, risk и tests вместе с точными командами находится в `docs/admin-change-contract.md`.
 
-Route-level evidence для bounded-набора из 19 критичных compatibility mutations
-identity/CRM/finance находится в `docs/admin-mutation-audit.md`. Он различает
-`verified`, `partial` и `gap`; routes вне его scope нельзя считать прошедшими
-audit.
+Route-level evidence для bounded-набора из 19 критичных compatibility mutations identity/CRM/finance находится в `docs/admin-mutation-audit.md`. Он различает
+`verified`, `partial` и `gap`; routes вне его scope нельзя считать прошедшими audit.
 
 Эта карта применяется после обязательной маршрутизации из `AI_START_HERE.md`.
 Она не создаёт второй порядок чтения и не делает historical plans активным
 backlog.
-
 ## Проверенные инварианты
 
 - Главный frontend entrypoint: `frontend/src/AdminApp.tsx`.
@@ -45,7 +44,6 @@ backlog.
 - Каждая административная мутация должна быть auditable. Для критичного действия
   нужна причина, а для финансового/provider действия — также idempotency и явная
   operator authorization.
-
 ## Frontend ownership
 
 | Область | Основной файл | Соседние файлы |
@@ -67,7 +65,6 @@ backlog.
 использовать `frontend/src/adminModelsRoutes.ts`, component ownership выше и
 точечный symbol/line search. Не читать большие CSS целиком, если достаточно
 селекторов целевого компонента.
-
 ## Backend ownership
 
 - `backend/app/api/routers/admin_operations.py` — OpenRouter status/catalog,

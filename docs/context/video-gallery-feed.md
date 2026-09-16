@@ -1,3 +1,14 @@
+---
+status: canonical
+domain: video-gallery-feed
+read_when: ["video","feed","gallery"]
+source_paths: ["frontend/src/VideoStudio.tsx","backend/app/services/gallery_policy.py","backend/app/services/feed_policy.py","backend/app/services/video_storage.py","backend/static/feed/index.html","backend/static/gallery/index.html"]
+test_paths: ["backend/test_feed_v2.py","backend/test_ownership_protection.py","backend/test_generation_protection.py","frontend/e2e-video-studio-layout.mjs"]
+related_domains: ["frontend-studio"]
+forbidden_paths: ["unknown"]
+owner: video-gallery-feed
+---
+
 # Context: видео, галерея и публичная лента
 
 Назначение: минимальный контекст для задач по Video Studio, пользовательской
