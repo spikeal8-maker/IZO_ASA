@@ -51,6 +51,15 @@ DEAD_GENERATED_PATHS = (
     "architecture/generated-inventory.md",
     "architecture/generated-inventory",
 )
+SCOPED_POLICIES = (
+    ROOT / "backend" / "AGENTS.md",
+    ROOT / "frontend" / "AGENTS.md",
+    ROOT / "ops" / "AGENTS.md",
+    ROOT / "docs" / "AGENTS.md",
+)
+CORE_POLICY_MAX_BYTES = 16 * 1024
+ROOT_POLICY_MAX_BYTES = 5000
+SCOPED_POLICY_MAX_BYTES = 4000
 
 
 def _text(path: Path) -> str:
@@ -164,6 +173,52 @@ def _assert_generated_evidence_paths() -> None:
         )
 
 
+def _nearest_agent_policy(relative: str) -> Path:
+    parts = Path(relative).parts
+    for depth in range(len(parts) - 1, 0, -1):
+        candidate = ROOT.joinpath(*parts[:depth], "AGENTS.md")
+        if candidate.is_file():
+            return candidate
+    return ROOT / "AGENTS.md"
+
+
+def _assert_scoped_policies() -> None:
+    expected = {
+        "backend/main.py": ROOT / "backend" / "AGENTS.md",
+        "frontend/src/newUi.tsx": ROOT / "frontend" / "AGENTS.md",
+        "ops/caddy/Caddyfile": ROOT / "ops" / "AGENTS.md",
+        "docs/context/chat.md": ROOT / "docs" / "AGENTS.md",
+        "tools/verify.ps1": ROOT / "AGENTS.md",
+    }
+    for relative, policy in expected.items():
+        assert _nearest_agent_policy(relative) == policy, relative
+
+    forbidden_markers = (
+        STATUS_ROLE, BACKLOG_ROLE, READING_ORDER_ROLE,
+        "active_package:", "next_candidate:",
+    )
+    for policy in SCOPED_POLICIES:
+        assert policy.is_file(), f"missing scoped policy: {policy.relative_to(ROOT)}"
+        text = _text(policy)
+        assert "Root `AGENTS.md`" in text
+        assert "`AI_START_HERE.md`" in text
+        assert not WINDOWS_ABSOLUTE_PATH.search(text)
+        assert len(_lines(policy)) <= 80, f"scoped policy too large: {policy.relative_to(ROOT)}"
+        assert len(text.encode("utf-8")) <= SCOPED_POLICY_MAX_BYTES
+        for marker in forbidden_markers:
+            assert marker not in text, f"{policy.relative_to(ROOT)} claims canonical role: {marker}"
+
+    ownership_markers = {
+        "backend/main.py": ROOT / "backend" / "AGENTS.md",
+        "LegacyApp.tsx": ROOT / "frontend" / "AGENTS.md",
+        "production-release-runbook.md": ROOT / "ops" / "AGENTS.md",
+    }
+    policy_set = (ROOT / "AGENTS.md", *SCOPED_POLICIES)
+    for marker, owner in ownership_markers.items():
+        owners = [path for path in policy_set if marker in _text(path)]
+        assert owners == [owner], f"semantic rule ownership drift for {marker}: {owners}"
+
+
 def _assert_program_and_package_status() -> None:
     program = _text(ROOT / "docs" / "agent-control-plane.md")
     assert "status: active-program" in program
@@ -216,14 +271,14 @@ def _assert_program_and_package_status() -> None:
     assert "all three receipts exist before #107 starts" in amendment
 
     now = _text(ROOT / "docs" / "NOW.md")
-    assert "completed_package: STAB-SIZE-001" in now
-    assert "active_package: AI-INSTRUCTION-SCOPE-001" in now
-    assert "active_task_contract: github-issue-105" in now
+    assert "completed_package: AI-INSTRUCTION-SCOPE-001" in now
+    assert "active_package: AI-CONTEXT-SCHEMA-001" in now
+    assert "active_task_contract: github-issue-106" in now
     assert "baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a" in now
     assert "baseline_status: deferred-required-before-AI-CONTEXT-PILOT-001" in now
     assert "blocker: none" in now
-    assert "next_candidate: AI-CONTEXT-SCHEMA-001" in now
-    assert "Active: `AI-INSTRUCTION-SCOPE-001`, issue #105." in now
+    assert "next_candidate: AI-CONTEXT-PILOT-001" in now
+    assert "Active: `AI-CONTEXT-SCHEMA-001`, issue #106." in now
     assert "deferred, not waived" in now
     assert "Запрещено активировать" in now
     assert "`AI-CONTEXT-PILOT-001` (#107)" in now
@@ -248,6 +303,12 @@ def assert_agent_instruction_contracts() -> None:
         assert count <= maximum, (
             f"{path.relative_to(ROOT)} exceeds {maximum} lines: {count}"
         )
+
+    core_paths = (ROOT / "AGENTS.md", ROOT / "AI_START_HERE.md", ROOT / "docs" / "NOW.md")
+    core_bytes = sum(len(_text(path).encode("utf-8")) for path in core_paths)
+    assert core_bytes <= CORE_POLICY_MAX_BYTES, f"core mandatory policy is {core_bytes} bytes"
+    assert len(_text(ROOT / "AGENTS.md").encode("utf-8")) <= ROOT_POLICY_MAX_BYTES
+    _assert_scoped_policies()
 
     for adapter in ADAPTERS:
         text = _text(adapter)

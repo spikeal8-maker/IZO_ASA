@@ -1,0 +1,71 @@
+manifestVersion = 1
+id = "AI-INSTRUCTION-SCOPE-001"
+baseSha = "fbdb04aa6c523b3d18a2060071a760a70367c4f6"
+goal = "Move domain-only agent rules from the root policy into nearest scoped AGENTS.md files while preserving one policy hierarchy."
+userOutcome = "Ordinary agents load only global invariants plus the policy for the directory they actually change."
+beforeScenario = "Root AGENTS.md carries backend, frontend, operations and documentation details and core mandatory instruction context is 22789 bytes."
+afterScenario = "Root policy contains only repository-wide invariants, nearest scoped policies own domain rules, and core mandatory context is at most 16384 bytes."
+nonGoals = [
+  "product behavior changes",
+  "context-card schema or generation",
+  "symbol retrieval",
+  "docker",
+  "deployment",
+]
+declaredFiles = [
+  "AGENTS.md",
+  "backend/AGENTS.md",
+  "frontend/AGENTS.md",
+  "ops/AGENTS.md",
+  "docs/AGENTS.md",
+  "tools/test_agent_instructions.py",
+  "docs/NOW.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/main.py",
+  "frontend/src/**",
+  ".github/**",
+]
+protectedFilesTouched = [
+]
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+maxProductionFiles = 0
+maxChangedLines = 650
+acceptance = [
+  "Nearest scoped policy resolves deterministically for backend, frontend, ops and docs paths.",
+  "AI_START_HERE.md remains the sole reading-order owner.",
+  "Root AGENTS.md shrinks and contains only repository-wide invariants.",
+  "Core mandatory instruction context AGENTS.md plus AI_START_HERE.md plus docs/NOW.md is at most 16384 bytes.",
+  "Domain-specific semantic rules have one owner and scoped files do not claim current status or backlog ownership.",
+  "Existing adapters remain bounded and product/runtime source is unchanged.",
+]
+requiredEvidence = [
+  "before-after core byte counts",
+  "focused instruction tests",
+  "agent enforcement receipt",
+  "Quick verification",
+  "exact-head GitHub CI",
+  "complete policy ownership review",
+]
+targetedTests = [
+  "tools/test_agent_instructions.py",
+  "tools/test_agent_package.py",
+  "tools/test_agent_enforce.py",
+]
+fileGrowthExpectations = [
+  "root AGENTS.md shrinks materially",
+  "each scoped AGENTS.md remains bounded and domain-specific",
+  "no product source growth",
+]
+forbiddenOperations = [
+  "deploy",
+  "restart",
+  "production-data",
+  "provider-call",
+  "direct-main",
+]
+rollbackBoundary = "Revert scoped policy files and root-policy reductions without changing product/runtime/data state."
