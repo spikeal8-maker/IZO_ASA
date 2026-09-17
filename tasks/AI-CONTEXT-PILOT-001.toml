@@ -1,0 +1,74 @@
+manifestVersion = 1
+id = "AI-CONTEXT-PILOT-001"
+baseSha = "bd8bfbee6f6a34a0b6fc6ef310321ddb6b8d7a37"
+goal = "Pilot deterministic bounded context retrieval for chat and admin-models only."
+userOutcome = "A cold agent can request one bounded packet and route correctly without broad repository scans."
+beforeScenario = "Cold baseline A/B failed routing with broad scans and almost no file reads."
+afterScenario = "agent context returns deterministic <=32 KiB <=250-line packets for chat and admin-models."
+nonGoals = [
+  "all-domain rollout",
+  "symbol engine",
+  "product changes",
+  "deploy",
+]
+declaredFiles = [
+  "tools/agent.ps1",
+  "tools/agent_system/context.py",
+  "docs/context/admin-control-center.md",
+  "docs/context/admin-models.md",
+  "docs/generated/context-index.json",
+  "docs/generated/context-index.md",
+  "tools/test_agent_context.py",
+  "tools/test_agent_instructions.py",
+  "docs/NOW.md",
+]
+allowedPatterns = [
+  "docs/context/chat.md",
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+  ".github/**",
+]
+protectedFilesTouched = [
+]
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+maxProductionFiles = 0
+maxChangedLines = 900
+acceptance = [
+  "chat/admin-models packets deterministic",
+  "packet <=32KiB and <=250 lines",
+  "no monolith auto-read",
+  "post-pilot routing improves over A/B baseline",
+]
+requiredEvidence = [
+  "focused tests",
+  "Quick PlanOnly",
+  "CI exact-head",
+  "post-pilot cold A/B receipts",
+]
+targetedTests = [
+  "tools/test_agent_context.py",
+  "tools/test_agent_instructions.py",
+]
+fileGrowthExpectations = [
+  "new context helper <=500 lines",
+  "NOW remains <=140 lines",
+]
+forbiddenOperations = [
+  "deploy",
+  "restart",
+  "provider-call",
+  "production-data",
+  "direct-main",
+]
+rollbackBoundary = "Revert context-pilot tooling/cards/index/status; product/runtime remain untouched."
+
+[[scopeExpansions]]
+path = "docs/context/chat.md"
+reason = "Pilot packet must stay under 250 lines; compact canonical chat routing card without changing product behavior."
+recordedAtUtc = "2026-09-16T21:38:39.738344Z"

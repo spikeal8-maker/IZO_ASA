@@ -273,18 +273,20 @@ def _assert_program_and_package_status() -> None:
     assert "all three receipts exist before #107 starts" in amendment
 
     now = _text(ROOT / "docs" / "NOW.md")
-    assert "completed_package: AI-CONTEXT-SCHEMA-001" in now
-    assert "active_package: AI-EVAL-BASELINE-001" in now
-    assert "active_task_contract: github-issue-71" in now
+    assert "completed_package: AI-CONTEXT-PILOT-001" in now
+    assert "active_package: STAB-CREDENTIAL-ISOLATION-REPAIR-001" in now
+    assert "active_task_contract: github-issue-139" in now
     assert "baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a" in now
-    assert "baseline_status: active-required-before-AI-CONTEXT-PILOT-001" in now
-    assert "blocker: cold-executor-and-coding-credential-isolation-required" in now
-    assert "next_candidate: AI-CONTEXT-PILOT-001" in now
-    assert "Active: `AI-EVAL-BASELINE-001`, issue #71." in now
-    assert "Frozen baseline — active hard gate" in now
-    assert "Запрещено активировать" in now
-    assert "`AI-CONTEXT-PILOT-001` (#107)" in now
-    assert "`AI-EVAL-001` (#123)" in now
+    assert "baseline_status: completed-point-A-accepted" in now
+    assert "blocker: shared-host-gh-write-credential-visible" in now
+    assert "next_candidate: AI-SYMBOL-CONTEXT-001" in now
+    assert "Active: `STAB-CREDENTIAL-ISOLATION-REPAIR-001`, issue #139." in now
+    assert "Frozen baseline — completed point A" in now
+    assert "84,968 input tokens" in now
+    assert "63,241 to 3,643" in now
+    assert "broad tool calls from 21 to 0" in now
+    assert "#139 restores a deterministic coding context" in now
+    assert "cold-executor-and-coding-credential-isolation-required" not in now
 
 
 def assert_agent_instruction_contracts() -> None:

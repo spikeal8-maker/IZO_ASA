@@ -13,6 +13,12 @@ from tools.generate_context_index import (
     render_json,
     render_markdown,
 )
+from tools.agent_system.context import (
+    MAX_PACKET_BYTES,
+    MAX_PACKET_LINES,
+    ContextPacketError,
+    build_packet,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "tools" / "generate_context_index.py"
@@ -63,9 +69,10 @@ def test_repository_context_index_is_deterministic_and_current() -> None:
     second = build_index(ROOT)
     assert first == second
     assert first["schemaVersion"] == 1
-    assert first["cardCount"] == 5
+    assert first["cardCount"] == 6
     assert {card["domain"] for card in first["cards"]} == {
         "admin-control-center",
+        "admin-models",
         "backend-auth-bots",
         "chat",
         "frontend-studio",
@@ -207,3 +214,34 @@ def test_ignored_repository_paths_fail_closed(tmp_path: Path) -> None:
     )
     with pytest.raises(ContextSchemaError, match="ignored repository path"):
         discover_cards(tmp_path)
+
+
+def test_pilot_packets_are_deterministic_bounded_and_route_to_expected_owners() -> None:
+    chat = build_packet(ROOT, "chat")
+    assert chat == build_packet(ROOT, "chat")
+    assert len(chat.encode("utf-8")) <= MAX_PACKET_BYTES
+    assert len(chat.splitlines()) <= MAX_PACKET_LINES
+    assert "repo: `spikeal8-maker/IZO_ASA`" in chat
+    assert "frontend/src/newUi.tsx" in chat
+    assert "frontend/src/desktopChat/DesktopChatWorkspace.tsx" in chat
+    assert "backend/app/api/routers/phone_chat.py" in chat
+    assert "backend/main.py" in chat and "do not full-read automatically" in chat
+
+    admin = build_packet(ROOT, "admin-models")
+    alias = build_packet(ROOT, "openrouter-models")
+    assert "selected domain: `admin-models`" in alias
+    assert "read_when match: openrouter-models -> admin-models" in alias
+    assert len(admin.encode("utf-8")) <= MAX_PACKET_BYTES
+    assert len(admin.splitlines()) <= MAX_PACKET_LINES
+    assert "frontend/src/adminModelsRoutes.ts" in admin
+    assert "backend/app/api/routers/admin_operations.py" in admin
+    assert "backend/app/services/openrouter_image_economics.py" in admin
+    assert "backend/test_openrouter_image_economics.py" in admin
+    assert "frontend/src/newUi.tsx" in admin and "Forbidden paths" in admin
+
+
+def test_context_packet_unknown_domain_fails_closed() -> None:
+    with pytest.raises(ContextPacketError, match="unknown context domain"):
+        build_packet(ROOT, "not-a-domain")
+    with pytest.raises(ContextPacketError, match="unknown context domain"):
+        build_packet(ROOT, "frontend-studio")
