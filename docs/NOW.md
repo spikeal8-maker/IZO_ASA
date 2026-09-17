@@ -3,17 +3,17 @@ status: canonical
 status_role: current-status-aggregator
 backlog_role: program-router
 updated: 2026-09-16
-source_main_at_status_update: 87a226dc7984ae5f56db0f497ed9c7f7151fd239
+source_main_at_status_update: bd8bfbee6f6a34a0b6fc6ef310321ddb6b8d7a37
 last_verified_main: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_verified_at: 2026-09-02T00:08:04+03:00
-completed_package: AI-CONTEXT-SCHEMA-001
-active_package: AI-EVAL-BASELINE-001
-active_task_contract: github-issue-71
+completed_package: AI-CONTEXT-PILOT-001
+active_package: STAB-CREDENTIAL-ISOLATION-REPAIR-001
+active_task_contract: github-issue-139
 baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a
-baseline_status: active-required-before-AI-CONTEXT-PILOT-001
-blocker: cold-executor-and-coding-credential-isolation-required
-next_candidate: AI-CONTEXT-PILOT-001
+baseline_status: completed-point-A-accepted
+blocker: shared-host-gh-write-credential-visible
+next_candidate: AI-SYMBOL-CONTEXT-001
 ---
 # IZO_ASA — NOW
 
@@ -33,7 +33,7 @@ git rev-parse origin/main
 git worktree list
 ```
 Source `main` при последнем status transition:
-`87a226dc7984ae5f56db0f497ed9c7f7151fd239`.
+`bd8bfbee6f6a34a0b6fc6ef310321ddb6b8d7a37`.
 
 Последний отдельно operationally verified production release:
 `d223c179d5944bc208cace867d5e93bc1341a3aa` от 2026-09-02. Не выводить deploy
@@ -41,25 +41,27 @@ Source `main` при последнем status transition:
 
 ## 2. Активный stabilization package
 
-Active: `AI-EVAL-BASELINE-001`, issue #71.
-`AI-CONTEXT-SCHEMA-001` (#106) completed: five context cards now use one validated schema and deterministic generated index. Next: `AI-CONTEXT-PILOT-001` (#107), blocked until baseline #71 has three accepted cold receipts.
+Active: `STAB-CREDENTIAL-ISOLATION-REPAIR-001`, issue #139.
+`AI-CONTEXT-PILOT-001` (#107) completed: chat/admin-models packets stayed bounded and post-pilot A/B improved from false/false to partial/true with 0 broad scans.
+Next: `AI-SYMBOL-CONTEXT-001` (#108), blocked until credential-isolation regression #139 is accepted.
 
-## 3. Frozen baseline — active hard gate
+## 3. Frozen baseline — completed point A
 
-`AI-EVAL-BASELINE-001`, issue #71, остаётся обязательным. Frozen source:
+Frozen source remains immutable:
 ```text
 ecb02bf84ae21a46711c9b38b61784147fb9fc0a
 ```
-Независимый evaluator пока недоступен. Поскольку source SHA immutable, начало
-foundational safety/tooling packages не разрушает точку A. Отдельный reviewed
-amendment: `docs/agent-tasks/AI-EVAL-BASELINE-DEFER-001.md`.
+Accepted point-A summary: 3 cases, 0 correct, 28 tool calls, 1 file opened,
+84,968 input tokens and 1,996 output tokens. The failures are intentional baseline
+evidence: broad scans and incorrect routing must not be repaired retroactively.
 
-Разрешено выполнить #101–#106 до baseline. **Запрещено активировать
-`AI-CONTEXT-PILOT-001` (#107) или final `AI-EVAL-001` (#123), пока #71 не имеет
-трёх принятых независимых cold receipts A/B/C.** Frozen SHA, prompts и критерии #71
-не меняются.
-Если независимый executor появляется раньше — #71 запускается сразу read-only на
-frozen SHA, не вмешиваясь в чужой bounded implementation package.
+Post-pilot #107 comparison: A improved false -> partial and B false -> true;
+combined input tokens fell from 63,241 to 3,643 and broad tool calls from 21 to 0.
+No repository/product/provider/deploy action was part of the evaluation evidence.
+
+Stop-the-line: the shared D2 Windows user currently exposes a global `gh` OAuth with
+`repo` scope from unrelated work. IZO Git origin remains read-only, but #108 must not
+start until #139 restores a deterministic coding context without upstream write credentials.
 
 ## 4. Context и generated evidence
 
@@ -105,7 +107,7 @@ Security/dependency/data/recovery regressions также могут остано
 ## 7. Program lanes
 
 - stabilization master: `docs/stabilization-optimization-master-spec.md`;
-- active dependency amendment: `docs/agent-tasks/AI-EVAL-BASELINE-DEFER-001.md`;
+- historical dependency amendment: `docs/agent-tasks/AI-EVAL-BASELINE-DEFER-001.md`;
 - agent development: `docs/agent-control-plane.md`;
 - chat: `docs/chat-system.md`;
 - phone: `docs/phone-platform-master-plan-20260824.md`;

@@ -7,6 +7,7 @@ param(
     [string]$Path = "",
     [string]$Reason = "",
     [string]$Ref = "",
+    [string]$Domain = "",
     [string]$WorktreePath = "",
     [string]$RepoRoot = ""
 )
@@ -46,6 +47,17 @@ if ($Command -eq "verify") {
     Push-Location -LiteralPath $RepoRoot
     try {
         & $python -m tools.agent_system.enforce --repo-root $RepoRoot local
+        exit $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
+}
+
+if ($Command -eq "context") {
+    if (-not $Domain.Trim()) { throw "-Domain is required for agent context." }
+    Push-Location -LiteralPath $RepoRoot
+    try {
+        & $python -m tools.agent_system.context --repo-root $RepoRoot --domain $Domain
         exit $LASTEXITCODE
     } finally {
         Pop-Location

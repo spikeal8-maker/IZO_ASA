@@ -1,10 +1,10 @@
 ---
 status: canonical
 domain: admin-control-center
-read_when: ["admin","crm","admin-models"]
+read_when: ["admin","crm"]
 source_paths: ["frontend/src/AdminApp.tsx","frontend/src/adminApi.ts","frontend/src/adminModels.tsx","backend/main.py"]
 test_paths: ["backend/test_admin_v2.py","backend/test_admin_actions.py","backend/test_admin_bots_v2.py"]
-related_domains: ["backend-auth-bots"]
+related_domains: ["admin-models","backend-auth-bots"]
 forbidden_paths: ["unknown"]
 owner: admin-platform
 context_role: scoped-domain-map
