@@ -213,6 +213,7 @@ $quickTests = @(
     "tools/test_agent_context.py",
     "tools/test_context_docs.py",
     "tools/test_agent_package.py",
+    "tools/test_agent_sandbox.py",
     "tools/test_agent_enforce.py",
     "tools/test_frontend_release_identity.py",
     "tools/test_release_verification_receipt.py",
