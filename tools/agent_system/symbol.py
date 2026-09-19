@@ -215,7 +215,8 @@ def _python_import_aliases(tree: ast.Module) -> dict[str, str]:
             prefix = "." * node.level + (node.module or "")
             for item in node.names:
                 if item.name != "*":
-                    aliases[item.asname or item.name] = f"{prefix}.{item.name}".replace("..", ".")
+                    suffix = f".{item.name}" if node.module else item.name
+                    aliases[item.asname or item.name] = prefix + suffix
     return aliases
 
 
@@ -290,78 +291,67 @@ _TS_PATTERNS = (
 )
 
 
-def _find_code_brace(text: str, start: int) -> int | None:
-    state, quote, escaped, i = "code", "", False, start
+def _mask_ts(text: str) -> str:
+    chars, state, quote, escaped, i = list(text), "code", "", False, 0
     while i < len(text):
         c, n = text[i], text[i + 1] if i + 1 < len(text) else ""
-        if state == "line":
-            if c == "\n":
+        if state == "code":
+            if c == "/" and n in {"/", "*"}:
+                chars[i] = chars[i + 1] = " "
+                state, i = ("line" if n == "/" else "block"), i + 2
+                continue
+            if c in {"'", '"', "`"}:
+                chars[i], state, quote, escaped = " ", ("template" if c == "`" else "string"), c, False
+            i += 1
+            continue
+        if c == "\n":
+            if state == "line":
                 state = "code"
-        elif state == "block":
-            if c == "*" and n == "/":
-                state, i = "code", i + 1
-        elif state == "string":
+            i += 1
+            continue
+        chars[i] = " "
+        if state == "block" and c == "*" and n == "/":
+            chars[i + 1], state, i = " ", "code", i + 2
+            continue
+        if state in {"string", "template"}:
             if escaped:
                 escaped = False
             elif c == "\\":
                 escaped = True
             elif c == quote:
                 state = "code"
-        elif c == "/" and n == "/":
-            state, i = "line", i + 1
-        elif c == "/" and n == "*":
-            state, i = "block", i + 1
-        elif c in {"'", '"', "`"}:
-            state, quote = "string", c
-        elif c == "{":
-            return i
-        elif c == ";" and "\n" in text[start:i + 1]:
-            return None
         i += 1
-    return None
+    return "".join(chars)
 
 
-def _matching_brace(text: str, opening: int) -> int | None:
-    depth, state, quote, escaped, i = 0, "code", "", False, opening
-    while i < len(text):
-        c, n = text[i], text[i + 1] if i + 1 < len(text) else ""
-        if state == "line":
-            if c == "\n":
-                state = "code"
-        elif state == "block":
-            if c == "*" and n == "/":
-                state, i = "code", i + 1
-        elif state == "string":
-            if escaped:
-                escaped = False
-            elif c == "\\":
-                escaped = True
-            elif c == quote:
-                state = "code"
-        elif c == "/" and n == "/":
-            state, i = "line", i + 1
-        elif c == "/" and n == "*":
-            state, i = "block", i + 1
-        elif c in {"'", '"', "`"}:
-            state, quote = "string", c
-        elif c == "{":
+def _find_code_brace(masked: str, start: int) -> int | None:
+    opening = masked.find("{", start)
+    if opening < 0:
+        return None
+    semicolon = masked.find(";", start, opening)
+    return None if semicolon >= 0 else opening
+
+
+def _matching_brace(masked: str, opening: int) -> int | None:
+    depth = 0
+    for i in range(opening, len(masked)):
+        if masked[i] == "{":
             depth += 1
-        elif c == "}":
+        elif masked[i] == "}":
             depth -= 1
             if depth == 0:
                 return i
-        i += 1
     return None
 
 
-def _ts_decl(text: str, match: re.Match[str], base_kind: str) -> TsDecl:
+def _ts_decl(text: str, masked: str, match: re.Match[str], base_kind: str) -> TsDecl:
     kind = ("async " + base_kind) if match.groupdict().get("async") else base_kind
-    opening = _find_code_brace(text, match.end())
+    opening = _find_code_brace(masked, match.end())
     if opening is None:
-        stop = text.find("\n", match.end())
-        end_index = len(text) if stop < 0 else stop
+        stop = masked.find("\n", match.end())
+        end_index = len(masked) if stop < 0 else stop
     else:
-        end_index = _matching_brace(text, opening)
+        end_index = _matching_brace(masked, opening)
         if end_index is None:
             raise SymbolContextError(f"unterminated TS/TSX declaration: {match.group('name')}")
     start = text.count("\n", 0, match.start()) + 1
@@ -369,13 +359,17 @@ def _ts_decl(text: str, match: re.Match[str], base_kind: str) -> TsDecl:
     return TsDecl(match.group("name"), kind, start, end, match.start(), end_index)
 
 
-def _all_ts_decls(text: str) -> dict[str, TsDecl]:
+def _all_ts_decls(text: str, masked: str) -> dict[str, TsDecl]:
     declarations = {}
     for pattern, kind in _TS_PATTERNS:
-        for match in pattern.finditer(text):
+        for match in pattern.finditer(masked):
             if not match.group("indent") and match.group("name") not in declarations:
-                declarations[match.group("name")] = _ts_decl(text, match, kind)
+                declarations[match.group("name")] = _ts_decl(text, masked, match, kind)
     return declarations
+
+
+def _ts_direct_call(masked_body: str, name: str) -> bool:
+    return re.search(rf"(?<![\w$.]){re.escape(name)}\s*\(", masked_body) is not None
 
 
 def _ts_import_bindings(text: str) -> list[tuple[str, str]]:
@@ -408,26 +402,29 @@ def _ts_dependency(relative: str, source: str) -> str:
 
 def _tsx_analysis(root: Path, relative: str, source_path: Path, symbol: str) -> dict[str, Any]:
     text = source_path.read_text(encoding="utf-8")
-    lines, declarations = text.splitlines(), _all_ts_decls(text)
+    masked, lines = _mask_ts(text), text.splitlines()
+    declarations = _all_ts_decls(text, masked)
     if symbol not in declarations:
         raise SymbolContextError(f"symbol not found: {relative}::{symbol}")
     target = declarations[symbol]
-    body = text[target.start_index:target.end_index + 1]
+    body = masked[target.start_index:target.end_index + 1]
     imports = sorted({_ts_dependency(relative, source) for bound, source in _ts_import_bindings(text)
-                      if re.search(rf"\b{re.escape(bound)}\b", body)})
-    callees = sorted(name for name in declarations if name != symbol and re.search(rf"\b{re.escape(name)}\s*\(", body))
+                      if re.search(rf"{re.escape(bound)}", body)})
+    callees = sorted(name for name in declarations if name != symbol and _ts_direct_call(body, name))
     callers = []
     for name, declaration in declarations.items():
-        if name != symbol and re.search(rf"\b{re.escape(symbol)}\s*\(", text[declaration.start_index:declaration.end_index + 1]):
+        other = masked[declaration.start_index:declaration.end_index + 1]
+        if name != symbol and _ts_direct_call(other, symbol):
             callers.append(name)
     frontend_routes, frontend_tests = _frontend_evidence(root, relative)
+
     return {
         "kind": target.kind, "declaration": lines[target.start - 1].strip(),
         "declarationRange": {"start": target.start, "end": target.end},
         "sourceWindow": _source_window(lines, target.start, target.end), "imports": imports,
         "directCallers": sorted(callers), "directCallees": callees, "routes": _sort_routes(frontend_routes),
         "frontendTests": frontend_tests,
-        "unknownEdges": ["TS/TSX lexical analysis does not resolve member, JSX, hook, higher-order, or other dynamic call edges."],
+        "unknownEdges": ["TS/TSX lexical analysis masks comments/strings/templates and does not resolve member, optional-chain, JSX, hook, higher-order, template-interpolation, or other dynamic call edges."],
     }
 
 

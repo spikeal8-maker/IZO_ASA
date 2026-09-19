@@ -27,6 +27,21 @@ def _write(root: Path, relative: str, text: str) -> Path:
     return path
 
 
+def _backend_map_range(name: str) -> tuple[int, int]:
+    row = next(
+        line for line in (ROOT / "backend/SYMBOL_MAP.md").read_text(encoding="utf-8").splitlines()
+        if line.startswith(f"| `{name}` |")
+    )
+    range_text = row.split("|")[3].strip().replace("–", "-")
+    start, end = range_text.split("-", 1)
+    return int(start), int(end)
+
+
+def _source_declaration_line(path: str, prefix: str) -> int:
+    lines = (ROOT / path).read_text(encoding="utf-8").splitlines()
+    return next(number for number, line in enumerate(lines, 1) if line.startswith(prefix))
+
+
 def test_public_agent_symbol_plumbing_is_explicit_and_bounded() -> None:
     source = (ROOT / "tools" / "agent.ps1").read_text(encoding="utf-8")
     assert '[string]$Symbol = ""' in source
@@ -42,8 +57,8 @@ def test_real_backend_version_reuses_symbol_map_and_route_evidence() -> None:
     assert result["symbol"] == "version"
     assert result["classification"] == "source"
     assert result["kind"] in {"function", "async function"}
-    assert result["declarationRange"]["start"] == 7886
-    assert result["declarationRange"]["end"] >= result["declarationRange"]["start"]
+    expected_start, expected_end = _backend_map_range("version")
+    assert result["declarationRange"] == {"start": expected_start, "end": expected_end}
     assert any(
         route.get("method") == "GET"
         and route.get("path") == "/api/version"
@@ -51,7 +66,7 @@ def test_real_backend_version_reuses_symbol_map_and_route_evidence() -> None:
         for route in result["routes"]
     )
     assert len(result["sourceWindow"]["lines"]) <= MAX_SOURCE_LINES
-    assert result["sourceWindow"]["end"] < 8000
+    assert result["sourceWindow"]["end"] <= expected_end
 
 
 def test_real_newstudio_reuses_frontend_and_context_evidence_without_full_dump() -> None:
@@ -60,8 +75,9 @@ def test_real_newstudio_reuses_frontend_and_context_evidence_without_full_dump()
     assert result["symbol"] == "NewStudio"
     assert result["kind"] == "function"
     assert result["declaration"].startswith("export default function NewStudio")
-    assert result["declarationRange"]["start"] == 152
-    assert result["declarationRange"]["end"] > result["declarationRange"]["start"] + MAX_SOURCE_LINES
+    expected_start = _source_declaration_line("frontend/src/newUi.tsx", "export default function NewStudio")
+    assert result["declarationRange"]["start"] == expected_start
+    assert result["declarationRange"]["end"] > expected_start + MAX_SOURCE_LINES
     assert result["sourceWindow"]["truncated"] is True
     assert len(result["sourceWindow"]["lines"]) == MAX_SOURCE_LINES
     assert any(route.get("predicate") == "isNewStudioRoute" for route in result["routes"])
@@ -80,8 +96,12 @@ def test_real_outputs_are_deterministic_ascii_safe_and_within_global_bounds() ->
     assert len(rendered.splitlines()) <= MAX_RESPONSE_LINES
     parsed = json.loads(rendered)
     assert parsed["symbol"] == "NewStudio"
-    source_line = (ROOT / "frontend/src/newUi.tsx").read_text(encoding="utf-8").splitlines()[152]
-    emitted_line = next(item["text"] for item in parsed["sourceWindow"]["lines"] if item["line"] == 153)
+    declaration_line = _source_declaration_line("frontend/src/newUi.tsx", "export default function NewStudio")
+    source_line = (ROOT / "frontend/src/newUi.tsx").read_text(encoding="utf-8").splitlines()[declaration_line]
+    emitted_line = next(
+        item["text"] for item in parsed["sourceWindow"]["lines"]
+        if item["line"] == declaration_line + 1
+    )
     assert emitted_line == source_line
 
 
@@ -140,6 +160,67 @@ def test_ts_fixture_proves_only_lexically_direct_local_edges(tmp_path: Path) -> 
     assert alpha["directCallees"] == ["beta"]
     assert beta["directCallers"] == ["alpha"]
     assert alpha["unknownEdges"]
+
+
+def test_ts_lexical_mask_excludes_comments_strings_and_member_calls(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "src/calls.tsx",
+        """export function beta() { return 1 }
+export function direct() { return beta() }
+export function commented() {
+  // beta() is only a comment
+  return 2
+}
+export function stringed() {
+  const text = "beta() is only text"
+  return 2
+}
+export function member(obj: any) { return obj.beta() }
+export function optional(obj: any) { return obj?.beta() }
+""",
+    )
+    assert build_symbol_context(tmp_path, "src/calls.tsx", "direct")["directCallees"] == ["beta"]
+    for name in ("commented", "stringed", "member", "optional"):
+        result = build_symbol_context(tmp_path, "src/calls.tsx", name)
+        assert result["directCallees"] == []
+        assert result["unknownEdges"]
+    assert build_symbol_context(tmp_path, "src/calls.tsx", "beta")["directCallers"] == ["direct"]
+
+
+def test_ts_lexical_mask_rejects_declarations_inside_templates_and_comments(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "src/declarations.tsx",
+        """const text = `
+function Ghost() { return 1 }
+`
+/* function BlockGhost() { return 1 } */
+// function LineGhost() { return 1 }
+export function Real() { return 2 }
+""",
+    )
+    assert build_symbol_context(tmp_path, "src/declarations.tsx", "Real")["kind"] == "function"
+    for name in ("Ghost", "BlockGhost", "LineGhost"):
+        with pytest.raises(SymbolContextError, match="symbol not found"):
+            build_symbol_context(tmp_path, "src/declarations.tsx", name)
+
+
+def test_python_relative_import_levels_are_preserved(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "src/imports.py",
+        """from . import one
+from ..foo import two
+from ...pkg import three
+import os
+
+def alpha():
+    return one(), two(), three(), os.getcwd()
+""",
+    )
+    result = build_symbol_context(tmp_path, "src/imports.py", "alpha")
+    assert result["imports"] == sorted([".one", "..foo.two", "...pkg.three", "os"])
 
 
 def test_dynamic_python_edge_is_explicitly_unknown(tmp_path: Path) -> None:
