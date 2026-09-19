@@ -62,6 +62,8 @@ def test_new_context_cards_are_valid_utf8_without_question_mark_corruption() -> 
         "audio.md": ("Назначение", "Границы"),
         "3d.md": ("Назначение", "Границы"),
         "release-ops.md": ("Назначение", "Границы"),
+        "video-gallery-feed.md": ("Назначение подсистемы", "Запрещённые изменения"),
+        "backend-auth-bots.md": ("Назначение подсистемы", "Запрещённые изменения"),
     }
     for name, markers in cards.items():
         data = (ROOT / "docs" / "context" / name).read_bytes()
@@ -69,6 +71,31 @@ def test_new_context_cards_are_valid_utf8_without_question_mark_corruption() -> 
         for marker in markers:
             assert marker in text, f"{name} lacks canonical UTF-8 marker: {marker}"
         assert re.search(r"\?{4,}", text) is None, f"{name} contains suspicious question-mark corruption"
+
+
+def test_slice_three_reconciliation_matches_current_domain_ownership() -> None:
+    cards = {card.domain: card for card in discover_cards(ROOT)}
+
+    auth = cards["backend-auth-bots"]
+    assert "backend/app/security/csrf.py" in auth.source_paths
+    assert "backend/app/api/routers/bots_public.py" in auth.source_paths
+    assert "backend/test_csrf_origin.py" in auth.test_paths
+    assert "backend/test_feed_v2.py" not in auth.test_paths
+    assert set(("admin-control-center", "chat")).issubset(auth.related_domains)
+    auth_text = (ROOT / auth.path).read_text(encoding="utf-8")
+    assert ".runtime/handoffs/AUTH-LEGACY" not in auth_text
+    assert "AUTH-LEGACY-001B" not in auth_text
+    assert "CSRF middleware появится" not in auth_text
+
+    video = cards["video-gallery-feed"]
+    assert "image-generation" in video.related_domains
+    assert "backend/app/services/video_submission.py" in video.source_paths
+    assert "backend/test_video_generation_api.py" in video.test_paths
+    assert "backend/test_generation_protection.py" not in video.test_paths
+    video_text = (ROOT / video.path).read_text(encoding="utf-8")
+    assert "WORK-001" not in video_text
+    assert "STAB-RUNTIME-HEALTH-001" in video_text
+    assert "watchdog = missing" in video_text
 
 
 def test_slice_two_context_cards_preserve_capability_and_safety_truth() -> None:

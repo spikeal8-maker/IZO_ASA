@@ -280,6 +280,16 @@ def test_all_canonical_domains_route_and_new_packets_stay_bounded() -> None:
     assert "read_when match: promotion -> release-ops" in release_alias
     assert "docs/production-release-runbook.md" in release_alias
 
+    video_alias = build_packet(ROOT, "gallery")
+    assert "selected domain: `video-gallery-feed`" in video_alias
+    assert "read_when match: gallery -> video-gallery-feed" in video_alias
+    assert "backend/app/services/video_submission.py" in video_alias
+
+    for requested in ("bot-login", "sessions", "telegram", "max"):
+        auth_alias = build_packet(ROOT, requested)
+        assert "selected domain: `backend-auth-bots`" in auth_alias
+        assert f"read_when match: {requested} -> backend-auth-bots" in auth_alias
+
 
 def test_context_router_fails_closed_on_ambiguous_cross_route() -> None:
     index = {

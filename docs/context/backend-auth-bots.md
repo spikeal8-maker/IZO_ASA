@@ -1,12 +1,14 @@
 ---
 status: canonical
 domain: backend-auth-bots
-read_when: ["auth","telegram-max","trusted-identity"]
-source_paths: ["backend/main.py","backend/app/security/permissions.py","backend/app/security/bot_login.py","backend/app/services/bot_admin.py","backend/app/integrations/telegram.py"]
-test_paths: ["backend/test_cookie_session.py","backend/test_feed_v2.py"]
-related_domains: ["admin-control-center"]
+read_when: ["auth","sessions","bot-login","telegram","max","bots","telegram-max","trusted-identity"]
+source_paths: ["backend/main.py","backend/app/api/routers/bots_public.py","backend/app/api/routers/bots_admin.py","backend/app/security/permissions.py","backend/app/security/bot_login.py","backend/app/security/csrf.py","backend/app/security/http_middleware.py","backend/app/services/polling_health.py","backend/app/services/telegram_updates.py","backend/app/services/max_updates.py","backend/app/integrations/telegram.py","backend/app/integrations/max_client.py"]
+test_paths: ["backend/test_cookie_session.py","backend/test_auth_sessions.py","backend/test_auth_telegram_v2.py","backend/test_auth_max_v2.py","backend/test_csrf_origin.py","backend/test_bot_login_flow.py","backend/test_polling_health.py","backend/test_admin_bots_v2.py"]
+related_domains: ["admin-control-center","chat"]
 forbidden_paths: ["unknown"]
 owner: backend-auth-bots
+context_role: scoped-domain-map
+updated: 2026-09-19
 ---
 
 # Context: backend auth, identity и боты
@@ -42,8 +44,11 @@ admin-доступу и Telegram/MAX ботам. Прочитав этот фа�
 - `backend/app/security/permissions.py` — trusted resolution
   (`resolve_trusted_user`, `require_admin` runtime-вариант, audit spoof
   чтения `X-OneNode-User`).
-- `backend/app/security/http_requests.py` — body limit middleware, avatar
-  decoding (CSRF middleware появится в `AUTH-LEGACY-001B` из handoff).
+- `backend/app/security/http_requests.py` — body limit middleware и avatar
+  decoding.
+- `backend/app/security/csrf.py` — реализованная CSRF origin boundary.
+- `backend/app/security/http_middleware.py` — реализованная HTTP middleware
+  composition, включая подключение security middleware.
 - `backend/app/security/bot_login.py` — bot-login challenge/rate limits.
 - `backend/app/security/secret_store.py` — DPAPI secret store (bot tokens,
   webhook secrets; account/computer-bound).
@@ -113,15 +118,11 @@ admin-доступу и Telegram/MAX ботам. Прочитав этот фа�
 
 ## Известные риски
 
-- Cookie-сессия в production использует `SameSite=None` → CSRF-граница
-  обязательна; готовая реализация лежит в handoff
-  `.runtime/handoffs/AUTH-LEGACY-001-20260720-8922e77/` (пакет
-  `AUTH-LEGACY-001B`).
-- В том же handoff — удаление мёртвых `request_user_id`/`require_admin`
-  (пакет `001D`) и незавершённая правка секции 1
-  `test_security_hotfix_20260629.py` (пакет `001A`). Не переделывать заново —
-  сначала применить handoff по манифесту.
-- История: orphan-процесс на 8001 однажды конкурировал за Telegram
-  `getUpdates` (409-класс) — при transport-ошибках сначала проверять
-  единственность listener/owner (`tools/check-runtime-listeners.ps1`).
-- GitHub CI не выполняет steps (billing) — доказательства только локальные.
+- Cookie/session auth требует сохранения реализованной CSRF origin boundary и
+  HTTP middleware composition; их нельзя обходить локальным route shortcut.
+- Bot login и provider updates должны продолжать использовать trusted identity,
+  bounded rate limits и product-safe errors.
+- Polling owner должен оставаться единственным: при transport-ошибках проверять
+  ownership/listener evidence, а не запускать второй polling loop.
+- Runtime/provider availability не выводится из source и требует отдельного
+  operational evidence.

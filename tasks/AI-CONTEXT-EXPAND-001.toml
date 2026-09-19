@@ -26,6 +26,8 @@ allowedPatterns = [
   "docs/context/audio.md",
   "docs/context/3d.md",
   "docs/context/release-ops.md",
+  "docs/context/video-gallery-feed.md",
+  "docs/context/backend-auth-bots.md",
 ]
 forbiddenPatterns = [
   "backend/**",
@@ -94,3 +96,13 @@ recordedAtUtc = "2026-09-19T19:03:22.656304Z"
 path = "docs/context/release-ops.md"
 reason = "Issue #109 slice 2: canonical release-ops context."
 recordedAtUtc = "2026-09-19T19:03:23.757232Z"
+
+[[scopeExpansions]]
+path = "docs/context/video-gallery-feed.md"
+reason = "Issue #109 slice 3: reconcile existing video/gallery/feed canonical context with expanded domain ownership."
+recordedAtUtc = "2026-09-19T19:31:54.815550Z"
+
+[[scopeExpansions]]
+path = "docs/context/backend-auth-bots.md"
+reason = "Issue #109 slice 3: reconcile existing auth/bot canonical context with current source and test boundaries."
+recordedAtUtc = "2026-09-19T19:31:55.979564Z"
