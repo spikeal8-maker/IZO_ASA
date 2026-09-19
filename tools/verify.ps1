@@ -211,6 +211,7 @@ $quickTests = @(
     "tools/test_generate_backend_map.py",
     "tools/test_generate_architecture_inventory.py",
     "tools/test_agent_context.py",
+    "tools/test_agent_symbol.py",
     "tools/test_context_docs.py",
     "tools/test_agent_package.py",
     "tools/test_agent_sandbox.py",

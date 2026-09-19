@@ -1,0 +1,86 @@
+manifestVersion = 1
+id = "AI-SYMBOL-CONTEXT-001"
+baseSha = "51fc2e757e5fa0270f305f52e6b6ba2ecd8efa10"
+goal = "Provide deterministic bounded symbol context for Python and TS/TSX without requiring an agent to read protected monoliths in full."
+userOutcome = "The canonical agent symbol command returns a bounded deterministic neighborhood for a requested symbol using existing generated evidence first and exact-file static inspection only when needed."
+beforeScenario = "Agents must inspect large source files and generated maps manually to assemble symbol, route, dependency, test and context evidence."
+afterScenario = "A bounded symbol command returns deterministic JSON with source, relationship, route, test and context evidence while preserving unknown dynamic edges."
+nonGoals = [
+  "product behavior",
+  "new persistent symbol index",
+  "vector search / RAG",
+  "context-domain expansion #109",
+  "Docker/dev environment",
+  "deploy/restart",
+]
+declaredFiles = [
+  "tasks/AI-SYMBOL-CONTEXT-001.toml",
+  "tools/agent.ps1",
+  "tools/agent_system/symbol.py",
+  "tools/test_agent_symbol.py",
+  "tools/verify.ps1",
+  "tools/test_verify_script.py",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "docs/NOW.md",
+  "backend/**",
+  "frontend/**",
+  "architecture/**",
+  "ops/**",
+  ".github/**",
+  "backend/SYMBOL_MAP.md",
+  "docs/generated/**",
+  "docs/context/**",
+  "tools/generate_backend_map.py",
+  "tools/generate_frontend_map.mjs",
+  "tools/generate_architecture_inventory.py",
+  "tools/generate_context_index.py",
+]
+protectedFilesTouched = [
+]
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+maxProductionFiles = 0
+maxChangedLines = 1100
+acceptance = [
+  "Canonical agent CLI exposes symbol -Path <repo-path> -Symbol <name>.",
+  "Output is deterministic machine-readable JSON and respects bounded source/response limits.",
+  "Existing generated evidence is reused read-only before exact-file static inspection.",
+  "Python and TS/TSX real-repository smoke cases pass without full protected-hotspot output.",
+  "Unknown dynamic relationships are reported explicitly rather than fabricated.",
+  "Path traversal, absolute paths, symlink escapes and unsafe source execution are rejected.",
+  "Generated-map checks, focused tests, Quick verification, package enforcement and exact-head CI pass.",
+]
+requiredEvidence = [
+  "focused symbol/context/verify tests",
+  "real repository Python and TSX smoke cases",
+  "generated-map drift checks",
+  "Quick verification",
+  "package enforcement receipt",
+  "git diff --check",
+  "exact-head GitHub CI",
+]
+targetedTests = [
+  "tools/test_agent_symbol.py",
+  "tools/test_agent_context.py",
+  "tools/test_context_docs.py",
+  "tools/test_verify_script.py",
+]
+fileGrowthExpectations = [
+  "tools/agent_system/symbol.py remains <= 500 lines preferred and never exceeds 750 lines.",
+  "tools/test_agent_symbol.py remains cohesive and bounded.",
+  "No production source grows.",
+]
+forbiddenOperations = [
+  "deploy",
+  "restart",
+  "production DB/media mutation",
+  "provider mutation",
+  "Docker/runtime mutation",
+  "issue 109 implementation",
+  "generated evidence rewrite",
+]
+rollbackBoundary = "Remove symbol command plumbing/helper/tests/Quick wiring and the package manifest; product/runtime/generated evidence remains untouched."
