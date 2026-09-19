@@ -1,4 +1,4 @@
-"""Deterministic bounded context packets for the pilot domains."""
+"""Deterministic bounded context packets for canonical domains."""
 from __future__ import annotations
 
 import argparse
@@ -18,7 +18,6 @@ GENERATED_EVIDENCE = (
     "docs/generated/architecture-inventory.md",
     "backend/SYMBOL_MAP.md",
 )
-PILOT_DOMAINS = {"chat", "admin-models"}
 HOTSPOTS = {
     "backend/main.py",
     "frontend/src/newUi.tsx",
@@ -59,17 +58,22 @@ def _select_card(index: dict[str, Any], requested: str) -> tuple[dict[str, Any],
     requested = requested.strip().lower()
     if not requested:
         raise ContextPacketError("context domain is required")
-    pilot_cards = [card for card in index["cards"] if card["domain"] in PILOT_DOMAINS]
-    exact = [card for card in pilot_cards if card["domain"] == requested]
+    cards = index["cards"]
+    exact = [card for card in cards if card["domain"] == requested]
+    routed = [card for card in cards if requested in card["read_when"]]
+    if len(exact) > 1:
+        raise ContextPacketError(f"ambiguous context route: {requested}")
     if exact:
-        return exact[0], f"exact domain match: {requested}"
-    routed = [card for card in pilot_cards if requested in card["read_when"]]
+        selected = exact[0]
+        if any(card["domain"] != selected["domain"] for card in routed):
+            raise ContextPacketError(f"ambiguous context route: {requested}")
+        return selected, f"exact domain match: {requested}"
     if len(routed) == 1:
         card = routed[0]
         return card, f"read_when match: {requested} -> {card['domain']}"
     if len(routed) > 1:
         raise ContextPacketError(f"ambiguous context route: {requested}")
-    available = ", ".join(sorted(PILOT_DOMAINS))
+    available = ", ".join(sorted({card["domain"] for card in cards}))
     raise ContextPacketError(f"unknown context domain: {requested}; available: {available}")
 
 
@@ -156,16 +160,23 @@ def _render_packet(root: Path, requested: str, card: dict[str, Any], reason: str
         lines.extend(f"- {warning}" for warning in warnings)
     else:
         lines.append("- none")
-    lines.extend(["", "## Canonical context card", "", card_text, ""])
-    packet = "\n".join(lines)
-    byte_count = len(packet.encode("utf-8"))
-    line_count = len(packet.splitlines())
-    if byte_count > MAX_PACKET_BYTES or line_count > MAX_PACKET_LINES:
-        raise ContextPacketError(
-            f"context packet exceeds budget: {byte_count}/{MAX_PACKET_BYTES} bytes, "
-            f"{line_count}/{MAX_PACKET_LINES} lines; compact the canonical card"
-        )
-    return packet
+    lines.extend(["", "## Canonical context card", ""])
+    card_lines = card_text.splitlines()
+    truncated = False
+    while True:
+        suffix = ["", "> Canonical card truncated to packet budget.", ""] if truncated else [""]
+        packet = "\n".join([*lines, *card_lines, *suffix])
+        byte_count = len(packet.encode("utf-8"))
+        line_count = len(packet.splitlines())
+        if byte_count <= MAX_PACKET_BYTES and line_count <= MAX_PACKET_LINES:
+            return packet
+        if not card_lines:
+            raise ContextPacketError(
+                f"context packet exceeds budget without card body: {byte_count}/{MAX_PACKET_BYTES} bytes, "
+                f"{line_count}/{MAX_PACKET_LINES} lines"
+            )
+        card_lines.pop()
+        truncated = True
 
 
 def build_packet(root: Path, requested: str) -> str:

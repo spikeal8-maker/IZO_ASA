@@ -46,6 +46,16 @@ def test_context_docs_exist_within_size_bounds() -> None:
         assert 100 <= lines <= 250, f"{doc.name} must stay 100-250 lines, has {lines}"
 
 
+def test_context_index_has_unique_domains_routes_and_owners() -> None:
+    cards = discover_cards(ROOT)
+    domains = [card.domain for card in cards]
+    routes = [token for card in cards for token in card.read_when]
+    owners = [card.owner for card in cards]
+    assert len(domains) == len(set(domains))
+    assert len(routes) == len(set(routes))
+    assert len(owners) == len(set(owners))
+
+
 def test_context_docs_reference_only_existing_files() -> None:
     for doc in _context_docs():
         text = doc.read_text(encoding="utf-8")

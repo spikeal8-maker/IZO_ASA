@@ -18,6 +18,7 @@ from tools.agent_system.context import (
     MAX_PACKET_LINES,
     ContextPacketError,
     build_packet,
+    _select_card,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,13 +70,15 @@ def test_repository_context_index_is_deterministic_and_current() -> None:
     second = build_index(ROOT)
     assert first == second
     assert first["schemaVersion"] == 1
-    assert first["cardCount"] == 6
+    assert first["cardCount"] == 8
     assert {card["domain"] for card in first["cards"]} == {
         "admin-control-center",
         "admin-models",
         "backend-auth-bots",
+        "billing-payments",
         "chat",
         "frontend-studio",
+        "image-generation",
         "video-gallery-feed",
     }
     assert render_json(first) == render_json(second)
@@ -216,32 +219,69 @@ def test_ignored_repository_paths_fail_closed(tmp_path: Path) -> None:
         discover_cards(tmp_path)
 
 
-def test_pilot_packets_are_deterministic_bounded_and_route_to_expected_owners() -> None:
+def test_all_canonical_domains_route_and_new_packets_stay_bounded() -> None:
+    domains = (
+        "chat",
+        "admin-models",
+        "frontend-studio",
+        "backend-auth-bots",
+        "video-gallery-feed",
+        "admin-control-center",
+        "image-generation",
+        "billing-payments",
+    )
+    for domain in domains:
+        packet = build_packet(ROOT, domain)
+        assert f"selected domain: `{domain}`" in packet
+        assert len(packet.encode("utf-8")) <= MAX_PACKET_BYTES
+        assert len(packet.splitlines()) <= MAX_PACKET_LINES
+
     chat = build_packet(ROOT, "chat")
     assert chat == build_packet(ROOT, "chat")
-    assert len(chat.encode("utf-8")) <= MAX_PACKET_BYTES
-    assert len(chat.splitlines()) <= MAX_PACKET_LINES
     assert "repo: `spikeal8-maker/IZO_ASA`" in chat
-    assert "frontend/src/newUi.tsx" in chat
     assert "frontend/src/desktopChat/DesktopChatWorkspace.tsx" in chat
     assert "backend/app/api/routers/phone_chat.py" in chat
     assert "backend/main.py" in chat and "do not full-read automatically" in chat
 
-    admin = build_packet(ROOT, "admin-models")
-    alias = build_packet(ROOT, "openrouter-models")
-    assert "selected domain: `admin-models`" in alias
-    assert "read_when match: openrouter-models -> admin-models" in alias
-    assert len(admin.encode("utf-8")) <= MAX_PACKET_BYTES
-    assert len(admin.splitlines()) <= MAX_PACKET_LINES
-    assert "frontend/src/adminModelsRoutes.ts" in admin
-    assert "backend/app/api/routers/admin_operations.py" in admin
-    assert "backend/app/services/openrouter_image_economics.py" in admin
-    assert "backend/test_openrouter_image_economics.py" in admin
-    assert "frontend/src/newUi.tsx" in admin and "Forbidden paths" in admin
+    admin_alias = build_packet(ROOT, "openrouter-models")
+    assert "selected domain: `admin-models`" in admin_alias
+    assert "read_when match: openrouter-models -> admin-models" in admin_alias
+
+    image_alias = build_packet(ROOT, "text-to-image")
+    assert "selected domain: `image-generation`" in image_alias
+    assert "read_when match: text-to-image -> image-generation" in image_alias
+    assert "backend/app/services/generation_jobs.py" in image_alias
+    assert "backend/test_generation_protection.py" in image_alias
+
+    billing_alias = build_packet(ROOT, "checkout")
+    assert "selected domain: `billing-payments`" in billing_alias
+    assert "read_when match: checkout -> billing-payments" in billing_alias
+    assert "backend/app/billing/contracts.py" in billing_alias
+    assert "backend/test_billing_yookassa_provider.py" in billing_alias
 
 
-def test_context_packet_unknown_domain_fails_closed() -> None:
-    with pytest.raises(ContextPacketError, match="unknown context domain"):
+def test_context_router_fails_closed_on_ambiguous_cross_route() -> None:
+    index = {
+        "cards": [
+            {"domain": "one", "read_when": ["one"]},
+            {"domain": "two", "read_when": ["one"]},
+        ]
+    }
+    with pytest.raises(ContextPacketError, match="ambiguous context route: one"):
+        _select_card(index, "one")
+
+
+def test_context_packet_unknown_domain_lists_current_domains() -> None:
+    expected = (
+        "admin-control-center, admin-models, backend-auth-bots, billing-payments, "
+        "chat, frontend-studio, image-generation, video-gallery-feed"
+    )
+    with pytest.raises(ContextPacketError, match=f"available: {expected}"):
         build_packet(ROOT, "not-a-domain")
-    with pytest.raises(ContextPacketError, match="unknown context domain"):
-        build_packet(ROOT, "frontend-studio")
+
+
+def test_context_runtime_has_no_pilot_allowlist_or_broad_repo_scan() -> None:
+    source = (ROOT / "tools" / "agent_system" / "context.py").read_text(encoding="utf-8")
+    assert "PILOT_DOMAINS" not in source
+    assert ".rglob(" not in source
+    assert "os.walk" not in source
