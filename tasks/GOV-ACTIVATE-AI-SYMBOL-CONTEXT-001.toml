@@ -1,0 +1,88 @@
+manifestVersion = 1
+id = "GOV-ACTIVATE-AI-SYMBOL-CONTEXT-001"
+baseSha = "4e06a6e88690e330379e3034ca1ecb407918673e"
+
+goal = "Transition canonical program routing from completed STAB-CREDENTIAL-ISOLATION-REPAIR-001 to active AI-SYMBOL-CONTEXT-001."
+
+userOutcome = "Canonical status and its deterministic instruction contract agree that #139 is completed, #108 is active, and #109 is next."
+
+beforeScenario = "Issue #139 is completed and merged, but main still routes to #139 and blocks #108; PR #141 contains the correct status transition but CI cannot resolve a package manifest."
+
+afterScenario = "The governance-only transition is package-enforced, #139 is completed, #108 is explicitly active, and #109 is the next candidate without starting #108 implementation."
+
+nonGoals = [
+  "implement AI-SYMBOL-CONTEXT-001",
+  "modify product behavior",
+  "modify backend or frontend runtime",
+  "deploy or restart production",
+  "modify Docker environments",
+]
+
+declaredFiles = [
+  "tasks/GOV-ACTIVATE-AI-SYMBOL-CONTEXT-001.toml",
+  "docs/NOW.md",
+  "tools/test_agent_instructions.py",
+]
+
+allowedPatterns = [
+]
+
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+  ".github/**",
+  "tools/agent_system/**",
+  "tools/agent.ps1",
+  "tools/verify.ps1",
+]
+
+protectedFilesTouched = [
+]
+
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+
+maxProductionFiles = 0
+maxChangedLines = 400
+
+acceptance = [
+  "docs/NOW.md marks STAB-CREDENTIAL-ISOLATION-REPAIR-001 completed.",
+  "docs/NOW.md explicitly activates AI-SYMBOL-CONTEXT-001 issue #108.",
+  "docs/NOW.md routes AI-CONTEXT-EXPAND-001 issue #109 as next candidate.",
+  "The resolved credential-isolation blocker is absent.",
+  "Deterministic instruction tests assert the same canonical routing.",
+  "No implementation surface for issue #108 is changed.",
+  "Package enforcement and exact-head CI pass.",
+]
+
+requiredEvidence = [
+  "focused instruction/status tests",
+  "package enforcement receipt",
+  "git diff --check",
+  "exact-head GitHub CI",
+]
+
+targetedTests = [
+  "tools/test_agent_instructions.py",
+  "tools/test_context_docs.py",
+  "tools/test_agent_enforce.py",
+]
+
+fileGrowthExpectations = [
+  "docs/NOW.md remains within its existing size limit.",
+  "No production source grows.",
+]
+
+forbiddenOperations = [
+  "deploy",
+  "restart",
+  "production-data",
+  "provider-call",
+  "direct-main",
+  "issue-108-implementation",
+]
+
+rollbackBoundary = "Revert the governance manifest, NOW routing transition and matching deterministic assertions; product/runtime/deploy state remains untouched."
