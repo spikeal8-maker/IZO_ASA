@@ -372,11 +372,15 @@ def _ts_direct_call(masked_body: str, name: str) -> bool:
     return re.search(rf"(?<![\w$.]){re.escape(name)}\s*\(", masked_body) is not None
 
 
-def _ts_import_bindings(text: str) -> list[tuple[str, str]]:
+def _ts_import_bindings(text: str, masked: str) -> list[tuple[str, str]]:
     bindings = []
-    pattern = re.compile(r"(?ms)^[ \t]*import\s+(?:type\s+)?(?P<clause>.+?)\s+from\s+['\"](?P<source>[^'\"]+)['\"]\s*;?")
-    for match in pattern.finditer(text):
-        clause, source = match.group("clause").strip(), match.group("source")
+    pattern = re.compile(r"(?ms)^[ \t]*import\s+(?:type\s+)?(?P<clause>.+?)\s+from\b")
+    for match in pattern.finditer(masked):
+        clause = match.group("clause").strip()
+        source_match = re.match(r"\s*(['\"])(?P<source>[^'\"]+)\1", text[match.end():])
+        if not source_match:
+            continue
+        source = source_match.group("source")
         default = clause.split(",", 1)[0].strip()
         if re.fullmatch(r"[A-Za-z_$][\w$]*", default):
             bindings.append((default, source))
@@ -393,7 +397,6 @@ def _ts_import_bindings(text: str) -> list[tuple[str, str]]:
                         bindings.append((bound, source))
     return bindings
 
-
 def _ts_dependency(relative: str, source: str) -> str:
     if not source.startswith("."):
         return source
@@ -408,8 +411,8 @@ def _tsx_analysis(root: Path, relative: str, source_path: Path, symbol: str) -> 
         raise SymbolContextError(f"symbol not found: {relative}::{symbol}")
     target = declarations[symbol]
     body = masked[target.start_index:target.end_index + 1]
-    imports = sorted({_ts_dependency(relative, source) for bound, source in _ts_import_bindings(text)
-                      if re.search(rf"{re.escape(bound)}", body)})
+    imports = sorted({_ts_dependency(relative, source) for bound, source in _ts_import_bindings(text, masked)
+                      if re.search(rf"(?<![\w$]){re.escape(bound)}(?![\w$])", body)})
     callees = sorted(name for name in declarations if name != symbol and _ts_direct_call(body, name))
     callers = []
     for name, declaration in declarations.items():

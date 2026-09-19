@@ -223,6 +223,58 @@ def alpha():
     assert result["imports"] == sorted([".one", "..foo.two", "...pkg.three", "os"])
 
 
+
+def test_ts_imports_use_masked_statements_and_cover_binding_forms(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "src/imports.tsx",
+        """import { foo } from './real'
+import { foo as localFoo } from './alias'
+import Thing from './thing'
+import * as helpers from './helpers'
+import type { Shape } from './types'
+// import { foo } from './fake-line'
+/* import { foo } from './fake-block' */
+const fakeDouble = "import { foo } from './fake-double'"
+const fakeSingle = 'import { foo } from "./fake-single"'
+const fakeTemplate = `
+import { foo } from './fake-template'
+`
+export function named() { return foo() }
+export function aliased() { return localFoo() }
+export function defaulted() { return Thing() }
+export function namespaced() { return helpers.run() }
+export function typed(value: Shape): Shape { return value }
+""",
+    )
+    assert build_symbol_context(tmp_path, "src/imports.tsx", "named")["imports"] == ["src/real"]
+    assert build_symbol_context(tmp_path, "src/imports.tsx", "aliased")["imports"] == ["src/alias"]
+    assert build_symbol_context(tmp_path, "src/imports.tsx", "defaulted")["imports"] == ["src/thing"]
+    namespace = build_symbol_context(tmp_path, "src/imports.tsx", "namespaced")
+    assert namespace["imports"] == ["src/helpers"]
+    assert namespace["directCallees"] == []
+    typed = build_symbol_context(tmp_path, "src/imports.tsx", "typed")
+    assert typed["imports"] == ["src/types"]
+    assert typed["directCallees"] == []
+
+
+def test_ts_import_relevance_has_real_token_boundaries_and_no_backspace(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "src/boundary.ts",
+        """import { foo } from './real'
+export function unrelated() {
+  const foobar = 1
+  return foobar
+}
+export function related() { return foo() }
+""",
+    )
+    assert build_symbol_context(tmp_path, "src/boundary.ts", "unrelated")["imports"] == []
+    assert build_symbol_context(tmp_path, "src/boundary.ts", "related")["imports"] == ["src/real"]
+    source = (ROOT / "tools" / "agent_system" / "symbol.py").read_text(encoding="utf-8")
+    assert "\x08" not in source
+
 def test_dynamic_python_edge_is_explicitly_unknown(tmp_path: Path) -> None:
     _write(
         tmp_path,
