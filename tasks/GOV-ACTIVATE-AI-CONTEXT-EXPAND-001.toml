@@ -1,0 +1,89 @@
+manifestVersion = 1
+id = "GOV-ACTIVATE-AI-CONTEXT-EXPAND-001"
+baseSha = "a22743c9124147eb6169244bb958d86f144f9708"
+
+goal = "Transition canonical program routing from completed AI-SYMBOL-CONTEXT-001 to active AI-CONTEXT-EXPAND-001."
+
+userOutcome = "Canonical status and deterministic instruction tests agree that #108 is completed, #109 is active, and #110 is next."
+
+beforeScenario = "Issue #108 is merged and completed, but docs/NOW.md still routes AI-SYMBOL-CONTEXT-001 as active."
+
+afterScenario = "Canonical routing marks #108 completed, explicitly activates #109, and routes #110 as next without starting #109 implementation."
+
+nonGoals = [
+  "implement AI-CONTEXT-EXPAND-001",
+  "modify context cards",
+  "modify generated context index",
+  "modify product behavior",
+  "deploy or restart runtime",
+]
+
+declaredFiles = [
+  "tasks/GOV-ACTIVATE-AI-CONTEXT-EXPAND-001.toml",
+  "docs/NOW.md",
+  "tools/test_agent_instructions.py",
+]
+
+allowedPatterns = [
+]
+
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+  ".github/**",
+  "docs/context/**",
+  "docs/generated/**",
+  "tools/agent_system/**",
+  "tools/agent.ps1",
+  "tools/verify.ps1",
+]
+
+protectedFilesTouched = [
+]
+
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+
+maxProductionFiles = 0
+maxChangedLines = 400
+
+acceptance = [
+  "docs/NOW.md marks AI-SYMBOL-CONTEXT-001 issue #108 completed.",
+  "docs/NOW.md explicitly activates AI-CONTEXT-EXPAND-001 issue #109.",
+  "docs/NOW.md routes STAB-PRODUCT-CONTRACT-001 issue #110 as next candidate.",
+  "Deterministic instruction tests assert the same canonical routing.",
+  "No implementation surface for issue #109 changes.",
+  "Package enforcement and exact-head CI pass.",
+]
+
+requiredEvidence = [
+  "focused instruction/status tests",
+  "package enforcement receipt",
+  "git diff --check",
+  "exact-head GitHub CI",
+]
+
+targetedTests = [
+  "tools/test_agent_instructions.py",
+  "tools/test_context_docs.py",
+  "tools/test_agent_enforce.py",
+]
+
+fileGrowthExpectations = [
+  "docs/NOW.md remains within its existing size limit.",
+  "No product source grows.",
+]
+
+forbiddenOperations = [
+  "deploy",
+  "restart",
+  "production-data",
+  "provider-call",
+  "direct-main",
+  "issue-109-implementation",
+]
+
+rollbackBoundary = "Revert the governance manifest, NOW routing transition and matching deterministic assertions; product/runtime/deploy state remains untouched."

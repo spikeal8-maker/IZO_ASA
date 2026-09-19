@@ -3,16 +3,16 @@ status: canonical
 status_role: current-status-aggregator
 backlog_role: program-router
 updated: 2026-09-19
-source_main_at_status_update: 4e06a6e88690e330379e3034ca1ecb407918673e
+source_main_at_status_update: a22743c9124147eb6169244bb958d86f144f9708
 last_verified_main: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_verified_at: 2026-09-02T00:08:04+03:00
-completed_package: STAB-CREDENTIAL-ISOLATION-REPAIR-001
-active_package: AI-SYMBOL-CONTEXT-001
-active_task_contract: github-issue-108
+completed_package: AI-SYMBOL-CONTEXT-001
+active_package: AI-CONTEXT-EXPAND-001
+active_task_contract: github-issue-109
 baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a
 baseline_status: completed-point-A-accepted
-next_candidate: AI-CONTEXT-EXPAND-001
+next_candidate: STAB-PRODUCT-CONTRACT-001
 ---
 # IZO_ASA — NOW
 
@@ -32,7 +32,7 @@ git rev-parse origin/main
 git worktree list
 ```
 Source `main` при последнем status transition:
-`4e06a6e88690e330379e3034ca1ecb407918673e`.
+`a22743c9124147eb6169244bb958d86f144f9708`.
 
 Последний отдельно operationally verified production release:
 `d223c179d5944bc208cace867d5e93bc1341a3aa` от 2026-09-02. Не выводить deploy
@@ -40,10 +40,10 @@ Source `main` при последнем status transition:
 
 ## 2. Активный stabilization package
 
-Completed: `STAB-CREDENTIAL-ISOLATION-REPAIR-001` (#139).
-Active: `AI-SYMBOL-CONTEXT-001`, issue #108.
+Completed: `AI-SYMBOL-CONTEXT-001` (#108).
+Active: `AI-CONTEXT-EXPAND-001`, issue #109.
 `AI-CONTEXT-PILOT-001` (#107) completed: chat/admin-models packets stayed bounded and post-pilot A/B improved from false/false to partial/true with 0 broad scans.
-Next: `AI-CONTEXT-EXPAND-001` (#109).
+Next: `STAB-PRODUCT-CONTRACT-001` (#110).
 
 ## 3. Frozen baseline — completed point A
 
@@ -59,8 +59,8 @@ Post-pilot #107 comparison: A improved false -> partial and B false -> true;
 combined input tokens fell from 63,241 to 3,643 and broad tool calls from 21 to 0.
 No repository/product/provider/deploy action was part of the evaluation evidence.
 
-Credential-isolation stop-the-line repair #139 is completed. The canonical router now
-activates `AI-SYMBOL-CONTEXT-001` (#108); its implementation remains a separate package.
+Credential-isolation stop-the-line repair #139 and `AI-SYMBOL-CONTEXT-001` (#108)
+are completed.
 
 ## 4. Context и generated evidence
 
