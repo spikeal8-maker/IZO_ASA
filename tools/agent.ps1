@@ -5,6 +5,7 @@ param(
     [string]$Command,
     [string]$Manifest = "",
     [string]$Path = "",
+    [string]$Symbol = "",
     [string]$Reason = "",
     [string]$Ref = "",
     [string]$Domain = "",
@@ -62,6 +63,18 @@ if ($Command -eq "context") {
     Push-Location -LiteralPath $RepoRoot
     try {
         & $python -m tools.agent_system.context --repo-root $RepoRoot --domain $Domain
+        exit $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
+}
+
+if ($Command -eq "symbol") {
+    if (-not $Path.Trim()) { throw "-Path is required for agent symbol." }
+    if (-not $Symbol.Trim()) { throw "-Symbol is required for agent symbol." }
+    Push-Location -LiteralPath $RepoRoot
+    try {
+        & $python -m tools.agent_system.symbol --repo-root $RepoRoot --path $Path --symbol $Symbol
         exit $LASTEXITCODE
     } finally {
         Pop-Location
