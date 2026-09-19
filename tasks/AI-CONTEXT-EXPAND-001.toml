@@ -23,6 +23,9 @@ declaredFiles = [
   "tools/test_context_docs.py",
 ]
 allowedPatterns = [
+  "docs/context/audio.md",
+  "docs/context/3d.md",
+  "docs/context/release-ops.md",
 ]
 forbiddenPatterns = [
   "backend/**",
@@ -76,3 +79,18 @@ forbiddenOperations = [
   "issue-109-next-slice",
 ]
 rollbackBoundary = "Revert this first #109 slice: package manifest, two new context cards, regenerated context index, router generalization and focused tests; product/runtime/deploy state remains untouched."
+
+[[scopeExpansions]]
+path = "docs/context/audio.md"
+reason = "Issue #109 slice 2: canonical audio context."
+recordedAtUtc = "2026-09-19T19:03:21.594902Z"
+
+[[scopeExpansions]]
+path = "docs/context/3d.md"
+reason = "Issue #109 slice 2: canonical contract-only 3D context."
+recordedAtUtc = "2026-09-19T19:03:22.656304Z"
+
+[[scopeExpansions]]
+path = "docs/context/release-ops.md"
+reason = "Issue #109 slice 2: canonical release-ops context."
+recordedAtUtc = "2026-09-19T19:03:23.757232Z"

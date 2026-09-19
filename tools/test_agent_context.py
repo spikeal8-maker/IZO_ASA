@@ -70,15 +70,18 @@ def test_repository_context_index_is_deterministic_and_current() -> None:
     second = build_index(ROOT)
     assert first == second
     assert first["schemaVersion"] == 1
-    assert first["cardCount"] == 8
+    assert first["cardCount"] == 11
     assert {card["domain"] for card in first["cards"]} == {
+        "3d",
         "admin-control-center",
         "admin-models",
+        "audio",
         "backend-auth-bots",
         "billing-payments",
         "chat",
         "frontend-studio",
         "image-generation",
+        "release-ops",
         "video-gallery-feed",
     }
     assert render_json(first) == render_json(second)
@@ -229,6 +232,9 @@ def test_all_canonical_domains_route_and_new_packets_stay_bounded() -> None:
         "admin-control-center",
         "image-generation",
         "billing-payments",
+        "audio",
+        "3d",
+        "release-ops",
     )
     for domain in domains:
         packet = build_packet(ROOT, domain)
@@ -259,6 +265,21 @@ def test_all_canonical_domains_route_and_new_packets_stay_bounded() -> None:
     assert "backend/app/billing/contracts.py" in billing_alias
     assert "backend/test_billing_yookassa_provider.py" in billing_alias
 
+    audio_alias = build_packet(ROOT, "transcription")
+    assert "selected domain: `audio`" in audio_alias
+    assert "read_when match: transcription -> audio" in audio_alias
+    assert "backend/app/api/routers/phone_audio.py" in audio_alias
+
+    three_d_alias = build_packet(ROOT, "image-to-3d")
+    assert "selected domain: `3d`" in three_d_alias
+    assert "read_when match: image-to-3d -> 3d" in three_d_alias
+    assert "backend/app/services/phone_3d_contracts.py" in three_d_alias
+
+    release_alias = build_packet(ROOT, "promotion")
+    assert "selected domain: `release-ops`" in release_alias
+    assert "read_when match: promotion -> release-ops" in release_alias
+    assert "docs/production-release-runbook.md" in release_alias
+
 
 def test_context_router_fails_closed_on_ambiguous_cross_route() -> None:
     index = {
@@ -272,12 +293,10 @@ def test_context_router_fails_closed_on_ambiguous_cross_route() -> None:
 
 
 def test_context_packet_unknown_domain_lists_current_domains() -> None:
-    expected = (
-        "admin-control-center, admin-models, backend-auth-bots, billing-payments, "
-        "chat, frontend-studio, image-generation, video-gallery-feed"
-    )
-    with pytest.raises(ContextPacketError, match=f"available: {expected}"):
+    expected = ", ".join(sorted(card["domain"] for card in build_index(ROOT)["cards"]))
+    with pytest.raises(ContextPacketError) as exc:
         build_packet(ROOT, "not-a-domain")
+    assert str(exc.value) == f"unknown context domain: not-a-domain; available: {expected}"
 
 
 def test_context_runtime_has_no_pilot_allowlist_or_broad_repo_scan() -> None:

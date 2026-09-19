@@ -59,6 +59,9 @@ def test_new_context_cards_are_valid_utf8_without_question_mark_corruption() -> 
     cards = {
         "image-generation.md": ("Назначение", "Границы"),
         "billing-payments.md": ("Назначение", "Границы"),
+        "audio.md": ("Назначение", "Границы"),
+        "3d.md": ("Назначение", "Границы"),
+        "release-ops.md": ("Назначение", "Границы"),
     }
     for name, markers in cards.items():
         data = (ROOT / "docs" / "context" / name).read_bytes()
@@ -66,6 +69,21 @@ def test_new_context_cards_are_valid_utf8_without_question_mark_corruption() -> 
         for marker in markers:
             assert marker in text, f"{name} lacks canonical UTF-8 marker: {marker}"
         assert re.search(r"\?{4,}", text) is None, f"{name} contains suspicious question-mark corruption"
+
+
+def test_slice_two_context_cards_preserve_capability_and_safety_truth() -> None:
+    audio = (ROOT / "docs" / "context" / "audio.md").read_text(encoding="utf-8")
+    three_d = (ROOT / "docs" / "context" / "3d.md").read_text(encoding="utf-8")
+    release = (ROOT / "docs" / "context" / "release-ops.md").read_text(encoding="utf-8")
+    assert "Windows System.Speech" in audio
+    assert "Persistent audio history" in audio
+    assert "не доказана" in audio
+    assert "DISABLED / CONTRACT-ONLY" in three_d
+    assert "Live provider calls = NONE" in three_d
+    for marker in ("CODE COMPLETE", "PUSHED", "CANDIDATE PREPARED", "DEPLOYED", "VERIFIED", "OPERATIONALLY VERIFIED"):
+        assert marker in release
+    assert "Не выполнять deploy." in release
+    assert "Не выполнять restart." in release
 
 
 def test_large_context_packet_truncation_is_explicit_and_preserves_boundaries() -> None:
