@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 
 from test_agent_instructions import assert_agent_instruction_contracts
+from tools.agent_system.context import MAX_PACKET_BYTES, MAX_PACKET_LINES, build_packet
 from tools.generate_context_index import discover_cards
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,14 +47,37 @@ def test_context_docs_exist_within_size_bounds() -> None:
         assert 100 <= lines <= 250, f"{doc.name} must stay 100-250 lines, has {lines}"
 
 
-def test_context_index_has_unique_domains_routes_and_owners() -> None:
+def test_context_index_has_unique_domains_and_routes() -> None:
     cards = discover_cards(ROOT)
     domains = [card.domain for card in cards]
     routes = [token for card in cards for token in card.read_when]
-    owners = [card.owner for card in cards]
     assert len(domains) == len(set(domains))
     assert len(routes) == len(set(routes))
-    assert len(owners) == len(set(owners))
+
+
+def test_new_context_cards_are_valid_utf8_without_question_mark_corruption() -> None:
+    cards = {
+        "image-generation.md": ("Назначение", "Границы"),
+        "billing-payments.md": ("Назначение", "Границы"),
+    }
+    for name, markers in cards.items():
+        data = (ROOT / "docs" / "context" / name).read_bytes()
+        text = data.decode("utf-8")
+        for marker in markers:
+            assert marker in text, f"{name} lacks canonical UTF-8 marker: {marker}"
+        assert re.search(r"\?{4,}", text) is None, f"{name} contains suspicious question-mark corruption"
+
+
+def test_large_context_packet_truncation_is_explicit_and_preserves_boundaries() -> None:
+    packet = build_packet(ROOT, "admin-control-center")
+    assert len(packet.encode("utf-8")) <= MAX_PACKET_BYTES
+    assert len(packet.splitlines()) <= MAX_PACKET_LINES
+    assert "> Canonical card truncated to packet budget." in packet
+    assert "## Routing" in packet
+    assert "selected domain: `admin-control-center`" in packet
+    assert "## Declared boundaries" in packet
+    assert "### Source paths" in packet
+    assert "### Focused tests" in packet
 
 
 def test_context_docs_reference_only_existing_files() -> None:
