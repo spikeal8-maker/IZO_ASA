@@ -1,13 +1,17 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0, Mandatory = $true)]
-    [ValidateSet("doctor", "start", "status", "scope-add", "finish", "main-guard", "context", "symbol", "env-up", "verify", "audit", "eval")]
+    [ValidateSet("doctor", "start", "status", "scope-add", "finish", "main-guard", "context", "sandbox", "symbol", "env-up", "verify", "audit", "eval")]
     [string]$Command,
     [string]$Manifest = "",
     [string]$Path = "",
     [string]$Reason = "",
     [string]$Ref = "",
     [string]$Domain = "",
+    [ValidateSet("build", "probe", "run")]
+    [string]$SandboxAction = "",
+    [string]$SandboxCommand = "",
+    [switch]$SandboxInteractive,
     [string]$WorktreePath = "",
     [string]$RepoRoot = ""
 )
@@ -63,6 +67,29 @@ if ($Command -eq "context") {
         Pop-Location
     }
 }
+
+if ($Command -eq "sandbox") {
+    if (-not $SandboxAction.Trim()) { throw "-SandboxAction is required for agent sandbox." }
+    $sandboxArguments = @("-m", "tools.agent_system.sandbox", "--repo-root", $RepoRoot, $SandboxAction)
+    if ($SandboxAction -eq "run") {
+        if ($SandboxCommand.Trim()) {
+            $commandBytes = [Text.Encoding]::UTF8.GetBytes($SandboxCommand)
+            $commandBase64 = [Convert]::ToBase64String($commandBytes)
+            $sandboxArguments += @("--command-base64", $commandBase64)
+        }
+        if ($SandboxInteractive) { $sandboxArguments += "--interactive" }
+    } elseif ($SandboxCommand.Trim() -or $SandboxInteractive) {
+        throw "-SandboxCommand/-SandboxInteractive are valid only with -SandboxAction run."
+    }
+    Push-Location -LiteralPath $RepoRoot
+    try {
+        & $python @sandboxArguments
+        exit $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
+}
+
 $arguments = @("-m", "tools.agent_system.package", "--repo-root", $RepoRoot, $Command)
 switch ($Command) {
     "start" {
