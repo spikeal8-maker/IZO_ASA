@@ -1,0 +1,91 @@
+manifestVersion = 1
+id = "STAB-PRODUCT-CONTRACT-001"
+baseSha = "f5206f7eb6f5928a34fcc88a6351ed15680b2a48"
+goal = "Create one canonical machine-readable contract for critical IZO_ASA user flows, with deterministic validation/generated maps and explicit linkage of every critical flow to real automated evidence."
+userOutcome = "Before changing or decomposing part of IZO_ASA, an agent can determine which critical user flows use it and which automated tests must pass."
+beforeScenario = "Critical user flows are distributed across source, context cards, tests and runbooks without one deterministic machine-readable map tying user surface to trust boundary, API/service, durable state and automated evidence."
+afterScenario = "architecture/product-flows.json is the single handwritten critical-flow source of truth, deterministic generated JSON/Markdown are current, verification checks drift, and the full Issue #110 target flow set can be incrementally completed in one package/PR."
+nonGoals = [
+  "change product behavior",
+  "modify backend or frontend production source",
+  "modify existing product tests",
+  "change database schema or media",
+  "implement Docker or release changes",
+  "deploy or restart runtime",
+  "call production providers",
+  "change docs/NOW.md",
+  "start STAB-SUPPLY-CHAIN-001 issue #111",
+]
+declaredFiles = [
+  "tasks/STAB-PRODUCT-CONTRACT-001.toml",
+  "architecture/product-flows.json",
+  "tools/generate_product_flow_map.py",
+  "tools/test_product_flows.py",
+  "tools/verify.ps1",
+  "docs/generated/product-flow-map.json",
+  "docs/generated/product-flow-map.md",
+  "TEST_PLAN.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "docs/context/**",
+  "docs/NOW.md",
+  "architecture/contract.json",
+  ".github/**",
+]
+protectedFilesTouched = [
+  "tools/verify.ps1",
+]
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+maxProductionFiles = 0
+maxChangedLines = 2200
+acceptance = [
+  "Canonical handwritten source is architecture/product-flows.json with version 1 and deterministic generated JSON/Markdown projections.",
+  "Generator validates root/flow schema, unknown keys, duplicate/invalid ids, owner and related domains against docs/generated/context-index.json, capability state, repository paths, endpoint methods, and evidence-or-gap requirements.",
+  "Generator performs no broad repository scan and supports deterministic write plus --check drift detection.",
+  "Verification includes product_flow_map_check and tools/test_product_flows.py without changing existing live-check semantics.",
+  "TEST_PLAN.md points to the canonical machine-readable source and generated readable map without duplicating the contract.",
+  "Final Issue #110 coverage includes register/login/session refresh/logout, Telegram trusted entry, MAX trusted entry, text-to-image, image-to-image/edit/paint, generation job lifecycle/cancel/recovery/result, gallery result/detail/download/delete/favorite/use-as, publish/feed visibility, billing checkout/payment state/token accounting, chat request/tools/billing/history, video submission/result/history, audio/transcription, admin model/economics critical operations, and admin/auth-sensitive operations.",
+  "Any 3D entry, if added later, states capability DISABLED / CONTRACT-ONLY and does not claim a production generation flow.",
+  "Every final critical flow links to existing canonical context domains, bounded source/frontend paths, explicit durable outcomes/side effects, user-significant failure states, and real automated evidence or an explicit coverage gap.",
+  "Slice 1 contains only foundation plus auth-session-lifecycle, telegram-trusted-entry, max-trusted-entry, and text-to-image-generation; later flows remain for later slices in the same Draft PR.",
+  "Production files remain zero; no provider call, deploy, restart, Docker, release or production-data mutation occurs.",
+  "Package enforcement, focused tests, generated drift check, git diff check and exact-head CI pass.",
+]
+requiredEvidence = [
+  "product-flow generator --check",
+  "tools/test_product_flows.py",
+  "tools/test_agent_instructions.py and tools/test_context_docs.py",
+  "package enforcement receipt",
+  "git diff --check",
+  "exact-head GitHub CI",
+]
+targetedTests = [
+  "tools/test_product_flows.py",
+  "tools/test_agent_instructions.py",
+  "tools/test_context_docs.py",
+]
+fileGrowthExpectations = [
+  "architecture/product-flows.json remains a compact contract, not narrative documentation.",
+  "Generated artifacts are deterministic projections only.",
+  "tools/verify.ps1 receives only minimal wiring for the new deterministic check/test.",
+  "TEST_PLAN.md receives only a compact routing note.",
+  "No production source or existing product test grows.",
+]
+forbiddenOperations = [
+  "deploy",
+  "restart",
+  "production-data",
+  "provider-call",
+  "docker",
+  "release",
+  "direct-main",
+  "issue-111",
+]
+rollbackBoundary = "Revert the Issue #110 contract source, generator/tests, verify wiring, generated projections, TEST_PLAN note and package manifest; product/runtime/data state remains untouched."
