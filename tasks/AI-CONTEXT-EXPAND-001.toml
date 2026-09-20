@@ -1,0 +1,108 @@
+manifestVersion = 1
+id = "AI-CONTEXT-EXPAND-001"
+baseSha = "249e51185e7845f594d904df5e79d24465826440"
+goal = "Expand bounded agent context routing beyond pilot-only domains and add the first two grounded canonical domain cards for image generation and billing/payments."
+userOutcome = "The canonical agent context command routes every current generated-index card, plus new image-generation and billing-payments cards, without broad scans or product/runtime changes."
+beforeScenario = "agent context is artificially restricted to pilot domains even though additional canonical cards already exist, and image-generation/billing-payments lack dedicated cards."
+afterScenario = "agent context deterministically routes all canonical cards from the generated index, including image-generation and billing-payments, with fail-closed ambiguity handling and unchanged packet budgets."
+nonGoals = [
+  "complete all remaining issue #109 domains",
+  "add audio, 3D or release-ops cards",
+  "modify existing video-gallery-feed or backend-auth-bots cards",
+  "modify product behavior",
+  "deploy or restart runtime",
+]
+declaredFiles = [
+  "tasks/AI-CONTEXT-EXPAND-001.toml",
+  "docs/context/image-generation.md",
+  "docs/context/billing-payments.md",
+  "docs/generated/context-index.json",
+  "docs/generated/context-index.md",
+  "tools/agent_system/context.py",
+  "tools/test_agent_context.py",
+  "tools/test_context_docs.py",
+]
+allowedPatterns = [
+  "docs/context/audio.md",
+  "docs/context/3d.md",
+  "docs/context/release-ops.md",
+  "docs/context/video-gallery-feed.md",
+  "docs/context/backend-auth-bots.md",
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+  ".github/**",
+  "docs/NOW.md",
+  "tools/agent.ps1",
+  "tools/verify.ps1",
+  "tools/generate_context_index.py",
+]
+protectedFilesTouched = [
+]
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+maxProductionFiles = 0
+maxChangedLines = 1600
+acceptance = [
+  "agent context routes every canonical card present in docs/generated/context-index.json without a manually maintained domain allowlist.",
+  "Exact domain and read_when matches are deterministic; ambiguous routes fail closed; unknown domains return the current available-domain list.",
+  "image-generation and billing-payments canonical cards are grounded in the specified source and test paths.",
+  "Generated context index increases from 6 to 8 cards without duplicate domain, read_when or ownership tokens.",
+  "Packet budgets remain at most 32 KiB and 250 lines.",
+  "No production files change and package enforcement passes.",
+]
+requiredEvidence = [
+  "context-index generator check",
+  "focused agent-context and context-doc tests",
+  "package enforcement receipt",
+  "git diff --check",
+  "exact-head GitHub CI",
+]
+targetedTests = [
+  "tools/test_agent_context.py",
+  "tools/test_context_docs.py",
+]
+fileGrowthExpectations = [
+  "tools/agent_system/context.py remains bounded and does not add broad repository scanning.",
+  "New context cards stay concise and focused on ownership, boundaries, entrypoints, tests and unknowns.",
+  "No product source grows.",
+]
+forbiddenOperations = [
+  "deploy",
+  "restart",
+  "production-data",
+  "provider-call",
+  "direct-main",
+  "issue-110-implementation",
+  "issue-109-next-slice",
+]
+rollbackBoundary = "Revert this first #109 slice: package manifest, two new context cards, regenerated context index, router generalization and focused tests; product/runtime/deploy state remains untouched."
+
+[[scopeExpansions]]
+path = "docs/context/audio.md"
+reason = "Issue #109 slice 2: canonical audio context."
+recordedAtUtc = "2026-09-19T19:03:21.594902Z"
+
+[[scopeExpansions]]
+path = "docs/context/3d.md"
+reason = "Issue #109 slice 2: canonical contract-only 3D context."
+recordedAtUtc = "2026-09-19T19:03:22.656304Z"
+
+[[scopeExpansions]]
+path = "docs/context/release-ops.md"
+reason = "Issue #109 slice 2: canonical release-ops context."
+recordedAtUtc = "2026-09-19T19:03:23.757232Z"
+
+[[scopeExpansions]]
+path = "docs/context/video-gallery-feed.md"
+reason = "Issue #109 slice 3: reconcile existing video/gallery/feed canonical context with expanded domain ownership."
+recordedAtUtc = "2026-09-19T19:31:54.815550Z"
+
+[[scopeExpansions]]
+path = "docs/context/backend-auth-bots.md"
+reason = "Issue #109 slice 3: reconcile existing auth/bot canonical context with current source and test boundaries."
+recordedAtUtc = "2026-09-19T19:31:55.979564Z"

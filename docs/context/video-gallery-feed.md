@@ -2,11 +2,13 @@
 status: canonical
 domain: video-gallery-feed
 read_when: ["video","feed","gallery"]
-source_paths: ["frontend/src/VideoStudio.tsx","backend/app/services/gallery_policy.py","backend/app/services/feed_policy.py","backend/app/services/video_storage.py","backend/static/feed/index.html","backend/static/gallery/index.html"]
-test_paths: ["backend/test_feed_v2.py","backend/test_ownership_protection.py","backend/test_generation_protection.py","frontend/e2e-video-studio-layout.mjs"]
-related_domains: ["frontend-studio"]
+source_paths: ["frontend/src/VideoStudio.tsx","backend/app/services/gallery_policy.py","backend/app/services/gallery_query.py","backend/app/services/feed_policy.py","backend/app/services/feed_presentation.py","backend/app/services/video_storage.py","backend/app/services/video_submission.py","backend/static/feed/index.html","backend/static/gallery/index.html"]
+test_paths: ["backend/test_feed_v2.py","backend/test_ownership_protection.py","frontend/e2e-video-studio-layout.mjs","backend/test_feed_presentation_characterization.py","backend/test_gallery_query_characterization.py","backend/test_video_generation_api.py","backend/test_video_storage_policy.py"]
+related_domains: ["frontend-studio","image-generation"]
 forbidden_paths: ["unknown"]
 owner: video-gallery-feed
+context_role: scoped-domain-map
+updated: 2026-09-19
 ---
 
 # Context: видео, галерея и публичная лента
@@ -52,11 +54,11 @@ owner: video-gallery-feed
   вытеснение.
 - Лента: `backend/app/services/feed_policy.py`, `feed_sources.py`,
   `feed_presentation.py`, `feed_downloads.py`.
-- Видео: `backend/app/services/video_storage.py` (storage-тиры и тарифы
-  хранения), `video_pricing.py` (цены моделей/режимов).
-- Генерация: `generation_jobs.py`, `generation_queue.py`,
-  `generation_worker.py`, `generation_results.py`, `generation_recovery.py`,
-  `comfyui_results.py`, `comfyui_workflows.py`.
+- Видео: `backend/app/services/video_storage.py` и
+  `backend/app/services/video_submission.py` — video-specific storage/submission;
+  `video_pricing.py` — цены моделей/режимов.
+- Generic generation job/queue/worker/recovery принадлежит canonical domain
+  `image-generation`; эта карта не владеет общим generation lifecycle.
 - В `main.py`: маршруты gallery/feed/media, публикация в ленту,
   `save_gallery_original`, thumbnail-восстановление, storage-оптимизация
   (`storage_tier: original/optimizing`), удаление media-файлов.
@@ -66,9 +68,12 @@ owner: video-gallery-feed
 - `backend/test_feed_v2.py` (~2 400 строк, у файла есть budget в
   contract.json) — ключевые контракты ленты, включая регрессию: удаление
   приватного оригинала НЕ удаляет опубликованную feed-копию.
-- `backend/test_api.py` — generate/jobs/gallery базовые сценарии.
 - `backend/test_ownership_protection.py` — доступ к чужим media запрещён.
-- `backend/test_generation_protection.py` — защита generate-флоу.
+- `backend/test_feed_presentation_characterization.py` — presentation contract ленты.
+- `backend/test_gallery_query_characterization.py` — gallery query contract.
+- `backend/test_video_generation_api.py` — video-specific generation API boundary.
+- `backend/test_video_storage_policy.py` — video storage policy.
+- Generic generation protection относится к `image-generation`.
 - Frontend: `frontend/e2e-video-studio-layout.mjs`,
   `e2e-result-layout.mjs`, `e2e-generate.mjs`, `e2e-real-generations-25.mjs`
   (реальные генерации — только по явному разрешению).
@@ -111,9 +116,10 @@ owner: video-gallery-feed
 
 ## Известные риски
 
-- Feed-video publication worker не имеет независимого watchdog
-  (появится в `WORK-001`); зависшие `preparing` добираются только на
-  startup.
+- Feed-video publication worker не имеет независимого watchdog:
+  current architecture contract фиксирует `watchdog = missing`.
+  Следующий current runtime-health owner — `STAB-RUNTIME-HEALTH-001` (#119);
+  не считать watchdog реализованным до отдельного package/evidence.
 - Media snapshot в verify: параллельная пользовательская генерация во время
   gate меняет hash — это предупреждение, а не падение (строгий режим только
   в maintenance window).
