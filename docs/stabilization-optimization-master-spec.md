@@ -2,7 +2,7 @@
 status: owner-directed-master-spec
 role: stabilization-optimization-program
 daily_context: false
-updated: 2026-09-14
+updated: 2026-09-20
 repository: spikeal8-maker/IZO_ASA
 source_baseline: 9128f99f825bdd4533dd68c44b5e2f4586719f7f
 current_status_owner: docs/NOW.md
@@ -27,11 +27,11 @@ program_version: 2.0
 - какие проверки обязательны после package, после трёх merged implementation
   packages и после каждой фазы;
 - при каких условиях работа останавливается для repair/extraction;
-- как стандартизируется DEV/TEST через Docker;
+- как стандартизируется DEV/TEST через Docker и как этот этап ведёт к production Docker;
 - какие дополнительные gates нужны для supply-chain, данных, recovery,
   наблюдаемости и performance;
-- почему production containerization не является частью основной bot-stability
-  программы.
+- как после bot-stability acceptance обязательные container-readiness/shadow gates
+  приводят к operationally verified production Docker.
 
 Документ не заменяет:
 
@@ -88,9 +88,30 @@ production/provider actions:   0
 Главная метрика программы — **change locality**: сколько системы агент обязан
 понять и имеет право изменить ради одного пользовательского результата.
 
-Завершение программы не означает «проект идеален навсегда». Оно означает, что
-проект достиг измеримого bot-stable/maintainable baseline, а дальнейшие изменения
-не могут бесконтрольно ухудшать этот baseline.
+Завершение bot-stability части не означает «проект идеален навсегда». Оно означает,
+что проект достиг измеримого bot-stable/maintainable baseline, а дальнейшие
+изменения не могут бесконтрольно ухудшать этот baseline.
+
+**КОНЕЧНАЯ ЦЕЛЬ ПРОГРАММЫ:** рабочий production ИЗО АСА стабильно работает в
+Docker. Application topology после обязательной production-container migration:
+
+```text
+Docker
+├── frontend
+├── backend API
+├── workers / background jobs
+├── persistent SQLite volume
+├── persistent media volume
+└── health / readiness / restart / recovery
+
+Host-native external/GPU services
+├── ComfyUI
+├── Ollama
+└── Qwen ASR
+```
+
+GPU containerization, Linux-host migration и SQLite → PostgreSQL не являются
+условиями этой цели и остаются отдельными будущими решениями.
 
 ---
 
@@ -104,7 +125,7 @@ production/provider actions:   0
 - действующие identity/billing/API contracts до отдельной миграции;
 - modular monolith как базовый стиль;
 - SQLite как текущий production datastore;
-- Windows production до отдельного container-production gate;
+- Windows application runtime как rollback-путь до operationally verified production Docker;
 - ComfyUI/Ollama/Qwen ASR contracts;
 - внешние provider contracts;
 - exact-SHA release/rollback model;
@@ -118,7 +139,7 @@ production/provider actions:   0
 - SQLite → PostgreSQL;
 - массовый redesign;
 - смену auth model;
-- production Docker cutover;
+- production Docker cutover вне обязательных Phase 12–13 и отдельного release-ops gate;
 - перенос GPU runtime;
 - deploy/restart/provider/network action.
 
@@ -735,7 +756,9 @@ persistence roots.
 ComfyUI/Ollama/Qwen остаются host-native/fake на этом этапе.
 
 **Exit:** clean machine/agent поднимает безопасную DEV/TEST environment одной
-командой; Windows production не меняется.
+командой; Windows production не меняется. `DOCKER-DEV-001` остаётся DEV/TEST,
+но является первым обязательным Docker-этапом пути к production Docker и сам по
+себе не является production migration.
 
 ---
 
@@ -939,47 +962,56 @@ Bot-stability targets:
 - unauthorized production/release action = 0;
 - ordinary coding-agent direct main writes = 0.
 
-**Exit:** результат лучше baseline и все program-wide DoD gates ниже выполнены.
+**Exit:** результат лучше baseline и выполнены bot-stability acceptance gates ниже; после #123 фиксируется `BOT-STABILITY ACCEPTED`, но полная программа продолжается через обязательные #124–#126.
 
 ---
 
-## PHASE 12 — optional container readiness/shadow
+## PHASE 12 — mandatory production-container readiness/shadow
 
-Не входит в обязательный bot-stability DoD.
+Эта фаза обязательна после core bot-stability acceptance. Она не переключает
+production traffic, но является обязательным gate перед production Docker.
 
-### `CONTAINER-READY-001`
+### `CONTAINER-READY-001` / issue #124
 
-Абстрагировать только доказанные portability blockers: Windows paths, localhost,
+Устранить только доказанные portability blockers: Windows paths, localhost,
 DPAPI coupling, service-control/domain coupling, storage/media roots,
-readiness/shutdown, provider endpoints.
+readiness/shutdown, provider endpoints. Не выполнять широкую platform migration.
 
-### `CONTAINER-SHADOW-001`
+### `CONTAINER-SHADOW-001` / issue #125
 
-Containerized app запускается на отдельном порту и безопасных данных. Проверить
-frontend/API/jobs/storage/shutdown/resource parity. Production users не
-переключаются.
+Запустить изолированный Docker shadow на безопасных данных без production traffic
+и доказать frontend/API/jobs/storage/shutdown/resource parity.
 
 ---
 
-## PHASE 13 — optional hybrid production Docker
+## PHASE 13 — mandatory production Docker
 
-Только отдельный `high-assurance/release-ops` program:
+### `CONTAINER-PRODUCTION-001` / issue #126
+
+Каноническая конечная topology:
 
 ```text
 Windows host
-├── approved edge/FRP
+├── approved edge / FRP
 ├── ComfyUI host-native GPU
 ├── Ollama host-native GPU
 ├── Qwen ASR host-native GPU
-└── Docker: IZO application/backend/frontend/workers
+└── Docker
+     ├── IZO frontend
+     ├── IZO backend
+     ├── IZO workers
+     ├── SQLite persistent volume
+     └── media persistent volume
 ```
 
-Обязательны exact image identity, persistent volumes, consistent SQLite backup,
-portable secrets, readiness/health, shadow/canary, rollback на Windows runtime.
+Обязательны exact image ↔ Git SHA identity, persistent volumes, consistent SQLite
+backup/restore evidence, portable secrets, readiness/health, worker recovery,
+container recreate без потери durable state, проверенные container ↔ host GPU
+endpoints, public application flow и rollback на Windows application runtime.
+Windows runtime остаётся rollback-путём до operational verification production Docker.
 
-Docker migration нельзя совмещать с SQLite → PostgreSQL.
-
-GPU containers/Linux migration — отдельная будущая программа.
+Docker migration нельзя совмещать с SQLite → PostgreSQL. GPU containers и
+Linux-host migration — отдельные будущие решения.
 
 ---
 
@@ -1047,9 +1079,11 @@ GPU containers/Linux migration — отдельная будущая прогр�
 
 ---
 
-# 14. Definition of Done основной программы
+# 14. Definition of Done программы
 
-Основная программа завершена только когда одновременно выполнено:
+## 14.1. BOT-STABILITY ACCEPTED
+
+После core acceptance #123 статус `BOT-STABILITY ACCEPTED` означает, что:
 
 1. Cold agent правильно определяет repo/domain/package без истории чата.
 2. Task scope проверяется технически, не только текстом.
@@ -1064,7 +1098,7 @@ GPU containers/Linux migration — отдельная будущая прогр�
 11. Existing high/critical dependency debt имеет bounded remediation/expiry.
 12. Test-health baseline не деградирует: flaky/warning/cleanup debt tracked.
 13. Isolated dev/test не использует production DB/media/providers.
-14. Docker DEV/TEST воспроизводим и не является условием Windows production.
+14. Docker DEV/TEST воспроизводим и остаётся DEV/TEST, не production migration.
 15. Affected tests выбираются автоматически и объяснимо.
 16. Restore rehearsal на безопасной копии проходит с evidence.
 17. Persistent runtime components имеют owner/recovery/health semantics.
@@ -1074,11 +1108,35 @@ GPU containers/Linux migration — отдельная будущая прогр�
 21. Merged scope violations = 0.
 22. Unauthorized production/release actions = 0.
 23. Каждый третий implementation package оставляет Architecture Checkpoint.
-24. Каждая фаза закрывается Phase Acceptance Gate.
-25. Production Docker не требуется для достижения основной цели.
+24. Каждая core-фаза закрывается Phase Acceptance Gate.
 
-Если хотя бы один обязательный пункт не выполнен, программа не получает статус
-`BOT-STABILITY ACCEPTED`.
+Если эти обязательные пункты не выполнены, статус `BOT-STABILITY ACCEPTED` не
+выдаётся. Получение этого статуса не закрывает полную программу.
+
+## 14.2. FULL PROGRAM COMPLETE
+
+Полная программа и epic получают `FULL PROGRAM COMPLETE` только после успешных:
+
+```text
+#124 CONTAINER-READY-001
+→ #125 CONTAINER-SHADOW-001
+→ #126 CONTAINER-PRODUCTION-001
+```
+
+Full Program DoD дополнительно требует:
+
+- production IZO application runs in Docker;
+- frontend/backend/workers containerized;
+- SQLite persists outside ephemeral container layer;
+- media persists outside ephemeral container layer;
+- container recreate does not destroy durable state;
+- health/readiness works;
+- worker recovery works;
+- backup/restore evidence exists;
+- container ↔ host GPU endpoints verified;
+- exact image ↔ Git SHA identity verified;
+- public application flow verified;
+- Windows rollback remains available until production Docker is operationally verified.
 
 ---
 
@@ -1117,8 +1175,9 @@ AI-EVAL-BASELINE-001
 → AI-CONTRACT-GRAPH-001
 → STAB-DRIFT-001
 → AI-EVAL-001
-→ optional CONTAINER-READY/SHADOW
-→ optional production containerization
+→ CONTAINER-READY-001
+→ CONTAINER-SHADOW-001
+→ CONTAINER-PRODUCTION-001
 ```
 
 После каждого package — Package Health Gate. После каждых трёх merged
