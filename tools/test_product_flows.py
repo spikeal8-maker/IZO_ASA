@@ -19,6 +19,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "tools" / "generate_product_flow_map.py"
 CONTRACT = ROOT / "architecture" / "product-flows.json"
 EXPECTED_FLOW_IDS = [
+    "admin-auth-sensitive-operations",
+    "admin-model-economics-operations",
     "audio-transcription",
     "auth-session-lifecycle",
     "billing-checkout-payment-accounting",
@@ -124,7 +126,7 @@ def test_repository_product_flow_contract_and_generated_maps_are_current() -> No
     second = build_map(ROOT)
     assert first == second
     assert first["version"] == 1
-    assert first["flowCount"] == 12
+    assert first["flowCount"] == 14
     assert [flow["id"] for flow in first["flows"]] == EXPECTED_FLOW_IDS
 
     by_id = {flow["id"]: flow for flow in first["flows"]}
@@ -158,6 +160,15 @@ def test_repository_product_flow_contract_and_generated_maps_are_current() -> No
     }
     assert ("POST", "/api/feed/publications") in publish_api
     assert ("GET", "/api/feed") in publish_api
+
+    assert by_id["admin-auth-sensitive-operations"]["ownerDomain"] == "admin-control-center"
+    assert by_id["admin-model-economics-operations"]["ownerDomain"] == "admin-models"
+    admin_auth_api = {(x["method"], x["path"]) for x in by_id["admin-auth-sensitive-operations"]["apiEndpoints"]}
+    assert ("POST", "/api/admin/users/{internal_user_id}/role-v2") in admin_auth_api
+    assert ("POST", "/api/admin/users/{internal_user_id}/password-reset-v2") in admin_auth_api
+    admin_models_api = {(x["method"], x["path"]) for x in by_id["admin-model-economics-operations"]["apiEndpoints"]}
+    assert ("GET", "/api/admin/models-page") in admin_models_api
+    assert ("POST", "/api/admin/openrouter/test-generate") in admin_models_api
 
     assert by_id["audio-transcription"]["ownerDomain"] == "audio"
     assert by_id["billing-checkout-payment-accounting"]["ownerDomain"] == "billing-payments"

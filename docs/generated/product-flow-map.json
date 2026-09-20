@@ -1,6 +1,156 @@
 {
-  "flowCount": 12,
+  "flowCount": 14,
   "flows": [
+    {
+      "apiEndpoints": [
+        {
+          "method": "POST",
+          "path": "/api/admin/users/{internal_user_id}/block-v2"
+        },
+        {
+          "method": "POST",
+          "path": "/api/admin/users/{internal_user_id}/password-reset-v2"
+        },
+        {
+          "method": "POST",
+          "path": "/api/admin/users/{internal_user_id}/role-v2"
+        },
+        {
+          "method": "POST",
+          "path": "/api/admin/users/{internal_user_id}/tokens-v2"
+        },
+        {
+          "method": "POST",
+          "path": "/api/admin/users/{internal_user_id}/unblock-v2"
+        }
+      ],
+      "authState": "A trusted admin session is required; sensitive mutations require reason/validation and must preserve durable audit/security evidence.",
+      "automatedEvidence": [
+        "backend/test_admin_actions.py",
+        "backend/test_admin_password_reset.py",
+        "backend/test_admin_v2.py"
+      ],
+      "capabilityState": "implemented",
+      "coverageGap": "Reciprocal concurrent admin demotion race remains a known coverage gap; current tests prove sequential self/last-admin protection but do not close the concurrent race.",
+      "durableResults": [
+        "audit/security events",
+        "password credential state",
+        "revoked sessions after password reset",
+        "token balance + token ledger",
+        "user role/block state"
+      ],
+      "expectedFailures": [
+        "invalid token adjustment",
+        "missing reason",
+        "missing user",
+        "no trusted session",
+        "non-admin access denied",
+        "self or last-admin demotion is protected sequentially",
+        "weak password"
+      ],
+      "frontendPaths": [
+        "frontend/src/AdminApp.tsx",
+        "frontend/src/adminAnalytics.tsx",
+        "frontend/src/adminApi.ts"
+      ],
+      "id": "admin-auth-sensitive-operations",
+      "ownerDomain": "admin-control-center",
+      "relatedContextDomains": [
+        "backend-auth-bots",
+        "billing-payments"
+      ],
+      "sideEffects": {
+        "billing": "none",
+        "data": "known",
+        "media": "none",
+        "tokens": "known"
+      },
+      "sourcePaths": [
+        "backend/app/security/csrf.py",
+        "backend/app/security/permissions.py",
+        "backend/main.py"
+      ],
+      "unknownEdges": [],
+      "userSurface": {
+        "entryRoute": "/admin",
+        "kind": "admin-auth-sensitive-operations"
+      }
+    },
+    {
+      "apiEndpoints": [
+        {
+          "method": "GET",
+          "path": "/api/admin/model-status"
+        },
+        {
+          "method": "GET",
+          "path": "/api/admin/models-page"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/admin/openrouter/key"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/admin/openrouter/key"
+        },
+        {
+          "method": "POST",
+          "path": "/api/admin/openrouter/test-generate"
+        }
+      ],
+      "authState": "A trusted admin session is required for model/catalog/status surfaces, provider-secret mutation, economics inspection, and test generation.",
+      "automatedEvidence": [
+        "backend/test_admin_v2.py",
+        "backend/test_openrouter_admin_cache_v2.py",
+        "backend/test_openrouter_image_economics.py",
+        "backend/test_openrouter_token_reconciliation.py",
+        "frontend/e2e-admin-model-pages.mjs"
+      ],
+      "capabilityState": "implemented",
+      "coverageGap": "admin_operations.py implements additional catalog/pricing/exchange/config endpoints that are absent from the canonical architecture route inventory; they are intentionally excluded from apiEndpoints and the strict validator is not bypassed.",
+      "durableResults": [
+        "OpenRouter secret-store key state",
+        "admin test-generation job/image + recorded cost/usage evidence"
+      ],
+      "expectedFailures": [
+        "invalid OpenRouter key",
+        "model or runtime status degraded",
+        "non-admin access denied",
+        "provider test failure",
+        "secret store unavailable"
+      ],
+      "frontendPaths": [
+        "frontend/src/adminModels.tsx",
+        "frontend/src/adminModelsRoutes.ts",
+        "frontend/src/adminTextModelCatalog.tsx"
+      ],
+      "id": "admin-model-economics-operations",
+      "ownerDomain": "admin-models",
+      "relatedContextDomains": [
+        "admin-control-center"
+      ],
+      "sideEffects": {
+        "billing": "none",
+        "data": "known",
+        "media": "known",
+        "tokens": "none"
+      },
+      "sourcePaths": [
+        "backend/app/api/routers/admin_operations.py",
+        "backend/app/services/image_model_publication.py",
+        "backend/app/services/openrouter_image_economics.py",
+        "backend/app/services/video_pricing.py",
+        "backend/main.py"
+      ],
+      "unknownEdges": [
+        "live provider catalog/pricing/key/runtime state is operational evidence"
+      ],
+      "userSurface": {
+        "entryRoute": "/admin/models/openrouter/text",
+        "kind": "admin-model-economics"
+      }
+    },
     {
       "apiEndpoints": [
         {
