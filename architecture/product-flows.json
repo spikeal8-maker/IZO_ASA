@@ -1,0 +1,258 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "id": "auth-session-lifecycle",
+      "ownerDomain": "backend-auth-bots",
+      "capabilityState": "implemented",
+      "userSurface": {
+        "kind": "web-auth",
+        "entryRoute": "unknown"
+      },
+      "authState": "Public password register/login establishes a trusted server-side session; refresh/me/session-list/logout require the issued trusted session or refresh state.",
+      "frontendPaths": [
+        "frontend/src/authV2.tsx"
+      ],
+      "apiEndpoints": [
+        {
+          "method": "POST",
+          "path": "/api/auth/password/register-v2"
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/password/login-v2"
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/session/refresh-v2"
+        },
+        {
+          "method": "GET",
+          "path": "/api/me-v2"
+        },
+        {
+          "method": "GET",
+          "path": "/api/auth/sessions-v2"
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/session/logout-v2"
+        }
+      ],
+      "sourcePaths": [
+        "backend/main.py",
+        "backend/app/security/permissions.py",
+        "backend/app/security/csrf.py"
+      ],
+      "durableResults": [
+        "auth identity/user state",
+        "hashed auth session and refresh state",
+        "session/security events"
+      ],
+      "sideEffects": {
+        "billing": "none",
+        "tokens": "none",
+        "data": "known",
+        "media": "none"
+      },
+      "expectedFailures": [
+        "invalid registration or login credentials/consent",
+        "expired or reused refresh token",
+        "revoked or invalid session"
+      ],
+      "automatedEvidence": [
+        "backend/test_password_auth.py",
+        "backend/test_auth_sessions.py",
+        "backend/test_cookie_session.py"
+      ],
+      "coverageGap": null,
+      "relatedContextDomains": [],
+      "unknownEdges": []
+    },
+    {
+      "id": "max-trusted-entry",
+      "ownerDomain": "backend-auth-bots",
+      "capabilityState": "implemented",
+      "userSurface": {
+        "kind": "max-mini-app-or-bot-login",
+        "entryRoute": "unknown"
+      },
+      "authState": "MAX WebAppData or an approved MAX bot-login challenge must be verified before trusted session issuance.",
+      "frontendPaths": [
+        "unknown"
+      ],
+      "apiEndpoints": [
+        {
+          "method": "POST",
+          "path": "/api/auth/max-v2"
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/bot-login/start"
+        },
+        {
+          "method": "GET",
+          "path": "/api/auth/bot-login/status"
+        }
+      ],
+      "sourcePaths": [
+        "backend/main.py",
+        "backend/app/api/routers/bots_public.py",
+        "backend/app/security/bot_login.py",
+        "backend/app/services/max_updates.py",
+        "backend/app/integrations/max_client.py"
+      ],
+      "durableResults": [
+        "MAX trusted auth identity",
+        "bot-login challenge state when challenge entry is used",
+        "hashed trusted session state"
+      ],
+      "sideEffects": {
+        "billing": "none",
+        "tokens": "none",
+        "data": "known",
+        "media": "none"
+      },
+      "expectedFailures": [
+        "invalid or stale MAX signed data",
+        "bot-login challenge expired, conflicted, or rate-limited",
+        "trusted session not issued when MAX identity proof fails"
+      ],
+      "automatedEvidence": [
+        "backend/test_auth_max_v2.py",
+        "backend/test_bot_login_flow.py",
+        "backend/test_cookie_session.py"
+      ],
+      "coverageGap": null,
+      "relatedContextDomains": [],
+      "unknownEdges": [
+        "live MAX provider/runtime availability is operational evidence and is not established by repository tests"
+      ]
+    },
+    {
+      "id": "telegram-trusted-entry",
+      "ownerDomain": "backend-auth-bots",
+      "capabilityState": "implemented",
+      "userSurface": {
+        "kind": "telegram-mini-app-or-bot-login",
+        "entryRoute": "unknown"
+      },
+      "authState": "Telegram initData or an approved Telegram bot-login challenge must be verified before trusted session issuance.",
+      "frontendPaths": [
+        "unknown"
+      ],
+      "apiEndpoints": [
+        {
+          "method": "POST",
+          "path": "/api/auth/telegram-v2"
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/bot-login/start"
+        },
+        {
+          "method": "GET",
+          "path": "/api/auth/bot-login/status"
+        }
+      ],
+      "sourcePaths": [
+        "backend/main.py",
+        "backend/app/api/routers/bots_public.py",
+        "backend/app/security/bot_login.py",
+        "backend/app/services/telegram_updates.py",
+        "backend/app/integrations/telegram.py"
+      ],
+      "durableResults": [
+        "Telegram trusted auth identity",
+        "bot-login challenge state when challenge entry is used",
+        "hashed trusted session state"
+      ],
+      "sideEffects": {
+        "billing": "none",
+        "tokens": "none",
+        "data": "known",
+        "media": "none"
+      },
+      "expectedFailures": [
+        "invalid or stale Telegram initData",
+        "bot-login challenge expired, conflicted, or rate-limited",
+        "trusted session not issued when Telegram identity proof fails"
+      ],
+      "automatedEvidence": [
+        "backend/test_auth_telegram_v2.py",
+        "backend/test_bot_login_flow.py",
+        "backend/test_cookie_session.py"
+      ],
+      "coverageGap": null,
+      "relatedContextDomains": [],
+      "unknownEdges": [
+        "live Telegram provider/runtime availability is operational evidence and is not established by repository tests"
+      ]
+    },
+    {
+      "id": "text-to-image-generation",
+      "ownerDomain": "image-generation",
+      "capabilityState": "implemented",
+      "userSurface": {
+        "kind": "phone-image",
+        "entryRoute": "/phone/image"
+      },
+      "authState": "A trusted user session is required before generation creation or job polling.",
+      "frontendPaths": [
+        "frontend/src/phone/PhoneApp.tsx",
+        "frontend/src/phone/core/jobs.ts",
+        "frontend/src/phone/features/image/PhoneImageWorkspace.tsx",
+        "frontend/src/phone/features/image/api.ts"
+      ],
+      "apiEndpoints": [
+        {
+          "method": "POST",
+          "path": "/api/generate"
+        },
+        {
+          "method": "GET",
+          "path": "/api/jobs/{job_id}"
+        }
+      ],
+      "sourcePaths": [
+        "backend/app/services/generation_jobs.py",
+        "backend/app/services/generation_queue.py",
+        "backend/app/services/generation_worker.py",
+        "backend/app/services/generation_results.py"
+      ],
+      "durableResults": [
+        "generation job row",
+        "generated image record",
+        "generated media and thumbnail",
+        "token ledger/accounting state"
+      ],
+      "sideEffects": {
+        "billing": "none",
+        "tokens": "known",
+        "data": "known",
+        "media": "known"
+      },
+      "expectedFailures": [
+        "authentication or request validation failure",
+        "generation provider/worker failure",
+        "generation token budget or charge failure"
+      ],
+      "automatedEvidence": [
+        "backend/test_generation_jobs_characterization.py",
+        "backend/test_generation_protection.py",
+        "backend/test_services_generation_jobs_module.py",
+        "backend/test_services_generation_queue_module.py",
+        "backend/test_services_generation_results_module.py",
+        "backend/test_services_generation_worker_module.py",
+        "frontend/phoneImage.test.ts"
+      ],
+      "coverageGap": "No real-provider end-to-end generation is executed by this contract package; live ComfyUI/OpenRouter availability remains separate runtime evidence.",
+      "relatedContextDomains": [
+        "frontend-studio"
+      ],
+      "unknownEdges": [
+        "live ComfyUI/OpenRouter runtime availability and provider latency are not established by repository tests"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,259 @@
+{
+  "flowCount": 4,
+  "flows": [
+    {
+      "apiEndpoints": [
+        {
+          "method": "POST",
+          "path": "/api/auth/password/login-v2"
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/password/register-v2"
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/session/logout-v2"
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/session/refresh-v2"
+        },
+        {
+          "method": "GET",
+          "path": "/api/auth/sessions-v2"
+        },
+        {
+          "method": "GET",
+          "path": "/api/me-v2"
+        }
+      ],
+      "authState": "Public password register/login establishes a trusted server-side session; refresh/me/session-list/logout require the issued trusted session or refresh state.",
+      "automatedEvidence": [
+        "backend/test_auth_sessions.py",
+        "backend/test_cookie_session.py",
+        "backend/test_password_auth.py"
+      ],
+      "capabilityState": "implemented",
+      "coverageGap": null,
+      "durableResults": [
+        "auth identity/user state",
+        "hashed auth session and refresh state",
+        "session/security events"
+      ],
+      "expectedFailures": [
+        "expired or reused refresh token",
+        "invalid registration or login credentials/consent",
+        "revoked or invalid session"
+      ],
+      "frontendPaths": [
+        "frontend/src/authV2.tsx"
+      ],
+      "id": "auth-session-lifecycle",
+      "ownerDomain": "backend-auth-bots",
+      "relatedContextDomains": [],
+      "sideEffects": {
+        "billing": "none",
+        "data": "known",
+        "media": "none",
+        "tokens": "none"
+      },
+      "sourcePaths": [
+        "backend/app/security/csrf.py",
+        "backend/app/security/permissions.py",
+        "backend/main.py"
+      ],
+      "unknownEdges": [],
+      "userSurface": {
+        "entryRoute": "unknown",
+        "kind": "web-auth"
+      }
+    },
+    {
+      "apiEndpoints": [
+        {
+          "method": "POST",
+          "path": "/api/auth/bot-login/start"
+        },
+        {
+          "method": "GET",
+          "path": "/api/auth/bot-login/status"
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/max-v2"
+        }
+      ],
+      "authState": "MAX WebAppData or an approved MAX bot-login challenge must be verified before trusted session issuance.",
+      "automatedEvidence": [
+        "backend/test_auth_max_v2.py",
+        "backend/test_bot_login_flow.py",
+        "backend/test_cookie_session.py"
+      ],
+      "capabilityState": "implemented",
+      "coverageGap": null,
+      "durableResults": [
+        "MAX trusted auth identity",
+        "bot-login challenge state when challenge entry is used",
+        "hashed trusted session state"
+      ],
+      "expectedFailures": [
+        "bot-login challenge expired, conflicted, or rate-limited",
+        "invalid or stale MAX signed data",
+        "trusted session not issued when MAX identity proof fails"
+      ],
+      "frontendPaths": [
+        "unknown"
+      ],
+      "id": "max-trusted-entry",
+      "ownerDomain": "backend-auth-bots",
+      "relatedContextDomains": [],
+      "sideEffects": {
+        "billing": "none",
+        "data": "known",
+        "media": "none",
+        "tokens": "none"
+      },
+      "sourcePaths": [
+        "backend/app/api/routers/bots_public.py",
+        "backend/app/integrations/max_client.py",
+        "backend/app/security/bot_login.py",
+        "backend/app/services/max_updates.py",
+        "backend/main.py"
+      ],
+      "unknownEdges": [
+        "live MAX provider/runtime availability is operational evidence and is not established by repository tests"
+      ],
+      "userSurface": {
+        "entryRoute": "unknown",
+        "kind": "max-mini-app-or-bot-login"
+      }
+    },
+    {
+      "apiEndpoints": [
+        {
+          "method": "POST",
+          "path": "/api/auth/bot-login/start"
+        },
+        {
+          "method": "GET",
+          "path": "/api/auth/bot-login/status"
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/telegram-v2"
+        }
+      ],
+      "authState": "Telegram initData or an approved Telegram bot-login challenge must be verified before trusted session issuance.",
+      "automatedEvidence": [
+        "backend/test_auth_telegram_v2.py",
+        "backend/test_bot_login_flow.py",
+        "backend/test_cookie_session.py"
+      ],
+      "capabilityState": "implemented",
+      "coverageGap": null,
+      "durableResults": [
+        "Telegram trusted auth identity",
+        "bot-login challenge state when challenge entry is used",
+        "hashed trusted session state"
+      ],
+      "expectedFailures": [
+        "bot-login challenge expired, conflicted, or rate-limited",
+        "invalid or stale Telegram initData",
+        "trusted session not issued when Telegram identity proof fails"
+      ],
+      "frontendPaths": [
+        "unknown"
+      ],
+      "id": "telegram-trusted-entry",
+      "ownerDomain": "backend-auth-bots",
+      "relatedContextDomains": [],
+      "sideEffects": {
+        "billing": "none",
+        "data": "known",
+        "media": "none",
+        "tokens": "none"
+      },
+      "sourcePaths": [
+        "backend/app/api/routers/bots_public.py",
+        "backend/app/integrations/telegram.py",
+        "backend/app/security/bot_login.py",
+        "backend/app/services/telegram_updates.py",
+        "backend/main.py"
+      ],
+      "unknownEdges": [
+        "live Telegram provider/runtime availability is operational evidence and is not established by repository tests"
+      ],
+      "userSurface": {
+        "entryRoute": "unknown",
+        "kind": "telegram-mini-app-or-bot-login"
+      }
+    },
+    {
+      "apiEndpoints": [
+        {
+          "method": "POST",
+          "path": "/api/generate"
+        },
+        {
+          "method": "GET",
+          "path": "/api/jobs/{job_id}"
+        }
+      ],
+      "authState": "A trusted user session is required before generation creation or job polling.",
+      "automatedEvidence": [
+        "backend/test_generation_jobs_characterization.py",
+        "backend/test_generation_protection.py",
+        "backend/test_services_generation_jobs_module.py",
+        "backend/test_services_generation_queue_module.py",
+        "backend/test_services_generation_results_module.py",
+        "backend/test_services_generation_worker_module.py",
+        "frontend/phoneImage.test.ts"
+      ],
+      "capabilityState": "implemented",
+      "coverageGap": "No real-provider end-to-end generation is executed by this contract package; live ComfyUI/OpenRouter availability remains separate runtime evidence.",
+      "durableResults": [
+        "generated image record",
+        "generated media and thumbnail",
+        "generation job row",
+        "token ledger/accounting state"
+      ],
+      "expectedFailures": [
+        "authentication or request validation failure",
+        "generation provider/worker failure",
+        "generation token budget or charge failure"
+      ],
+      "frontendPaths": [
+        "frontend/src/phone/PhoneApp.tsx",
+        "frontend/src/phone/core/jobs.ts",
+        "frontend/src/phone/features/image/PhoneImageWorkspace.tsx",
+        "frontend/src/phone/features/image/api.ts"
+      ],
+      "id": "text-to-image-generation",
+      "ownerDomain": "image-generation",
+      "relatedContextDomains": [
+        "frontend-studio"
+      ],
+      "sideEffects": {
+        "billing": "none",
+        "data": "known",
+        "media": "known",
+        "tokens": "known"
+      },
+      "sourcePaths": [
+        "backend/app/services/generation_jobs.py",
+        "backend/app/services/generation_queue.py",
+        "backend/app/services/generation_results.py",
+        "backend/app/services/generation_worker.py"
+      ],
+      "unknownEdges": [
+        "live ComfyUI/OpenRouter runtime availability and provider latency are not established by repository tests"
+      ],
+      "userSurface": {
+        "entryRoute": "/phone/image",
+        "kind": "phone-image"
+      }
+    }
+  ],
+  "version": 1
+}

@@ -63,6 +63,16 @@ The experimental `/new` page must be checked separately from the current `/` UI.
 - Mobile scroll works in every `/new` tab; sticky generate controls do not cover required inputs.
 - Build checks pass: `npx tsc -b` and `npx vite build`.
 
+## Canonical Critical Product-Flow Contract
+
+Canonical critical product-flow contract:
+`architecture/product-flows.json`
+
+Generated readable map:
+`docs/generated/product-flow-map.md`
+
+`TEST_PLAN.md` is the human summary; `product-flows.json` is the machine-readable current source of truth.
+
 ## Current Automated Commands
 
 ```powershell
