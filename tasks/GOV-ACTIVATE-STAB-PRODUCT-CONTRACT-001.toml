@@ -1,0 +1,78 @@
+manifestVersion = 1
+id = "GOV-ACTIVATE-STAB-PRODUCT-CONTRACT-001"
+baseSha = "df32191dc995c3f8c61724169e7c52a700c0a3c1"
+goal = "Synchronize the canonical stabilization program with the owner-directed mandatory production-Docker final goal and transition routing from completed AI-CONTEXT-EXPAND-001 to active STAB-PRODUCT-CONTRACT-001."
+userOutcome = "Canonical NOW and master-program routing agree that #109 is completed, #110 is active, #111 is next, and production Docker is the mandatory final goal through CONTAINER-READY-001, CONTAINER-SHADOW-001, and CONTAINER-PRODUCTION-001."
+beforeScenario = "Issue #109 is merged and completed, but docs/NOW.md still routes it as active and the stabilization master spec still describes production containerization as optional."
+afterScenario = "Canonical status activates #110 and the master spec defines production Docker as mandatory final program completion without starting #110 implementation or production migration."
+nonGoals = [
+  "implement STAB-PRODUCT-CONTRACT-001 issue #110",
+  "write the machine-readable product-flow contract",
+  "create Docker compose or production container files",
+  "migrate production runtime",
+  "modify backend or frontend product code",
+  "deploy",
+  "restart runtime",
+]
+declaredFiles = [
+  "tasks/GOV-ACTIVATE-STAB-PRODUCT-CONTRACT-001.toml",
+  "docs/NOW.md",
+  "docs/stabilization-optimization-master-spec.md",
+  "tools/test_agent_instructions.py",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+  "docs/context/**",
+  "docs/generated/**",
+  "tools/agent_system/**",
+  "tools/agent.ps1",
+  "tools/verify.ps1",
+  ".github/**",
+]
+protectedFilesTouched = [
+]
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+maxProductionFiles = 0
+maxChangedLines = 500
+acceptance = [
+  "docs/NOW.md marks AI-CONTEXT-EXPAND-001 issue #109 completed, activates STAB-PRODUCT-CONTRACT-001 issue #110, and routes STAB-SUPPLY-CHAIN-001 issue #111 next.",
+  "docs/NOW.md lists the current 11 canonical context domains and no longer lists scoped/bounded context tooling as an open capability.",
+  "The stabilization master spec defines production Docker as the mandatory final goal while preserving DOCKER-DEV-001 as DEV/TEST.",
+  "CONTAINER-READY-001, CONTAINER-SHADOW-001, and CONTAINER-PRODUCTION-001 are mandatory and ordered after AI-EVAL-001.",
+  "BOT-STABILITY ACCEPTED remains the core acceptance milestone, while FULL PROGRAM COMPLETE requires successful production Docker completion.",
+  "No issue #110 implementation or production/runtime action occurs.",
+  "Package enforcement and exact-head CI pass with zero production files.",
+]
+requiredEvidence = [
+  "focused status/master-plan tests",
+  "package enforcement receipt",
+  "git diff --check",
+  "exact-head GitHub CI",
+]
+targetedTests = [
+  "tools/test_agent_instructions.py",
+  "tools/test_context_docs.py",
+  "tools/test_agent_enforce.py",
+]
+fileGrowthExpectations = [
+  "docs/NOW.md remains concise and current-state only.",
+  "The stabilization master spec changes only canonical program semantics needed to make production Docker mandatory.",
+  "No product source grows.",
+]
+forbiddenOperations = [
+  "deploy",
+  "restart",
+  "production-data",
+  "provider-call",
+  "direct-main",
+  "issue-110-implementation",
+  "docker-production-migration",
+]
+rollbackBoundary = "Revert this governance manifest, NOW routing transition, master-program Docker-goal synchronization and matching deterministic assertions; product/runtime/deploy state remains untouched."

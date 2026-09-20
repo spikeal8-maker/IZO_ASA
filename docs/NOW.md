@@ -2,17 +2,17 @@
 status: canonical
 status_role: current-status-aggregator
 backlog_role: program-router
-updated: 2026-09-19
-source_main_at_status_update: a22743c9124147eb6169244bb958d86f144f9708
+updated: 2026-09-20
+source_main_at_status_update: df32191dc995c3f8c61724169e7c52a700c0a3c1
 last_verified_main: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_verified_at: 2026-09-02T00:08:04+03:00
-completed_package: AI-SYMBOL-CONTEXT-001
-active_package: AI-CONTEXT-EXPAND-001
-active_task_contract: github-issue-109
+completed_package: AI-CONTEXT-EXPAND-001
+active_package: STAB-PRODUCT-CONTRACT-001
+active_task_contract: github-issue-110
 baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a
 baseline_status: completed-point-A-accepted
-next_candidate: STAB-PRODUCT-CONTRACT-001
+next_candidate: STAB-SUPPLY-CHAIN-001
 ---
 # IZO_ASA — NOW
 
@@ -32,7 +32,7 @@ git rev-parse origin/main
 git worktree list
 ```
 Source `main` при последнем status transition:
-`a22743c9124147eb6169244bb958d86f144f9708`.
+`df32191dc995c3f8c61724169e7c52a700c0a3c1`.
 
 Последний отдельно operationally verified production release:
 `d223c179d5944bc208cace867d5e93bc1341a3aa` от 2026-09-02. Не выводить deploy
@@ -40,10 +40,10 @@ Source `main` при последнем status transition:
 
 ## 2. Активный stabilization package
 
-Completed: `AI-SYMBOL-CONTEXT-001` (#108).
-Active: `AI-CONTEXT-EXPAND-001`, issue #109.
+Completed: `AI-CONTEXT-EXPAND-001` (#109).
+Active: `STAB-PRODUCT-CONTRACT-001` (#110).
 `AI-CONTEXT-PILOT-001` (#107) completed: chat/admin-models packets stayed bounded and post-pilot A/B improved from false/false to partial/true with 0 broad scans.
-Next: `STAB-PRODUCT-CONTRACT-001` (#110).
+Next: `STAB-SUPPLY-CHAIN-001` (#111).
 
 ## 3. Frozen baseline — completed point A
 
@@ -64,12 +64,18 @@ are completed.
 
 ## 4. Context и generated evidence
 
-Доступные context cards:
-- `docs/context/frontend-studio.md`;
-- `docs/context/video-gallery-feed.md`;
+Доступные context cards (11 canonical domains):
+- `docs/context/3d.md`;
+- `docs/context/admin-control-center.md`;
+- `docs/context/admin-models.md`;
+- `docs/context/audio.md`;
 - `docs/context/backend-auth-bots.md`;
+- `docs/context/billing-payments.md`;
 - `docs/context/chat.md`;
-- `docs/context/admin-control-center.md`.
+- `docs/context/frontend-studio.md`;
+- `docs/context/image-generation.md`;
+- `docs/context/release-ops.md`;
+- `docs/context/video-gallery-feed.md`.
 
 Для отсутствующей domain card использовать bounded discovery, не broad scan.
 Generated evidence:
@@ -85,7 +91,6 @@ backend/SYMBOL_MAP.md
 ## 5. Главные незакрытые capabilities
 
 - coupling/ownership health;
-- scoped/bounded context tooling;
 - critical product-flow + supply-chain + test-health floor;
 - isolated dev environment + affected-test router;
 - Docker DEV/TEST;

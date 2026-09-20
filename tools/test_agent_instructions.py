@@ -241,6 +241,28 @@ def _assert_program_and_package_status() -> None:
     assert "STAB-MAIN-GUARD-001" in master
     assert "AI-ENFORCE-001" in master
     assert "BOT-STABILITY ACCEPTED" in master
+    assert "FULL PROGRAM COMPLETE" in master
+    assert "production IZO application runs in Docker" in master
+    assert "## PHASE 12 — mandatory production-container readiness/shadow" in master
+    assert "## PHASE 13 — mandatory production Docker" in master
+    assert "DOCKER-DEV-001" in master
+    assert "первым обязательным Docker-этапом пути к production Docker" in master
+    dependency_order = (
+        "AI-EVAL-001",
+        "CONTAINER-READY-001",
+        "CONTAINER-SHADOW-001",
+        "CONTAINER-PRODUCTION-001",
+    )
+    dependency_positions = [master.rindex(item) for item in dependency_order]
+    assert dependency_positions == sorted(dependency_positions)
+    for stale in (
+        "PHASE 12 — optional",
+        "PHASE 13 — optional",
+        "Production Docker не требуется для достижения основной цели.",
+        "optional CONTAINER-READY/SHADOW",
+        "optional production containerization",
+    ):
+        assert stale not in master
 
     first = _text(ROOT / "docs" / "agent-tasks" / "AI-CANONICAL-001.md")
     assert "status: completed" in first
@@ -273,20 +295,37 @@ def _assert_program_and_package_status() -> None:
     assert "all three receipts exist before #107 starts" in amendment
 
     now = _text(ROOT / "docs" / "NOW.md")
-    assert "completed_package: AI-SYMBOL-CONTEXT-001" in now
-    assert "active_package: AI-CONTEXT-EXPAND-001" in now
-    assert "active_task_contract: github-issue-109" in now
+    assert "updated: 2026-09-20" in now
+    assert "source_main_at_status_update: df32191dc995c3f8c61724169e7c52a700c0a3c1" in now
+    assert "completed_package: AI-CONTEXT-EXPAND-001" in now
+    assert "active_package: STAB-PRODUCT-CONTRACT-001" in now
+    assert "active_task_contract: github-issue-110" in now
     assert "baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a" in now
     assert "baseline_status: completed-point-A-accepted" in now
     assert "\nblocker:" not in now
     assert "blocker: shared-host-gh-write-credential-visible" not in now
-    assert "next_candidate: STAB-PRODUCT-CONTRACT-001" in now
-    assert "Completed: `AI-SYMBOL-CONTEXT-001` (#108)." in now
-    assert "Active: `AI-CONTEXT-EXPAND-001`, issue #109." in now
-    assert "Next: `STAB-PRODUCT-CONTRACT-001` (#110)." in now
-    assert "active_package: AI-SYMBOL-CONTEXT-001" not in now
-    assert "active_task_contract: github-issue-108" not in now
-    assert "Active: `AI-SYMBOL-CONTEXT-001`, issue #108." not in now
+    assert "next_candidate: STAB-SUPPLY-CHAIN-001" in now
+    assert "Completed: `AI-CONTEXT-EXPAND-001` (#109)." in now
+    assert "Active: `STAB-PRODUCT-CONTRACT-001` (#110)." in now
+    assert "Next: `STAB-SUPPLY-CHAIN-001` (#111)." in now
+    assert "active_package: AI-CONTEXT-EXPAND-001" not in now
+    assert "active_task_contract: github-issue-109" not in now
+    assert "Active: `AI-CONTEXT-EXPAND-001`, issue #109." not in now
+    for context_card in (
+        "docs/context/3d.md",
+        "docs/context/admin-control-center.md",
+        "docs/context/admin-models.md",
+        "docs/context/audio.md",
+        "docs/context/backend-auth-bots.md",
+        "docs/context/billing-payments.md",
+        "docs/context/chat.md",
+        "docs/context/frontend-studio.md",
+        "docs/context/image-generation.md",
+        "docs/context/release-ops.md",
+        "docs/context/video-gallery-feed.md",
+    ):
+        assert context_card in now
+    assert "scoped/bounded context tooling" not in now
     assert "Frozen baseline — completed point A" in now
     assert "84,968 input tokens" in now
     assert "63,241 to 3,643" in now
