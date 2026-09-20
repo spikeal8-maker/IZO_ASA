@@ -1,5 +1,5 @@
 {
-  "flowCount": 4,
+  "flowCount": 8,
   "flows": [
     {
       "apiEndpoints": [
@@ -72,6 +72,220 @@
     {
       "apiEndpoints": [
         {
+          "method": "GET",
+          "path": "/api/gallery/items"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/gallery/{image_id}"
+        },
+        {
+          "method": "GET",
+          "path": "/api/gallery/{image_id}"
+        },
+        {
+          "method": "POST",
+          "path": "/api/gallery/{image_id}/favorite"
+        },
+        {
+          "method": "POST",
+          "path": "/api/gallery/{image_id}/use-as"
+        },
+        {
+          "method": "GET",
+          "path": "/api/media/{filename}"
+        }
+      ],
+      "authState": "A trusted user session is required for private gallery listing, detail, favorite, use-as, delete, and owner-checked media access.",
+      "automatedEvidence": [
+        "backend/test_api.py",
+        "backend/test_gallery_items_characterization.py",
+        "backend/test_gallery_query_characterization.py",
+        "backend/test_gallery_shell_regressions.py",
+        "backend/test_ownership_protection.py"
+      ],
+      "capabilityState": "implemented",
+      "coverageGap": null,
+      "durableResults": [
+        "favorite state",
+        "image/gallery record",
+        "soft-delete state",
+        "source/history snapshot"
+      ],
+      "expectedFailures": [
+        "deleted or missing image returns not found",
+        "foreign user gallery item is not exposed",
+        "gallery is unavailable for the current plan",
+        "unauthenticated gallery access is denied",
+        "use-as fails when required media is unavailable"
+      ],
+      "frontendPaths": [
+        "frontend/src/phone/features/image/api.ts"
+      ],
+      "id": "gallery-result-lifecycle",
+      "ownerDomain": "video-gallery-feed",
+      "relatedContextDomains": [
+        "frontend-studio",
+        "image-generation"
+      ],
+      "sideEffects": {
+        "billing": "none",
+        "data": "known",
+        "media": "known",
+        "tokens": "none"
+      },
+      "sourcePaths": [
+        "backend/app/services/gallery_items.py",
+        "backend/app/services/gallery_presentation.py",
+        "backend/app/services/gallery_query.py",
+        "backend/main.py",
+        "backend/static/gallery/gallery.js",
+        "backend/static/gallery/index.html"
+      ],
+      "unknownEdges": [],
+      "userSurface": {
+        "entryRoute": "/gallery",
+        "kind": "private-gallery"
+      }
+    },
+    {
+      "apiEndpoints": [
+        {
+          "method": "POST",
+          "path": "/api/generate"
+        },
+        {
+          "method": "GET",
+          "path": "/api/jobs/{job_id}"
+        },
+        {
+          "method": "POST",
+          "path": "/api/jobs/{job_id}/cancel"
+        }
+      ],
+      "authState": "A trusted user session owns generation job creation, polling, cancellation, persistence, recovery, and result access.",
+      "automatedEvidence": [
+        "backend/test_generation_jobs_characterization.py",
+        "backend/test_generation_recovery_wiring.py",
+        "backend/test_ownership_protection.py",
+        "backend/test_services_generation_jobs_module.py",
+        "backend/test_services_generation_queue_module.py",
+        "backend/test_services_generation_recovery_module.py",
+        "backend/test_services_generation_results_module.py",
+        "backend/test_services_generation_worker_module.py"
+      ],
+      "capabilityState": "implemented",
+      "coverageGap": null,
+      "durableResults": [
+        "materialized result reference when successful",
+        "persisted generation job",
+        "terminal status",
+        "token charge/refund ledger state"
+      ],
+      "expectedFailures": [
+        "cancelled job becomes terminal and refund remains idempotent",
+        "completed result must remain recoverable from persistence",
+        "foreign or missing job returns not found",
+        "startup recovery reconciles interrupted nonterminal work",
+        "worker or provider failure reaches failed state"
+      ],
+      "frontendPaths": [
+        "frontend/src/phone/core/jobs.ts",
+        "frontend/src/phone/features/image/api.ts"
+      ],
+      "id": "generation-job-lifecycle",
+      "ownerDomain": "image-generation",
+      "relatedContextDomains": [
+        "video-gallery-feed"
+      ],
+      "sideEffects": {
+        "billing": "none",
+        "data": "known",
+        "media": "known",
+        "tokens": "known"
+      },
+      "sourcePaths": [
+        "backend/app/services/generation_jobs.py",
+        "backend/app/services/generation_queue.py",
+        "backend/app/services/generation_recovery.py",
+        "backend/app/services/generation_results.py",
+        "backend/app/services/generation_worker.py"
+      ],
+      "unknownEdges": [
+        "real crash/restart timing and production queue capacity are operational runtime evidence"
+      ],
+      "userSurface": {
+        "entryRoute": "unknown",
+        "kind": "async-generation-job"
+      }
+    },
+    {
+      "apiEndpoints": [
+        {
+          "method": "POST",
+          "path": "/api/generate"
+        },
+        {
+          "method": "GET",
+          "path": "/api/jobs/{job_id}"
+        }
+      ],
+      "authState": "A trusted user session is required; referenced source media must be owned/allowed and the requested edit mode/provider/model combination must pass current capability validation.",
+      "automatedEvidence": [
+        "backend/test_api.py",
+        "backend/test_generation_protection.py",
+        "frontend/phoneImage.test.ts"
+      ],
+      "capabilityState": "implemented",
+      "coverageGap": "Real provider calls are not executed by this contract package; runtime and model availability remain operational evidence.",
+      "durableResults": [
+        "generated image record",
+        "generated media/thumbnail",
+        "generation job row",
+        "source/history snapshots where applicable",
+        "token ledger/accounting state"
+      ],
+      "expectedFailures": [
+        "generation worker or provider failure",
+        "invalid edit references or roles",
+        "missing or invalid source media",
+        "unsafe editor dimensions",
+        "unsupported mode/provider/model combination"
+      ],
+      "frontendPaths": [
+        "frontend/src/phone/core/jobs.ts",
+        "frontend/src/phone/features/image/PhoneImageWorkspace.tsx",
+        "frontend/src/phone/features/image/api.ts"
+      ],
+      "id": "image-edit-generation",
+      "ownerDomain": "image-generation",
+      "relatedContextDomains": [
+        "frontend-studio",
+        "video-gallery-feed"
+      ],
+      "sideEffects": {
+        "billing": "none",
+        "data": "known",
+        "media": "known",
+        "tokens": "known"
+      },
+      "sourcePaths": [
+        "backend/app/services/generation_jobs.py",
+        "backend/app/services/generation_queue.py",
+        "backend/app/services/generation_results.py",
+        "backend/app/services/generation_worker.py"
+      ],
+      "unknownEdges": [
+        "provider-specific support for every edit mode is runtime/model capability evidence and is not inferred by this contract"
+      ],
+      "userSurface": {
+        "entryRoute": "/phone/image",
+        "kind": "phone-image-edit-modes"
+      }
+    },
+    {
+      "apiEndpoints": [
+        {
           "method": "POST",
           "path": "/api/auth/bot-login/start"
         },
@@ -127,6 +341,71 @@
       "userSurface": {
         "entryRoute": "unknown",
         "kind": "max-mini-app-or-bot-login"
+      }
+    },
+    {
+      "apiEndpoints": [
+        {
+          "method": "GET",
+          "path": "/api/feed"
+        },
+        {
+          "method": "GET",
+          "path": "/api/feed/media/{publication_id}"
+        },
+        {
+          "method": "POST",
+          "path": "/api/feed/publications"
+        },
+        {
+          "method": "GET",
+          "path": "/api/feed/publications/{publication_id}/status"
+        }
+      ],
+      "authState": "Publication requires a trusted session and verified generated source; public visibility is granted only after publication policy/moderation reaches a published or approved state.",
+      "automatedEvidence": [
+        "backend/test_feed_presentation_characterization.py",
+        "backend/test_feed_v2.py"
+      ],
+      "capabilityState": "implemented",
+      "coverageGap": "Public edge, Caddy, and Internet availability are not established by repository contract tests.",
+      "durableResults": [
+        "feed_publications row",
+        "public derived media when published",
+        "publication/moderation state"
+      ],
+      "expectedFailures": [
+        "missing or not-ready public media",
+        "no trusted session",
+        "pending moderation is not publicly visible",
+        "unsupported or unsafe source mode",
+        "unverified generation source"
+      ],
+      "frontendPaths": [
+        "frontend/src/phone/features/image/api.ts"
+      ],
+      "id": "publish-feed-visibility",
+      "ownerDomain": "video-gallery-feed",
+      "relatedContextDomains": [
+        "frontend-studio",
+        "image-generation"
+      ],
+      "sideEffects": {
+        "billing": "none",
+        "data": "known",
+        "media": "known",
+        "tokens": "none"
+      },
+      "sourcePaths": [
+        "backend/app/services/feed_policy.py",
+        "backend/app/services/feed_presentation.py",
+        "backend/main.py",
+        "backend/static/feed/index.html"
+      ],
+      "unknownEdges": [],
+      "userSurface": {
+        "entryRoute": "/feed",
+        "kind": "gallery-or-phone-publish"
       }
     },
     {

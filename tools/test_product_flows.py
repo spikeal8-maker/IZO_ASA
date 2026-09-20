@@ -18,9 +18,13 @@ from tools.generate_product_flow_map import (
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "tools" / "generate_product_flow_map.py"
 CONTRACT = ROOT / "architecture" / "product-flows.json"
-EXPECTED_SLICE_ONE_IDS = [
+EXPECTED_FLOW_IDS = [
     "auth-session-lifecycle",
+    "gallery-result-lifecycle",
+    "generation-job-lifecycle",
+    "image-edit-generation",
     "max-trusted-entry",
+    "publish-feed-visibility",
     "telegram-trusted-entry",
     "text-to-image-generation",
 ]
@@ -116,8 +120,8 @@ def test_repository_product_flow_contract_and_generated_maps_are_current() -> No
     second = build_map(ROOT)
     assert first == second
     assert first["version"] == 1
-    assert first["flowCount"] == 4
-    assert [flow["id"] for flow in first["flows"]] == EXPECTED_SLICE_ONE_IDS
+    assert first["flowCount"] == 8
+    assert [flow["id"] for flow in first["flows"]] == EXPECTED_FLOW_IDS
 
     by_id = {flow["id"]: flow for flow in first["flows"]}
     assert by_id["auth-session-lifecycle"]["ownerDomain"] == "backend-auth-bots"
@@ -125,6 +129,32 @@ def test_repository_product_flow_contract_and_generated_maps_are_current() -> No
     assert by_id["max-trusted-entry"]["ownerDomain"] == "backend-auth-bots"
     assert by_id["text-to-image-generation"]["ownerDomain"] == "image-generation"
     assert by_id["text-to-image-generation"]["userSurface"]["entryRoute"] == "/phone/image"
+
+    assert by_id["gallery-result-lifecycle"]["ownerDomain"] == "video-gallery-feed"
+    assert by_id["generation-job-lifecycle"]["ownerDomain"] == "image-generation"
+    assert by_id["image-edit-generation"]["ownerDomain"] == "image-generation"
+    assert by_id["publish-feed-visibility"]["ownerDomain"] == "video-gallery-feed"
+
+    generation_job_api = {
+        (item["method"], item["path"])
+        for item in by_id["generation-job-lifecycle"]["apiEndpoints"]
+    }
+    assert ("POST", "/api/jobs/{job_id}/cancel") in generation_job_api
+
+    gallery_api = {
+        (item["method"], item["path"])
+        for item in by_id["gallery-result-lifecycle"]["apiEndpoints"]
+    }
+    assert ("POST", "/api/gallery/{image_id}/use-as") in gallery_api
+    assert ("DELETE", "/api/gallery/{image_id}") in gallery_api
+
+    publish_api = {
+        (item["method"], item["path"])
+        for item in by_id["publish-feed-visibility"]["apiEndpoints"]
+    }
+    assert ("POST", "/api/feed/publications") in publish_api
+    assert ("GET", "/api/feed") in publish_api
+
     assert not any("3d" in flow_id for flow_id in by_id)
 
     json_path = ROOT / "docs" / "generated" / "product-flow-map.json"
