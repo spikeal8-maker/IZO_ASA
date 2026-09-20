@@ -2,17 +2,17 @@
 status: canonical
 status_role: current-status-aggregator
 backlog_role: program-router
-updated: 2026-09-20
-source_main_at_status_update: df32191dc995c3f8c61724169e7c52a700c0a3c1
-last_verified_main: d223c179d5944bc208cace867d5e93bc1341a3aa
+updated: 2026-09-21
+source_main_at_status_update: b6a8a74c19a1d72dfac2d913d17e0f7c60020c24
+last_verified_main: b6a8a74c19a1d72dfac2d913d17e0f7c60020c24
 production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_verified_at: 2026-09-02T00:08:04+03:00
-completed_package: AI-CONTEXT-EXPAND-001
-active_package: STAB-PRODUCT-CONTRACT-001
-active_task_contract: github-issue-110
+completed_package: STAB-PRODUCT-CONTRACT-001
+active_package: STAB-SUPPLY-CHAIN-001
+active_task_contract: github-issue-111
 baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a
 baseline_status: completed-point-A-accepted
-next_candidate: STAB-SUPPLY-CHAIN-001
+next_candidate: STAB-TEST-HEALTH-001
 ---
 # IZO_ASA — NOW
 
@@ -32,7 +32,7 @@ git rev-parse origin/main
 git worktree list
 ```
 Source `main` при последнем status transition:
-`df32191dc995c3f8c61724169e7c52a700c0a3c1`.
+`b6a8a74c19a1d72dfac2d913d17e0f7c60020c24`.
 
 Последний отдельно operationally verified production release:
 `d223c179d5944bc208cace867d5e93bc1341a3aa` от 2026-09-02. Не выводить deploy
@@ -40,10 +40,11 @@ Source `main` при последнем status transition:
 
 ## 2. Активный stabilization package
 
-Completed: `AI-CONTEXT-EXPAND-001` (#109).
-Active: `STAB-PRODUCT-CONTRACT-001` (#110).
+Completed: `STAB-PRODUCT-CONTRACT-001` (#110).
+Active: `STAB-SUPPLY-CHAIN-001` (#111).
+Architecture checkpoint after #108-#110: PASS; protected hotspot growth 0, routes/workers/tables 251/8/65, context ownerless/duplicate findings 0, product-flow count 14, generated drift 0.
 `AI-CONTEXT-PILOT-001` (#107) completed: chat/admin-models packets stayed bounded and post-pilot A/B improved from false/false to partial/true with 0 broad scans.
-Next: `STAB-SUPPLY-CHAIN-001` (#111).
+Next: `STAB-TEST-HEALTH-001` (#112).
 
 ## 3. Frozen baseline — completed point A
 
@@ -84,6 +85,7 @@ docs/generated/frontend-map.md
 docs/generated/architecture-inventory.md
 docs/generated/context-index.md
 docs/generated/context-index.json
+docs/generated/product-flow-map.md
 backend/SYMBOL_MAP.md
 ```
 Большие JSON/maps/monoliths читать точечно.
@@ -91,7 +93,7 @@ backend/SYMBOL_MAP.md
 ## 5. Главные незакрытые capabilities
 
 - coupling/ownership health;
-- critical product-flow + supply-chain + test-health floor;
+- supply-chain + test-health floor;
 - isolated dev environment + affected-test router;
 - Docker DEV/TEST;
 - frontend/backend hotspot decomposition;
