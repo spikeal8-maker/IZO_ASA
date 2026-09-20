@@ -76,6 +76,19 @@ def _make_root(tmp_path: Path, *, flows: list[dict] | None = None) -> Path:
         + "\n",
         encoding="utf-8",
     )
+    (root / "docs" / "generated" / "architecture-inventory.json").write_text(
+        json.dumps(
+            {
+                "routes": {
+                    "items": [
+                        {"method": "POST", "path": "/api/alpha"},
+                    ]
+                }
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     (root / "architecture" / "product-flows.json").write_text(
         json.dumps({"version": 1, "flows": flows or [_sample_flow()]}, indent=2)
         + "\n",
@@ -86,6 +99,13 @@ def _make_root(tmp_path: Path, *, flows: list[dict] | None = None) -> Path:
 
 def _write_contract(root: Path, payload: dict) -> None:
     (root / "architecture" / "product-flows.json").write_text(
+        json.dumps(payload, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_inventory(root: Path, payload: object) -> None:
+    (root / "docs" / "generated" / "architecture-inventory.json").write_text(
         json.dumps(payload, indent=2) + "\n",
         encoding="utf-8",
     )
@@ -231,6 +251,70 @@ def test_contract_rejects_invalid_endpoint_method(tmp_path: Path) -> None:
     _write_contract(root, {"version": 1, "flows": [flow]})
     with pytest.raises(ProductFlowSchemaError, match="invalid HTTP method"):
         build_map(root)
+
+
+def test_existing_backend_endpoint_passes_exact_inventory_match(tmp_path: Path) -> None:
+    root = _make_root(tmp_path)
+    result = build_map(root)
+    assert result["flows"][0]["apiEndpoints"] == [
+        {"method": "POST", "path": "/api/alpha"}
+    ]
+
+
+def test_missing_backend_endpoint_fails_exact_inventory_match(tmp_path: Path) -> None:
+    root = _make_root(tmp_path)
+    flow = _sample_flow()
+    flow["apiEndpoints"] = [{"method": "POST", "path": "/api/not-real"}]
+    _write_contract(root, {"version": 1, "flows": [flow]})
+    with pytest.raises(
+        ProductFlowSchemaError,
+        match=r"alpha-flow\.apiEndpoints references unknown backend route: POST /api/not-real",
+    ):
+        build_map(root)
+
+
+def test_wrong_http_method_for_existing_backend_path_fails(tmp_path: Path) -> None:
+    root = _make_root(tmp_path)
+    flow = _sample_flow()
+    flow["apiEndpoints"] = [{"method": "GET", "path": "/api/alpha"}]
+    _write_contract(root, {"version": 1, "flows": [flow]})
+    with pytest.raises(
+        ProductFlowSchemaError,
+        match=r"alpha-flow\.apiEndpoints references unknown backend route: GET /api/alpha",
+    ):
+        build_map(root)
+
+
+@pytest.mark.parametrize(
+    "inventory",
+    [
+        [],
+        {},
+        {"routes": {}},
+        {"routes": {"items": "not-a-list"}},
+        {"routes": {"items": [None]}},
+        {"routes": {"items": [{"path": "/api/alpha"}]}},
+        {"routes": {"items": [{"method": "POST"}]}},
+    ],
+)
+def test_malformed_architecture_inventory_fails(
+    tmp_path: Path,
+    inventory: object,
+) -> None:
+    root = _make_root(tmp_path)
+    _write_inventory(root, inventory)
+    with pytest.raises(ProductFlowSchemaError, match="architecture inventory"):
+        build_map(root)
+
+
+def test_frontend_entry_route_is_not_validated_against_frontend_map(
+    tmp_path: Path,
+) -> None:
+    root = _make_root(tmp_path)
+    flow = _sample_flow()
+    flow["userSurface"]["entryRoute"] = "/phone/image"
+    _write_contract(root, {"version": 1, "flows": [flow]})
+    assert build_map(root)["flows"][0]["userSurface"]["entryRoute"] == "/phone/image"
 
 
 def test_contract_requires_automated_evidence_or_explicit_gap(tmp_path: Path) -> None:

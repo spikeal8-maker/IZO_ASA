@@ -65,6 +65,47 @@ def _context_domains(root: Path) -> set[str]:
     return domains
 
 
+def _backend_routes(root: Path) -> set[tuple[str, str]]:
+    payload = _load_json(
+        root / "docs" / "generated" / "architecture-inventory.json"
+    )
+    if not isinstance(payload, dict):
+        raise _error("architecture inventory root must be an object")
+    routes = payload.get("routes")
+    if not isinstance(routes, dict):
+        raise _error("architecture inventory routes must be an object")
+    items = routes.get("items")
+    if not isinstance(items, list):
+        raise _error("architecture inventory routes.items must be a list")
+
+    result: set[tuple[str, str]] = set()
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            raise _error(
+                f"architecture inventory routes.items[{index}] must be an object"
+            )
+        if "method" not in item:
+            raise _error(
+                f"architecture inventory routes.items[{index}] is missing method"
+            )
+        if "path" not in item:
+            raise _error(
+                f"architecture inventory routes.items[{index}] is missing path"
+            )
+        method = item["method"]
+        route_path = item["path"]
+        if not isinstance(method, str) or not method:
+            raise _error(
+                f"architecture inventory routes.items[{index}].method must be a non-empty string"
+            )
+        if not isinstance(route_path, str):
+            raise _error(
+                f"architecture inventory routes.items[{index}].path must be a string"
+            )
+        result.add((method, route_path))
+    return result
+
+
 def _repo_path(root: Path, value: Any, *, field: str, allow_unknown: bool = False) -> str:
     if not isinstance(value, str) or not value.strip():
         raise _error(f"{field} must contain non-empty repository paths")
@@ -138,7 +179,12 @@ def _normalize_endpoint(value: Any, *, flow_id: str) -> dict[str, str]:
     return {"method": method, "path": endpoint_path}
 
 
-def _normalize_flow(root: Path, raw: Any, domains: set[str]) -> dict[str, Any]:
+def _normalize_flow(
+    root: Path,
+    raw: Any,
+    domains: set[str],
+    backend_routes: set[tuple[str, str]],
+) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise _error("each flow must be an object")
     unknown = sorted(set(raw) - FLOW_KEYS)
@@ -202,6 +248,12 @@ def _normalize_flow(root: Path, raw: Any, domains: set[str]) -> dict[str, Any]:
     endpoint_keys = [(item["method"], item["path"]) for item in endpoints]
     if len(endpoint_keys) != len(set(endpoint_keys)):
         raise _error(f"{flow_id}.apiEndpoints contains duplicates")
+    for method, endpoint_path in endpoint_keys:
+        if (method, endpoint_path) not in backend_routes:
+            raise _error(
+                f"{flow_id}.apiEndpoints references unknown backend route: "
+                f"{method} {endpoint_path}"
+            )
     endpoints = sorted(endpoints, key=lambda item: (item["path"], item["method"]))
 
     durable = _string_list(
@@ -290,8 +342,9 @@ def build_map(
         raise _error("flows must be an array")
 
     domains = _context_domains(root)
+    backend_routes = _backend_routes(root)
     normalized = [
-        _normalize_flow(root, flow, domains)
+        _normalize_flow(root, flow, domains, backend_routes)
         for flow in payload["flows"]
     ]
     ids = [flow["id"] for flow in normalized]
