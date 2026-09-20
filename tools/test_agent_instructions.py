@@ -295,22 +295,26 @@ def _assert_program_and_package_status() -> None:
     assert "all three receipts exist before #107 starts" in amendment
 
     now = _text(ROOT / "docs" / "NOW.md")
-    assert "updated: 2026-09-20" in now
-    assert "source_main_at_status_update: df32191dc995c3f8c61724169e7c52a700c0a3c1" in now
-    assert "completed_package: AI-CONTEXT-EXPAND-001" in now
-    assert "active_package: STAB-PRODUCT-CONTRACT-001" in now
-    assert "active_task_contract: github-issue-110" in now
+    assert "updated: 2026-09-21" in now
+    assert "source_main_at_status_update: b6a8a74c19a1d72dfac2d913d17e0f7c60020c24" in now
+    assert "last_verified_main: b6a8a74c19a1d72dfac2d913d17e0f7c60020c24" in now
+    assert "completed_package: STAB-PRODUCT-CONTRACT-001" in now
+    assert "active_package: STAB-SUPPLY-CHAIN-001" in now
+    assert "active_task_contract: github-issue-111" in now
     assert "baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a" in now
     assert "baseline_status: completed-point-A-accepted" in now
     assert "\nblocker:" not in now
     assert "blocker: shared-host-gh-write-credential-visible" not in now
-    assert "next_candidate: STAB-SUPPLY-CHAIN-001" in now
-    assert "Completed: `AI-CONTEXT-EXPAND-001` (#109)." in now
-    assert "Active: `STAB-PRODUCT-CONTRACT-001` (#110)." in now
-    assert "Next: `STAB-SUPPLY-CHAIN-001` (#111)." in now
-    assert "active_package: AI-CONTEXT-EXPAND-001" not in now
-    assert "active_task_contract: github-issue-109" not in now
-    assert "Active: `AI-CONTEXT-EXPAND-001`, issue #109." not in now
+    assert "next_candidate: STAB-TEST-HEALTH-001" in now
+    assert "Completed: `STAB-PRODUCT-CONTRACT-001` (#110)." in now
+    assert "Active: `STAB-SUPPLY-CHAIN-001` (#111)." in now
+    assert "Next: `STAB-TEST-HEALTH-001` (#112)." in now
+    assert "Architecture checkpoint after #108-#110: PASS;" in now
+    assert "routes/workers/tables 251/8/65" in now
+    assert "product-flow count 14" in now
+    assert "active_package: STAB-PRODUCT-CONTRACT-001" not in now
+    assert "active_task_contract: github-issue-110" not in now
+    assert "Active: `STAB-PRODUCT-CONTRACT-001` (#110)." not in now
     for context_card in (
         "docs/context/3d.md",
         "docs/context/admin-control-center.md",
@@ -325,6 +329,8 @@ def _assert_program_and_package_status() -> None:
         "docs/context/video-gallery-feed.md",
     ):
         assert context_card in now
+    assert "docs/generated/product-flow-map.md" in now
+    assert "critical product-flow + supply-chain + test-health floor" not in now
     assert "scoped/bounded context tooling" not in now
     assert "Frozen baseline — completed point A" in now
     assert "84,968 input tokens" in now

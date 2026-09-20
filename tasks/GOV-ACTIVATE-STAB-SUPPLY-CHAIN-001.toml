@@ -1,0 +1,79 @@
+manifestVersion = 1
+id = "GOV-ACTIVATE-STAB-SUPPLY-CHAIN-001"
+baseSha = "b6a8a74c19a1d72dfac2d913d17e0f7c60020c24"
+goal = "Record the architecture checkpoint after #108-#110 and transition canonical governance from completed STAB-PRODUCT-CONTRACT-001 to active STAB-SUPPLY-CHAIN-001."
+userOutcome = "Canonical NOW records #110 completed, #111 active, #112 next after a compact evidence-based architecture checkpoint with no blocking regression."
+beforeScenario = "Issues #108-#110 are merged/completed, but docs/NOW.md still routes #110 as active and #111 as next."
+afterScenario = "Architecture checkpoint is accepted and docs/NOW.md routes #110 completed, #111 active, and #112 next without starting #111 implementation."
+nonGoals = [
+  "implement STAB-SUPPLY-CHAIN-001 issue #111",
+  "add dependency scanners or security policy",
+  "modify backend or frontend product code",
+  "change generated evidence",
+  "deploy",
+  "restart runtime",
+]
+declaredFiles = [
+  "tasks/GOV-ACTIVATE-STAB-SUPPLY-CHAIN-001.toml",
+  "docs/NOW.md",
+  "tools/test_agent_instructions.py",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+  "docs/context/**",
+  "docs/generated/**",
+  "tools/agent_system/**",
+  "tools/agent.ps1",
+  "tools/verify.ps1",
+  ".github/**",
+]
+protectedFilesTouched = [
+]
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+maxProductionFiles = 0
+maxChangedLines = 300
+acceptance = [
+  "Architecture checkpoint for #108-#110 has no blocking regression based on existing generated evidence and package receipts.",
+  "Protected hotspot line counts show zero growth from the pre-#108 checkpoint point.",
+  "Route/worker/table counts remain 251/8/65 and generated architecture validation remains clean.",
+  "Context index has 11 canonical cards with zero ownerless or duplicate-domain/read_when findings.",
+  "Generated backend/frontend/architecture/context/product-flow checks pass with no drift.",
+  "Product-flow contract has 14 flows and remains deterministic.",
+  "docs/NOW.md marks STAB-PRODUCT-CONTRACT-001 issue #110 completed, activates STAB-SUPPLY-CHAIN-001 issue #111, and routes STAB-TEST-HEALTH-001 issue #112 next.",
+  "No issue #111 implementation, product/runtime change, or deploy occurs.",
+  "Focused governance tests, package enforcement and exact-head CI pass with zero production files and zero scope violations.",
+]
+requiredEvidence = [
+  "existing generated architecture/context/product-flow evidence",
+  "package receipts for #108 #109 #110",
+  "focused governance tests",
+  "package enforcement receipt",
+  "git diff --check",
+  "exact-head GitHub CI",
+]
+targetedTests = [
+  "tools/test_agent_instructions.py",
+  "tools/test_context_docs.py",
+  "tools/test_agent_enforce.py",
+]
+fileGrowthExpectations = [
+  "docs/NOW.md remains concise and current-state only.",
+  "Governance assertions change only for the #110 -> #111 -> #112 routing transition.",
+  "No product source grows.",
+]
+forbiddenOperations = [
+  "deploy",
+  "restart",
+  "production-data",
+  "provider-call",
+  "direct-main",
+  "issue-111-implementation",
+]
+rollbackBoundary = "Revert this governance manifest, NOW routing transition, and matching deterministic assertions; product/runtime/deploy state remains untouched."
