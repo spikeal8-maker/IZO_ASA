@@ -1,6 +1,57 @@
 {
-  "flowCount": 8,
+  "flowCount": 12,
   "flows": [
+    {
+      "apiEndpoints": [
+        {
+          "method": "POST",
+          "path": "/api/tools/transcribe"
+        }
+      ],
+      "authState": "A trusted user session is required before protected audio transcription; publication/config/runtime checks can still reject the request.",
+      "automatedEvidence": [
+        "backend/test_prompt_improvement.py",
+        "frontend/phoneAudio.test.ts"
+      ],
+      "capabilityState": "implemented",
+      "coverageGap": "Live Qwen/OpenRouter/Ollama ASR availability is not established by repository tests.",
+      "durableResults": [],
+      "expectedFailures": [
+        "ASR provider or runtime failure",
+        "empty or oversized audio upload",
+        "recording is below minimum duration",
+        "transcription disabled by admin configuration",
+        "trusted session is missing",
+        "unsupported audio content type"
+      ],
+      "frontendPaths": [
+        "frontend/src/phone/features/audio/PhoneAudioWorkspace.tsx",
+        "frontend/src/phone/features/audio/api.ts"
+      ],
+      "id": "audio-transcription",
+      "ownerDomain": "audio",
+      "relatedContextDomains": [
+        "admin-models"
+      ],
+      "sideEffects": {
+        "billing": "unknown",
+        "data": "known",
+        "media": "none",
+        "tokens": "none"
+      },
+      "sourcePaths": [
+        "backend/app/integrations/qwen_asr.py",
+        "backend/main.py"
+      ],
+      "unknownEdges": [
+        "API-provider transcription can be metered_not_settled; durable billing settlement is not established by this flow",
+        "persistent audio/transcription history is not proven and is not claimed"
+      ],
+      "userSurface": {
+        "entryRoute": "/audio",
+        "kind": "audio-transcription"
+      }
+    },
     {
       "apiEndpoints": [
         {
@@ -67,6 +118,170 @@
       "userSurface": {
         "entryRoute": "unknown",
         "kind": "web-auth"
+      }
+    },
+    {
+      "apiEndpoints": [
+        {
+          "method": "GET",
+          "path": "/api/account/token-history-v2"
+        },
+        {
+          "method": "POST",
+          "path": "/api/billing/checkout-v2"
+        },
+        {
+          "method": "GET",
+          "path": "/api/billing/packages-v2"
+        },
+        {
+          "method": "GET",
+          "path": "/api/billing/payments/{payment_id}/status-v2"
+        },
+        {
+          "method": "POST",
+          "path": "/api/billing/yookassa/webhook-v2"
+        }
+      ],
+      "authState": "A trusted user session is required for packages, checkout, owned payment status and token history; provider webhook confirmation is validated through the billing boundary rather than UI redirect state.",
+      "automatedEvidence": [
+        "backend/test_account_sync_models_tokens.py",
+        "backend/test_billing_notification_outbox.py",
+        "backend/test_billing_simulator_checkout_v2.py",
+        "backend/test_billing_v2.py",
+        "backend/test_billing_yookassa_provider.py",
+        "backend/test_yookassa_checkout_v2.py"
+      ],
+      "capabilityState": "implemented",
+      "coverageGap": "A real YooKassa payment/settlement is not executed by this contract package; live provider state remains operational evidence.",
+      "durableResults": [
+        "invoice",
+        "legal acceptance",
+        "payment notification outbox obligation where applicable",
+        "payment row",
+        "provider event state",
+        "provider payment identity/state",
+        "token ledger/account balance or tariff grant"
+      ],
+      "expectedFailures": [
+        "billing or provider is not ready",
+        "duplicate checkout returns the idempotent existing payment",
+        "offer is not accepted or receipt contact is invalid",
+        "provider create or fetch fails",
+        "repeated provider webhook must not create a repeated financial effect",
+        "trusted session is missing",
+        "user cannot read another user payment status"
+      ],
+      "frontendPaths": [
+        "frontend/src/PaymentResultPage.tsx",
+        "frontend/src/ProfilePage.tsx"
+      ],
+      "id": "billing-checkout-payment-accounting",
+      "ownerDomain": "billing-payments",
+      "relatedContextDomains": [
+        "admin-control-center"
+      ],
+      "sideEffects": {
+        "billing": "known",
+        "data": "known",
+        "media": "none",
+        "tokens": "known"
+      },
+      "sourcePaths": [
+        "backend/app/billing/contracts.py",
+        "backend/app/billing/outbox.py",
+        "backend/app/billing/yookassa_provider.py",
+        "backend/main.py"
+      ],
+      "unknownEdges": [
+        "live YooKassa availability and production credentials are not established by repository tests"
+      ],
+      "userSurface": {
+        "entryRoute": "/profile",
+        "kind": "profile-billing-checkout"
+      }
+    },
+    {
+      "apiEndpoints": [
+        {
+          "method": "POST",
+          "path": "/api/phone/chat"
+        },
+        {
+          "method": "GET",
+          "path": "/api/phone/chat/threads"
+        },
+        {
+          "method": "POST",
+          "path": "/api/phone/chat/threads"
+        },
+        {
+          "method": "GET",
+          "path": "/api/phone/chat/threads/{thread_id}/messages"
+        },
+        {
+          "method": "PATCH",
+          "path": "/api/phone/chat/threads/{thread_id}/messages/{message_id}/tools"
+        }
+      ],
+      "authState": "A trusted user owns chat threads/history and request lifecycle; model access, tool policy and billing settlement are enforced before durable assistant/tool state is committed.",
+      "automatedEvidence": [
+        "backend/test_chat_billing.py",
+        "backend/test_phone_chat_history.py",
+        "backend/test_phone_chat_idempotency.py",
+        "backend/test_phone_chat_tools.py",
+        "backend/test_prompt_improvement.py",
+        "frontend/phoneChat.test.ts"
+      ],
+      "capabilityState": "implemented",
+      "coverageGap": "Live Ollama/OpenRouter/search/provider availability is not established by this contract package.",
+      "durableResults": [
+        "assistant message provider/model/tool state",
+        "charged-token/token-kind settlement evidence",
+        "phone_chat_messages",
+        "phone_chat_threads",
+        "request/idempotency lifecycle state where applicable"
+      ],
+      "expectedFailures": [
+        "duplicate request must not repeat charging or side effects",
+        "foreign thread/history is not accessible",
+        "invalid tool request is not executed",
+        "model unavailable or denied by tariff",
+        "provider failure returns a safe error",
+        "tool state/history remains owner-checked",
+        "trusted session is missing"
+      ],
+      "frontendPaths": [
+        "frontend/src/desktopChat/DesktopChatWorkspace.tsx",
+        "frontend/src/phone/features/chat/PhoneChatWorkspace.tsx",
+        "frontend/src/phone/features/chat/api.ts"
+      ],
+      "id": "chat-request-tools-history",
+      "ownerDomain": "chat",
+      "relatedContextDomains": [
+        "backend-auth-bots",
+        "billing-payments",
+        "image-generation"
+      ],
+      "sideEffects": {
+        "billing": "known",
+        "data": "known",
+        "media": "known",
+        "tokens": "known"
+      },
+      "sourcePaths": [
+        "backend/app/api/routers/phone_chat.py",
+        "backend/app/services/chat_billing.py",
+        "backend/app/services/chat_request_lifecycle.py",
+        "backend/app/services/chat_tool_policy.py",
+        "backend/app/services/phone_chat_history.py"
+      ],
+      "unknownEdges": [
+        "runtime latency and provider/model capacity are operational evidence"
+      ],
+      "userSurface": {
+        "entryRoute": "/chat",
+        "kind": "chat"
       }
     },
     {
@@ -531,6 +746,89 @@
       "userSurface": {
         "entryRoute": "/phone/image",
         "kind": "phone-image"
+      }
+    },
+    {
+      "apiEndpoints": [
+        {
+          "method": "GET",
+          "path": "/api/video/config"
+        },
+        {
+          "method": "POST",
+          "path": "/api/video/estimate"
+        },
+        {
+          "method": "POST",
+          "path": "/api/video/generate"
+        },
+        {
+          "method": "GET",
+          "path": "/api/video/history"
+        },
+        {
+          "method": "GET",
+          "path": "/api/video/jobs/{job_id}"
+        },
+        {
+          "method": "GET",
+          "path": "/api/video/media/{job_id}"
+        }
+      ],
+      "authState": "A trusted user session owns video estimate/submission/job/history/media access; model, mode, resolution, token budget and concurrency restrictions are enforced by the video boundary.",
+      "automatedEvidence": [
+        "backend/test_phone_jobs.py",
+        "backend/test_video_generation_api.py",
+        "backend/test_video_storage_policy.py",
+        "frontend/phoneVideo.test.ts"
+      ],
+      "capabilityState": "implemented",
+      "coverageGap": "Live video provider/local GPU execution and actual runtime availability are not exercised by this contract package.",
+      "durableResults": [
+        "gallery/history identity",
+        "generated video media",
+        "token accounting state",
+        "video generation job",
+        "video/history record"
+      ],
+      "expectedFailures": [
+        "concurrent local video restriction where applicable",
+        "duplicate or idempotent submission semantics",
+        "insufficient token budget",
+        "media result is missing or unavailable",
+        "provider or local runtime failure",
+        "trusted session is missing",
+        "unsupported model, mode, or resolution"
+      ],
+      "frontendPaths": [
+        "frontend/src/VideoStudio.tsx",
+        "frontend/src/phone/features/video/PhoneVideoWorkspace.tsx",
+        "frontend/src/phone/features/video/api.ts"
+      ],
+      "id": "video-submission-result-history",
+      "ownerDomain": "video-gallery-feed",
+      "relatedContextDomains": [
+        "frontend-studio",
+        "image-generation"
+      ],
+      "sideEffects": {
+        "billing": "none",
+        "data": "known",
+        "media": "known",
+        "tokens": "known"
+      },
+      "sourcePaths": [
+        "backend/app/services/video_presentation.py",
+        "backend/app/services/video_pricing.py",
+        "backend/app/services/video_storage.py",
+        "backend/app/services/video_submission.py"
+      ],
+      "unknownEdges": [
+        "phone client polls through the shared /api/phone/v1/jobs facade, but that factory-router route is absent from the current canonical architecture route inventory; this contract does not invent an unvalidated endpoint"
+      ],
+      "userSurface": {
+        "entryRoute": "/video",
+        "kind": "video-generation"
       }
     }
   ],

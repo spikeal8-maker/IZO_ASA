@@ -19,7 +19,10 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "tools" / "generate_product_flow_map.py"
 CONTRACT = ROOT / "architecture" / "product-flows.json"
 EXPECTED_FLOW_IDS = [
+    "audio-transcription",
     "auth-session-lifecycle",
+    "billing-checkout-payment-accounting",
+    "chat-request-tools-history",
     "gallery-result-lifecycle",
     "generation-job-lifecycle",
     "image-edit-generation",
@@ -27,6 +30,7 @@ EXPECTED_FLOW_IDS = [
     "publish-feed-visibility",
     "telegram-trusted-entry",
     "text-to-image-generation",
+    "video-submission-result-history",
 ]
 
 
@@ -120,7 +124,7 @@ def test_repository_product_flow_contract_and_generated_maps_are_current() -> No
     second = build_map(ROOT)
     assert first == second
     assert first["version"] == 1
-    assert first["flowCount"] == 8
+    assert first["flowCount"] == 12
     assert [flow["id"] for flow in first["flows"]] == EXPECTED_FLOW_IDS
 
     by_id = {flow["id"]: flow for flow in first["flows"]}
@@ -154,6 +158,40 @@ def test_repository_product_flow_contract_and_generated_maps_are_current() -> No
     }
     assert ("POST", "/api/feed/publications") in publish_api
     assert ("GET", "/api/feed") in publish_api
+
+    assert by_id["audio-transcription"]["ownerDomain"] == "audio"
+    assert by_id["billing-checkout-payment-accounting"]["ownerDomain"] == "billing-payments"
+    assert by_id["chat-request-tools-history"]["ownerDomain"] == "chat"
+    assert by_id["video-submission-result-history"]["ownerDomain"] == "video-gallery-feed"
+
+    billing_api = {
+        (item["method"], item["path"])
+        for item in by_id["billing-checkout-payment-accounting"]["apiEndpoints"]
+    }
+    assert ("POST", "/api/billing/checkout-v2") in billing_api
+    assert ("GET", "/api/billing/payments/{payment_id}/status-v2") in billing_api
+
+    chat_api = {
+        (item["method"], item["path"])
+        for item in by_id["chat-request-tools-history"]["apiEndpoints"]
+    }
+    assert ("POST", "/api/phone/chat") in chat_api
+    assert ("GET", "/api/phone/chat/threads/{thread_id}/messages") in chat_api
+
+    video_api = {
+        (item["method"], item["path"])
+        for item in by_id["video-submission-result-history"]["apiEndpoints"]
+    }
+    assert ("POST", "/api/video/generate") in video_api
+    assert ("GET", "/api/video/history") in video_api
+    assert not any("/api/phone/v1/jobs" in path for _method, path in video_api)
+
+    audio_api = {
+        (item["method"], item["path"])
+        for item in by_id["audio-transcription"]["apiEndpoints"]
+    }
+    assert audio_api == {("POST", "/api/tools/transcribe")}
+    assert not any("/api/phone/audio/" in path for _method, path in audio_api)
 
     assert not any("3d" in flow_id for flow_id in by_id)
 
