@@ -38,7 +38,7 @@ declaredFiles = [
   "frontend/src/chatCore/chatCore.css",
   "frontend/src/desktopChat/DesktopChatWorkspace.tsx",
   "frontend/chatCore.test.ts",
-  "frontend/package.json",
+  "tools/verify.ps1",
   "backend/SYMBOL_MAP.md",
   "docs/generated/architecture-inventory.json",
   "docs/generated/architecture-inventory.md",
@@ -79,7 +79,7 @@ requiredEvidence = [
 ]
 targetedTests = [
   "python -m pytest -q backend/test_chat_deepseek.py",
-  "npm run test:chat-core",
+  "node --test frontend/chatCore.test.ts",
   "npm run build",
 ]
 fileGrowthExpectations = [

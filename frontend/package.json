@@ -48,7 +48,6 @@
     "test:phone-contract": "node --test phoneContracts.test.ts",
     "test:phone-core": "node --test phoneCore.test.ts",
     "test:phone-chat": "node --test phoneChat.test.ts",
-    "test:chat-core": "node --test chatCore.test.ts",
     "e2e:desktop-chat": "node e2e-desktop-chat.mjs",
     "test:phone-image": "node --test phoneImage.test.ts",
     "test:phone-video": "node --test phoneVideo.test.ts",
