@@ -35,6 +35,33 @@ owner request
 Главный принцип: документация объясняет правила; tooling/permissions/hooks/CI/locks
 обеспечивают их технически.
 
+### 1.1. GitHub-first execution
+
+GitHub является канонической source/integration surface: repository, `main`,
+branches, PR, Issues, exact SHA, CI и сохранённые receipts. Для repository-only
+работы GitHub/CI имеет приоритет над удалённым рабочим компьютером.
+
+- Source, docs, contracts, generators, tests и supply-chain checks, которые можно
+  воспроизводимо выполнить в CI, должны реализовываться и проверяться через
+  GitHub Actions на exact candidate HEAD.
+- D2 или другой удалённый компьютер используется только как дополнительный
+  operational executor, когда evidence зависит от установленного local runtime,
+  listeners/processes, Docker host, GPU/Windows-only services, файлов вне GitHub
+  или production-like topology.
+- Local/remote checkout не является источником истины поверх GitHub.
+- Поломка remote executor/tool не блокирует repository-only работу. Подходящая
+  проверка переносится в GitHub CI; недоступная внешняя сеть/scanner фиксируется
+  как `EXTERNAL_VERIFICATION_UNAVAILABLE`, а не как fabricated green и не как
+  повод бесконечно повторять тот же local probe.
+- Уже выданный владельцем доступ к компьютеру используется только когда задаче
+  действительно нужно local/runtime evidence; доступность конкретного remote
+  инструмента не является prerequisite для GitHub-native работы.
+- Network-dependent supply-chain scanning по возможности принадлежит CI и
+  привязывает результат к exact SHA. Auto-fix и вывод secret values запрещены.
+- GitHub CI не подменяет live/deploy/runtime evidence: такие утверждения требуют
+  отдельной operational verification.
+
+
 ## 2. Переиспользовать, не дублировать
 
 - `AGENTS.md`, `AI_START_HERE.md`, `docs/NOW.md`;
