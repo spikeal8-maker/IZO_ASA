@@ -230,6 +230,11 @@ def _assert_program_and_package_status() -> None:
     assert "AI-CANONICAL-REPAIR-001" in program
     assert "merge `8e15a89aae71f71eed31a0ef490228cdbc854c7d`" in program
     assert "baseline issue #71" in program
+    assert "### 1.1. GitHub-first execution" in program
+    assert "GitHub является канонической source/integration surface" in program
+    assert "remote executor/tool не блокирует repository-only работу" in program
+    assert "`EXTERNAL_VERIFICATION_UNAVAILABLE`" in program
+    assert "Network-dependent supply-chain scanning" in program
 
     master = _text(ROOT / "docs" / "stabilization-optimization-master-spec.md")
     assert "status: owner-directed-master-spec" in master
