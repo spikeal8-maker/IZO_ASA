@@ -1,0 +1,76 @@
+manifestVersion = 1
+id = "GOV-GITHUB-FIRST-EXECUTION-001"
+baseSha = "db97ff3b47b016b0bd6dca6a80acd8b19246818d"
+goal = "Make GitHub and GitHub Actions the canonical execution path for repository-only work while reserving remote computers for genuinely local/runtime evidence."
+userOutcome = "Repository implementation and deterministic verification continue through GitHub even when the optional remote-computer tool is unavailable."
+beforeScenario = "Repository truth lives in GitHub, but execution guidance can over-emphasize D2/local command access and allow a broken remote tool to block repo-only work such as supply-chain verification."
+afterScenario = "Canonical agent guidance explicitly routes reproducible repository checks to exact-head GitHub CI and treats remote computers as supplemental operational executors only."
+nonGoals = [
+  "implement STAB-SUPPLY-CHAIN-001 issue #111",
+  "change product behavior",
+  "change runtime topology",
+  "deploy or restart",
+  "modify dependencies",
+  "install scanners",
+]
+declaredFiles = [
+  "tasks/GOV-GITHUB-FIRST-EXECUTION-001.toml",
+  "docs/agent-control-plane.md",
+  "tools/test_agent_instructions.py",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+  "docs/context/**",
+  "docs/generated/**",
+  ".github/**",
+  "tools/agent_system/**",
+  "tools/agent.ps1",
+  "tools/verify.ps1",
+  "docs/NOW.md",
+]
+protectedFilesTouched = [
+]
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+maxProductionFiles = 0
+maxChangedLines = 300
+acceptance = [
+  "docs/agent-control-plane.md defines GitHub as canonical source/integration surface and GitHub Actions as preferred executor for reproducible repository-only verification.",
+  "Remote computers are limited to local/runtime/GPU/Docker/listener/files-outside-GitHub evidence and are not a prerequisite for GitHub-native work.",
+  "Remote executor/tool outage does not block repository-only work and external verification unavailability is reported explicitly rather than fabricated green.",
+  "Network-dependent supply-chain scanning is routed toward exact-head CI without auto-fix or secret-value logging.",
+  "Deterministic governance tests assert the GitHub-first contract.",
+  "No product/runtime/dependency/deploy change occurs.",
+  "Package enforcement and exact-head CI pass with zero production files and zero scope violations.",
+]
+requiredEvidence = [
+  "tools/test_agent_instructions.py",
+  "package enforcement receipt",
+  "git diff --check",
+  "exact-head GitHub CI",
+]
+targetedTests = [
+  "tools/test_agent_instructions.py",
+  "tools/test_context_docs.py",
+  "tools/test_agent_enforce.py",
+]
+fileGrowthExpectations = [
+  "Agent control plane remains below its existing line/byte limits.",
+  "No product source grows.",
+]
+forbiddenOperations = [
+  "deploy",
+  "restart",
+  "production-data",
+  "provider-call",
+  "dependency-change",
+  "direct-main",
+  "issue-111-implementation",
+]
+rollbackBoundary = "Revert this governance manifest, GitHub-first documentation rule, and matching deterministic assertions; product/runtime/dependency state remains untouched."
