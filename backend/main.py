@@ -17018,7 +17018,7 @@ app.include_router(create_phone_chat_router(PhoneChatDependencies(
     request_lifecycle=chat_request_lifecycle.ChatRequestLifecycle(connect=db, get_tariffs=get_tariff_config, reconcile_tariff=_reconcile_user_tariff),
     connect_db=db,
     usd_rub_snapshot=usd_rub_rate_snapshot,
-    openrouter_economy=openrouter_economy_settings, secret_store=OPENROUTER_SECRET_STORE,
+    openrouter_economy=openrouter_economy_settings,
 )))
 app.include_router(create_phone_audio_router(PhoneAudioDependencies(
     require_user=require_trusted_user,

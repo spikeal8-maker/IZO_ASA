@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Literal
 
 from fastapi import APIRouter, HTTPException, Request
@@ -21,6 +22,7 @@ from ...chat_core.contracts import (
 )
 from ...chat_core.providers.deepseek import DeepSeekProvider
 from ...chat_core.user_secrets import SecretStore, UserProviderSecrets
+from ...security.secret_store import DpapiSecretStore, assert_secret_store_outside_repository, default_secret_store_dir
 from ...services import phone_chat_history
 
 
@@ -52,6 +54,21 @@ class PortableChatDependencies:
     secret_store: SecretStore
     connect_db: Callable[[], Any] | None = None
     providers: dict[str, TextProvider] | None = None
+
+
+def create_izo_portable_chat_dependencies(
+    *,
+    require_trusted_user: Callable[[Request], dict[str, Any]],
+    connect_db: Callable[[], Any] | None = None,
+) -> PortableChatDependencies:
+    secret_root = default_secret_store_dir()
+    repository_root = Path(__file__).resolve().parents[4]
+    assert_secret_store_outside_repository(secret_root, repository_root)
+    return PortableChatDependencies(
+        require_trusted_user=require_trusted_user,
+        secret_store=DpapiSecretStore(secret_root),
+        connect_db=connect_db,
+    )
 
 
 def _provider_models(provider: TextProvider, configured: bool) -> list[dict[str, Any]]:

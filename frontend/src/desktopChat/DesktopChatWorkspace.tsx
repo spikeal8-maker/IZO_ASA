@@ -612,7 +612,7 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
               : item,
           ),
         )
-        await runRequestedImageTools(thread, assistantId, answer.messageId, tools)
+        await runRequestedImageTools(thread, assistantId, answer.messageId || null, tools)
         setThreads(await listChatThreads())
       }
     } catch (caught) {

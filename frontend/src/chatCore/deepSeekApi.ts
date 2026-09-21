@@ -19,10 +19,7 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     credentials: 'same-origin',
     ...init,
-    headers: {
-      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(init?.headers || {}),
-    },
+    headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
   })
   if (!response.ok) {
     let message = 'DeepSeek временно недоступен.'

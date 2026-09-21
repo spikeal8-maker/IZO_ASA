@@ -26,7 +26,7 @@ from ...integrations.openrouter import (
     request_openrouter_chat_completion,
 )
 from ...services import chat_billing, chat_request_lifecycle, chat_tool_policy, phone_chat_history
-from .chat_portable import PortableChatDependencies, create_portable_chat_router
+from .chat_portable import create_izo_portable_chat_dependencies, create_portable_chat_router
 
 
 PROVIDER_ENDPOINTS = load_provider_endpoint_policy()
@@ -130,7 +130,6 @@ class PhoneChatDependencies:
     openrouter_text_models: Callable[[], Any]
     request_lifecycle: chat_request_lifecycle.ChatRequestLifecycle | None
     connect_db: Callable[[], Any] | None = None
-    secret_store: Any | None = None
     usd_rub_snapshot: Callable[[], dict[str, Any]] | None = None
     openrouter_economy: Callable[[], dict[str, float]] | None = None
 
@@ -665,8 +664,7 @@ async def route_phone_chat(
 
 def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
     router = APIRouter()
-    if deps.secret_store is not None:
-        router.include_router(create_portable_chat_router(PortableChatDependencies(require_trusted_user=deps.require_trusted_user, secret_store=deps.secret_store, connect_db=deps.connect_db)))
+    router.include_router(create_portable_chat_router(create_izo_portable_chat_dependencies(require_trusted_user=deps.require_trusted_user, connect_db=deps.connect_db)))
 
     def replay_or_raise(outcome: dict[str, Any]) -> dict[str, Any] | None:
         state = str(outcome.get("state") or "")

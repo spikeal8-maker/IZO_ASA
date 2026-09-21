@@ -16,8 +16,8 @@ Portable and reusable:
 
 IZO shell adapter:
 
-- `backend/app/api/routers/chat_portable.py` — trusted-user HTTP boundary, DPAPI-store injection, optional IZO chat-history persistence, and normalized NDJSON streaming.
-- `backend/app/api/routers/phone_chat.py` only composes the portable router alongside the existing chat routes.
+- `backend/app/api/routers/chat_portable.py` — trusted-user HTTP boundary, IZO DPAPI adapter/factory, optional IZO chat-history persistence, and normalized NDJSON streaming.
+- `backend/app/api/routers/phone_chat.py` composes the portable router alongside the existing chat routes without changing the protected backend composition root.
 - The existing IZO image queue remains outside Chat Core. The portable stream emits a `generate_image` tool request; the frontend IZO adapter executes it.
 
 The portable backend modules do not import OpenRouter, IZO pages, billing, SQLite, phone history, or image generation.

@@ -28,7 +28,6 @@ declaredFiles = [
   "backend/app/chat_core/providers/deepseek.py",
   "backend/app/api/routers/chat_portable.py",
   "backend/app/api/routers/phone_chat.py",
-  "backend/main.py",
   "backend/test_chat_deepseek.py",
   "frontend/src/chatCore/types.ts",
   "frontend/src/chatCore/runtime.ts",
@@ -54,9 +53,7 @@ forbiddenPatterns = [
   "frontend/src/LegacyApp.tsx",
   "frontend/src/newUi.tsx",
 ]
-protectedFilesTouched = [
-  "backend/main.py",
-]
+protectedFilesTouched = []
 domain = "chat"
 riskClass = "standard"
 changeClass = "feature"
@@ -88,7 +85,6 @@ targetedTests = [
 fileGrowthExpectations = [
   "Every new handwritten source file remains below the normal 500-line source limit.",
   "DesktopChatWorkspace removes its local renderer before adding DeepSeek shell wiring.",
-  "backend/main.py does not grow.",
 ]
 forbiddenOperations = [
   "deploy",
