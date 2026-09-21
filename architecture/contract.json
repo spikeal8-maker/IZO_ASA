@@ -240,23 +240,11 @@
       "bind": "127.0.0.1",
       "port": 5173,
       "required_local": true,
-      "process_names": [
-        "caddy.exe"
-      ],
-      "command_contains": [
-        "run",
-        "--config",
-        "ops\\caddy\\Caddyfile"
-      ],
+      "process_names": ["caddy.exe"],
+      "command_contains": ["run", "--config", "ops\\caddy\\Caddyfile"],
       "windows_service_fallback": {
         "name": "IZOCaddy",
-        "arguments_contains": [
-          "run",
-          "--config",
-          "C:\\IZO_ASA\\config\\Caddyfile",
-          "--adapter",
-          "caddyfile"
-        ]
+        "arguments_contains": ["run", "--config", "C:\\IZO_ASA\\config\\Caddyfile", "--adapter", "caddyfile"]
       },
       "evidence_files": [
         "ops/caddy/Caddyfile",
@@ -271,65 +259,31 @@
       "bind": "127.0.0.1",
       "port": 8000,
       "required_local": true,
-      "process_names": [
-        "python.exe"
-      ],
-      "command_contains": [
-        "-m",
-        "uvicorn",
-        "main:app",
-        "--port",
-        "8000",
-        "--no-proxy-headers"
-      ],
+      "process_names": ["python.exe"],
+      "command_contains": ["-m", "uvicorn", "main:app", "--port", "8000", "--no-proxy-headers"],
       "windows_service_fallback": {
         "name": "IZOBackend",
-        "arguments_contains": [
-          "-m",
-          "uvicorn",
-          "main:app",
-          "--host",
-          "127.0.0.1",
-          "--port",
-          "8000",
-          "--no-proxy-headers"
-        ]
+        "arguments_contains": ["-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8000", "--no-proxy-headers"]
       },
-      "evidence_files": [
-        "tools/restart-backend.ps1",
-        "tools/start-production-stack.ps1"
-      ]
+      "evidence_files": ["tools/restart-backend.ps1", "tools/start-production-stack.ps1"]
     },
     {
       "id": "qwen-asr",
       "bind": "127.0.0.1",
       "port": 8001,
       "required_local": false,
-      "process_names": [
-        "python.exe"
-      ],
-      "command_contains": [
-        "qwen_asr_service.py",
-        "--port",
-        "8001"
-      ],
-      "evidence_files": [
-        "tools/start-qwen-asr.ps1",
-        "tools/qwen_asr_service.py"
-      ]
+      "process_names": ["python.exe"],
+      "command_contains": ["qwen_asr_service.py", "--port", "8001"],
+      "evidence_files": ["tools/start-qwen-asr.ps1", "tools/qwen_asr_service.py"]
     },
     {
       "id": "comfyui",
       "bind": "127.0.0.1",
       "port": 8188,
       "required_local": false,
-      "process_names": [
-        "python.exe"
-      ],
+      "process_names": ["python.exe"],
       "command_contains": [],
-      "evidence_files": [
-        "tools/start-production-stack.ps1"
-      ]
+      "evidence_files": ["tools/start-production-stack.ps1"]
     },
     {
       "id": "ollama",
@@ -338,61 +292,39 @@
       "required_local": false,
       "bind_enforcement": "warn",
       "bind_rationale": "The current Ollama Desktop listener may report an IPv6 wildcard bind; keep the desired loopback target visible until OPS hardening closes the gap.",
-      "process_names": [
-        "ollama.exe"
-      ],
-      "command_contains": [
-        "serve"
-      ],
+      "process_names": ["ollama.exe"],
+      "command_contains": ["serve"],
       "windows_service_fallback": {
         "name": "IZOOllama",
-        "arguments_contains": [
-          "serve"
-        ]
+        "arguments_contains": ["serve"]
       },
-      "evidence_files": [
-        "tools/start-production-stack.ps1"
-      ]
+      "evidence_files": ["tools/start-production-stack.ps1"]
     }
   ],
   "runtime_guards": {
-    "full_app_process_names": [
-      "python.exe"
-    ],
-    "full_app_command_contains": [
-      "-m",
-      "uvicorn",
-      "main:app"
-    ],
-    "allowed_full_app_listener_ids": [
-      "api"
-    ]
+    "full_app_process_names": ["python.exe"],
+    "full_app_command_contains": ["-m", "uvicorn", "main:app"],
+    "allowed_full_app_listener_ids": ["api"]
   },
   "integrations": [
     {
       "id": "comfyui",
       "source": "backend/app/integrations/comfyui_client.py",
-      "endpoint_env": [
-        "COMFYUI_BASE_URL"
-      ],
+      "endpoint_env": ["COMFYUI_BASE_URL"],
       "secret_env": [],
       "secret_source": "none"
     },
     {
       "id": "ollama",
       "source": "backend/app/integrations/ollama.py",
-      "endpoint_env": [
-        "OLLAMA_BASE_URL"
-      ],
+      "endpoint_env": ["OLLAMA_BASE_URL"],
       "secret_env": [],
       "secret_source": "none"
     },
     {
       "id": "qwen-asr",
       "source": "backend/app/integrations/qwen_asr.py",
-      "endpoint_env": [
-        "QWEN_ASR_BASE_URL"
-      ],
+      "endpoint_env": ["QWEN_ASR_BASE_URL"],
       "secret_env": [],
       "secret_source": "none"
     },
@@ -406,63 +338,42 @@
     {
       "id": "openrouter",
       "source": "backend/app/integrations/openrouter.py",
-      "endpoint_env": [
-        "OPENROUTER_BASE_URL"
-      ],
-      "secret_env": [
-        "OPENROUTER_API_KEY"
-      ],
+      "endpoint_env": ["OPENROUTER_BASE_URL"],
+      "secret_env": ["OPENROUTER_API_KEY"],
       "secret_source": "CurrentUser DPAPI with environment fallback"
     },
     {
       "id": "telegram",
       "source": "backend/app/integrations/telegram.py",
       "endpoint_env": [],
-      "secret_env": [
-        "TELEGRAM_BOT_TOKEN",
-        "TELEGRAM_WEBHOOK_SECRET"
-      ],
+      "secret_env": ["TELEGRAM_BOT_TOKEN", "TELEGRAM_WEBHOOK_SECRET"],
       "secret_source": "CurrentUser DPAPI with environment fallback"
     },
     {
       "id": "max",
       "source": "backend/app/integrations/max_client.py",
-      "endpoint_env": [
-        "MAX_API_BASE_URL"
-      ],
-      "secret_env": [
-        "MAX_BOT_TOKEN",
-        "MAX_WEBHOOK_SECRET"
-      ],
+      "endpoint_env": ["MAX_API_BASE_URL"],
+      "secret_env": ["MAX_BOT_TOKEN", "MAX_WEBHOOK_SECRET"],
       "secret_source": "CurrentUser DPAPI with environment fallback"
     },
     {
       "id": "yookassa",
       "source": "backend/app/integrations/yookassa.py",
       "endpoint_env": [],
-      "secret_env": [
-        "YOOKASSA_SECRET_KEY"
-      ],
+      "secret_env": ["YOOKASSA_SECRET_KEY"],
       "secret_source": "CurrentUser DPAPI with environment fallback"
     },
     {
       "id": "smtp",
       "source": "backend/app/integrations/smtp.py",
-      "endpoint_env": [
-        "SMTP_HOST",
-        "SMTP_PORT"
-      ],
-      "secret_env": [
-        "SMTP_PASSWORD"
-      ],
+      "endpoint_env": ["SMTP_HOST", "SMTP_PORT"],
+      "secret_env": ["SMTP_PASSWORD"],
       "secret_source": "CurrentUser DPAPI with environment fallback"
     },
     {
       "id": "runtime-alert-webhook",
       "source": "backend/main.py",
-      "endpoint_env": [
-        "RUNTIME_ALERT_WEBHOOK_URL"
-      ],
+      "endpoint_env": ["RUNTIME_ALERT_WEBHOOK_URL"],
       "secret_env": [],
       "secret_source": "environment configuration"
     },
@@ -483,78 +394,15 @@
     "backend/static/gallery/index.html"
   ],
   "file_limits": [
-    {
-      "path": "backend/main.py",
-      "max_lines": 19750,
-      "protected": true,
-      "non_growth": true,
-      "owner": "backend-composition",
-      "category": "backend-hotspot"
-    },
-    {
-      "path": "frontend/src/newStudioV3.css",
-      "max_lines": 6400,
-      "protected": true,
-      "non_growth": true,
-      "owner": "frontend-studio",
-      "category": "frontend-style-hotspot"
-    },
-    {
-      "path": "frontend/src/newUi.tsx",
-      "max_lines": 3950,
-      "protected": true,
-      "non_growth": true,
-      "owner": "frontend-studio",
-      "category": "frontend-ui-hotspot"
-    },
-    {
-      "path": "frontend/src/LegacyApp.tsx",
-      "max_lines": 3700,
-      "protected": true,
-      "non_growth": true,
-      "owner": "frontend-legacy",
-      "category": "frontend-legacy-hotspot"
-    },
-    {
-      "path": "frontend/src/newUi.css",
-      "max_lines": 3400,
-      "protected": true,
-      "non_growth": true,
-      "owner": "frontend-studio",
-      "category": "frontend-style-hotspot"
-    },
-    {
-      "path": "frontend/src/index.css",
-      "max_lines": 2650,
-      "protected": true,
-      "non_growth": true,
-      "owner": "frontend-shell",
-      "category": "frontend-style-hotspot"
-    },
-    {
-      "path": "backend/static/feed/index.html",
-      "max_lines": 2200,
-      "protected": true,
-      "non_growth": true,
-      "owner": "feed-static",
-      "category": "static-ui-hotspot"
-    },
-    {
-      "path": "frontend/src/adminModels.tsx",
-      "max_lines": 2300,
-      "protected": true,
-      "non_growth": true,
-      "owner": "admin-models",
-      "category": "frontend-admin-hotspot"
-    },
-    {
-      "path": "backend/test_feed_v2.py",
-      "max_lines": 2600,
-      "protected": true,
-      "non_growth": true,
-      "owner": "feed-tests",
-      "category": "test-hotspot"
-    }
+    {"path": "backend/main.py", "max_lines": 19750, "protected": true, "non_growth": true, "owner": "backend-composition", "category": "backend-hotspot"},
+    {"path": "frontend/src/newStudioV3.css", "max_lines": 6400, "protected": true, "non_growth": true, "owner": "frontend-studio", "category": "frontend-style-hotspot"},
+    {"path": "frontend/src/newUi.tsx", "max_lines": 3950, "protected": true, "non_growth": true, "owner": "frontend-studio", "category": "frontend-ui-hotspot"},
+    {"path": "frontend/src/LegacyApp.tsx", "max_lines": 3700, "protected": true, "non_growth": true, "owner": "frontend-legacy", "category": "frontend-legacy-hotspot"},
+    {"path": "frontend/src/newUi.css", "max_lines": 3400, "protected": true, "non_growth": true, "owner": "frontend-studio", "category": "frontend-style-hotspot"},
+    {"path": "frontend/src/index.css", "max_lines": 2650, "protected": true, "non_growth": true, "owner": "frontend-shell", "category": "frontend-style-hotspot"},
+    {"path": "backend/static/feed/index.html", "max_lines": 2200, "protected": true, "non_growth": true, "owner": "feed-static", "category": "static-ui-hotspot"},
+    {"path": "frontend/src/adminModels.tsx", "max_lines": 2300, "protected": true, "non_growth": true, "owner": "admin-models", "category": "frontend-admin-hotspot"},
+    {"path": "backend/test_feed_v2.py", "max_lines": 2600, "protected": true, "non_growth": true, "owner": "feed-tests", "category": "test-hotspot"}
   ],
   "symbol_limits": [
     {
@@ -573,43 +421,13 @@
     "soft_max_lines": 750,
     "trend_window_packages": 3,
     "trend_growth_percent": 15,
-    "roots": [
-      "backend",
-      "frontend/src",
-      "frontend/public",
-      "tools"
-    ],
-    "extensions": [
-      ".py",
-      ".ts",
-      ".tsx",
-      ".js",
-      ".mjs",
-      ".css",
-      ".html",
-      ".ps1"
-    ],
+    "roots": ["backend", "frontend/src", "frontend/public", "tools"],
+    "extensions": [".py", ".ts", ".tsx", ".js", ".mjs", ".css", ".html", ".ps1"],
     "classifications": [
-      {
-        "pattern": "docs/generated/**",
-        "kind": "generated",
-        "rationale": "Generated architecture and context evidence is owned by deterministic generators."
-      },
-      {
-        "pattern": "backend/SYMBOL_MAP.md",
-        "kind": "generated",
-        "rationale": "Generated backend symbol map is owned by tools/generate_backend_map.py."
-      },
-      {
-        "pattern": "frontend/node_modules/**",
-        "kind": "vendor",
-        "rationale": "Installed frontend dependencies are not handwritten repository source."
-      },
-      {
-        "pattern": "backend/.venv/**",
-        "kind": "vendor",
-        "rationale": "Local Python environment is not handwritten repository source."
-      }
+      {"pattern": "docs/generated/**", "kind": "generated", "rationale": "Generated architecture and context evidence is owned by deterministic generators."},
+      {"pattern": "backend/SYMBOL_MAP.md", "kind": "generated", "rationale": "Generated backend symbol map is owned by tools/generate_backend_map.py."},
+      {"pattern": "frontend/node_modules/**", "kind": "vendor", "rationale": "Installed frontend dependencies are not handwritten repository source."},
+      {"pattern": "backend/.venv/**", "kind": "vendor", "rationale": "Local Python environment is not handwritten repository source."}
     ]
   },
   "release_contract": {
