@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { Box, Check, ChevronDown, Copy, Download, FileUp, ImagePlus, MessageCircle, Mic, Moon, PanelLeftClose, PanelLeftOpen, Plus, Search, Send, Share2, Sparkles, Sun, Trash2, Video, Volume2, X } from 'lucide-react'
+import { Box, Check, ChevronDown, Copy, Download, FileUp, ImagePlus, KeyRound, MessageCircle, Mic, Moon, PanelLeftClose, PanelLeftOpen, Plus, RotateCcw, Search, Send, Share2, Sparkles, Square, Sun, Trash2, Video, Volume2, X } from 'lucide-react'
 
 import { createChatThread, deleteChatThread, listChatThreads, loadChatMessages, loadChatModels, runChatImageTool, saveChatTools, sendChatMessage, transcribePhoneVoice, updateChatThread, type PhoneChatMessage, type PhoneChatModel, type PhoneChatThread, type PhoneChatTool } from '../phone/features/chat/api.ts'
 import { cleanAssistantText } from '../phone/features/chat/format.ts'
+import { DeepSeekKeyPanel } from '../chatCore/DeepSeekKeyPanel.tsx'
+import { loadDeepSeekStatus, type DeepSeekProviderStatus } from '../chatCore/deepSeekApi.ts'
+import { createHttpChatTransport } from '../chatCore/httpTransport.ts'
+import { MessageRenderer } from '../chatCore/MessageRenderer.tsx'
+import { PortableChatRuntime, type PortableChatCompletion } from '../chatCore/runtime.ts'
+import type { PortableChatEvent, PortableChatTool } from '../chatCore/types.ts'
 import { loadImageModels, type PhoneImageModel } from '../phone/features/image/api.ts'
 import { loadPhoneVideoConfig, type PhoneVideoModel } from '../phone/features/video/api.ts'
 import './desktopChat.css'
@@ -51,6 +57,24 @@ const defaultChatModels: PhoneChatModel[] = [
   },
 ]
 
+const isDeepSeekModelId = (id: string) => id.startsWith('deepseek:')
+
+function mergeDeepSeekModels(existing: PhoneChatModel[], status: DeepSeekProviderStatus): PhoneChatModel[] {
+  const base = existing.filter((model) => !isDeepSeekModelId(model.id))
+  const deepSeek = status.models.map<PhoneChatModel>((model) => ({
+    id: model.id,
+    name: model.name,
+    provider: 'api',
+    tokenCost: 0,
+    tokenKind: 'free',
+    description: model.description || 'DeepSeek через ваш API key',
+    contextChars: 240000,
+    available: status.configured && model.available !== false,
+    unavailableReason: status.configured ? model.unavailableReason : 'Требуется DeepSeek API key.',
+  }))
+  return [...base, ...deepSeek]
+}
+
 const makeId = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`
 
 function readImage(file: File): Promise<string> {
@@ -65,52 +89,13 @@ function readImage(file: File): Promise<string> {
 }
 
 function TokenPrice({ model }: { model: PhoneChatModel }) {
+  if (isDeepSeekModelId(model.id)) return <em className="dc-daily-token">свой API</em>
   if (model.tokenKind === 'free' || model.tokenCost <= 0) return <em className="dc-daily-token">0 ток. / 1 млн</em>
   const retail = Number(model.retailPerMillionProductTokens || 0)
   return (
     <em className="dc-main-token" title="Наша розничная цена за один миллион текстовых токенов">
       {retail > 0 ? `${retail.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} осн. / 1 млн` : 'Цена уточняется'}
     </em>
-  )
-}
-
-function InlineText({ value }: { value: string }) {
-  const parts = value.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean)
-  return <>{parts.map((part, index) => (part.startsWith('**') && part.endsWith('**') ? <strong key={index}>{part.slice(2, -2)}</strong> : part.startsWith('`') && part.endsWith('`') ? <code key={index}>{part.slice(1, -1)}</code> : <span key={index}>{part}</span>))}</>
-}
-
-function FormattedText({ value }: { value: string }) {
-  const blocks = value
-    .replace(/\r/g, '')
-    .split(/\n{2,}/)
-    .filter((block) => block.trim())
-  return (
-    <div className="dc-rich-text">
-      {blocks.map((block, blockIndex) => {
-        const lines = block.split('\n')
-        const list = lines.length > 0 && lines.every((line) => /^\s*[-*]\s+/.test(line))
-        if (list)
-          return (
-            <ul key={blockIndex}>
-              {lines.map((line, lineIndex) => (
-                <li key={lineIndex}>
-                  <InlineText value={line.replace(/^\s*[-*]\s+/, '')} />
-                </li>
-              ))}
-            </ul>
-          )
-        return (
-          <p key={blockIndex}>
-            {lines.map((line, lineIndex) => (
-              <span key={lineIndex}>
-                <InlineText value={line} />
-                {lineIndex < lines.length - 1 && <br />}
-              </span>
-            ))}
-          </p>
-        )
-      })}
-    </div>
   )
 }
 
@@ -121,6 +106,10 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
   const [models, setModels] = useState<PhoneChatModel[]>(defaultChatModels)
   const [modelsLoading, setModelsLoading] = useState(true)
   const [modelId, setModelId] = useState('local:izo-chat')
+  const [deepSeekStatus, setDeepSeekStatus] = useState<DeepSeekProviderStatus | null>(null)
+  const [deepSeekOpen, setDeepSeekOpen] = useState(false)
+  const [portableRunning, setPortableRunning] = useState(false)
+  const [portableErrorId, setPortableErrorId] = useState('')
   const [text, setText] = useState('')
   const [images, setImages] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
@@ -158,6 +147,9 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
   const scrollPositionsRef = useRef<Record<string, number>>({})
   const restoreScrollRef = useRef<number | null>(null)
   const stickToBottomRef = useRef(true)
+  const portableAttemptRef = useRef<{ pendingId: string; threadId: string } | null>(null)
+  const portableRuntimeRef = useRef<PortableChatRuntime | null>(null)
+  if (!portableRuntimeRef.current) portableRuntimeRef.current = new PortableChatRuntime(createHttpChatTransport())
 
   const current = useMemo(() => threads.find((item) => item.id === currentId) || null, [threads, currentId])
   const selectedModel = models.find((item) => item.id === modelId) || models.find((item) => item.available !== false) || null
@@ -227,7 +219,7 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
       })
     void loadChatModels(controller.signal)
       .then((catalog) => {
-        setModels((existing) => (catalog.models.length ? catalog.models : existing))
+        setModels((existing) => (catalog.models.length ? [...catalog.models, ...existing.filter((model) => isDeepSeekModelId(model.id))] : existing))
         if (catalog.models.length) setModelId((selected) => (catalog.models.some((model) => model.id === selected && model.available !== false) ? selected : catalog.defaultModel))
       })
       .catch((caught) => {
@@ -235,6 +227,14 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
       })
       .finally(() => {
         if (!controller.signal.aborted) setModelsLoading(false)
+      })
+    void loadDeepSeekStatus(controller.signal)
+      .then((status) => {
+        setDeepSeekStatus(status)
+        setModels((existing) => mergeDeepSeekModels(existing, status))
+      })
+      .catch((caught) => {
+        if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : 'Не удалось загрузить DeepSeek.')
       })
     void loadImageModels(controller.signal)
       .then((imageCatalog) => {
@@ -420,6 +420,11 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
   }
 
   const chooseModel = async (model: PhoneChatModel) => {
+    if (isDeepSeekModelId(model.id) && deepSeekStatus?.configured !== true) {
+      setModelOpen(false)
+      setDeepSeekOpen(true)
+      return
+    }
     if (model.available === false) return
     setModelId(model.id)
     setModelOpen(false)
@@ -448,11 +453,84 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
     }
   }
 
+  const portableObserver = (pendingId: string) => ({
+    onEvent: (event: PortableChatEvent) => {
+      if (event.type === 'delta') {
+        setMessages((items) => items.map((item) => (item.id === pendingId ? { ...item, content: item.content + event.text, status: 'pending' } : item)))
+      } else if (event.type === 'tool') {
+        const tool = event.tool as PhoneChatTool
+        setMessages((items) => items.map((item) => (item.id === pendingId ? { ...item, tools: [...(item.tools || []), tool] } : item)))
+      }
+    },
+  })
+
+  const runRequestedImageTools = async (thread: PhoneChatThread, assistantId: string, persistedMessageId: string | null, initialTools: PhoneChatTool[]) => {
+    let tools = initialTools
+    for (let index = 0; index < tools.length; index += 1) {
+      if (tools[index].name !== 'generate_image' || tools[index].status !== 'requested') continue
+      setThreadKinds((items) => ({ ...items, [thread.id]: 'image' }))
+      const replace = (next: PhoneChatTool) => {
+        tools = tools.map((tool, toolIndex) => (toolIndex === index ? next : tool))
+        setMessages((items) => items.map((item) => (item.id === assistantId ? { ...item, tools } : item)))
+        if (persistedMessageId) void saveChatTools(thread.id, persistedMessageId, tools).catch(() => undefined)
+      }
+      try {
+        await runChatImageTool(tools[index], replace, thread.imageModelId)
+      } catch (caught) {
+        replace({
+          ...tools[index],
+          status: 'error',
+          error: caught instanceof Error ? caught.message : 'Изображение не создано.',
+        })
+      }
+    }
+  }
+
+  const finishPortableCompletion = async (pendingId: string, thread: PhoneChatThread, completion: PortableChatCompletion) => {
+    const assistantId = completion.messageId || pendingId
+    const tools = completion.tools as PhoneChatTool[]
+    setMessages((items) =>
+      items.map((item) =>
+        item.id === pendingId
+          ? {
+              ...item,
+              id: assistantId,
+              content: completion.text,
+              model: modelId,
+              chargedTokens: 0,
+              tokenKind: '',
+              tools,
+              status: 'done',
+            }
+          : item,
+      ),
+    )
+    setPortableErrorId('')
+    if (!completion.stopped) {
+      await runRequestedImageTools(thread, assistantId, completion.messageId, tools)
+      setThreads(await listChatThreads())
+    }
+  }
+
   const submit = async () => {
     if (!authed) return onRequireAuth()
+    const portable = isDeepSeekModelId(modelId)
+    if (portable && deepSeekStatus?.configured !== true) {
+      setDeepSeekOpen(true)
+      return
+    }
+    if (portable && images.length) {
+      setError('DeepSeek V1 пока принимает только текстовые сообщения.')
+      return
+    }
+    if (portable && forcedTool === 'web_search') {
+      setError('Web search не входит в CHAT-DEEPSEEK-001.')
+      return
+    }
     const rawContent = text.trim() || (images.length ? 'Опиши прикреплённое изображение.' : '')
     if (!rawContent || busy || selectedModel?.available === false) return
     let thread = current
+    let pendingId = ''
     try {
       if (!thread) {
         thread = await createChatThread(modelId)
@@ -463,7 +541,7 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
         id: `user-${makeId()}`,
         role: 'user',
         content: rawContent,
-        provider: '',
+        provider: portable ? 'deepseek' : '',
         model: modelId,
         tools: [],
         chargedTokens: 0,
@@ -471,7 +549,7 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
         createdAt: new Date().toISOString(),
         status: 'done',
       }
-      const pendingId = `pending-${makeId()}`
+      pendingId = `pending-${makeId()}`
       const pending: PhoneChatMessage = {
         ...user,
         id: pendingId,
@@ -481,63 +559,95 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
       }
       setMessages((items) => [...items, user, pending])
       setText('')
-      setForcedTool('auto')
       const attached = [...images]
       const toolChoice = forcedTool
+      setForcedTool('auto')
       setImages([])
       setBusy(true)
       setError('')
-      const answer = await sendChatMessage({
-        threadId: thread.id,
-        content: rawContent,
-        modelId,
-        images: attached,
-        requestId: makeId(),
-        toolChoice,
-      })
-      const assistantId = answer.messageId || pendingId
-      let tools = answer.tools || []
-      setMessages((items) =>
-        items.map((item) =>
-          item.id === pendingId
-            ? {
-                ...item,
-                id: assistantId,
-                content: answer.reply,
-                model: answer.modelId,
-                chargedTokens: answer.chargedTokens,
-                tokenKind: answer.tokenKind,
-                tools,
-                status: 'done',
-              }
-            : item,
-        ),
-      )
-      for (let index = 0; index < tools.length; index += 1) {
-        if (tools[index].name !== 'generate_image' || tools[index].status !== 'requested') continue
-        setThreadKinds((items) => ({ ...items, [thread!.id]: 'image' }))
-        const replace = (next: PhoneChatTool) => {
-          tools = tools.map((tool, toolIndex) => (toolIndex === index ? next : tool))
-          setMessages((items) => items.map((item) => (item.id === assistantId ? { ...item, tools } : item)))
-          if (answer.messageId) void saveChatTools(thread!.id, answer.messageId, tools).catch(() => undefined)
-        }
-        try {
-          await runChatImageTool(tools[index], replace, thread.imageModelId)
-        } catch (caught) {
-          replace({
-            ...tools[index],
-            status: 'error',
-            error: caught instanceof Error ? caught.message : 'Изображение не создано.',
-          })
-        }
+
+      if (portable) {
+        setPortableRunning(true)
+        portableAttemptRef.current = { pendingId, threadId: thread.id }
+        const context = messages
+          .filter((message) => message.status === 'done' && message.content.trim() && (message.role === 'user' || message.role === 'assistant'))
+          .slice(-60)
+          .map((message) => ({ role: message.role as 'user' | 'assistant', content: message.content }))
+        context.push({ role: 'user', content: rawContent })
+        const completion = await portableRuntimeRef.current!.send(
+          {
+            provider: 'deepseek',
+            model: modelId.slice('deepseek:'.length),
+            messages: context,
+            threadId: thread.id,
+            toolChoice: toolChoice === 'generate_image' ? 'generate_image' : 'auto',
+          },
+          portableObserver(pendingId),
+        )
+        await finishPortableCompletion(pendingId, thread, completion)
+      } else {
+        const answer = await sendChatMessage({
+          threadId: thread.id,
+          content: rawContent,
+          modelId,
+          images: attached,
+          requestId: makeId(),
+          toolChoice,
+        })
+        const assistantId = answer.messageId || pendingId
+        const tools = answer.tools || []
+        setMessages((items) =>
+          items.map((item) =>
+            item.id === pendingId
+              ? {
+                  ...item,
+                  id: assistantId,
+                  content: answer.reply,
+                  model: answer.modelId,
+                  chargedTokens: answer.chargedTokens,
+                  tokenKind: answer.tokenKind,
+                  tools,
+                  status: 'done',
+                }
+              : item,
+          ),
+        )
+        await runRequestedImageTools(thread, assistantId, answer.messageId, tools)
+        setThreads(await listChatThreads())
       }
-      setThreads(await listChatThreads())
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'Чат временно недоступен.'
-      setMessages((items) => items.map((item) => (item.status === 'pending' ? { ...item, content: message, status: 'error' } : item)))
+      if (pendingId) {
+        setMessages((items) => items.map((item) => (item.id === pendingId ? { ...item, content: message, status: 'error' } : item)))
+        if (portable) setPortableErrorId(pendingId)
+      }
       setError(message)
     } finally {
       setBusy(false)
+      setPortableRunning(false)
+    }
+  }
+
+  const retryPortable = async () => {
+    const attempt = portableAttemptRef.current
+    if (!attempt || busy) return
+    const thread = threads.find((item) => item.id === attempt.threadId) || current
+    if (!thread) return
+    setMessages((items) => items.map((item) => (item.id === attempt.pendingId ? { ...item, content: '', tools: [], status: 'pending' } : item)))
+    setBusy(true)
+    setPortableRunning(true)
+    setError('')
+    try {
+      const completion = await portableRuntimeRef.current!.retry()
+      await finishPortableCompletion(attempt.pendingId, thread, completion)
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Чат временно недоступен.'
+      setMessages((items) => items.map((item) => (item.id === attempt.pendingId ? { ...item, content: message, status: 'error' } : item)))
+      setPortableErrorId(attempt.pendingId)
+      setError(message)
+    } finally {
+      setBusy(false)
+      setPortableRunning(false)
     }
   }
 
@@ -804,7 +914,7 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
                         <Copy />
                       </button>
                     </div>
-                    {message.status === 'pending' ? (
+                    {message.status === 'pending' && !clean ? (
                       <span className="dc-thinking status-block">
                         <i />
                         <i />
@@ -812,7 +922,14 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
                       </span>
                     ) : message.role === 'assistant' ? (
                       <div className="assistant-body">
-                        <FormattedText value={clean} />
+                        <MessageRenderer value={clean} />
+                        {message.status === 'pending' && <span className="portable-chat-stream-cursor" aria-label="Ответ продолжается" />}
+                        {message.status === 'error' && message.id === portableErrorId && (
+                          <button className="portable-chat-retry" type="button" onClick={() => void retryPortable()}>
+                            <RotateCcw />
+                            Повторить
+                          </button>
+                        )}
                       </div>
                     ) : (
                       <p>{clean}</p>
@@ -857,7 +974,7 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
                           ) : (
                             <span className="dc-image-progress">
                               <ImagePlus />
-                              {tool.status === 'running' ? 'Создаём изображение…' : tool.error || 'Подготавливаем генерацию…'}
+                              {tool.status === 'running' ? 'Генерируется…' : tool.error || 'Подготавливаем генерацию…'}
                             </span>
                           )}
                         </div>
@@ -1087,8 +1204,14 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
               >
                 <Mic />
               </button>
-              <button className="dc-send" type="button" aria-label="Отправить" disabled={busy || (!text.trim() && !images.length)} onClick={() => void submit()}>
-                <Send />
+              <button
+                className="dc-send"
+                type="button"
+                aria-label={portableRunning ? 'Остановить ответ' : 'Отправить'}
+                disabled={!portableRunning && (busy || (!text.trim() && !images.length))}
+                onClick={() => (portableRunning ? portableRuntimeRef.current?.stop() : void submit())}
+              >
+                {portableRunning ? <Square /> : <Send />}
               </button>
             </div>
           </div>
@@ -1133,12 +1256,18 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
                 <Search />
                 <input value={modelQuery} onChange={(event) => setModelQuery(event.target.value)} placeholder="Поиск" />
               </label>
+              {modelCategory === 'chat' && (
+                <button className="portable-provider-config" type="button" onClick={() => setDeepSeekOpen(true)}>
+                  <KeyRound />
+                  DeepSeek API key
+                </button>
+              )}
             </div>
             <div className="dc-model-list model-list">
               {modelCategory === 'chat' ? (
                 visibleModels.length ? (
                   visibleModels.map((model) => (
-                    <button type="button" key={model.id} disabled={model.available === false} className={`model-item${model.id === modelId ? ' selected active' : ''}${model.available === false ? ' unavailable' : ''}`} onClick={() => void chooseModel(model)}>
+                    <button type="button" key={model.id} disabled={model.available === false && !isDeepSeekModelId(model.id)} className={`model-item${model.id === modelId ? ' selected active' : ''}${model.available === false ? ' unavailable' : ''}`} onClick={() => void chooseModel(model)}>
                       <span className="dc-model-icon model-item-icon">
                         <Sparkles />
                       </span>
@@ -1203,6 +1332,15 @@ export default function DesktopChatWorkspace({ authed, onRequireAuth, onNavigate
           </section>
         </>
       )}
+      <DeepSeekKeyPanel
+        open={deepSeekOpen}
+        status={deepSeekStatus}
+        onClose={() => setDeepSeekOpen(false)}
+        onStatus={(status) => {
+          setDeepSeekStatus(status)
+          setModels((existing) => mergeDeepSeekModels(existing, status))
+        }}
+      />
       {artifact?.resultUrl && (
         <>
           <div
