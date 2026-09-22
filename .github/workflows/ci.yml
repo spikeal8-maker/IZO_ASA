@@ -40,6 +40,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           clean: true
           fetch-depth: 2
           persist-credentials: false
@@ -75,6 +76,43 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
+
+      - name: Capture fresh npm audit baseline
+        working-directory: frontend
+        env:
+          IZO_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $npm = (Get-Command npm.cmd -ErrorAction Stop).Source
+          $auditJson = Join-Path $env:RUNNER_TEMP "npm-audit.json"
+          $auditErrNative = Join-Path $env:RUNNER_TEMP "npm-audit.stderr.native.txt"
+          $auditErr = Join-Path $env:RUNNER_TEMP "npm-audit.stderr.txt"
+          $normalized = Join-Path $env:RUNNER_TEMP "npm-audit-normalized.json"
+          $stdout = @(& $npm audit --json 2> $auditErrNative)
+          $auditExit = $LASTEXITCODE
+          [IO.File]::WriteAllText(
+            $auditJson,
+            ($stdout -join [Environment]::NewLine),
+            [Text.UTF8Encoding]::new($false)
+          )
+          $stderrText = if (Test-Path -LiteralPath $auditErrNative) {
+            Get-Content -LiteralPath $auditErrNative -Raw
+          } else {
+            ""
+          }
+          [IO.File]::WriteAllText(
+            $auditErr,
+            $stderrText,
+            [Text.UTF8Encoding]::new($false)
+          )
+          $candidateHead = (& git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $candidateHead -notmatch "^[0-9a-f]{40}$") {
+            throw "Unable to resolve exact candidate HEAD."
+          }
+          if ($env:IZO_PR_HEAD_SHA -and $candidateHead -ne $env:IZO_PR_HEAD_SHA) {
+            throw "Exact-head mismatch: expected $env:IZO_PR_HEAD_SHA, got $candidateHead"
+          }
+          Write-Host "NPM_AUDIT_HEAD=$candidateHead"
+          python ../tools/supply_chain_audit.py --input $auditJson --scanner-exit-code $auditExit --scanner-stderr $auditErr --output $normalized
 
       - name: Install Playwright Chromium
         working-directory: frontend

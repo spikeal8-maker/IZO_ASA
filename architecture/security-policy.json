@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "package": "STAB-SUPPLY-CHAIN-001",
+  "slice": "npm-baseline-bootstrap",
+  "dependencyMutation": {
+    "allowed": false,
+    "protectedFiles": [
+      "frontend/package.json",
+      "frontend/package-lock.json",
+      "backend/requirements.txt"
+    ]
+  },
+  "npmAudit": {
+    "workingDirectory": "frontend",
+    "command": [
+      "npm",
+      "audit",
+      "--json"
+    ],
+    "freshBaselineSource": "exact-head-github-ci",
+    "historicalCountsAcceptedAsFreshBaseline": false,
+    "statusValues": [
+      "AVAILABLE",
+      "EXTERNAL_VERIFICATION_UNAVAILABLE"
+    ],
+    "severities": [
+      "critical",
+      "high",
+      "moderate",
+      "low"
+    ],
+    "findingFields": [
+      "package",
+      "severity",
+      "range",
+      "via",
+      "fixAvailable"
+    ],
+    "vulnerabilityExitCodeIsData": true
+  },
+  "forbiddenCommands": [
+    "npm audit fix",
+    "npm audit fix --force",
+    "npm update"
+  ],
+  "baselineExceptions": []
+}
