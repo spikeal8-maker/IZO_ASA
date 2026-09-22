@@ -2,7 +2,7 @@
 status: canonical
 role: agent-entrypoint
 reading_order_role: sole-owner
-updated: 2026-08-31
+updated: 2026-09-22
 ---
 # AI_START_HERE — короткий вход в IZO_ASA
 
@@ -44,7 +44,7 @@ git worktree list
 | Auth, Telegram/MAX, trusted identity | [docs/context/backend-auth-bots.md](docs/context/backend-auth-bots.md) |
 | `/chat`, `/phone/chat`, chat models/tools/history | [docs/context/chat.md](docs/context/chat.md) |
 | Админка, CRM, административные экраны моделей | [docs/context/admin-control-center.md](docs/context/admin-control-center.md) |
-| Product billing, images, audio, 3D, release | см. `docs/NOW.md`; отсутствующая карта означает bounded discovery, а не широкий scan |
+| Product billing, images, audio, 3D, release | см. `docs/NOW.md`; Docker-приёмка: `docs/docker-delivery-acceptance.md` |
 
 Generated evidence:
 ```text
@@ -59,7 +59,7 @@ backend/SYMBOL_MAP.md
 | `riskClass` | Когда применять | Минимальный gate |
 |---|---|---|
 | `low` | Документация и локальные изменения без product contract | targeted checks |
-| `standard` | Ограниченная frontend/backend feature-задача | Task Contract, targeted tests, Quick |
+| `standard` | Ограниченная frontend/backend feature-задача | Task Contract, targeted tests, применимый Quick/CI |
 | `high-assurance` | Auth, billing, migrations, durable workers, privacy, media ownership | characterization, race/idempotency, rollback, CI, independent review |
 | `release-ops` | Deploy, restart, webhook, production data/provider/network | явное разрешение владельца, exact-SHA receipt, operational evidence |
 
@@ -88,7 +88,7 @@ rollbackBoundary:
 «после», выполняй только bounded discovery.
 
 ## 6. Рабочие правила
-- Один package — одна проблема, одна feature branch/worktree и один clean commit.
+- Один package — один результат, один writer и один PR; законченные commits допустимы.
 - Не работай напрямую в `main`.
 - Не используй stash/reset/cleanup для передачи или удаления чужой работы.
 - Не расширяй scope молча; запиши причину и повторно проверь overlap.
