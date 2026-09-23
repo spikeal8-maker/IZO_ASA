@@ -220,10 +220,16 @@ jobs:
             if ($pipAuditVersion -notmatch "2\.10\.1") { throw "Unexpected pip-audit version: $pipAuditVersion" }
             if ($pipLicensesVersion -notmatch "5\.5\.5") { throw "Unexpected pip-licenses version: $pipLicensesVersion" }
 
-            & $toolPython -m pip_audit --requirement backend/requirements.txt --format json --aliases --progress-spinner off --strict --output $pythonAudit 2> $pythonAuditErr
-            $pipAuditExit = $LASTEXITCODE
-            & $pipLicenses --python=$python --from=expression --format=json --output-file=$backendLicenses 2> $backendLicensesErr
-            $backendLicenseExit = $LASTEXITCODE
+            $savedErrorAction = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            try {
+              & $toolPython -m pip_audit --requirement backend/requirements.txt --format json --aliases --progress-spinner off --strict --output $pythonAudit 2> $pythonAuditErr
+              $pipAuditExit = $LASTEXITCODE
+              & $pipLicenses --python=$python --from=expression --format=json --output-file=$backendLicenses 2> $backendLicensesErr
+              $backendLicenseExit = $LASTEXITCODE
+            } finally {
+              $ErrorActionPreference = $savedErrorAction
+            }
           } catch {
             Write-Utf8File $pythonAuditErr $_.Exception.Message
             Write-Utf8File $backendLicensesErr $_.Exception.Message
@@ -234,10 +240,17 @@ jobs:
             & $npm install --prefix $npmToolRoot --no-save --ignore-scripts --fund=false --audit=false "license-checker-rseidelsohn@5.0.1"
             if ($LASTEXITCODE -ne 0) { throw "Unable to install pinned frontend license scanner." }
             $licenseChecker = Join-Path $npmToolRoot "node_modules\.bin\license-checker-rseidelsohn.cmd"
-            $licenseCheckerVersion = ((& $licenseChecker --version) -join " ").Trim()
-            if ($licenseCheckerVersion -notmatch "5\.0\.1") { throw "Unexpected license-checker-rseidelsohn version: $licenseCheckerVersion" }
-            & $licenseChecker --start (Resolve-Path frontend).Path --direct true --json --out $frontendLicenses 2> $frontendLicensesErr
-            $frontendLicenseExit = $LASTEXITCODE
+            $licenseCheckerPackage = Get-Content -LiteralPath (Join-Path $npmToolRoot "node_modules\license-checker-rseidelsohn\package.json") -Raw | ConvertFrom-Json
+            $licenseCheckerVersion = [string]$licenseCheckerPackage.version
+            if ($licenseCheckerVersion -ne "5.0.1") { throw "Unexpected license-checker-rseidelsohn version: $licenseCheckerVersion" }
+            $savedErrorAction = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            try {
+              & $licenseChecker --start (Resolve-Path frontend).Path --direct true --json --out $frontendLicenses 2> $frontendLicensesErr
+              $frontendLicenseExit = $LASTEXITCODE
+            } finally {
+              $ErrorActionPreference = $savedErrorAction
+            }
           } catch {
             Write-Utf8File $frontendLicensesErr $_.Exception.Message
           }
@@ -264,7 +277,7 @@ jobs:
             if ($syntheticExit -eq 23 -and $syntheticText.Trim() -and -not $syntheticText.Contains($fakeSecret)) { $syntheticStatus = "PASS" }
 
             $logOpts = "$baseSha..$candidateHead"
-            & $gitleaks git --source $repoRoot --log-opts=$logOpts --redact=100 --report-format json --report-path $secretRaw --exit-code 23 --no-banner --no-color 2> $secretErr
+            & $gitleaks git $repoRoot --log-opts=$logOpts --redact=100 --report-format json --report-path $secretRaw --exit-code 23 --no-banner --no-color 2> $secretErr
             $secretExit = $LASTEXITCODE
             if ($secretExit -eq 0 -and -not (Test-Path -LiteralPath $secretRaw)) { Write-Utf8File $secretRaw "[]" }
           } catch {
