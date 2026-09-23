@@ -36,7 +36,7 @@ def test_ci_workflow_uses_pinned_self_hosted_windows_toolchain_and_lockfiles() -
     assert "tools.agent_system.enforce" in source
     assert "IZO_PR_BASE_SHA" in source
     assert "clean: true" in source
-    assert "fetch-depth: 2" in source
+    assert "fetch-depth: 0" in source
     assert source.count("shell: powershell") == 5
     assert "shell: pwsh" not in source
 
@@ -63,6 +63,8 @@ def test_ci_workflow_enforces_both_npm_audits_and_uploads_exact_head_evidence() 
     assert "metadata.json" in source
     assert "if-no-files-found: error" in source
     assert "retention-days: 30" in source
+    assert "id: npm_audit" in source
+    assert "if: always() && steps.npm_audit.outcome != 'skipped'" in source
 
 
 def test_ci_workflow_calls_only_deterministic_verifier_mode() -> None:

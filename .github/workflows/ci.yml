@@ -42,7 +42,7 @@ jobs:
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           clean: true
-          fetch-depth: 2
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Assert pinned local toolchain
@@ -78,6 +78,7 @@ jobs:
         run: npm ci
 
       - name: Enforce reviewed npm audit baseline
+        id: npm_audit
         working-directory: frontend
         env:
           IZO_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -149,7 +150,7 @@ jobs:
             --output $normalized
 
       - name: Upload npm audit evidence
-        if: always()
+        if: always() && steps.npm_audit.outcome != 'skipped'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: npm-audit-evidence-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
