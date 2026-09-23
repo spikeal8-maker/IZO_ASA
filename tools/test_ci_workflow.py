@@ -37,7 +37,7 @@ def test_ci_workflow_uses_pinned_self_hosted_windows_toolchain_and_lockfiles() -
     assert "IZO_PR_BASE_SHA" in source
     assert "clean: true" in source
     assert "fetch-depth: 0" in source
-    assert source.count("shell: powershell") == 6
+    assert source.count("shell: powershell") == 7
     assert "shell: pwsh" not in source
 
 
@@ -47,7 +47,7 @@ def test_ci_workflow_enforces_both_npm_audits_and_uploads_exact_head_evidence() 
     assert "& $npm audit --json" in source
     assert "& $npm audit --omit=dev --json" in source
     assert "NPM_AUDIT_HEAD=$candidateHead" in source
-    assert "github.event.pull_request.head.sha" in source
+    assert "steps.supply_chain_range.outputs.exact_head" in source
     assert "--full-input $fullJson" in source
     assert "--production-input $productionJson" in source
     assert "--policy ../architecture/security-policy.json" in source
@@ -145,3 +145,77 @@ def test_ci_workflow_has_runtime_synthetic_secret_redaction_acceptance() -> None
     assert "syntheticSecretTest = $syntheticStatus" in source
     upload = source.split("Upload supply-chain evidence", 1)[1]
     assert "gitleaks-changed-scope-redacted.raw.json" not in upload
+
+
+def event_range_source() -> str:
+    source = workflow_source()
+    return source.split("- name: Resolve supply-chain event range", 1)[1].split(
+        "- name: Assert pinned local toolchain", 1
+    )[0]
+
+
+def test_supply_chain_event_range_matrix_covers_pr_push_and_dispatch() -> None:
+    block = event_range_source()
+
+    assert 'IZO_EVENT_NAME: ${{ github.event_name }}' in block
+    assert 'IZO_EVENT_SHA: ${{ github.sha }}' in block
+    assert 'IZO_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}' in block
+    assert 'IZO_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}' in block
+    assert 'IZO_PUSH_BEFORE_SHA: ${{ github.event.before }}' in block
+
+    assert '"pull_request" {' in block
+    assert '$expectedHead = $env:IZO_PR_HEAD_SHA' in block
+    assert '$baseSha = $env:IZO_PR_BASE_SHA' in block
+    assert '$baseSource = "pull_request.base.sha"' in block
+
+    assert '"push" {' in block
+    assert '$expectedHead = $env:IZO_EVENT_SHA' in block
+    assert '$before = $env:IZO_PUSH_BEFORE_SHA' in block
+    assert '$baseSource = "push.before"' in block
+    assert '$baseSource = "push.before-fallback-head-parent"' in block
+
+    assert '"workflow_dispatch" {' in block
+    assert '$expectedHead = $env:IZO_EVENT_SHA' in block
+    assert '$baseSha = Resolve-HeadParent $actualHead' in block
+    assert '$baseSource = "workflow_dispatch.head-parent"' in block
+
+
+def test_supply_chain_gates_consume_resolved_range_without_pr_only_runtime_dependency() -> None:
+    source = workflow_source()
+    npm_block = source.split("- name: Enforce reviewed npm audit baseline", 1)[1].split(
+        "- name: Enforce Python licenses and changed-scope secret floor", 1
+    )[0]
+    floor_block = source.split("- name: Enforce Python licenses and changed-scope secret floor", 1)[1].split(
+        "- name: Upload supply-chain evidence", 1
+    )[0]
+
+    assert 'IZO_EXPECTED_HEAD_SHA: ${{ steps.supply_chain_range.outputs.exact_head }}' in npm_block
+    assert "github.event.pull_request" not in npm_block
+
+    assert 'IZO_EVENT_NAME: ${{ steps.supply_chain_range.outputs.event_name }}' in floor_block
+    assert 'IZO_EXPECTED_HEAD_SHA: ${{ steps.supply_chain_range.outputs.exact_head }}' in floor_block
+    assert 'IZO_SCAN_BASE_SHA: ${{ steps.supply_chain_range.outputs.base_sha }}' in floor_block
+    assert 'IZO_SCAN_BASE_SOURCE: ${{ steps.supply_chain_range.outputs.base_source }}' in floor_block
+    assert "github.event.pull_request" not in floor_block
+    assert 'f63d596f1ccae432378f431a1d4eaab41ab81308' not in floor_block
+    assert 'eventName = $eventName' in floor_block
+    assert 'baseSource = $baseSource' in floor_block
+
+
+def test_secret_scan_policy_uses_event_derived_range_not_package_base() -> None:
+    import json
+
+    policy = json.loads((ROOT / "architecture" / "security-policy.json").read_text(encoding="utf-8"))
+    secret = policy["secretScan"]
+
+    assert "baseSha" not in secret
+    assert secret["scope"] == "event-derived-git-range-base-exclusive-head-inclusive"
+    assert secret["eventRange"]["head"] == {
+        "pull_request": "github.event.pull_request.head.sha",
+        "push": "github.sha",
+        "workflow_dispatch": "github.sha",
+    }
+    assert secret["eventRange"]["base"]["pull_request"] == "github.event.pull_request.base.sha"
+    assert secret["eventRange"]["base"]["workflow_dispatch"] == "HEAD^"
+    assert "github.event.before" in secret["eventRange"]["base"]["push"]
+    assert "HEAD^ fallback" in secret["eventRange"]["base"]["push"]
