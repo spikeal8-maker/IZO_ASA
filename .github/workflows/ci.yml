@@ -277,8 +277,14 @@ jobs:
             if ($syntheticExit -eq 23 -and $syntheticText.Trim() -and -not $syntheticText.Contains($fakeSecret)) { $syntheticStatus = "PASS" }
 
             $logOpts = "$baseSha..$candidateHead"
-            & $gitleaks git $repoRoot --log-opts=$logOpts --redact=100 --report-format json --report-path $secretRaw --exit-code 23 --no-banner --no-color 2> $secretErr
-            $secretExit = $LASTEXITCODE
+            $savedErrorAction = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            try {
+              & $gitleaks git $repoRoot --log-opts=$logOpts --redact=100 --report-format json --report-path $secretRaw --exit-code 23 --no-banner --no-color 2> $secretErr
+              $secretExit = $LASTEXITCODE
+            } finally {
+              $ErrorActionPreference = $savedErrorAction
+            }
             if ($secretExit -eq 0 -and -not (Test-Path -LiteralPath $secretRaw)) { Write-Utf8File $secretRaw "[]" }
           } catch {
             Write-Utf8File $secretErr $_.Exception.Message

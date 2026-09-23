@@ -460,6 +460,14 @@ def main(argv: list[str] | None = None) -> int:
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    args.frontend_licenses.write_text(
+        json.dumps(frontend_licenses, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    args.backend_licenses.write_text(
+        json.dumps(backend_licenses, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     args.secret_safe_output.write_text(json.dumps(secret_report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     print(f"PYTHON_AUDIT_STATUS={python_report['status']}")

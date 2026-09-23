@@ -156,7 +156,30 @@
     ],
     "forbiddenExpressions": [],
     "unlistedExpressionClass": "needs-review",
-    "reviews": []
+    "reviews": [
+      {
+        "ecosystem": "backend",
+        "package": "Pillow",
+        "resolvedVersion": "12.3.0",
+        "license": "MIT-CMU",
+        "classification": "unknown",
+        "issue": "#156",
+        "owner": "spikeal8-maker",
+        "reason": "Current direct backend baseline requires explicit license review; requirements.txt does not prove runtime vs dev/test classification.",
+        "reviewBy": "2026-10-23"
+      },
+      {
+        "ecosystem": "backend",
+        "package": "socksio",
+        "resolvedVersion": "1.0.0",
+        "license": "UNKNOWN",
+        "classification": "unknown",
+        "issue": "#156",
+        "owner": "spikeal8-maker",
+        "reason": "Maintained license metadata did not provide a usable SPDX expression; current direct backend baseline requires explicit review.",
+        "reviewBy": "2026-10-23"
+      }
+    ]
   },
   "secretScan": {
     "scanner": {
