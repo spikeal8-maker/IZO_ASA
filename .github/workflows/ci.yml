@@ -160,7 +160,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           $python = (Get-Command python.exe -ErrorAction Stop).Source
           $npm = (Get-Command npm.cmd -ErrorAction Stop).Source
-          $repoRoot = (Resolve-Path ..).Path
+          $repoRoot = (Resolve-Path .).Path
           $auditDir = Join-Path $env:RUNNER_TEMP "supply-chain-audit"
           $toolRoot = Join-Path $env:RUNNER_TEMP "supply-chain-tools"
           $pyToolRoot = Join-Path $toolRoot "python"
