@@ -54,7 +54,7 @@ def _license_report(ecosystem: str, license_value: str, classification: str = "p
 
 
 def test_clean_python_report_passes() -> None:
-    raw = json.dumps([{"name": "fastapi", "version": "0.136.3", "vulns": []}])
+    raw = json.dumps({"dependencies": [{"name": "fastapi", "version": "0.136.3", "vulns": []}], "fixes": []})
     report = classify_python_audit(raw, scanner_exit_code=0)
     assert report["status"] == STATUS_AVAILABLE
     assert report["findings"] == []
@@ -166,3 +166,24 @@ def test_failed_synthetic_redaction_test_fails_even_when_real_scope_is_clean() -
     result = evaluate_secret_policy(report, synthetic_test="FAIL")
     assert result["status"] == POLICY_FAIL
     assert "SYNTHETIC_SECRET_REDACTION_TEST_FAILED" in result["violations"]
+
+
+def test_pip_audit_object_shape_with_finding_is_normalized_without_severity_guess() -> None:
+    raw = json.dumps({
+        "dependencies": [{
+            "name": "demo",
+            "version": "1.0.0",
+            "vulns": [{
+                "id": "PYSEC-2026-1",
+                "aliases": ["CVE-2026-0001"],
+                "fix_versions": ["1.0.1"],
+                "description": "scanner detail",
+            }],
+        }],
+        "fixes": [],
+    })
+    report = classify_python_audit(raw, scanner_exit_code=1)
+    assert report["status"] == STATUS_AVAILABLE
+    assert report["findings"][0]["advisoryIds"] == ["CVE-2026-0001", "PYSEC-2026-1"]
+    assert report["findings"][0]["severity"] is None
+    assert report["findings"][0]["fixVersions"] == ["1.0.1"]
