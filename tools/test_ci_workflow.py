@@ -29,7 +29,8 @@ def test_ci_workflow_uses_pinned_self_hosted_windows_toolchain_and_lockfiles() -
     assert "run: npx playwright install chromium" in source
     assert (ROOT / ".python-version").read_text(encoding="utf-8").strip() == "3.11.9"
     assert (ROOT / ".node-version").read_text(encoding="utf-8").strip() == "24.14.1"
-    assert len(FULL_SHA_ACTION.findall(source)) == 1
+    assert len(FULL_SHA_ACTION.findall(source)) == 2
+    assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2" in source
     assert "persist-credentials: false" in source
     assert "Enforce package scope" in source
     assert "tools.agent_system.enforce" in source
@@ -38,6 +39,30 @@ def test_ci_workflow_uses_pinned_self_hosted_windows_toolchain_and_lockfiles() -
     assert "fetch-depth: 2" in source
     assert source.count("shell: powershell") == 5
     assert "shell: pwsh" not in source
+
+
+def test_ci_workflow_enforces_both_npm_audits_and_uploads_exact_head_evidence() -> None:
+    source = workflow_source()
+
+    assert "& $npm audit --json" in source
+    assert "& $npm audit --omit=dev --json" in source
+    assert "NPM_AUDIT_HEAD=$candidateHead" in source
+    assert "github.event.pull_request.head.sha" in source
+    assert "--full-input $fullJson" in source
+    assert "--production-input $productionJson" in source
+    assert "--policy ../architecture/security-policy.json" in source
+    assert 'exactHead = $candidateHead' in source
+    assert 'workflowRun = [string]$env:GITHUB_RUN_ID' in source
+    assert 'workflowAttempt = [int]$env:GITHUB_RUN_ATTEMPT' in source
+    assert 'nodeVersion = $nodeVersion' in source
+    assert 'npmVersion = $npmVersion' in source
+    assert 'scannerExitCodes = [ordered]@{' in source
+    assert "npm-audit-full.json" in source
+    assert "npm-audit-production.json" in source
+    assert "npm-audit-normalized.json" in source
+    assert "metadata.json" in source
+    assert "if-no-files-found: error" in source
+    assert "retention-days: 30" in source
 
 
 def test_ci_workflow_calls_only_deterministic_verifier_mode() -> None:

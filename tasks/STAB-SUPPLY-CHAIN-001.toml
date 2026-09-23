@@ -1,13 +1,12 @@
 manifestVersion = 1
 id = "STAB-SUPPLY-CHAIN-001"
 baseSha = "f63d596f1ccae432378f431a1d4eaab41ab81308"
-goal = "Bootstrap a fresh exact-head npm vulnerability baseline in GitHub CI with deterministic normalization and no dependency mutation."
-userOutcome = "Issue #111 has a first read-only Draft PR that records current npm audit counts and findings from the exact candidate HEAD without remediation."
-beforeScenario = "Only historical npm vulnerability counts exist; they are evidence but are not a fresh baseline tied to the current candidate HEAD."
-afterScenario = "GitHub CI runs npm ci then npm audit --json, normalizes the fresh report, distinguishes scanner outage from vulnerability findings, and exposes exact-head counts/findings without changing dependencies."
+goal = "Classify the current npm vulnerability baseline, preserve exact-head evidence, track existing HIGH remediation debt, and fail closed on unreviewed high/critical drift."
+userOutcome = "Issue #111 Slice 2 has a reproducible full and production-only npm audit artifact, deterministic policy enforcement, and tracked remediation debt without changing dependencies."
+beforeScenario = "Slice 1 records a fresh full npm audit baseline but does not preserve an artifact, run a production-only audit, track current HIGH debt, or enforce reviewed exceptions."
+afterScenario = "GitHub CI runs full and production-only npm audits after npm ci, preserves raw and normalized exact-head evidence, classifies production presence, evaluates tracked high/critical exceptions, and fails closed on scanner outage or policy drift."
 nonGoals = [
   "remediate any vulnerability",
-  "add or approve baseline exceptions",
   "change dependency manifests or lockfiles",
   "upgrade or update dependencies",
   "implement Python dependency vulnerability scanning",
@@ -22,6 +21,7 @@ declaredFiles = [
   "architecture/security-policy.json",
   "tools/supply_chain_audit.py",
   "tools/test_supply_chain_audit.py",
+  "tools/test_ci_workflow.py",
   ".github/workflows/ci.yml",
   "tools/verify.ps1",
 ]
@@ -46,21 +46,23 @@ changeClass = "architecture"
 maxProductionFiles = 0
 maxChangedLines = 1600
 acceptance = [
-  "Slice 1 changes only the declared bootstrap policy/parser/test/CI/orchestration files and changes zero dependency or production files.",
-  "GitHub CI runs npm ci before a read-only npm audit --json against the exact candidate HEAD.",
-  "A nonzero npm audit exit caused by vulnerability findings is treated as report data rather than scanner failure.",
-  "Network/tool failure is normalized to EXTERNAL_VERIFICATION_UNAVAILABLE and never replaced with historical counts.",
-  "Available reports normalize critical/high/moderate/low counts and package/severity/range/via/fixAvailable findings.",
-  "Parser tests cover clean output, high/critical findings, boolean/object fixAvailable, malformed JSON, scanner unavailable, and nonzero vulnerability-report exit behavior.",
-  "Historical 0 critical / 4 high / 1 moderate / 0 low evidence is never encoded as the fresh baseline.",
-  "No npm audit fix, npm audit fix --force, npm update, dependency upgrade, exception, deploy or next slice occurs.",
-  "Package enforcement, focused parser tests and exact-head GitHub CI pass before Slice 1 is accepted.",
+  "Slice 2 changes only the declared supply-chain policy/parser/test/CI/orchestration files and changes zero dependency or production files.",
+  "GitHub CI runs npm ci before both npm audit --json and npm audit --omit=dev --json against the exact candidate HEAD.",
+  "The GitHub Actions artifact contains raw full audit, raw production-only audit, normalized result, and metadata with exact HEAD, workflow run/attempt, node/npm versions, UTC timestamp, and scanner exit codes.",
+  "Available reports deterministically record package, severity, advisory IDs, range, fixAvailable, production-audit presence, and production/dev classification.",
+  "The reviewed current 4 HIGH findings are allowed only by exact tracked non-expired exceptions tied to Issues #153, #154 and #155.",
+  "baseline-browser-mapping moderate remains visible in the baseline and is not automatically granted a high-severity exception.",
+  "A synthetic new HIGH or CRITICAL fails; missing issue, owner, review date, expired exception, or scanner unavailability fails.",
+  "Package enforcement, focused policy tests and full exact-head GitHub CI pass before Slice 2 is accepted.",
+  "No npm audit fix, npm audit fix --force, npm update, dependency upgrade, remediation, deploy or later #111 slice occurs.",
 ]
 requiredEvidence = [
   "tools/test_supply_chain_audit.py",
-  "exact-head npm audit normalized log markers",
+  "tools/test_ci_workflow.py",
+  "npm-audit-evidence exact-head GitHub Actions artifact",
   "package enforcement receipt",
   "exact-head GitHub CI",
+  "remediation Issues #153, #154 and #155",
 ]
 targetedTests = [
   "tools/test_supply_chain_audit.py",
@@ -68,10 +70,10 @@ targetedTests = [
   "tools/test_verify_script.py",
 ]
 fileGrowthExpectations = [
-  "architecture/security-policy.json remains a compact machine-readable bootstrap policy.",
-  "tools/supply_chain_audit.py remains a bounded npm audit normalizer without remediation logic.",
-  ".github/workflows/ci.yml gains only the exact-head npm baseline capture step.",
-  "tools/verify.ps1 only adds the focused parser test to Quick verification.",
+  "architecture/security-policy.json remains a compact machine-readable reviewed baseline policy.",
+  "tools/supply_chain_audit.py remains bounded to npm audit normalization, classification and policy evaluation without remediation logic.",
+  ".github/workflows/ci.yml adds only the two audits, evidence metadata/artifact upload and fail-closed policy gate.",
+  "tools/verify.ps1 retains the focused supply-chain test in Quick/CI verification.",
   "No production or dependency source grows.",
 ]
 forbiddenOperations = [
@@ -85,7 +87,8 @@ forbiddenOperations = [
   "npm-update",
   "dependency-upgrade",
   "lockfile-mutation",
-  "baseline-exception",
+  "remediation",
+  "python-license-secret-slice",
   "next-slice",
 ]
-rollbackBoundary = "Revert this Slice 1 manifest, bootstrap security policy, npm audit normalizer/tests, CI audit step and Quick-test wiring; dependencies, product, runtime and data remain untouched."
+rollbackBoundary = "Revert the Slice 2 reviewed policy/evidence/gate additions while preserving the already accepted Slice 1 baseline bootstrap; dependencies, product, runtime and data remain untouched."

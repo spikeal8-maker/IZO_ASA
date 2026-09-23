@@ -77,33 +77,38 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Capture fresh npm audit baseline
+      - name: Enforce reviewed npm audit baseline
         working-directory: frontend
         env:
           IZO_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           $npm = (Get-Command npm.cmd -ErrorAction Stop).Source
-          $auditJson = Join-Path $env:RUNNER_TEMP "npm-audit.json"
-          $auditErrNative = Join-Path $env:RUNNER_TEMP "npm-audit.stderr.native.txt"
-          $auditErr = Join-Path $env:RUNNER_TEMP "npm-audit.stderr.txt"
-          $normalized = Join-Path $env:RUNNER_TEMP "npm-audit-normalized.json"
-          $stdout = @(& $npm audit --json 2> $auditErrNative)
-          $auditExit = $LASTEXITCODE
+          $node = (Get-Command node.exe -ErrorAction Stop).Source
+          $auditDir = Join-Path $env:RUNNER_TEMP "supply-chain-audit"
+          New-Item -ItemType Directory -Force -Path $auditDir | Out-Null
+          $fullJson = Join-Path $auditDir "npm-audit-full.json"
+          $productionJson = Join-Path $auditDir "npm-audit-production.json"
+          $fullErr = Join-Path $auditDir "npm-audit-full.stderr.txt"
+          $productionErr = Join-Path $auditDir "npm-audit-production.stderr.txt"
+          $normalized = Join-Path $auditDir "npm-audit-normalized.json"
+          $metadata = Join-Path $auditDir "metadata.json"
+
+          $fullStdout = @(& $npm audit --json 2> $fullErr)
+          $fullExit = $LASTEXITCODE
           [IO.File]::WriteAllText(
-            $auditJson,
-            ($stdout -join [Environment]::NewLine),
+            $fullJson,
+            ($fullStdout -join [Environment]::NewLine),
             [Text.UTF8Encoding]::new($false)
           )
-          $stderrText = if (Test-Path -LiteralPath $auditErrNative) {
-            Get-Content -LiteralPath $auditErrNative -Raw
-          } else {
-            ""
-          }
+
+          $productionStdout = @(& $npm audit --omit=dev --json 2> $productionErr)
+          $productionExit = $LASTEXITCODE
           [IO.File]::WriteAllText(
-            $auditErr,
-            $stderrText,
+            $productionJson,
+            ($productionStdout -join [Environment]::NewLine),
             [Text.UTF8Encoding]::new($false)
           )
+
           $candidateHead = (& git rev-parse HEAD).Trim()
           if ($LASTEXITCODE -ne 0 -or $candidateHead -notmatch "^[0-9a-f]{40}$") {
             throw "Unable to resolve exact candidate HEAD."
@@ -111,8 +116,50 @@ jobs:
           if ($env:IZO_PR_HEAD_SHA -and $candidateHead -ne $env:IZO_PR_HEAD_SHA) {
             throw "Exact-head mismatch: expected $env:IZO_PR_HEAD_SHA, got $candidateHead"
           }
+
+          $nodeVersion = (& $node --version).Trim()
+          $npmVersion = (& $npm --version).Trim()
+          $metadataPayload = [ordered]@{
+            exactHead = $candidateHead
+            workflowRun = [string]$env:GITHUB_RUN_ID
+            workflowAttempt = [int]$env:GITHUB_RUN_ATTEMPT
+            nodeVersion = $nodeVersion
+            npmVersion = $npmVersion
+            timestamp = (Get-Date).ToUniversalTime().ToString("o")
+            scannerExitCodes = [ordered]@{
+              full = $fullExit
+              production = $productionExit
+            }
+          }
+          [IO.File]::WriteAllText(
+            $metadata,
+            ($metadataPayload | ConvertTo-Json -Depth 4),
+            [Text.UTF8Encoding]::new($false)
+          )
+
           Write-Host "NPM_AUDIT_HEAD=$candidateHead"
-          python ../tools/supply_chain_audit.py --input $auditJson --scanner-exit-code $auditExit --scanner-stderr $auditErr --output $normalized
+          python ../tools/supply_chain_audit.py `
+            --full-input $fullJson `
+            --production-input $productionJson `
+            --full-exit-code $fullExit `
+            --production-exit-code $productionExit `
+            --full-stderr $fullErr `
+            --production-stderr $productionErr `
+            --policy ../architecture/security-policy.json `
+            --output $normalized
+
+      - name: Upload npm audit evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-audit-evidence-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          path: |
+            ${{ runner.temp }}\supply-chain-audit\npm-audit-full.json
+            ${{ runner.temp }}\supply-chain-audit\npm-audit-production.json
+            ${{ runner.temp }}\supply-chain-audit\npm-audit-normalized.json
+            ${{ runner.temp }}\supply-chain-audit\metadata.json
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Install Playwright Chromium
         working-directory: frontend
@@ -145,7 +192,8 @@ jobs:
           foreach ($path in @(
             (Join-Path $env:RUNNER_TEMP "izo-ci.sqlite3"),
             (Join-Path $env:RUNNER_TEMP "izo-ci-media"),
-            (Join-Path $env:RUNNER_TEMP "izo-ci-secrets")
+            (Join-Path $env:RUNNER_TEMP "izo-ci-secrets"),
+            (Join-Path $env:RUNNER_TEMP "supply-chain-audit")
           )) {
             Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
           }

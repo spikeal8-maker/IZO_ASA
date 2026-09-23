@@ -1,7 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "package": "STAB-SUPPLY-CHAIN-001",
-  "slice": "npm-baseline-bootstrap",
+  "slice": "npm-reviewed-baseline-gate",
   "dependencyMutation": {
     "allowed": false,
     "protectedFiles": [
@@ -12,16 +12,26 @@
   },
   "npmAudit": {
     "workingDirectory": "frontend",
-    "command": [
-      "npm",
-      "audit",
-      "--json"
-    ],
+    "commands": {
+      "full": [
+        "npm",
+        "audit",
+        "--json"
+      ],
+      "production": [
+        "npm",
+        "audit",
+        "--omit=dev",
+        "--json"
+      ]
+    },
     "freshBaselineSource": "exact-head-github-ci",
     "historicalCountsAcceptedAsFreshBaseline": false,
-    "statusValues": [
-      "AVAILABLE",
-      "EXTERNAL_VERIFICATION_UNAVAILABLE"
+    "requiredStatus": "AVAILABLE",
+    "highCriticalPolicy": "deny-unless-exact-tracked-exception",
+    "classificationValues": [
+      "production",
+      "dev-only"
     ],
     "severities": [
       "critical",
@@ -32,16 +42,80 @@
     "findingFields": [
       "package",
       "severity",
+      "advisoryIds",
       "range",
-      "via",
-      "fixAvailable"
+      "fixAvailable",
+      "presentInProductionAudit",
+      "runtimeOrDev"
     ],
-    "vulnerabilityExitCodeIsData": true
+    "vulnerabilityExitCodeIsData": true,
+    "scannerUnavailableFailsRequiredGate": true
   },
   "forbiddenCommands": [
     "npm audit fix",
     "npm audit fix --force",
     "npm update"
   ],
-  "baselineExceptions": []
+  "baselineExceptions": [
+    {
+      "package": "brace-expansion",
+      "severity": "high",
+      "affectedRange": "3.0.0 - 5.0.8",
+      "advisories": [
+        "GHSA-3jxr-9vmj-r5cp",
+        "GHSA-mh99-v99m-4gvg",
+        "GHSA-rgw5-rvv9-x895"
+      ],
+      "classification": "dev-only",
+      "issue": "#153",
+      "owner": "spikeal8-maker",
+      "reason": "Reviewed current npm baseline; dependency mutation is intentionally deferred to the tracked remediation issue.",
+      "remediation": "Update the ESLint/typescript-eslint minimatch chain so brace-expansion is outside all affected ranges, with a separately reviewed dependency/lockfile delta.",
+      "reviewBy": "2026-10-23"
+    },
+    {
+      "package": "browserslist",
+      "severity": "high",
+      "affectedRange": "<=4.28.6",
+      "advisories": [
+        "GHSA-73wf-gq98-2v4g",
+        "GHSA-c83g-rgw3-j3cx"
+      ],
+      "classification": "dev-only",
+      "issue": "#154",
+      "owner": "spikeal8-maker",
+      "reason": "Reviewed current npm baseline; dependency mutation is intentionally deferred to the tracked remediation issue.",
+      "remediation": "Update the eslint-plugin-react-hooks/Babel chain so browserslist is outside the affected range, with a separately reviewed dependency/lockfile delta.",
+      "reviewBy": "2026-10-23"
+    },
+    {
+      "package": "nanoid",
+      "severity": "high",
+      "affectedRange": "<=3.3.17",
+      "advisories": [
+        "GHSA-28wg-ghj8-5hjv",
+        "GHSA-2v37-7h3g-55p8"
+      ],
+      "classification": "dev-only",
+      "issue": "#155",
+      "owner": "spikeal8-maker",
+      "reason": "Reviewed current npm baseline; dependency mutation is intentionally deferred to the tracked Vite/PostCSS remediation issue.",
+      "remediation": "Update the Vite/PostCSS chain so nanoid is outside all affected ranges, with a separately reviewed dependency/lockfile delta.",
+      "reviewBy": "2026-10-23"
+    },
+    {
+      "package": "postcss",
+      "severity": "high",
+      "affectedRange": "<=8.5.22",
+      "advisories": [
+        "GHSA-r28c-9q8g-f849"
+      ],
+      "classification": "dev-only",
+      "issue": "#155",
+      "owner": "spikeal8-maker",
+      "reason": "Reviewed current npm baseline; dependency mutation is intentionally deferred to the tracked Vite/PostCSS remediation issue.",
+      "remediation": "Update the Vite/PostCSS chain so postcss is outside the affected range, with a separately reviewed dependency/lockfile delta.",
+      "reviewBy": "2026-10-23"
+    }
+  ]
 }
