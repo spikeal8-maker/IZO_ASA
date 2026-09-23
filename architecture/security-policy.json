@@ -1,7 +1,7 @@
 {
-  "version": 2,
+  "version": 3,
   "package": "STAB-SUPPLY-CHAIN-001",
-  "slice": "npm-reviewed-baseline-gate",
+  "slice": "complete-supply-chain-floor",
   "dependencyMutation": {
     "allowed": false,
     "protectedFiles": [
@@ -117,5 +117,60 @@
       "remediation": "Update the Vite/PostCSS chain so postcss is outside the affected range, with a separately reviewed dependency/lockfile delta.",
       "reviewBy": "2026-10-23"
     }
-  ]
+  ],
+  "pythonAudit": {
+    "scanner": {
+      "name": "pip-audit",
+      "version": "2.10.1"
+    },
+    "input": "backend/requirements.txt",
+    "requiredStatus": "AVAILABLE",
+    "severitySource": "scanner-only",
+    "unknownSeverityRequiresReview": true,
+    "baselineExceptions": []
+  },
+  "licenses": {
+    "scanners": {
+      "frontend": {
+        "name": "license-checker-rseidelsohn",
+        "version": "5.0.1"
+      },
+      "backend": {
+        "name": "pip-licenses",
+        "version": "5.5.5",
+        "source": "license-expression"
+      }
+    },
+    "directDependenciesOnly": true,
+    "classificationValues": [
+      "production",
+      "dev/test",
+      "unknown"
+    ],
+    "approvedExpressions": [
+      "Apache-2.0",
+      "BSD-2-Clause",
+      "BSD-3-Clause",
+      "ISC",
+      "MIT"
+    ],
+    "forbiddenExpressions": [],
+    "unlistedExpressionClass": "needs-review",
+    "reviews": []
+  },
+  "secretScan": {
+    "scanner": {
+      "name": "gitleaks",
+      "version": "8.30.1",
+      "asset": "gitleaks_8.30.1_windows_x64.zip",
+      "sha256": "d29144deff3a68aa93ced33dddf84b7fdc26070add4aa0f4513094c8332afc4e"
+    },
+    "baseSha": "f63d596f1ccae432378f431a1d4eaab41ab81308",
+    "scope": "git-range-base-exclusive-head-inclusive",
+    "redactPercent": 100,
+    "rawUnredactedArtifactAllowed": false,
+    "syntheticRedactionTestRequired": true,
+    "requiredStatus": "AVAILABLE",
+    "findingPolicy": "deny"
+  }
 }

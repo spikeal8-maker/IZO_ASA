@@ -149,15 +149,190 @@ jobs:
             --policy ../architecture/security-policy.json `
             --output $normalized
 
-      - name: Upload npm audit evidence
+
+      - name: Enforce Python licenses and changed-scope secret floor
+        id: supply_chain_floor
+        shell: powershell
+        env:
+          IZO_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          IZO_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $python = (Get-Command python.exe -ErrorAction Stop).Source
+          $npm = (Get-Command npm.cmd -ErrorAction Stop).Source
+          $repoRoot = (Resolve-Path ..).Path
+          $auditDir = Join-Path $env:RUNNER_TEMP "supply-chain-audit"
+          $toolRoot = Join-Path $env:RUNNER_TEMP "supply-chain-tools"
+          $pyToolRoot = Join-Path $toolRoot "python"
+          $npmToolRoot = Join-Path $toolRoot "npm-license"
+          $gitleaksRoot = Join-Path $toolRoot "gitleaks"
+          New-Item -ItemType Directory -Force -Path $auditDir, $toolRoot, $gitleaksRoot | Out-Null
+
+          function Write-Utf8File([string]$Path, [string]$Value) {
+            [IO.File]::WriteAllText($Path, $Value, [Text.UTF8Encoding]::new($false))
+          }
+
+          $pythonAudit = Join-Path $auditDir "python-audit.json"
+          $pythonAuditErr = Join-Path $auditDir "python-audit.stderr.txt"
+          $frontendLicenses = Join-Path $auditDir "frontend-licenses.json"
+          $frontendLicensesErr = Join-Path $auditDir "frontend-licenses.stderr.txt"
+          $backendLicenses = Join-Path $auditDir "backend-licenses.json"
+          $backendLicensesErr = Join-Path $auditDir "backend-licenses.stderr.txt"
+          $secretRaw = Join-Path $auditDir "gitleaks-changed-scope-redacted.raw.json"
+          $secretErr = Join-Path $auditDir "gitleaks-changed-scope.stderr.txt"
+          $secretSafe = Join-Path $auditDir "secret-scan-redacted.json"
+          $floorNormalized = Join-Path $auditDir "supply-chain-floor-normalized.json"
+          $metadata = Join-Path $auditDir "metadata.json"
+          Write-Utf8File $pythonAudit "[]"
+          Write-Utf8File $frontendLicenses "{}"
+          Write-Utf8File $backendLicenses "[]"
+          Write-Utf8File $secretRaw "[]"
+          Write-Utf8File $secretSafe '{"status":"EXTERNAL_VERIFICATION_UNAVAILABLE","findings":[]}'
+          Write-Utf8File $floorNormalized '{"policy":{"status":"FAIL","violations":["FLOOR_NOT_EVALUATED"]}}'
+
+          $candidateHead = (& git -C $repoRoot rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $candidateHead -notmatch "^[0-9a-f]{40}$") { throw "Unable to resolve exact candidate HEAD." }
+          if ($env:IZO_PR_HEAD_SHA -and $candidateHead -ne $env:IZO_PR_HEAD_SHA) { throw "Exact-head mismatch: expected $env:IZO_PR_HEAD_SHA, got $candidateHead" }
+          $baseSha = $env:IZO_PR_BASE_SHA
+          if (-not $baseSha -or $baseSha -notmatch "^[0-9a-f]{40}$") { throw "Unable to resolve exact PR base SHA." }
+          if ($baseSha -ne "f63d596f1ccae432378f431a1d4eaab41ab81308") { throw "Unexpected supply-chain base SHA: $baseSha" }
+
+          $pipAuditExit = 127
+          $backendLicenseExit = 127
+          $frontendLicenseExit = 127
+          $secretExit = 127
+          $syntheticExit = 127
+          $syntheticStatus = "FAIL"
+          $pipAuditVersion = $null
+          $pipLicensesVersion = $null
+          $licenseCheckerVersion = $null
+          $gitleaksVersion = $null
+
+          try {
+            & $python -m venv $pyToolRoot
+            if ($LASTEXITCODE -ne 0) { throw "Unable to create temporary Python scanner environment." }
+            $toolPython = Join-Path $pyToolRoot "Scripts\python.exe"
+            & $toolPython -m pip install --disable-pip-version-check --no-input "pip-audit==2.10.1" "pip-licenses==5.5.5"
+            if ($LASTEXITCODE -ne 0) { throw "Unable to install pinned Python scanners." }
+            $pipAuditVersion = ((& $toolPython -m pip_audit --version) -join " ").Trim()
+            $pipLicenses = Join-Path $pyToolRoot "Scripts\pip-licenses.exe"
+            $pipLicensesVersion = ((& $pipLicenses --version) -join " ").Trim()
+            if ($pipAuditVersion -notmatch "2\.10\.1") { throw "Unexpected pip-audit version: $pipAuditVersion" }
+            if ($pipLicensesVersion -notmatch "5\.5\.5") { throw "Unexpected pip-licenses version: $pipLicensesVersion" }
+
+            & $toolPython -m pip_audit --requirement backend/requirements.txt --format json --aliases --progress-spinner off --strict --output $pythonAudit 2> $pythonAuditErr
+            $pipAuditExit = $LASTEXITCODE
+            & $pipLicenses --python=$python --from=expression --format=json --output-file=$backendLicenses 2> $backendLicensesErr
+            $backendLicenseExit = $LASTEXITCODE
+          } catch {
+            Write-Utf8File $pythonAuditErr $_.Exception.Message
+            Write-Utf8File $backendLicensesErr $_.Exception.Message
+          }
+
+          try {
+            New-Item -ItemType Directory -Force -Path $npmToolRoot | Out-Null
+            & $npm install --prefix $npmToolRoot --no-save --ignore-scripts --fund=false --audit=false "license-checker-rseidelsohn@5.0.1"
+            if ($LASTEXITCODE -ne 0) { throw "Unable to install pinned frontend license scanner." }
+            $licenseChecker = Join-Path $npmToolRoot "node_modules\.bin\license-checker-rseidelsohn.cmd"
+            $licenseCheckerVersion = ((& $licenseChecker --version) -join " ").Trim()
+            if ($licenseCheckerVersion -notmatch "5\.0\.1") { throw "Unexpected license-checker-rseidelsohn version: $licenseCheckerVersion" }
+            & $licenseChecker --start (Resolve-Path frontend).Path --direct true --json --out $frontendLicenses 2> $frontendLicensesErr
+            $frontendLicenseExit = $LASTEXITCODE
+          } catch {
+            Write-Utf8File $frontendLicensesErr $_.Exception.Message
+          }
+
+          try {
+            $gitleaksZip = Join-Path $gitleaksRoot "gitleaks_8.30.1_windows_x64.zip"
+            Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_windows_x64.zip" -OutFile $gitleaksZip
+            $gitleaksHash = (Get-FileHash -LiteralPath $gitleaksZip -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($gitleaksHash -ne "d29144deff3a68aa93ced33dddf84b7fdc26070add4aa0f4513094c8332afc4e") { throw "Pinned gitleaks archive SHA256 mismatch." }
+            Expand-Archive -LiteralPath $gitleaksZip -DestinationPath $gitleaksRoot -Force
+            $gitleaks = Join-Path $gitleaksRoot "gitleaks.exe"
+            $gitleaksVersion = ((& $gitleaks --version) -join " ").Trim()
+            if ($gitleaksVersion -notmatch "8\.30\.1") { throw "Unexpected gitleaks version: $gitleaksVersion" }
+
+            $syntheticDir = Join-Path $toolRoot "synthetic-secret"
+            New-Item -ItemType Directory -Force -Path $syntheticDir | Out-Null
+            $fakeSuffix = (([Guid]::NewGuid().ToString("N") + "A1b2C3D4")).Substring(0, 36)
+            $fakeSecret = "gh" + "p_" + $fakeSuffix
+            Write-Utf8File (Join-Path $syntheticDir "fixture.txt") ("token=" + $fakeSecret)
+            $syntheticReport = Join-Path $toolRoot "synthetic-secret-report.json"
+            & $gitleaks dir $syntheticDir --redact=100 --report-format json --report-path $syntheticReport --exit-code 23 --no-banner --no-color
+            $syntheticExit = $LASTEXITCODE
+            $syntheticText = if (Test-Path -LiteralPath $syntheticReport) { Get-Content -LiteralPath $syntheticReport -Raw } else { "" }
+            if ($syntheticExit -eq 23 -and $syntheticText.Trim() -and -not $syntheticText.Contains($fakeSecret)) { $syntheticStatus = "PASS" }
+
+            $logOpts = "$baseSha..$candidateHead"
+            & $gitleaks git --source $repoRoot --log-opts=$logOpts --redact=100 --report-format json --report-path $secretRaw --exit-code 23 --no-banner --no-color 2> $secretErr
+            $secretExit = $LASTEXITCODE
+            if ($secretExit -eq 0 -and -not (Test-Path -LiteralPath $secretRaw)) { Write-Utf8File $secretRaw "[]" }
+          } catch {
+            Write-Utf8File $secretErr $_.Exception.Message
+          }
+
+          $npmMetadata = if (Test-Path -LiteralPath $metadata) { Get-Content -LiteralPath $metadata -Raw | ConvertFrom-Json } else { $null }
+          $metadataPayload = [ordered]@{
+            exactHead = $candidateHead
+            baseSha = $baseSha
+            workflowRun = [string]$env:GITHUB_RUN_ID
+            workflowAttempt = [int]$env:GITHUB_RUN_ATTEMPT
+            timestamp = (Get-Date).ToUniversalTime().ToString("o")
+            scanners = [ordered]@{
+              npmAudit = [ordered]@{ name = "npm audit"; version = if ($npmMetadata) { [string]$npmMetadata.npmVersion } else { $null } }
+              pipAudit = [ordered]@{ name = "pip-audit"; expectedVersion = "2.10.1"; observedVersion = $pipAuditVersion }
+              backendLicense = [ordered]@{ name = "pip-licenses"; expectedVersion = "5.5.5"; observedVersion = $pipLicensesVersion }
+              frontendLicense = [ordered]@{ name = "license-checker-rseidelsohn"; expectedVersion = "5.0.1"; observedVersion = $licenseCheckerVersion }
+              secretScan = [ordered]@{ name = "gitleaks"; expectedVersion = "8.30.1"; observedVersion = $gitleaksVersion; assetSha256 = "d29144deff3a68aa93ced33dddf84b7fdc26070add4aa0f4513094c8332afc4e" }
+            }
+            scannerExitCodes = [ordered]@{
+              npmFull = if ($npmMetadata) { $npmMetadata.scannerExitCodes.full } else { $null }
+              npmProduction = if ($npmMetadata) { $npmMetadata.scannerExitCodes.production } else { $null }
+              pythonAudit = $pipAuditExit
+              backendLicense = $backendLicenseExit
+              frontendLicense = $frontendLicenseExit
+              secretChangedScope = $secretExit
+              syntheticSecret = $syntheticExit
+            }
+            syntheticSecretTest = $syntheticStatus
+          }
+          Write-Utf8File $metadata (($metadataPayload | ConvertTo-Json -Depth 8))
+
+          & $python tools/supply_chain_floor.py `
+            --python-audit $pythonAudit `
+            --python-exit-code $pipAuditExit `
+            --python-stderr $pythonAuditErr `
+            --frontend-licenses $frontendLicenses `
+            --frontend-license-exit-code $frontendLicenseExit `
+            --frontend-license-stderr $frontendLicensesErr `
+            --frontend-package-json frontend/package.json `
+            --backend-licenses $backendLicenses `
+            --backend-license-exit-code $backendLicenseExit `
+            --backend-license-stderr $backendLicensesErr `
+            --backend-requirements backend/requirements.txt `
+            --secret-report $secretRaw `
+            --secret-exit-code $secretExit `
+            --secret-stderr $secretErr `
+            --synthetic-secret-test $syntheticStatus `
+            --policy architecture/security-policy.json `
+            --output $floorNormalized `
+            --secret-safe-output $secretSafe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload supply-chain evidence
         if: always() && steps.npm_audit.outcome != 'skipped'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: npm-audit-evidence-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          name: supply-chain-evidence-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           path: |
             ${{ runner.temp }}\supply-chain-audit\npm-audit-full.json
             ${{ runner.temp }}\supply-chain-audit\npm-audit-production.json
             ${{ runner.temp }}\supply-chain-audit\npm-audit-normalized.json
+            ${{ runner.temp }}\supply-chain-audit\python-audit.json
+            ${{ runner.temp }}\supply-chain-audit\frontend-licenses.json
+            ${{ runner.temp }}\supply-chain-audit\backend-licenses.json
+            ${{ runner.temp }}\supply-chain-audit\secret-scan-redacted.json
+            ${{ runner.temp }}\supply-chain-audit\supply-chain-floor-normalized.json
             ${{ runner.temp }}\supply-chain-audit\metadata.json
           if-no-files-found: error
           retention-days: 30
@@ -194,7 +369,8 @@ jobs:
             (Join-Path $env:RUNNER_TEMP "izo-ci.sqlite3"),
             (Join-Path $env:RUNNER_TEMP "izo-ci-media"),
             (Join-Path $env:RUNNER_TEMP "izo-ci-secrets"),
-            (Join-Path $env:RUNNER_TEMP "supply-chain-audit")
+            (Join-Path $env:RUNNER_TEMP "supply-chain-audit"),
+            (Join-Path $env:RUNNER_TEMP "supply-chain-tools")
           )) {
             Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
           }

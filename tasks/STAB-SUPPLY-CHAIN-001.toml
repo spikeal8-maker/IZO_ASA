@@ -1,17 +1,14 @@
 manifestVersion = 1
 id = "STAB-SUPPLY-CHAIN-001"
 baseSha = "f63d596f1ccae432378f431a1d4eaab41ab81308"
-goal = "Classify the current npm vulnerability baseline, preserve exact-head evidence, track existing HIGH remediation debt, and fail closed on unreviewed high/critical drift."
-userOutcome = "Issue #111 Slice 2 has a reproducible full and production-only npm audit artifact, deterministic policy enforcement, and tracked remediation debt without changing dependencies."
-beforeScenario = "Slice 1 records a fresh full npm audit baseline but does not preserve an artifact, run a production-only audit, track current HIGH debt, or enforce reviewed exceptions."
-afterScenario = "GitHub CI runs full and production-only npm audits after npm ci, preserves raw and normalized exact-head evidence, classifies production presence, evaluates tracked high/critical exceptions, and fails closed on scanner outage or policy drift."
+goal = "Complete the supply-chain quality floor with Python vulnerability audit, direct dependency license review, and redacted changed-scope secret scanning while preserving the accepted npm gate."
+userOutcome = "Issue #111 has one exact-head candidate that enforces npm and Python vulnerability gates, direct dependency license policy, and changed-scope secret scanning without dependency or product mutation."
+beforeScenario = "Accepted Slice 2 enforces npm vulnerabilities, while Python vulnerabilities, direct licenses, and changed-scope secrets remain outside the required CI floor."
+afterScenario = "GitHub CI preserves the accepted npm gate and additionally runs pinned maintained Python, license, and secret scanners, uploads safe exact-head evidence, and fails closed on scanner outage or policy drift."
 nonGoals = [
   "remediate any vulnerability",
   "change dependency manifests or lockfiles",
   "upgrade or update dependencies",
-  "implement Python dependency vulnerability scanning",
-  "implement license enforcement",
-  "implement secret scanning",
   "change product or runtime behavior",
   "change docs/NOW.md",
   "deploy or restart runtime",
@@ -21,6 +18,8 @@ declaredFiles = [
   "architecture/security-policy.json",
   "tools/supply_chain_audit.py",
   "tools/test_supply_chain_audit.py",
+  "tools/supply_chain_floor.py",
+  "tools/test_supply_chain_floor.py",
   "tools/test_ci_workflow.py",
   ".github/workflows/ci.yml",
   "tools/verify.ps1",
@@ -44,7 +43,7 @@ domain = "agent-control-plane"
 riskClass = "standard"
 changeClass = "architecture"
 maxProductionFiles = 0
-maxChangedLines = 1600
+maxChangedLines = 2600
 acceptance = [
   "Slice 2 changes only the declared supply-chain policy/parser/test/CI/orchestration files and changes zero dependency or production files.",
   "GitHub CI runs npm ci before both npm audit --json and npm audit --omit=dev --json against the exact candidate HEAD.",
@@ -54,15 +53,23 @@ acceptance = [
   "baseline-browser-mapping moderate remains visible in the baseline and is not automatically granted a high-severity exception.",
   "A synthetic new HIGH or CRITICAL fails; missing issue, owner, review date, expired exception, or scanner unavailability fails.",
   "Package enforcement, focused policy tests and full exact-head GitHub CI pass before Slice 2 is accepted.",
-  "No npm audit fix, npm audit fix --force, npm update, dependency upgrade, remediation, deploy or later #111 slice occurs.",
+  "Pinned pip-audit audits backend/requirements.txt and scanner/network unavailability fails the required Python gate.",
+  "Pinned license scanners inventory direct frontend and backend dependencies; classifications come from declaration context rather than package-name guesses.",
+  "Unlisted, unknown or non-SPDX license values require an exact non-expired tracked review; no forbidden license list is invented without an owner decision.",
+  "Pinned gitleaks scans only baseSha..exactHead with 100% redaction; a runtime-generated fake secret must be detected without its value appearing in scanner output.",
+  "The safe artifact contains Python audit, frontend/backend license reports, redacted secret report, normalized policy result and scanner metadata without credentials or raw unredacted secrets.",
+  "No npm audit fix, npm audit fix --force, npm update, pip remediation, dependency upgrade, remediation #153-155, deploy, Docker implementation or #112 occurs.",
 ]
 requiredEvidence = [
   "tools/test_supply_chain_audit.py",
+  "tools/test_supply_chain_floor.py",
   "tools/test_ci_workflow.py",
   "npm-audit-evidence exact-head GitHub Actions artifact",
   "package enforcement receipt",
   "exact-head GitHub CI",
   "remediation Issues #153, #154 and #155",
+  "tools/test_supply_chain_floor.py",
+  "supply-chain-evidence exact-head GitHub Actions artifact",
 ]
 targetedTests = [
   "tools/test_supply_chain_audit.py",
@@ -71,8 +78,9 @@ targetedTests = [
 ]
 fileGrowthExpectations = [
   "architecture/security-policy.json remains a compact machine-readable reviewed baseline policy.",
-  "tools/supply_chain_audit.py remains bounded to npm audit normalization, classification and policy evaluation without remediation logic.",
-  ".github/workflows/ci.yml adds only the two audits, evidence metadata/artifact upload and fail-closed policy gate.",
+  "tools/supply_chain_audit.py remains bounded to the accepted npm audit normalization and policy gate.",
+  "tools/supply_chain_floor.py contains only normalization/policy glue around maintained scanners and never implements vulnerability, license or secret detection itself.",
+  ".github/workflows/ci.yml preserves the npm gate and adds only temporary pinned scanner setup, Python/license/changed-scope secret scanning, safe evidence upload and fail-closed policy wiring.",
   "tools/verify.ps1 retains the focused supply-chain test in Quick/CI verification.",
   "No production or dependency source grows.",
 ]
@@ -88,7 +96,6 @@ forbiddenOperations = [
   "dependency-upgrade",
   "lockfile-mutation",
   "remediation",
-  "python-license-secret-slice",
   "next-slice",
 ]
-rollbackBoundary = "Revert the Slice 2 reviewed policy/evidence/gate additions while preserving the already accepted Slice 1 baseline bootstrap; dependencies, product, runtime and data remain untouched."
+rollbackBoundary = "Revert only the final Python/license/secret floor additions while preserving the accepted npm Slice 1/2 gate; dependencies, product, runtime and data remain untouched."

@@ -217,6 +217,7 @@ $quickTests = @(
     "tools/test_context_docs.py",
     "tools/test_product_flows.py",
     "tools/test_supply_chain_audit.py",
+    "tools/test_supply_chain_floor.py",
     "tools/test_agent_package.py",
     "tools/test_agent_sandbox.py",
     "tools/test_agent_enforce.py",

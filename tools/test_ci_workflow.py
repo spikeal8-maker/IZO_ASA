@@ -37,7 +37,7 @@ def test_ci_workflow_uses_pinned_self_hosted_windows_toolchain_and_lockfiles() -
     assert "IZO_PR_BASE_SHA" in source
     assert "clean: true" in source
     assert "fetch-depth: 0" in source
-    assert source.count("shell: powershell") == 5
+    assert source.count("shell: powershell") == 6
     assert "shell: pwsh" not in source
 
 
@@ -63,6 +63,12 @@ def test_ci_workflow_enforces_both_npm_audits_and_uploads_exact_head_evidence() 
     assert "metadata.json" in source
     assert "if-no-files-found: error" in source
     assert "retention-days: 30" in source
+    assert "supply-chain-evidence-" in source
+    assert "python-audit.json" in source
+    assert "frontend-licenses.json" in source
+    assert "backend-licenses.json" in source
+    assert "secret-scan-redacted.json" in source
+    assert "supply-chain-floor-normalized.json" in source
     assert "id: npm_audit" in source
     assert "if: always() && steps.npm_audit.outcome != 'skipped'" in source
 
@@ -112,3 +118,30 @@ def test_ci_triggers_are_bounded_to_main_and_manual_runs() -> None:
     assert "pull_request:\n    branches: [main]" in source
     assert "workflow_dispatch:" in source
     assert "cancel-in-progress: true" in source
+
+
+def test_ci_workflow_runs_pinned_temporary_python_license_and_secret_scanners() -> None:
+    source = workflow_source()
+
+    assert "pip-audit==2.10.1" in source
+    assert "pip-licenses==5.5.5" in source
+    assert "license-checker-rseidelsohn@5.0.1" in source
+    assert "gitleaks_8.30.1_windows_x64.zip" in source
+    assert "d29144deff3a68aa93ced33dddf84b7fdc26070add4aa0f4513094c8332afc4e" in source
+    assert "--requirement backend/requirements.txt" in source
+    assert "--from=expression" in source
+    assert "--direct true" in source
+    assert "--redact=100" in source
+    assert "--log-opts=$logOpts" in source
+    assert '$logOpts = "$baseSha..$candidateHead"' in source
+
+
+def test_ci_workflow_has_runtime_synthetic_secret_redaction_acceptance() -> None:
+    source = workflow_source()
+
+    assert '$fakeSecret = "gh" + "p_"' in source
+    assert "synthetic-secret-report.json" in source
+    assert "$syntheticText.Contains($fakeSecret)" in source
+    assert "syntheticSecretTest = $syntheticStatus" in source
+    upload = source.split("Upload supply-chain evidence", 1)[1]
+    assert "gitleaks-changed-scope-redacted.raw.json" not in upload
