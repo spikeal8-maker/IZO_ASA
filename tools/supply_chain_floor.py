@@ -69,9 +69,15 @@ def classify_python_audit(raw: str, *, scanner_exit_code: int, scanner_stderr: s
     if scanner_exit_code not in (0, 1):
         return _unavailable(scanner_stderr.strip() or f"pip-audit exited {scanner_exit_code}")
     try:
-        dependencies = _json_array(raw)
-    except FloorParseError as exc:
-        return _unavailable(scanner_stderr.strip() or str(exc))
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        return _unavailable(scanner_stderr.strip() or f"malformed JSON: {exc.msg}")
+    if isinstance(parsed, dict):
+        dependencies = parsed.get("dependencies")
+    else:
+        dependencies = parsed
+    if not isinstance(dependencies, list):
+        return _unavailable(scanner_stderr.strip() or "pip-audit JSON is missing dependencies")
 
     findings: list[dict[str, Any]] = []
     resolved: list[dict[str, str]] = []
