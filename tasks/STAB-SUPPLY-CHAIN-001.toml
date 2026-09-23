@@ -68,6 +68,7 @@ requiredEvidence = [
   "package enforcement receipt",
   "exact-head GitHub CI",
   "remediation Issues #153, #154 and #155",
+  "license review Issue #156",
   "supply-chain-evidence exact-head GitHub Actions artifact",
 ]
 targetedTests = [
