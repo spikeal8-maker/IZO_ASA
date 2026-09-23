@@ -68,11 +68,11 @@ requiredEvidence = [
   "package enforcement receipt",
   "exact-head GitHub CI",
   "remediation Issues #153, #154 and #155",
-  "tools/test_supply_chain_floor.py",
   "supply-chain-evidence exact-head GitHub Actions artifact",
 ]
 targetedTests = [
   "tools/test_supply_chain_audit.py",
+  "tools/test_supply_chain_floor.py",
   "tools/test_ci_workflow.py",
   "tools/test_verify_script.py",
 ]
