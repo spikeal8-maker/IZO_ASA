@@ -77,18 +77,28 @@ function Invoke-NativeStep {
             }
             $stdoutPath = $OutputPath + ".stdout"
             $stderrPath = $OutputPath + ".stderr"
-            $processArguments = @{
-                FilePath = $FilePath
-                ArgumentList = $ArgumentList
-                WorkingDirectory = $WorkingDirectory
-                NoNewWindow = $true
-                Wait = $true
-                PassThru = $true
-                RedirectStandardOutput = $stdoutPath
-                RedirectStandardError = $stderrPath
+            $quotePs = {
+                param([string]$Value)
+                return "'" + $Value.Replace("'", "''") + "'"
             }
-            $process = Start-Process @processArguments
+            $quotedFile = & $quotePs $FilePath
+            $quotedArguments = @($ArgumentList | ForEach-Object { & $quotePs ([string]$_) }) -join ", "
+            $quotedStdout = & $quotePs $stdoutPath
+            $quotedStderr = & $quotePs $stderrPath
+            $captureScript = "& $quotedFile @($quotedArguments) 1> $quotedStdout 2> $quotedStderr; exit `$LASTEXITCODE"
+            $encodedCapture = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($captureScript))
+            $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+            $startInfo.FileName = "powershell.exe"
+            $startInfo.Arguments = "-NoProfile -NonInteractive -EncodedCommand $encodedCapture"
+            $startInfo.WorkingDirectory = $WorkingDirectory
+            $startInfo.UseShellExecute = $false
+            $startInfo.CreateNoWindow = $true
+            $process = New-Object System.Diagnostics.Process
+            $process.StartInfo = $startInfo
+            [void]$process.Start()
+            $process.WaitForExit()
             $stepExitCode = $process.ExitCode
+            $process.Dispose()
             $capturedLines = @()
             if (Test-Path -LiteralPath $stdoutPath -PathType Leaf) {
                 $capturedLines += @(Get-Content -LiteralPath $stdoutPath)
