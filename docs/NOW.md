@@ -2,14 +2,14 @@
 status: canonical
 status_role: current-status-aggregator
 backlog_role: program-router
-updated: 2026-09-21
-source_main_at_status_update: b6a8a74c19a1d72dfac2d913d17e0f7c60020c24
-last_verified_main: b6a8a74c19a1d72dfac2d913d17e0f7c60020c24
+updated: 2026-09-25
+source_main_at_status_update: 972f94209822588ce2a631f4eb03ffc8ab69f9aa
+last_verified_main: 972f94209822588ce2a631f4eb03ffc8ab69f9aa
 production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_verified_at: 2026-09-02T00:08:04+03:00
-completed_package: STAB-PRODUCT-CONTRACT-001
-active_package: STAB-SUPPLY-CHAIN-001
-active_task_contract: github-issue-111
+completed_package: STAB-SUPPLY-CHAIN-001
+active_package: D0-EXECUTOR-001
+active_task_contract: github-issue-157
 baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a
 baseline_status: completed-point-A-accepted
 next_candidate: STAB-TEST-HEALTH-001
@@ -32,7 +32,7 @@ git rev-parse origin/main
 git worktree list
 ```
 Source `main` при последнем status transition:
-`b6a8a74c19a1d72dfac2d913d17e0f7c60020c24`.
+`972f94209822588ce2a631f4eb03ffc8ab69f9aa`.
 
 Последний отдельно operationally verified production release:
 `d223c179d5944bc208cace867d5e93bc1341a3aa` от 2026-09-02. Не выводить deploy
@@ -40,8 +40,12 @@ Source `main` при последнем status transition:
 
 ## 2. Активный stabilization package
 
-Completed: `STAB-PRODUCT-CONTRACT-001` (#110).
-Active: `STAB-SUPPLY-CHAIN-001` (#111).
+Completed: `STAB-SUPPLY-CHAIN-001` (#111).
+Active: `D0-EXECUTOR-001` (#157).
+#111 implementation + post-merge acceptance = COMPLETE.
+#153–156 = OPEN tracked debt; this status transition does not remediate them.
+D0: supply-chain = PASS; D0-01 independent executor = ACTIVE / NOT YET PROVEN; overall = ACTIVE / INCOMPLETE.
+D1 Docker = NOT STARTED.
 Architecture checkpoint after #108-#110: PASS; protected hotspot growth 0, routes/workers/tables 251/8/65, context ownerless/duplicate findings 0, product-flow count 14, generated drift 0.
 `AI-CONTEXT-PILOT-001` (#107) completed: chat/admin-models packets stayed bounded and post-pilot A/B improved from false/false to partial/true with 0 broad scans.
 Next: `STAB-TEST-HEALTH-001` (#112).

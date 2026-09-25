@@ -310,19 +310,19 @@ def _assert_program_and_package_status() -> None:
     assert "all three receipts exist before #107 starts" in amendment
 
     now = _text(ROOT / "docs" / "NOW.md")
-    assert "updated: 2026-09-21" in now
-    assert "source_main_at_status_update: b6a8a74c19a1d72dfac2d913d17e0f7c60020c24" in now
-    assert "last_verified_main: b6a8a74c19a1d72dfac2d913d17e0f7c60020c24" in now
-    assert "completed_package: STAB-PRODUCT-CONTRACT-001" in now
-    assert "active_package: STAB-SUPPLY-CHAIN-001" in now
-    assert "active_task_contract: github-issue-111" in now
+    assert "updated: 2026-09-25" in now
+    assert "source_main_at_status_update: 972f94209822588ce2a631f4eb03ffc8ab69f9aa" in now
+    assert "last_verified_main: 972f94209822588ce2a631f4eb03ffc8ab69f9aa" in now
+    assert "completed_package: STAB-SUPPLY-CHAIN-001" in now
+    assert "active_package: D0-EXECUTOR-001" in now
+    assert "active_task_contract: github-issue-157" in now
     assert "baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a" in now
     assert "baseline_status: completed-point-A-accepted" in now
     assert "\nblocker:" not in now
     assert "blocker: shared-host-gh-write-credential-visible" not in now
     assert "next_candidate: STAB-TEST-HEALTH-001" in now
-    assert "Completed: `STAB-PRODUCT-CONTRACT-001` (#110)." in now
-    assert "Active: `STAB-SUPPLY-CHAIN-001` (#111)." in now
+    assert "Completed: `STAB-SUPPLY-CHAIN-001` (#111)." in now
+    assert "Active: `D0-EXECUTOR-001` (#157)." in now
     assert "Next: `STAB-TEST-HEALTH-001` (#112)." in now
     assert "Architecture checkpoint after #108-#110: PASS;" in now
     assert "routes/workers/tables 251/8/65" in now

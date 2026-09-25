@@ -1,0 +1,93 @@
+manifestVersion = 1
+id = "GOV-ACTIVATE-D0-EXECUTOR-001"
+baseSha = "972f94209822588ce2a631f4eb03ffc8ab69f9aa"
+
+goal = "Close stale #111 routing state and activate D0-EXECUTOR-001 as the canonical D0-01 contract without implementing it."
+
+userOutcome = "Canonical status records accepted supply-chain work as completed, routes active work to Issue #157, and preserves #112 as the next candidate."
+
+beforeScenario = "#111 implementation and Docker-first master-spec are merged, but docs/NOW.md still routes #111 as active and points at an older main SHA."
+
+afterScenario = "NOW marks STAB-SUPPLY-CHAIN-001 completed, D0-EXECUTOR-001 #157 active/not-yet-proven, #112 next, D0 incomplete, and D1 Docker not started."
+
+nonGoals = [
+  "implement D0-EXECUTOR-001",
+  "implement #112, #113 or #115",
+  "change application behavior",
+  "change Docker/runtime/deploy state",
+  "remediate #153-156",
+  "change production_release_sha",
+]
+
+declaredFiles = [
+  "tasks/GOV-ACTIVATE-D0-EXECUTOR-001.toml",
+  "docs/NOW.md",
+  "tools/test_agent_instructions.py",
+]
+
+allowedPatterns = []
+
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+  ".github/**",
+  "tools/agent_system/**",
+  "tools/agent.ps1",
+  "tools/verify.ps1",
+]
+
+protectedFilesTouched = []
+
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+
+maxProductionFiles = 0
+maxChangedLines = 450
+
+acceptance = [
+  "docs/NOW.md records STAB-SUPPLY-CHAIN-001 as completed and D0-EXECUTOR-001 issue #157 as active.",
+  "docs/NOW.md keeps STAB-TEST-HEALTH-001 #112 as next candidate.",
+  "docs/NOW.md records source_main_at_status_update and last_verified_main as 972f94209822588ce2a631f4eb03ffc8ab69f9aa.",
+  "docs/NOW.md leaves production_release_sha unchanged.",
+  "Human status records #111 implementation accepted, #153-156 OPEN tracked debt, D0 supply-chain PASS, D0-01 active/not yet proven, and D1 Docker not started.",
+  "Existing deterministic status assertions are updated without weakening unrelated invariants.",
+  "No executor, Docker, decomposition, product, dependency, deploy or remediation implementation is started.",
+  "Package enforcement and exact-head CI pass.",
+]
+
+requiredEvidence = [
+  "focused instruction/status tests",
+  "package enforcement receipt",
+  "exact-head GitHub CI",
+]
+
+targetedTests = [
+  "tools/test_agent_instructions.py",
+  "tools/test_context_docs.py",
+  "tools/test_agent_enforce.py",
+]
+
+fileGrowthExpectations = [
+  "docs/NOW.md remains a compact status router.",
+  "No production source grows.",
+]
+
+forbiddenOperations = [
+  "deploy",
+  "restart",
+  "production-data",
+  "provider-call",
+  "direct-main",
+  "issue-157-implementation",
+  "issue-112-implementation",
+  "issue-113-implementation",
+  "issue-115-implementation",
+  "docker-implementation",
+  "decomposition",
+  "supply-chain-remediation",
+]
+
+rollbackBoundary = "Revert only the governance manifest, NOW routing transition and matching deterministic assertions; application/runtime/deploy state remains untouched."
