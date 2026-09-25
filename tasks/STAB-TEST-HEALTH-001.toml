@@ -112,3 +112,7 @@ forbiddenOperations = [
 ]
 
 rollbackBoundary = "Revert only the Slice 1 test-health manifest/policy/parser/tests and diagnostic CI/verify capture wiring; product, dependencies, NOW, runtime and data remain untouched."
+
+[[sizeReviews]]
+path = "tools/test_health_audit.py"
+rationale = "Slice 2 keeps the parser/policy evaluator in one bounded test-health module so exact warning/cleanup normalization and non-regression semantics stay deterministic; no remediation or product logic is added."
