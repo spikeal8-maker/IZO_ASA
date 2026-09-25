@@ -42,11 +42,10 @@ Source `main` при последнем status transition:
 
 Completed: `D0-EXECUTOR-001` (#157).
 Active: `STAB-TEST-HEALTH-001` (#112).
-#111 supply-chain = COMPLETE.
-#157 D0-01 independent GitHub-hosted executor = COMPLETE.
-#153–156 = OPEN tracked debt; this status transition does not remediate them.
-D0-01 = PASS; D0-02 supply-chain/environment evidence = PASS; D0 = COMPLETE.
-Active test-health floor = #112; implementation is not started by this status transition.
+#111 supply-chain = COMPLETE; #157 D0-01 independent executor = COMPLETE.
+#153–156 = OPEN tracked debt.
+D0-01 = PASS; D0-02 = PASS; D0 = COMPLETE.
+#112 test-health = ACTIVE; implementation NOT STARTED.
 D1 Docker = NOT STARTED.
 Architecture checkpoint after #108-#110: PASS; protected hotspot growth 0, routes/workers/tables 251/8/65, context ownerless/duplicate findings 0, product-flow count 14, generated drift 0.
 `AI-CONTEXT-PILOT-001` (#107) completed: chat/admin-models packets stayed bounded and post-pilot A/B improved from false/false to partial/true with 0 broad scans.
