@@ -4,6 +4,7 @@ import argparse
 import json
 import re
 from collections import Counter
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -223,6 +224,156 @@ def _parse_summary(lines: list[str]) -> tuple[dict[str, Any], float] | None:
     return None
 
 
+def _reference_date(metadata: dict[str, Any]) -> date | None:
+    value = str(metadata.get("startedAt") or "").strip()
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).date()
+    except ValueError:
+        return None
+
+
+def _validate_debt_reviews(policy: dict[str, Any], metadata: dict[str, Any]) -> list[str]:
+    if policy.get("slice") != "baseline-non-regression":
+        return []
+
+    violations: list[str] = []
+    baseline = policy.get("acceptedBaseline")
+    reviews = policy.get("debtReviews")
+    if not isinstance(baseline, dict):
+        return ["ACCEPTED_BASELINE_MISSING"]
+    if not isinstance(reviews, dict):
+        return ["DEBT_REVIEWS_MISSING"]
+
+    referenced: set[str] = set()
+    warning_baseline = baseline.get("warnings")
+    cleanup_baseline = baseline.get("cleanup")
+    if not isinstance(warning_baseline, dict):
+        violations.append("WARNING_BASELINE_MISSING")
+        warning_categories: list[dict[str, Any]] = []
+    else:
+        warning_categories = [
+            item for item in warning_baseline.get("categories", []) if isinstance(item, dict)
+        ]
+        if not isinstance(warning_baseline.get("total"), int):
+            violations.append("WARNING_BASELINE_TOTAL_MISSING")
+        elif sum(int(item.get("count", 0)) for item in warning_categories) != warning_baseline["total"]:
+            violations.append("WARNING_BASELINE_TOTAL_INCONSISTENT")
+
+    if not isinstance(cleanup_baseline, dict):
+        violations.append("CLEANUP_BASELINE_MISSING")
+        cleanup_categories: list[dict[str, Any]] = []
+    else:
+        cleanup_categories = [
+            item for item in cleanup_baseline.get("categories", []) if isinstance(item, dict)
+        ]
+        if not isinstance(cleanup_baseline.get("total"), int):
+            violations.append("CLEANUP_BASELINE_TOTAL_MISSING")
+        elif sum(int(item.get("count", 0)) for item in cleanup_categories) != cleanup_baseline["total"]:
+            violations.append("CLEANUP_BASELINE_TOTAL_INCONSISTENT")
+
+    for item in warning_categories + cleanup_categories:
+        issue = item.get("issue")
+        if not isinstance(issue, str) or not re.fullmatch(r"#\d+", issue):
+            violations.append("DEBT_ISSUE_MISSING")
+        else:
+            referenced.add(issue)
+
+    reference_date = _reference_date(metadata)
+    if reference_date is None:
+        violations.append("DEBT_REVIEW_REFERENCE_DATE_UNAVAILABLE")
+
+    for issue in sorted(referenced):
+        review = reviews.get(issue)
+        suffix = issue.lstrip("#")
+        if not isinstance(review, dict):
+            violations.append(f"DEBT_REVIEW_MISSING_{suffix}")
+            continue
+        for field in ("owner", "reason", "reviewBy"):
+            if not isinstance(review.get(field), str) or not review[field].strip():
+                violations.append(f"DEBT_REVIEW_{field.upper()}_MISSING_{suffix}")
+        review_by = review.get("reviewBy")
+        if isinstance(review_by, str) and review_by.strip():
+            try:
+                review_date = date.fromisoformat(review_by)
+            except ValueError:
+                violations.append(f"DEBT_REVIEW_DATE_INVALID_{suffix}")
+            else:
+                if reference_date is not None and review_date < reference_date:
+                    violations.append(f"DEBT_REVIEW_EXPIRED_{suffix}")
+    return violations
+
+
+def _evaluate_non_regression(
+    warnings: dict[str, Any],
+    cleanup: dict[str, Any],
+    policy: dict[str, Any],
+) -> list[str]:
+    if policy.get("slice") != "baseline-non-regression":
+        return []
+
+    violations: list[str] = []
+    baseline = policy.get("acceptedBaseline")
+    if not isinstance(baseline, dict):
+        return ["ACCEPTED_BASELINE_MISSING"]
+
+    warning_baseline = baseline.get("warnings")
+    cleanup_baseline = baseline.get("cleanup")
+    if not isinstance(warning_baseline, dict) or not isinstance(cleanup_baseline, dict):
+        return ["BASELINE_CATEGORIES_MISSING"]
+
+    warning_total = warnings.get("total")
+    baseline_warning_total = warning_baseline.get("total")
+    if not isinstance(warning_total, int) or not isinstance(baseline_warning_total, int):
+        violations.append("WARNING_EVIDENCE_UNAVAILABLE")
+    elif warning_total > baseline_warning_total:
+        violations.append("WARNING_TOTAL_ABOVE_BASELINE")
+
+    warning_limits = {
+        (item.get("category"), item.get("source")): item.get("count")
+        for item in warning_baseline.get("categories", [])
+        if isinstance(item, dict)
+    }
+    for item in warnings.get("categories", []):
+        if not isinstance(item, dict):
+            continue
+        key = (item.get("category"), item.get("source"))
+        count = item.get("count")
+        if key not in warning_limits:
+            violations.append("NEW_WARNING_CATEGORY_SOURCE")
+        elif not isinstance(count, int) or not isinstance(warning_limits[key], int):
+            violations.append("WARNING_COUNT_UNAVAILABLE")
+        elif count > warning_limits[key]:
+            violations.append("WARNING_CATEGORY_SOURCE_COUNT_INCREASE")
+
+    cleanup_total = cleanup.get("count")
+    baseline_cleanup_total = cleanup_baseline.get("total")
+    if not isinstance(cleanup_total, int) or not isinstance(baseline_cleanup_total, int):
+        violations.append("CLEANUP_EVIDENCE_UNAVAILABLE")
+    elif cleanup_total > baseline_cleanup_total:
+        violations.append("CLEANUP_TOTAL_ABOVE_BASELINE")
+
+    cleanup_limits = {
+        (item.get("errorType"), item.get("owner"), item.get("normalizedPath")): item.get("count")
+        for item in cleanup_baseline.get("categories", [])
+        if isinstance(item, dict)
+    }
+    for item in cleanup.get("categories", []):
+        if not isinstance(item, dict):
+            continue
+        key = (item.get("errorType"), item.get("owner"), item.get("normalizedPath"))
+        count = item.get("count")
+        if key not in cleanup_limits:
+            violations.append("NEW_CLEANUP_CATEGORY_OWNER")
+        elif not isinstance(count, int) or not isinstance(cleanup_limits[key], int):
+            violations.append("CLEANUP_COUNT_UNAVAILABLE")
+        elif count > cleanup_limits[key]:
+            violations.append("CLEANUP_CATEGORY_COUNT_INCREASE")
+
+    return violations
+
+
 def normalize(raw_output: str, metadata: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
     lines = raw_output.splitlines()
     violations: list[str] = []
@@ -300,6 +451,9 @@ def normalize(raw_output: str, metadata: dict[str, Any], policy: dict[str, Any])
     cleanup_info = _parse_cleanup(raw_output)
     slowest = _parse_slowest(lines)
 
+    violations.extend(_validate_debt_reviews(policy, metadata))
+    violations.extend(_evaluate_non_regression(warning_info, cleanup_info, policy))
+
     evidence_status = "AVAILABLE" if "PYTEST_SUMMARY_UNAVAILABLE" not in violations else "UNAVAILABLE"
     policy_status = "PASS" if not violations else "FAIL"
 
@@ -329,11 +483,12 @@ def normalize(raw_output: str, metadata: dict[str, Any], policy: dict[str, Any])
             "exitCode": metadata.get("exitCode"),
         },
         "policy": {
-            "slice": "baseline-only",
+            "slice": policy.get("slice"),
             "status": policy_status,
             "violations": sorted(set(violations)),
-            "warningToleranceEnforced": False,
-            "cleanupToleranceEnforced": False,
+            "warningNonRegressionEnforced": policy.get("slice") == "baseline-non-regression",
+            "cleanupNonRegressionEnforced": policy.get("slice") == "baseline-non-regression",
+            "timingThresholdEnforced": False,
         },
     }
 
