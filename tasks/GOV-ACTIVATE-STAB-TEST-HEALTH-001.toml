@@ -1,0 +1,95 @@
+manifestVersion = 1
+id = "GOV-ACTIVATE-STAB-TEST-HEALTH-001"
+baseSha = "3ea6b12fb945533e40fcfa6b26453597d82553b5"
+
+goal = "Record D0-01 and D0-02 as complete and activate STAB-TEST-HEALTH-001 issue #112 as the canonical active contract without implementing it."
+
+userOutcome = "Canonical status shows D0 complete, #112 active only, and AI-DEV-ENV-001 #113 as the next candidate."
+
+beforeScenario = "Issue #157 is closed with accepted post-merge GitHub-hosted evidence, but docs/NOW.md still routes D0-EXECUTOR-001 as active and describes D0 as incomplete."
+
+afterScenario = "NOW records D0-EXECUTOR-001 completed, D0-01 PASS, D0-02 PASS, overall D0 complete, #112 active, #113 next, and D1 Docker not started."
+
+nonGoals = [
+  "implement STAB-TEST-HEALTH-001",
+  "implement #113 or #115",
+  "change application behavior",
+  "change dependencies",
+  "start Docker work",
+  "deploy or restart",
+  "change production release identity",
+]
+
+declaredFiles = [
+  "tasks/GOV-ACTIVATE-STAB-TEST-HEALTH-001.toml",
+  "docs/NOW.md",
+  "tools/test_agent_instructions.py",
+]
+
+allowedPatterns = []
+
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+  ".github/**",
+  "tools/agent_system/**",
+  "tools/agent.ps1",
+  "tools/verify.ps1",
+]
+
+protectedFilesTouched = []
+
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+
+maxProductionFiles = 0
+maxChangedLines = 450
+
+acceptance = [
+  "docs/NOW.md records D0-EXECUTOR-001 as completed and STAB-TEST-HEALTH-001 issue #112 as active.",
+  "docs/NOW.md records AI-DEV-ENV-001 #113 as next candidate.",
+  "docs/NOW.md records source_main_at_status_update and last_verified_main as 3ea6b12fb945533e40fcfa6b26453597d82553b5.",
+  "docs/NOW.md leaves production_release_sha and production_release_verified_at unchanged.",
+  "Human status records #111 supply-chain complete, #157 D0-01 complete, D0-01 PASS, D0-02 PASS, overall D0 complete, #112 active only, and D1 Docker not started.",
+  "Existing deterministic status assertions are updated without weakening unrelated invariants.",
+  "No #112 implementation PR or implementation change is created by this package.",
+  "No product, dependency, Docker, deploy, restart, #113 or #115 implementation is started.",
+  "Package enforcement and exact-head CI pass.",
+]
+
+requiredEvidence = [
+  "D0 Executor Proof #2 run 36178767703 and artifact 10882858293",
+  "focused instruction/status tests",
+  "package enforcement receipt",
+  "exact-head GitHub CI",
+  "post-merge GitHub CI",
+]
+
+targetedTests = [
+  "tools/test_agent_instructions.py",
+  "tools/test_context_docs.py",
+  "tools/test_agent_enforce.py",
+]
+
+fileGrowthExpectations = [
+  "docs/NOW.md remains a compact status router.",
+  "No production source grows.",
+]
+
+forbiddenOperations = [
+  "deploy",
+  "restart",
+  "production-data",
+  "provider-call",
+  "direct-main",
+  "issue-112-implementation",
+  "issue-113-implementation",
+  "issue-115-implementation",
+  "docker-implementation",
+  "dependency-change",
+]
+
+rollbackBoundary = "Revert only the governance manifest, NOW routing transition and matching deterministic assertions; product/runtime/dependency/deploy state remains untouched."

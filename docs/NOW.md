@@ -3,16 +3,16 @@ status: canonical
 status_role: current-status-aggregator
 backlog_role: program-router
 updated: 2026-09-25
-source_main_at_status_update: 972f94209822588ce2a631f4eb03ffc8ab69f9aa
-last_verified_main: 972f94209822588ce2a631f4eb03ffc8ab69f9aa
+source_main_at_status_update: 3ea6b12fb945533e40fcfa6b26453597d82553b5
+last_verified_main: 3ea6b12fb945533e40fcfa6b26453597d82553b5
 production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_verified_at: 2026-09-02T00:08:04+03:00
-completed_package: STAB-SUPPLY-CHAIN-001
-active_package: D0-EXECUTOR-001
-active_task_contract: github-issue-157
+completed_package: D0-EXECUTOR-001
+active_package: STAB-TEST-HEALTH-001
+active_task_contract: github-issue-112
 baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a
 baseline_status: completed-point-A-accepted
-next_candidate: STAB-TEST-HEALTH-001
+next_candidate: AI-DEV-ENV-001
 ---
 # IZO_ASA — NOW
 
@@ -32,7 +32,7 @@ git rev-parse origin/main
 git worktree list
 ```
 Source `main` при последнем status transition:
-`972f94209822588ce2a631f4eb03ffc8ab69f9aa`.
+`3ea6b12fb945533e40fcfa6b26453597d82553b5`.
 
 Последний отдельно operationally verified production release:
 `d223c179d5944bc208cace867d5e93bc1341a3aa` от 2026-09-02. Не выводить deploy
@@ -40,15 +40,17 @@ Source `main` при последнем status transition:
 
 ## 2. Активный stabilization package
 
-Completed: `STAB-SUPPLY-CHAIN-001` (#111).
-Active: `D0-EXECUTOR-001` (#157).
-#111 implementation + post-merge acceptance = COMPLETE.
+Completed: `D0-EXECUTOR-001` (#157).
+Active: `STAB-TEST-HEALTH-001` (#112).
+#111 supply-chain = COMPLETE.
+#157 D0-01 independent GitHub-hosted executor = COMPLETE.
 #153–156 = OPEN tracked debt; this status transition does not remediate them.
-D0: supply-chain = PASS; D0-01 independent executor = ACTIVE / NOT YET PROVEN; overall = ACTIVE / INCOMPLETE.
+D0-01 = PASS; D0-02 supply-chain/environment evidence = PASS; D0 = COMPLETE.
+Active test-health floor = #112; implementation is not started by this status transition.
 D1 Docker = NOT STARTED.
 Architecture checkpoint after #108-#110: PASS; protected hotspot growth 0, routes/workers/tables 251/8/65, context ownerless/duplicate findings 0, product-flow count 14, generated drift 0.
 `AI-CONTEXT-PILOT-001` (#107) completed: chat/admin-models packets stayed bounded and post-pilot A/B improved from false/false to partial/true with 0 broad scans.
-Next: `STAB-TEST-HEALTH-001` (#112).
+Next: `AI-DEV-ENV-001` (#113).
 
 ## 3. Frozen baseline — completed point A
 
