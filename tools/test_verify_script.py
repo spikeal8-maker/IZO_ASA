@@ -194,9 +194,9 @@ def test_verify_script_has_no_process_or_file_deletion_commands() -> None:
     assert '[string]$TestHealthOutputPath = ""' in source
     assert '"--durations=10", "--durations-min=0.1"' in source
     assert "-OutputPath $TestHealthOutputPath" in source
-    assert "Start-Process @processArguments" in source
-    assert "RedirectStandardOutput = $stdoutPath" in source
-    assert "RedirectStandardError = $stderrPath" in source
+    assert "System.Diagnostics.ProcessStartInfo" in source
+    assert "-EncodedCommand $encodedCapture" in source
+    assert "$process.WaitForExit()" in source
     assert '$stepExitCode = $process.ExitCode' in source
     assert '[IO.File]::WriteAllLines($OutputPath' in source
     assert "release_verification_receipt.py" in source
