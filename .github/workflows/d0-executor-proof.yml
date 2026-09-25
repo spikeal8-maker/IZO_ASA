@@ -1,0 +1,80 @@
+name: D0 Executor Proof
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "tasks/D0-EXECUTOR-001.toml"
+      - ".github/workflows/d0-executor-proof.yml"
+      - "tools/d0_executor_probe.py"
+      - "tools/test_d0_executor_probe.py"
+      - "tools/test_d0_executor_workflow.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d0-executor-proof-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  proof:
+    name: GitHub-hosted Linux D0-01 proof
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          clean: true
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up pinned Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+          cache: ""
+
+      - name: Set up pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Run deterministic D0 probe tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest tools.test_d0_executor_probe tools.test_d0_executor_workflow -v
+
+      - name: Run real GitHub-hosted D0-01 proof
+        shell: bash
+        env:
+          D0_REPOSITORY: ${{ github.repository }}
+          D0_EVENT_NAME: ${{ github.event_name }}
+          D0_RUN_ID: ${{ github.run_id }}
+          D0_RUN_ATTEMPT: ${{ github.run_attempt }}
+          D0_EXPECTED_HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          D0_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          D0_RUNNER_OS: ${{ runner.os }}
+          D0_RUNNER_ARCH: ${{ runner.arch }}
+          D0_RUNNER_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          python tools/d0_executor_probe.py --output d0-executor-receipt.json
+
+      - name: Upload D0 executor evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: d0-executor-evidence-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          path: d0-executor-receipt.json
+          if-no-files-found: error
+          retention-days: 30
