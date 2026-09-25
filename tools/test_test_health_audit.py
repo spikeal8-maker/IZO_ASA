@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+import copy
+import json
 import unittest
+from pathlib import Path
 
-from tools.test_health_audit import normalize
+from tools.test_health_audit import (
+    _evaluate_non_regression,
+    _validate_debt_reviews,
+    normalize,
+)
 
 
+ROOT = Path(__file__).resolve().parents[1]
 HEAD = "a" * 40
+NON_REGRESSION_POLICY = json.loads(
+    (ROOT / "architecture" / "test-health-policy.json").read_text(encoding="utf-8")
+)
 
 
 def metadata(**overrides):
@@ -128,6 +139,141 @@ rning: (rm_rf) unknown function scandir when removing \\\\?\\C:\\Temp\\pytest
         mismatch = normalize("2 passed in 1.00s\n", metadata(exactHead="b" * 40), POLICY)
         self.assertEqual(mismatch["policy"]["status"], "FAIL")
         self.assertIn("EXACT_HEAD_MISMATCH", mismatch["policy"]["violations"])
+
+
+
+
+class TestHealthNonRegressionPolicy(unittest.TestCase):
+    def warning_baseline(self) -> dict:
+        baseline = NON_REGRESSION_POLICY["acceptedBaseline"]["warnings"]
+        return {
+            "total": baseline["total"],
+            "categories": [
+                {
+                    "category": item["category"],
+                    "source": item["source"],
+                    "count": item["count"],
+                }
+                for item in baseline["categories"]
+            ],
+        }
+
+    def cleanup_baseline(self) -> dict:
+        baseline = NON_REGRESSION_POLICY["acceptedBaseline"]["cleanup"]
+        return {
+            "count": baseline["total"],
+            "categories": [
+                {
+                    "errorType": item["errorType"],
+                    "owner": item["owner"],
+                    "normalizedPath": item["normalizedPath"],
+                    "count": item["count"],
+                }
+                for item in baseline["categories"]
+            ],
+        }
+
+    def test_accepted_97_warning_and_1_cleanup_baseline_passes(self) -> None:
+        policy = copy.deepcopy(NON_REGRESSION_POLICY)
+        violations = _validate_debt_reviews(policy, metadata())
+        violations += _evaluate_non_regression(
+            self.warning_baseline(), self.cleanup_baseline(), policy
+        )
+        self.assertEqual(violations, [])
+
+    def test_warning_count_decrease_passes(self) -> None:
+        warnings = self.warning_baseline()
+        warnings["total"] -= 1
+        warnings["categories"][0]["count"] -= 1
+        self.assertEqual(
+            _evaluate_non_regression(warnings, self.cleanup_baseline(), NON_REGRESSION_POLICY),
+            [],
+        )
+
+    def test_new_warning_category_fails(self) -> None:
+        warnings = self.warning_baseline()
+        warnings["total"] += 1
+        warnings["categories"].append(
+            {"category": "RuntimeWarning", "source": "tools/new_source.py", "count": 1}
+        )
+        violations = _evaluate_non_regression(
+            warnings, self.cleanup_baseline(), NON_REGRESSION_POLICY
+        )
+        self.assertIn("NEW_WARNING_CATEGORY_SOURCE", violations)
+
+    def test_existing_warning_source_count_increase_fails(self) -> None:
+        warnings = self.warning_baseline()
+        warnings["total"] += 1
+        warnings["categories"][0]["count"] += 1
+        violations = _evaluate_non_regression(
+            warnings, self.cleanup_baseline(), NON_REGRESSION_POLICY
+        )
+        self.assertIn("WARNING_CATEGORY_SOURCE_COUNT_INCREASE", violations)
+
+    def test_warning_total_above_97_fails(self) -> None:
+        warnings = self.warning_baseline()
+        warnings["total"] = 98
+        violations = _evaluate_non_regression(
+            warnings, self.cleanup_baseline(), NON_REGRESSION_POLICY
+        )
+        self.assertIn("WARNING_TOTAL_ABOVE_BASELINE", violations)
+
+    def test_cleanup_one_and_zero_pass(self) -> None:
+        self.assertEqual(
+            _evaluate_non_regression(
+                self.warning_baseline(), self.cleanup_baseline(), NON_REGRESSION_POLICY
+            ),
+            [],
+        )
+        self.assertEqual(
+            _evaluate_non_regression(
+                self.warning_baseline(), {"count": 0, "categories": []}, NON_REGRESSION_POLICY
+            ),
+            [],
+        )
+
+    def test_cleanup_count_two_fails(self) -> None:
+        cleanup = self.cleanup_baseline()
+        cleanup["count"] = 2
+        cleanup["categories"][0]["count"] = 2
+        violations = _evaluate_non_regression(
+            self.warning_baseline(), cleanup, NON_REGRESSION_POLICY
+        )
+        self.assertIn("CLEANUP_TOTAL_ABOVE_BASELINE", violations)
+        self.assertIn("CLEANUP_CATEGORY_COUNT_INCREASE", violations)
+
+    def test_new_cleanup_owner_or_type_fails(self) -> None:
+        cleanup = {
+            "count": 1,
+            "categories": [
+                {
+                    "errorType": "PermissionError",
+                    "owner": "other-owner",
+                    "normalizedPath": "<PYTEST_TEMP>/other",
+                    "count": 1,
+                }
+            ],
+        }
+        violations = _evaluate_non_regression(
+            self.warning_baseline(), cleanup, NON_REGRESSION_POLICY
+        )
+        self.assertIn("NEW_CLEANUP_CATEGORY_OWNER", violations)
+
+    def test_missing_debt_issue_fails(self) -> None:
+        policy = copy.deepcopy(NON_REGRESSION_POLICY)
+        del policy["acceptedBaseline"]["warnings"]["categories"][0]["issue"]
+        violations = _validate_debt_reviews(policy, metadata())
+        self.assertIn("DEBT_ISSUE_MISSING", violations)
+
+    def test_expired_review_by_fails(self) -> None:
+        policy = copy.deepcopy(NON_REGRESSION_POLICY)
+        policy["debtReviews"]["#162"]["reviewBy"] = "2026-09-24"
+        violations = _validate_debt_reviews(policy, metadata())
+        self.assertIn("DEBT_REVIEW_EXPIRED_162", violations)
+
+    def test_retry_not_observable_remains_null(self) -> None:
+        receipt = normalize("3 passed in 0.50s\n", metadata(), POLICY)
+        self.assertEqual(receipt["retryFlakyObservability"], {"status": "NOT_OBSERVABLE", "retries": None})
 
 
 if __name__ == "__main__":
