@@ -29,7 +29,7 @@ def test_ci_workflow_uses_pinned_self_hosted_windows_toolchain_and_lockfiles() -
     assert "run: npx playwright install chromium" in source
     assert (ROOT / ".python-version").read_text(encoding="utf-8").strip() == "3.11.9"
     assert (ROOT / ".node-version").read_text(encoding="utf-8").strip() == "24.14.1"
-    assert len(FULL_SHA_ACTION.findall(source)) == 2
+    assert len(FULL_SHA_ACTION.findall(source)) == 3
     assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2" in source
     assert "persist-credentials: false" in source
     assert "Enforce package scope" in source
@@ -219,3 +219,23 @@ def test_secret_scan_policy_uses_event_derived_range_not_package_base() -> None:
     assert secret["eventRange"]["base"]["workflow_dispatch"] == "HEAD^"
     assert "github.event.before" in secret["eventRange"]["base"]["push"]
     assert "HEAD^ fallback" in secret["eventRange"]["base"]["push"]
+
+
+def test_ci_workflow_collects_test_health_baseline_without_changing_test_semantics() -> None:
+    source = workflow_source()
+
+    assert "id: test_health" in source
+    assert "TestHealthOutputPath $pytestRaw" in source
+    assert "tools/test_health_audit.py normalize" in source
+    assert "--raw-output $pytestRaw" in source
+    assert "--metadata $metadataPath" in source
+    assert "--policy architecture/test-health-policy.json" in source
+    assert "--output $receiptPath" in source
+    assert "test-health-evidence-" in source
+    assert "pytest-raw.log" in source
+    assert "test-health-receipt.json" in source
+    assert 'IZO_EXPECTED_HEAD_SHA: ${{ steps.supply_chain_range.outputs.exact_head }}' in source
+    assert "Test-health exact-head mismatch" in source
+    assert '(Join-Path $env:RUNNER_TEMP "test-health")' in source
+    assert "filterwarnings" not in source.lower()
+    assert "--reruns" not in source

@@ -1,0 +1,113 @@
+manifestVersion = 1
+id = "STAB-TEST-HEALTH-001"
+baseSha = "cf0f1db9d55205d78c81fd73eaf2d045201e0316"
+
+goal = "Capture a fresh exact-head machine-readable test-health baseline from the existing pytest/verify path without remediation or threshold enforcement."
+
+userOutcome = "Issue #112 Slice 1 produces safe raw and normalized evidence for test counts, warnings, cleanup debt and timing on the exact candidate HEAD."
+
+beforeScenario = "Main CI is green but test-health evidence exists only as console output; historical warning and cleanup counts are not a fresh machine-readable baseline."
+
+afterScenario = "The existing full verification captures its single pytest run into a safe raw log, normalizes test/warning/cleanup/timing evidence, uploads an exact-head artifact, and leaves existing debt unenforced."
+
+nonGoals = [
+  "fix warnings",
+  "fix cleanup PermissionError",
+  "introduce warning or cleanup tolerances",
+  "add retries",
+  "suppress warnings",
+  "rewrite product tests",
+  "change product behavior",
+  "implement #113 or #115",
+  "Docker work",
+  "deploy or restart",
+]
+
+declaredFiles = [
+  "tasks/STAB-TEST-HEALTH-001.toml",
+  "architecture/test-health-policy.json",
+  "tools/test_health_audit.py",
+  "tools/test_test_health_audit.py",
+  "tools/verify.ps1",
+  ".github/workflows/ci.yml",
+  "tools/test_verify_script.py",
+  "tools/test_ci_workflow.py",
+]
+
+allowedPatterns = []
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "docs/NOW.md",
+  "frontend/package.json",
+  "frontend/package-lock.json",
+  "backend/requirements.txt",
+  "tools/agent_system/**",
+  "tools/agent.ps1",
+]
+
+protectedFilesTouched = [
+  "architecture/test-health-policy.json",
+  "tools/verify.ps1",
+  ".github/workflows/ci.yml",
+]
+
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+maxProductionFiles = 0
+maxChangedLines = 1800
+
+acceptance = [
+  "Fresh exact-head CI runs the existing full verification and its existing pytest suite exactly once.",
+  "The pytest invocation adds only bounded diagnostic duration reporting when test-health capture is requested.",
+  "The safe artifact contains pytest-raw.log, test-health-receipt.json and metadata.json tied to exact HEAD/run/attempt.",
+  "Receipt reports passed/failed/skipped/xfailed/xpassed, warning total plus normalized category/source records, cleanup error records, pytest/full-verify timing and bounded slowest durations.",
+  "Retry/flaky state is NOT_OBSERVABLE or UNKNOWN unless the current runner output proves a retry count; absence is never fabricated as zero.",
+  "Random temp/runner paths are normalized so identical warning/cleanup types do not create false new categories.",
+  "Malformed/incomplete evidence, failed test execution, parser failure, missing evidence or exact-head mismatch fails Slice 1.",
+  "Existing warning and cleanup debt alone does not fail Slice 1 and no numeric tolerances/exceptions are introduced.",
+  "No warning suppression, cleanup remediation, retry addition, product/dependency change, #113/#115, Docker, deploy or restart occurs.",
+  "Normal repository exact-head CI remains green with zero production/dependency/scope violations.",
+]
+
+requiredEvidence = [
+  "tools/test_test_health_audit.py",
+  "tools/test_verify_script.py",
+  "tools/test_ci_workflow.py",
+  "test-health-evidence exact-head GitHub Actions artifact",
+  "package enforcement receipt",
+  "exact-head GitHub CI",
+]
+
+targetedTests = [
+  "tools/test_test_health_audit.py",
+  "tools/test_verify_script.py",
+  "tools/test_ci_workflow.py",
+]
+
+fileGrowthExpectations = [
+  "tools/test_health_audit.py remains a parser/normalizer only and contains no remediation or custom test-runner logic.",
+  "architecture/test-health-policy.json contains schema/status semantics only, not invented tolerances.",
+  "CI reuses the existing full verify path and does not add a second full pytest run.",
+  "No production or dependency source grows.",
+]
+
+forbiddenOperations = [
+  "deploy",
+  "restart",
+  "production-data",
+  "provider-call",
+  "direct-main",
+  "dependency-change",
+  "warning-suppression",
+  "cleanup-remediation",
+  "retry-addition",
+  "issue-113-implementation",
+  "issue-115-implementation",
+  "docker-implementation",
+  "next-slice",
+]
+
+rollbackBoundary = "Revert only the Slice 1 test-health manifest/policy/parser/tests and diagnostic CI/verify capture wiring; product, dependencies, NOW, runtime and data remain untouched."

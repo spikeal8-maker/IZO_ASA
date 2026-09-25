@@ -191,6 +191,9 @@ def test_verify_script_has_no_process_or_file_deletion_commands() -> None:
     assert "$attempt -lt 50" in source
     assert "Start-Sleep -Milliseconds 100" in source
     assert '[string]$ReceiptPath = ""' in source
+    assert '[string]$TestHealthOutputPath = ""' in source
+    assert '"--durations=10", "--durations-min=0.1"' in source
+    assert "-OutputPath $TestHealthOutputPath" in source
     assert "release_verification_receipt.py" in source
     assert "VERIFY_RECEIPT_WRITTEN" in source
     assert "$duration.ToString([Globalization.CultureInfo]::InvariantCulture)" in source

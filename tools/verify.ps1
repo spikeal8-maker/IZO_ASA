@@ -6,6 +6,7 @@ param(
     [string]$PythonPath = "",
     [string]$NpmPath = "",
     [string]$ReceiptPath = "",
+    [string]$TestHealthOutputPath = "",
     [switch]$RequireStableLiveSource,
     [switch]$StoppedBackendRecovery,
     [switch]$PlanOnly
@@ -62,15 +63,35 @@ function Invoke-NativeStep {
         [string]$Name,
         [string]$FilePath,
         [string[]]$ArgumentList,
-        [string]$WorkingDirectory
+        [string]$WorkingDirectory,
+        [string]$OutputPath = ""
     )
 
     Write-Host "VERIFY_STEP_START name=$Name"
     Push-Location -LiteralPath $WorkingDirectory
     try {
-        & $FilePath @ArgumentList
-        if ($LASTEXITCODE -ne 0) {
-            throw "Verification step '$Name' failed with exit code $LASTEXITCODE."
+        if ($OutputPath.Trim()) {
+            $outputDirectory = Split-Path -Parent $OutputPath
+            if (-not (Test-Path -LiteralPath $outputDirectory -PathType Container)) {
+                throw "Verification output directory does not exist: $outputDirectory"
+            }
+            $writer = New-Object System.IO.StreamWriter($OutputPath, $false, $utf8NoBom)
+            try {
+                & $FilePath @ArgumentList 2>&1 | ForEach-Object {
+                    $line = [string]$_
+                    $writer.WriteLine($line)
+                    Write-Host $line
+                }
+                $stepExitCode = $LASTEXITCODE
+            } finally {
+                $writer.Dispose()
+            }
+        } else {
+            & $FilePath @ArgumentList
+            $stepExitCode = $LASTEXITCODE
+        }
+        if ($stepExitCode -ne 0) {
+            throw "Verification step '$Name' failed with exit code $stepExitCode."
         }
     } finally {
         Pop-Location
@@ -238,6 +259,15 @@ $quickTests = @(
 $fullTests = @("-m", "pytest", "-q", "backend", "tools")
 $usesLiveChecks = $Mode -ne "CI"
 $usesFullSuite = $Mode -ne "Quick"
+if ($TestHealthOutputPath.Trim()) {
+    if (-not $usesFullSuite) {
+        throw "TestHealthOutputPath requires Full or CI verification mode."
+    }
+    $TestHealthOutputPath = [IO.Path]::GetFullPath($TestHealthOutputPath)
+    if ([IO.Path]::GetExtension($TestHealthOutputPath) -ne ".log") {
+        throw "TestHealthOutputPath must be a .log file."
+    }
+}
 if ($StoppedBackendRecovery -and (
     $Mode -ne "Full" -or
     -not $ReceiptPath.Trim() -or
@@ -292,7 +322,8 @@ if ($PlanOnly) {
         }
     }
     if ($usesFullSuite) {
-        Write-Host "VERIFY_PLAN_STEP pytest scope=backend+tools"
+        $testHealthPlan = if ($TestHealthOutputPath.Trim()) { " capture=$TestHealthOutputPath durations=10" } else { "" }
+        Write-Host "VERIFY_PLAN_STEP pytest scope=backend+tools$testHealthPlan"
         Write-Host "VERIFY_PLAN_STEP frontend_lint command=npm run lint"
         Write-Host "VERIFY_PLAN_STEP frontend_build command=npm run build"
         Write-Host "VERIFY_PLAN_STEP frontend_release_identity command=npm run check:release"
@@ -467,7 +498,12 @@ foreach ($environmentName in $testEnvironmentNames) {
 }
 try {
     if ($usesFullSuite) {
-        Invoke-NativeStep -Name "pytest_full" -FilePath $python -ArgumentList $fullTests -WorkingDirectory $resolvedRoot
+        $pytestArguments = if ($TestHealthOutputPath.Trim()) {
+            $fullTests + @("--durations=10", "--durations-min=0.1")
+        } else {
+            $fullTests
+        }
+        Invoke-NativeStep -Name "pytest_full" -FilePath $python -ArgumentList $pytestArguments -WorkingDirectory $resolvedRoot -OutputPath $TestHealthOutputPath
     } else {
         Invoke-NativeStep -Name "pytest_quick" -FilePath $python -ArgumentList $quickTests -WorkingDirectory $resolvedRoot
     }

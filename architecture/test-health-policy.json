@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "package": "STAB-TEST-HEALTH-001",
+  "slice": "baseline-only",
+  "baselineSource": "exact-head-github-ci",
+  "historicalCountsAcceptedAsFreshBaseline": false,
+  "measurement": {
+    "tests": [
+      "passed",
+      "failed",
+      "skipped",
+      "xfailed",
+      "xpassed"
+    ],
+    "warnings": "normalize-category-and-source-without-suppression",
+    "cleanup": "detect-remove-temp-errors-with-normalized-owner-and-path",
+    "timing": [
+      "pytest-duration",
+      "full-verification-duration",
+      "bounded-slowest-tests"
+    ],
+    "retryFlaky": "record-observable-count-or-NOT_OBSERVABLE"
+  },
+  "enforcement": {
+    "warningNumericTolerance": null,
+    "cleanupNumericTolerance": null,
+    "existingWarningExceptions": [],
+    "existingCleanupExceptions": []
+  },
+  "failureSemantics": {
+    "testExecutionFailed": "FAIL",
+    "parserUnavailable": "FAIL",
+    "evidenceMissing": "FAIL",
+    "exactHeadMismatch": "FAIL",
+    "existingWarningsOrCleanupDebtAlone": "BASELINE_ONLY_NOT_A_FAILURE"
+  }
+}
