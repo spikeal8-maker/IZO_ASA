@@ -83,6 +83,20 @@ PytestWarning: (rm_rf) unknown function scandir when removing C:\\Temp\\pytest-o
             [{"errorType": "PermissionError", "owner": "apply-secrets", "normalizedPath": "<PYTEST_TEMP>/apply-secrets", "count": 1}],
         )
 
+    def test_wrapped_powershell_cleanup_warning_is_detected(self) -> None:
+        raw = """1 passed in 0.10s
+python.exe : C:\\Python\\Lib\\site-packages\\_pytest\\pathlib.py:103: PytestWa
+rning: (rm_rf) unknown function scandir when removing \\\\?\\C:\\Temp\\pytest
+-of-admins\\garbage-123\\test_apply\\apply-secrets:
+<class 'PermissionError'>: [WinError 5] denied: '\\\\?\\C:\\Temp\\pytest-of-admins\\garbage-123\\test_apply\\apply-secrets'
+"""
+        receipt = normalize(raw, metadata(), POLICY)
+        self.assertEqual(receipt["cleanup"]["count"], 1)
+        self.assertEqual(
+            receipt["cleanup"]["categories"],
+            [{"errorType": "PermissionError", "owner": "apply-secrets", "normalizedPath": "<PYTEST_TEMP>/apply-secrets", "count": 1}],
+        )
+
     def test_malformed_incomplete_evidence_fails_without_fabricated_green(self) -> None:
         receipt = normalize("partial output only\n", metadata(), POLICY)
         self.assertEqual(receipt["evidenceStatus"], "UNAVAILABLE")
