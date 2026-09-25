@@ -75,17 +75,11 @@ function Invoke-NativeStep {
             if (-not (Test-Path -LiteralPath $outputDirectory -PathType Container)) {
                 throw "Verification output directory does not exist: $outputDirectory"
             }
-            $writer = New-Object System.IO.StreamWriter($OutputPath, $false, $utf8NoBom)
-            try {
-                & $FilePath @ArgumentList 2>&1 | ForEach-Object {
-                    $line = [string]$_
-                    $writer.WriteLine($line)
-                    Write-Host $line
-                }
-                $stepExitCode = $LASTEXITCODE
-            } finally {
-                $writer.Dispose()
-            }
+            $capturedOutput = @(& $FilePath @ArgumentList 2>&1)
+            $stepExitCode = $LASTEXITCODE
+            $capturedLines = @($capturedOutput | ForEach-Object { [string]$_ })
+            [IO.File]::WriteAllLines($OutputPath, [string[]]$capturedLines, $utf8NoBom)
+            $capturedLines | Write-Host
         } else {
             & $FilePath @ArgumentList
             $stepExitCode = $LASTEXITCODE
