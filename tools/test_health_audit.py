@@ -149,19 +149,18 @@ def _normalize_cleanup_path(lines: list[str]) -> tuple[str, str]:
     return "<UNKNOWN_TEMP_PATH>", "unknown"
 
 
-def _parse_cleanup(lines: list[str]) -> dict[str, Any]:
+def _parse_cleanup(raw_output: str) -> dict[str, Any]:
+    logical = re.sub(r"PytestWa\\s*rning", "PytestWarning", raw_output)
+    pattern = re.compile(
+        r"PytestWarning:\\s*\\(rm_rf\\)(?P<body>.*?)(?=PytestWarning:\\s*\\(rm_rf\\)|\\Z)",
+        re.DOTALL,
+    )
     aggregate: Counter[tuple[str, str, str]] = Counter()
-    for index, line in enumerate(lines):
-        if "PytestWarning: (rm_rf)" not in line:
-            continue
-        window = lines[index : min(index + 5, len(lines))]
-        error_type = "CleanupError"
-        for candidate in window:
-            match = ERROR_TYPE_RE.search(candidate)
-            if match:
-                error_type = match.group("error")
-                break
-        normalized_path, owner = _normalize_cleanup_path(window)
+    for match in pattern.finditer(logical):
+        body = match.group("body")
+        error_match = ERROR_TYPE_RE.search(body)
+        error_type = error_match.group("error") if error_match else "CleanupError"
+        normalized_path, owner = _normalize_cleanup_path(body.splitlines())
         aggregate[(error_type, owner, normalized_path)] += 1
     categories = [
         {
@@ -298,7 +297,7 @@ def normalize(raw_output: str, metadata: dict[str, Any], policy: dict[str, Any])
             violations.append("WARNING_COUNT_INCONSISTENT")
         warning_info = {"total": warnings_total, **parsed_warnings}
 
-    cleanup_info = _parse_cleanup(lines)
+    cleanup_info = _parse_cleanup(raw_output)
     slowest = _parse_slowest(lines)
 
     evidence_status = "AVAILABLE" if "PYTEST_SUMMARY_UNAVAILABLE" not in violations else "UNAVAILABLE"
