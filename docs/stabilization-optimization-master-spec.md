@@ -2,1192 +2,392 @@
 status: owner-directed-master-spec
 role: stabilization-optimization-program
 daily_context: false
-updated: 2026-09-20
+updated: 2026-09-22
 repository: spikeal8-maker/IZO_ASA
 source_baseline: 9128f99f825bdd4533dd68c44b5e2f4586719f7f
+reviewed_source: 480984d7e175eef1a1b06f6c078d76184cec2a43
 current_status_owner: docs/NOW.md
 agent_program: docs/agent-control-plane.md
 production_change_authorized: false
-program_version: 2.0
+program_version: 3.0
 ---
 
-# IZO_ASA — ТЗ на стабилизацию, оптимизацию и подготовку к AI-разработке
+# ИЗО АСА — программа надёжной поставки и эксплуатации в Докере
 
-## 1. Назначение и границы
+## 1. Цель и действие редакции
 
-Это каноническое master-ТЗ программы стабилизации IZO_ASA. Оно определяет:
+**Цель: рабочая ИЗО АСА воспроизводимо собирается из GitHub, работает в Докере,
+сохраняет данные, восстанавливает задания и допускает проверенное обновление и откат.**
 
-- что сохраняется без изменения продуктового смысла;
-- что стабилизируется;
-- что разрешено переписывать только через bounded extraction;
-- какие механизмы нужно дописать;
-- точный dependency order packages;
-- канонические mutation surfaces каждого этапа;
-- когда конкретный файл разрешено менять;
-- какие проверки обязательны после package, после трёх merged implementation
-  packages и после каждой фазы;
-- при каких условиях работа останавливается для repair/extraction;
-- как стандартизируется DEV/TEST через Docker и как этот этап ведёт к production Docker;
-- какие дополнительные gates нужны для supply-chain, данных, recovery,
-  наблюдаемости и performance;
-- как после bot-stability acceptance обязательные container-readiness/shadow gates
-  приводят к operationally verified production Docker.
+Технический критерий сохраняет идентификатор: `production IZO application runs in Docker`.
+Улучшение работы ботов — средство достижения цели, а не условие начала каждого
+продуктового испытания. Не требуется завершить всю декомпозицию или экзамен ботов,
+чтобы получить первый безопасный контейнерный комплект.
 
-Документ не заменяет:
+Редакция 3.0 меняет порядок незавершённых работ, но не аннулирует выполненные
+пакеты, исходную контрольную точку, ограничения безопасности и обязательства по
+качеству. Предыдущая редакция сохраняется в истории Git.
 
-- `AGENTS.md` — repository-wide invariants;
-- `AI_START_HERE.md` — порядок чтения coding-агента;
-- `docs/NOW.md` — единственный current-status/router;
-- `docs/agent-control-plane.md` — agent-specific subprogram;
-- `docs/context/*` — bounded domain context;
-- `architecture/contract.json` — reviewed machine-readable architecture;
-- `docs/generated/*`, `backend/SYMBOL_MAP.md` — generated evidence;
-- product-specific contracts;
-- release/backup/restore runbooks.
+Документ применяется как действующее ТЗ только после принятия и слияния его PR.
+Само чтение документа или его принятие **не разрешает перенос рабочего сайта**,
+изменение данных, оплату услуг, отправку сообщений или перезапуск чужих служб.
 
-Master-ТЗ имеет `daily_context: false`: обычный coding-agent не читает его целиком
-для каждой задачи. Он читает `AGENTS → AI_START_HERE → NOW → scoped policy →
-domain card → Task Contract → bounded evidence`.
+Только `docs/NOW.md` определяет активный пакет. Пока документ находится в черновом
+PR, действующий порядок из `main` не изменён. Незавершённые ветки не удалять и не
+пересоздавать ради перехода на новый план.
 
-Конкретный package становится исполняемым только после status transition в
-`docs/NOW.md` и отдельного Task Contract.
+## 2. Единственные владельцы информации
 
----
+| Информация | Владелец |
+|---|---|
+| Общие запреты и разрешения | `AGENTS.md` |
+| Порядок чтения | `AI_START_HERE.md` |
+| Завершённая, активная и следующая работа | `docs/NOW.md` |
+| Цель, зависимости и рубежи поставки | Этот документ |
+| Конкретные испытания контейнерной поставки | `docs/docker-delivery-acceptance.md` |
+| Инструменты и правила работы агентов | `docs/agent-control-plane.md` |
+| Области кода | `docs/context/*.md` |
+| Лимиты и архитектурные владельцы | `architecture/contract.json` |
+| Опись пользовательских сценариев | `architecture/product-flows.json` |
+| Автоматически полученные карты | `docs/generated/*`, `backend/SYMBOL_MAP.md` |
+| Границы одной реализации | Версионный `tasks/<ID>.toml` и связанный Issue/PR |
+| Операции релиза и резервного копирования | Существующие runbooks и `ops/*` |
 
-# 2. Целевой результат
+Не создавать вторую иерархию контекста, второй реестр задач, второй механизм
+блокировки репозитория или независимый движок аудита. Ссылаться на владельца факта.
+Пути будущих реализаций в этом документе — требования, а не утверждение наличия.
 
-После основной программы типовая небольшая задача должна выглядеть так:
+## 3. Исходное состояние и пределы доказательств
+
+На `reviewed_source` существуют ограниченный контекст, поиск символов, 11 карточек
+областей и опись 14 пользовательских сценариев. Проверки описи устанавливают
+структуру и ссылки; они **не доказывают выполнение всех цепочек в контейнерах**.
+
+Действующий `.github/workflows/ci.yml` использует собственный Windows-исполнитель.
+Наличие GitHub Actions не доказывает независимость от обслуживаемого владельцем ПК.
+В `ops/docker/agent-sandbox` находится среда агента, не комплект приложения.
+
+Выявленные при анализе исходников риски переноса:
+- `backend/app/services/generation_queue.py`: очередь и состояние внутри процесса;
+- `backend/app/api/routers/phone_audio.py`: озвучивание вызывает Windows PowerShell;
+- часть маршрутов, созданных фабриками, не представлена в архитектурной описи;
+- текущий `Quick` ожидает установленную среду; `CI` отделён от живых проверок;
+- наличие локального экспериментального запуска не заменяет версионную поставку.
+
+Состояние рабочего сервера подтверждается только отдельным operational evidence.
+Поля `production_release_sha` и сведения о данных нельзя обновлять по факту merge.
+
+## 4. Что сохраняем и чего не делаем
+
+Сохраняются существующий продукт и его поддерживаемые интерфейсы, Web и вход через
+ботов, идентификация, платежи, задания, приватность файлов, SQLite и медиаданные.
+Базовый стиль — модульный монолит. Галерея и лента не становятся микросервисами
+только потому, что являются отдельными функциями.
+
+Запрещено совмещать перенос с переписыванием продукта с нуля, заменой SQLite на
+PostgreSQL, массовым редизайном, переносом всех GPU-сервисов, сменой авторизации
+или необратимой миграцией без отдельного согласованного контракта.
+
+Службы моделей могут оставаться снаружи и подключаться через явные интерфейсы.
+Это решение должно быть отражено в перечне компонентов поставки и проверено на
+целевом сервере; недоступность модели не скрывается как успешная генерация.
+
+Windows-приложение остаётся возможным путём отката на период переезда. Совместимость
+его версии с данными проверяется, а не выводится из наличия старого образа.
+
+## 5. Целевая структура
 
 ```text
-запрос владельца
-→ router определяет domain/risk/change class
-→ Task Contract
-→ отдельный package/worktree + один writer
-→ machine-enforced scope
-→ bounded context/symbol window
-→ локальное изменение
-→ affected tests
-→ Package Health Gate
-→ read-only review
-→ clean PR
+ИЗО АСА — единый продукт
+│
+├── веб-часть и входной прокси
+├── сервер прикладных запросов
+├── обработчики фоновых заданий
+├── постоянная база данных
+└── постоянные изображения, видео и другие файлы
+         │
+         └── явные подключения к внешним моделям и сервисам
 ```
 
-Целевой профиль `micro-ui`:
-
-```text
-source files read:             target ≤8, hard rollout target <15
-production files changed:      ≤3 by default
-changed production LOC:        ≤150 by default
-undeclared cross-domain diff:  0
-protected-hotspot growth:      0
-broad monolith reads:          0 без recorded reason
-repeated broad scans:          0
-production/provider actions:   0
-```
-
-Главная метрика программы — **change locality**: сколько системы агент обязан
-понять и имеет право изменить ради одного пользовательского результата.
-
-Завершение bot-stability части не означает «проект идеален навсегда». Оно означает,
-что проект достиг измеримого bot-stable/maintainable baseline, а дальнейшие
-изменения не могут бесконтрольно ухудшать этот baseline.
-
-**КОНЕЧНАЯ ЦЕЛЬ ПРОГРАММЫ:** рабочий production ИЗО АСА стабильно работает в
-Docker. Application topology после обязательной production-container migration:
-
-```text
-Docker
-├── frontend
-├── backend API
-├── workers / background jobs
-├── persistent SQLite volume
-├── persistent media volume
-└── health / readiness / restart / recovery
-
-Host-native external/GPU services
-├── ComfyUI
-├── Ollama
-└── Qwen ASR
-```
-
-GPU containerization, Linux-host migration и SQLite → PostgreSQL не являются
-условиями этой цели и остаются отдельными будущими решениями.
-
----
-
-# 3. Что сохраняем
-
-Не переписывать продукт с нуля. Сохраняются:
-
-- Web, Telegram Mini App, MAX Mini App;
-- image/video/chat/audio/3D, gallery/feed, profile, billing, admin;
-- пользовательские данные и media;
-- действующие identity/billing/API contracts до отдельной миграции;
-- modular monolith как базовый стиль;
-- SQLite как текущий production datastore;
-- Windows application runtime как rollback-путь до operationally verified production Docker;
-- ComfyUI/Ollama/Qwen ASR contracts;
-- внешние provider contracts;
-- exact-SHA release/rollback model;
-- раздельные статусы `CODE COMPLETE`, `VERIFIED`, `MERGED`, `DEPLOYED`,
-  `OPERATIONALLY VERIFIED`.
+Различать функцию продукта, модуль кода и отдельно запускаемый процесс.
+Начальный безопасный комплект может содержать веб-контейнер и один серверный
+процесс с существующими встроенными обработчиками. Это промежуточная топология,
+а не заявление об уже выполненном отделении очереди.
 
-Без отдельного owner-approved program запрещено совмещать со стабилизацией:
+Отдельный обработчик допускается только после проверки передачи заданий между
+процессами, единственного захвата, устойчивого состояния и повторных эффектов.
+Несколько копий сервера с прежней внутрипроцессной очередью не являются масштабированием.
 
-- big-bang rewrite;
-- microservices ради стиля;
-- SQLite → PostgreSQL;
-- массовый redesign;
-- смену auth model;
-- production Docker cutover вне обязательных Phase 12–13 и отдельного release-ops gate;
-- перенос GPU runtime;
-- deploy/restart/provider/network action.
+Окончательная поддерживаемая топология фиксируется до рабочих испытаний. Нельзя
+выдавать промежуточный двухконтейнерный запуск за завершённое отделение обработчиков.
 
----
+## 6. Правила исполнителей и происхождения результата
 
-# 4. Подтверждённый baseline и исходный риск
+Репозиторий: только `spikeal8-maker/IZO_ASA`. Похожие репозитории не являются базой.
+Обычная реализация: отдельная ветка, один писатель, проверяемый manifest и PR.
+Изменять remote `main` напрямую запрещено; слияние выполняет интегратор после gates.
 
-На baseline:
+Для независимой сборки предпочтителен предоставляемый GitHub одноразовый Linux-
+исполнитель. Его доступность, квоты и выход к реестрам сначала подтверждаются
+реальным заданием. Новый платный ресурс без согласования не создаётся.
 
-```text
-backend/main.py                 19 749 lines
-frontend/src/newUi.tsx           3 695 lines
-frontend/src/LegacyApp.tsx       3 600 lines
-frontend/src/adminModels.tsx     2 300 lines
-frontend/src/index.css           2 501 lines
-frontend/src/newStudioV3.css     6 071 lines
-frontend/src/newUi.css           3 143 lines
-backend/test_feed_v2.py          2 346 lines
-```
+Существующие Windows-проверки не удаляются, пока их обязательное покрытие не
+перенесено или обоснованно разделено. Параллельный независимый job не доказывает
+независимость всей прежней проверки. Итоговый отчёт перечисляет оба контура.
 
-Generated inventory также фиксирует множество routes/workers/tables и текущие
-runtime/integration boundaries. Эти значения — debt baseline, не target.
+ПК владельца нужен для настоящих GPU, Windows-зависимостей, периферии и целевой
+эксплуатации. Отказ инструмента удалённого доступа не блокирует независимое
+редактирование документации, сборку и тесты, уже обеспеченные другим исполнителем.
 
-Главная проблема: repository instructions уже сильнее, чем физическая локальность
-кода. Бот знает правила, но небольшая задача всё ещё может требовать понимания
-слишком большой части системы.
+Для каждого результата фиксировать repository, исходный SHA, фактический checkout
+SHA, base SHA, workflow/run/attempt, версии инструментов, digest образов и артефактов.
+Проверку синтетического merge-коммита PR нельзя называть проверкой другого SHA.
+Перед слиянием проверяются свежие base/head; при их изменении evidence пересматривается.
 
-Уже существуют и должны переиспользоваться:
+## 7. Рубежи поставки — вместо бесконечной подготовки
 
-- `architecture/contract.json`;
-- `tools/generate_architecture_inventory.py`;
-- `tools/generate_frontend_map.mjs`;
-- `tools/generate_backend_map.py`;
-- `backend/SYMBOL_MAP.md`;
-- `tools/verify.ps1`;
-- `tools/repository-operation-lock.ps1`;
-- `docs/context/*`;
-- isolated CI с temporary DB/media/secrets и disabled providers.
+Порядок ниже заменяет прежнюю единую цепочку, откладывавшую контейнеризацию до №123.
+Каждый рубеж имеет наблюдаемый результат и приёмку. Детали — в документе испытаний.
 
-Нельзя создавать параллельный inventory, второй repository lock, второй context
-hierarchy или второй user-facing agent CLI.
+## Рубеж Д0 — исполнитель и безопасные исходные данные
 
----
+Результат: доступный через GitHub исполнитель с зафиксированными версиями и сетью,
+опубликованный исходный аудит зависимостей и проверенные границы тестовой среды.
 
-# 5. Один факт — один владелец
+Реализация №111 принята: PR №151 слит, а supply-chain gate находится в `main`
+`480984d7e175eef1a1b06f6c078d76184cec2a43`. Долги №153–156 остаются OPEN и ведутся отдельно.
+Переход статуса Issue №111 и `docs/NOW.md` ещё не выполнен и не входит в эту редакцию.
+Д0 целиком не завершён: supply-chain часть Д0 выполнена, но Д0-01 — независимый
+GitHub-hosted executor — ещё не доказан. Использовать готовые проверяющие инструменты,
+а свой код ограничить нормализацией и политикой; установка сканера в одноразовую
+CI-среду не меняет зависимости продукта.
 
-| Уровень | Канонический владелец | Содержимое |
-|---|---|---|
-| repository policy | `AGENTS.md` | долговечные invariants/safety |
-| reading/router | `AI_START_HERE.md` | порядок чтения, domain/risk routing |
-| current status | `docs/NOW.md` | completed/active/next, blockers |
-| master program | этот документ | последовательность стабилизации |
-| agent subprogram | `docs/agent-control-plane.md` | agent capabilities/tooling |
-| domain context | `docs/context/*.md` | bounded source/tests/contracts |
-| reviewed architecture | `architecture/contract.json` | owners/limits/listeners/workers/integrations |
-| generated evidence | `docs/generated/*`, `backend/SYMBOL_MAP.md` | наблюдаемое состояние source |
-| package contract | Task Manifest/issue/PR | outcome/scope/budgets/acceptance |
-| product behavior | bounded source modules | runtime behavior |
-| operational contract | `ops/*`, runbooks | release/backup/runtime operations |
+Сохранить сырые отчёты, время, коды завершения, SHA зависимостей и состояние сети.
+Сетевой отказ — `EXTERNAL_VERIFICATION_UNAVAILABLE`, не нулевой список проблем.
+Исходный сбор данных не считается принятием безопасности или разрешением релиза.
 
-Дублирование одного факта в нескольких слоях должно сводиться ссылкой или удаляться.
+Минимальная изоляция из №113 нужна до запуска приложения: новые БД/файлы/секреты,
+тестовые провайдеры, отсутствие рабочих реквизитов и доступа к чужим данным.
+Полная автоматизация №114 не является условием первого явно перечисленного теста.
 
----
+Приёмка: Д0-01 и Д0-02 документа испытаний. Отсутствие исполнителя блокирует запуск,
+но не требует бесконечных повторов той же команды на недоступном компьютере.
 
-# 6. Политика изменения ключевых файлов
+## Рубеж Д1 — воспроизводимое приложение и первый пользовательский путь
 
-## 6.1. Управляющие документы и tooling
+Результат: из чистого checkout собирается именно ИЗО АСА; контейнеры с выбранными
+образами запускаются без ручной правки файлов и рабочих секретов.
 
-### `AGENTS.md`
+Связанные работы: ранняя часть №115 и доказанные препятствия из №124.
+Не ждать полной декомпозиции №116–117 или экзамена №123.
 
-Менять только при изменении repository-wide invariants. Не превращать в backlog.
+Проверить вход, тестовую генерацию через настоящий серверный путь, результат в
+личной галерее, разрешённую публикацию и публичную ленту. Проверить отказ доступа
+второго пользователя к чужому объекту. После пересоздания контейнеров те же данные
+и файлы должны сохраниться. Имитатор модели разрешён только в испытательном контуре.
 
-### `AI_START_HERE.md`
+Поставка содержит production-подобную собранную веб-часть, не только Vite dev server.
+Начальная очередь может оставаться встроенной при явном ограничении одного процесса.
+Это не проверка реального провайдера и не перенос рабочего сайта.
 
-Менять только при изменении reading order/routing/risk classification.
+Приёмка: Д1-01–Д1-08. В отчёте — точная версия, образы, результаты и реальные снимки
+браузера. Адрес внутри CI не выдаётся за доступный владельцу демонстрационный сайт.
 
-### `docs/NOW.md`
+## Рубеж Д2 — устойчивость заданий и данных
 
-Остаётся коротким status/router. Hard limit не повышается ради нового roadmap.
-Подробности выносятся в master/package docs.
+Результат: определённое поведение после падения/отмены задания, отсутствие повторных
+списаний и публикаций, проверенный механизм восстановления данных.
 
-### `docs/agent-control-plane.md`
+Связанные работы: №118–119, нужные части №113–115 и точечные извлечения №117.
+Отделение обработчика — только с устойчивым протоколом передачи и захвата заданий.
+Семантику отмены, незавершённого внешнего вызова и возврата фиксировать до реализации.
+Не обещать ровно один внешний вызов, если провайдер не поддерживает идемпотентность.
 
-Только agent capabilities/order/metrics. Не накапливать receipts.
+Проверить миграции, отдельное восстановление резервной копии и поведение при
+недоступном хранилище. Сохранённый том не является резервной копией.
 
-### `architecture/contract.json`
+Приёмка: Д2-01–Д2-06. Нельзя перейти дальше при необъяснённой потере/повреждении
+данных, повторном денежном эффекте или вечном зависшем задании.
 
-Менять только при сознательном изменении reviewed architecture contract. Нельзя
-повышать `file_limits`/`symbol_limits` ради зелёного gate. После extraction лимит
-снижается в том же package.
-
-### `docs/generated/*`, `backend/SYMBOL_MAP.md`
-
-Только generator output. Ручное редактирование запрещено.
-
-### `tools/verify.ps1`
-
-Остаётся orchestrator verification. Запрещено помещать product business logic,
-одноразовый bypass или workaround ради одного package.
-
-### `tools/repository-operation-lock.ps1`
-
-Расширять существующий lock contract; второй lock implementation запрещён.
-
-## 6.2. Product hotspots
-
-### `backend/main.py`
-
-Frozen compatibility/composition hotspot.
-
-Разрешено:
-
-- минимальный wiring после extraction;
-- behavior-preserving extraction;
-- incident bugfix с минимальным diff и `net non-growth`.
-
-Запрещено:
-
-- новое business logic;
-- новый persistent worker/service/domain implementation;
-- увеличение line/symbol budget.
-
-### `frontend/src/newUi.tsx`
-
-Feature-package не увеличивает файл. Если boundary не выделена — сначала отдельный
-extraction package, затем отдельный behavior package.
-
-### `frontend/src/adminModels.tsx`
-
-Characterize → extract bounded admin feature → lower budget → затем behavior.
-
-### `frontend/src/LegacyApp.tsx`
-
-Frozen compatibility. Новые функции запрещены без compatibility-specific package.
-
-### `frontend/src/newStudioV3.css`, `frontend/src/newUi.css`, `frontend/src/index.css`
-
-Новый feature не добавляет global selectors без доказанной необходимости.
-Предпочтение — feature/component scoped CSS. Decomposition не смешивается с
-redesign.
-
-### Крупные legacy test files
-
-Также `net non-growth`. При активном touch cohesive test group выносится в новый
-bounded test module.
-
----
-
-# 7. Quality budgets и anti-gaming
-
-## 7.1. Protected hotspots
-
-Для protected paths:
-
-- feature package: delta ≤0;
-- extraction package: delta <0;
-- после extraction `max_lines` уменьшается в том же commit;
-- уменьшение одного hotspot не компенсирует рост другого;
-- временный uncommitted growth допустим только если итоговый diff уменьшает debt.
-
-## 7.2. Новые handwritten modules
-
-```text
-≤500 lines       нормальный диапазон
-501–750          decomposition review + записанная причина
->750             hard fail для обычного нового source module
-```
-
-Ориентиры:
-
-```text
-React component         желательно ≤300
-hook/service module     желательно ≤350–500
-feature-scoped CSS      желательно ≤400
-new test module         желательно ≤500–700
-```
-
-## 7.3. Нельзя играть метрикой размера
-
-Architecture audit одновременно контролирует:
-
-- cross-domain imports;
-- fan-in/fan-out;
-- circular dependencies;
-- duplicate services/API facades/contracts;
-- CSS overlap/global specificity;
-- routes/workers/integrations without owner;
-- orphan/dead compatibility code;
-- test locality;
-- context packet size;
-- filesOpened и repeated scans cold-agent.
-
-Разбиение одного монолита на десять тесно связанных файлов без уменьшения blast
-radius не считается успешной оптимизацией.
-
-## 7.4. Trend rule
-
-Если boundary вырос >15% за три implementation packages и рост не является новым
-самостоятельным bounded module, следующий feature package блокируется до
-Architecture Checkpoint.
-
----
-
-# 8. Change classes
-
-Каждый package имеет `riskClass` и `changeClass`.
-
-| changeClass | Назначение | Default budget |
-|---|---|---:|
-| `micro-ui` | кнопка/текст/local layout | ≤3 prod files, ≤150 LOC |
-| `feature-ui` | один bounded UI flow | ≤8 prod files, ≤500 LOC |
-| `backend-feature` | один backend domain | ≤6 source modules |
-| `bugfix` | локальный regression | минимальный reproducible diff |
-| `extraction` | behavior-preserving decomposition | hotspot net decrease |
-| `architecture` | tooling/contracts/maps | no product behavior change |
-| `dev-env` | dev/test environment | no production runtime change |
-| `security-maintenance` | dependency/security remediation | no unrelated behavior |
-| `release-ops` | production/release/network | separate authorization |
-
-Budget overflow приводит к `SCOPE_EXPANSION_REQUIRED`, а не к молчаливому росту.
-
----
-
-# 9. Обязательная структура Task Manifest
-
-```yaml
-id:
-goal:
-userOutcome:
-beforeScenario:
-afterScenario:
-nonGoals: []
-domain:
-riskClass:
-changeClass:
-declaredFiles: []
-allowedPatterns: []
-forbiddenPatterns: []
-maxProductionFiles:
-maxChangedLines:
-acceptance: []
-requiredEvidence: []
-targetedTests: []
-fileGrowthExpectations: []
-forbiddenOperations: []
-rollbackBoundary:
-```
-
-Handoff всегда отдельно показывает:
-
-```text
-IMPLEMENTED
-TESTED
-PACKAGE-HEALTH
-FILE-GROWTH
-SCOPE-VIOLATIONS
-SECURITY/DEPENDENCY
-DATA/RECOVERY (если применимо)
-COMMITTED
-PUSHED/PR
-MERGED
-DEPLOYED
-OPERATIONALLY VERIFIED
-BLOCKED
-```
-
----
-
-# 10. Три уровня самоконтроля
-
-## 10.1. После каждого implementation package — Package Health Gate
-
-Проверить:
-
-1. полный diff и production file count;
-2. declared/allowed/forbidden scope;
-3. changed LOC/bytes;
-4. protected file/symbol limits;
-5. новые modules >500/>750;
-6. dependency/cycle/cross-domain changes;
-7. duplicate/parallel implementation risk;
-8. generated-map drift;
-9. context/docs drift;
-10. targeted tests и locality;
-11. secret/provider/production safety;
-12. dependency/security delta;
-13. rollback boundary;
-14. user-visible before/after acceptance.
-
-## 10.2. После каждых 3 merged implementation packages — Architecture Checkpoint
-
-Проверить:
-
-- hotspot trend;
-- modules >500/>750;
-- cross-domain dependency count;
-- duplicate API/services/styles;
-- route/table/worker growth;
-- ownerless runtime components;
-- orphan compatibility code;
-- test suite growth/flakiness/warnings;
-- source/context/generated drift;
-- cold-agent context cost;
-- какие следующие features требуют extraction.
-
-Checkpoint read-mostly. Он может открыть bounded repair/extraction package, но не
-смешивает аудит и массовый refactor.
-
-## 10.3. После каждой фазы — Phase Acceptance Gate
-
-Обязательны:
-
-- package-specific acceptance;
-- required Quick/CI;
-- bounded cold-agent scenario;
-- metric comparison с началом фазы;
-- file/coupling trend;
-- security/dependency delta;
-- remaining debt;
-- rollback evidence.
-
-Ухудшение ключевой метрики блокирует автоматический переход к следующей фазе.
-
-## 10.4. Stop-the-line conditions
-
-Следующий ordinary feature package не стартует, если обнаружено хотя бы одно:
-
-- незаявленный cross-domain diff;
-- direct ordinary-agent mutation `main`;
-- новый high/critical dependency vulnerability без exception;
-- protected hotspot growth;
-- новый ownerless persistent worker/route/integration;
-- stale generated/contract evidence;
-- failed recovery/data-integrity rehearsal в затронутой data boundary;
-- critical product flow без regression coverage после изменения его contract;
-- повторяющийся flaky/failing test, скрывающий acceptance.
-
----
-
-# 11. Dependency order реализации
-
-## PHASE 0 — измеримая точка A
-
-### `AI-EVAL-BASELINE-001` / issue #71
-
-**Purpose:** измерить сегодняшнюю стоимость/точность cold-agent.
-
-**Writes:** product writes запрещены. Разрешены только bounded evaluation receipts.
-
-**Зафиксировать:**
-
-- filesOpened/largeFilesOpened;
-- repeatedScans/toolCalls;
-- proposedDomains/files;
-- routing mistakes;
-- ownerCorrections;
-- factual tokens, если доступны;
-- baseline file sizes/routes/tables/workers;
-- baseline test duration/warnings;
-- baseline dependency audit summary.
-
-**Exit:** точка A зафиксирована; top failure modes известны.
-
----
-
-## PHASE 1 — package ownership и физическая защита `main`
-
-### `AI-PACKAGE-001`
-
-**Canonical mutation surface:**
-
-```text
-tools/agent.ps1                         NEW canonical CLI
-tools/agent_system/package.py           NEW
-tools/agent_system/registry.py          NEW
-tools/repository-operation-lock.ps1     EXTEND, do not duplicate
-tools/test_agent_package.py             NEW
-```
-
-**Реализовать:** Task Manifest, worktree lifecycle, one-writer ownership,
-overlap detection, controlled scope expansion.
-
-### `STAB-MAIN-GUARD-001`
-
-**Purpose:** убрать класс ошибок «бот случайно записал в main».
-
-**Mutation/config surface:**
-
-```text
-.github/workflows/ci.yml                validation only
-tools/agent_system/main_guard.py        NEW or same package guard module
-repository settings / GitHub ruleset    external reviewed configuration
-agent credentials                       external permission boundary
-```
-
-**Required outcome:**
-
-1. preferred: branch protection/ruleset запрещает direct push;
-2. если текущий GitHub plan не позволяет достаточную protection — coding-agent
-   credentials не имеют права обновлять `refs/heads/main`;
-3. merge выполняет только integration owner/integration credential;
-4. repo hooks остаются дополнительной, а не единственной защитой.
-
-**Acceptance:** попытка ordinary coding-agent записать `main` получает отказ до
-изменения remote ref.
-
-**Exit:** one-writer/package ownership + remote main guard доказаны тестом.
-
----
-
-## PHASE 2 — fail-closed scope и architecture health
-
-### `AI-ENFORCE-001`
-
-**Canonical surface:**
-
-```text
-tools/agent.ps1
-tools/agent_system/enforce.py            NEW
-tools/verify.ps1
-.github/workflows/ci.yml
-versioned hooks location                  one canonical implementation
-tools/test_agent_enforce.py              NEW
-```
-
-**Fail closed на:** undeclared path, forbidden path, owner mismatch, unauthorized
-migration/dependency/global-config change, budget overflow, invalid manifest.
-
-### `STAB-SIZE-001`
-
-Не создавать второй inventory. Расширить:
-
-```text
-architecture/contract.json
-tools/generate_architecture_inventory.py
-docs/generated/architecture-inventory.*
-tools/test_architecture_inventory.py     existing/new focused tests
-```
-
-Добавить protected flag, soft/hard thresholds, current/baseline delta, 3-package
-trend и coupling-health summary.
-
-**Acceptance:** искусственный рост protected hotspot fail; extraction с decrease +
-lowered budget pass.
-
-**Exit:** scope и structural regression технически не проходят green package.
-
----
-
-## PHASE 3 — scoped instructions и bounded context
-
-Последовательность:
-
-1. `AI-INSTRUCTION-SCOPE-001`;
-2. `AI-CONTEXT-SCHEMA-001`;
-3. `AI-CONTEXT-PILOT-001`;
-4. `AI-SYMBOL-CONTEXT-001`;
-5. `AI-CONTEXT-EXPAND-001`.
-
-**Canonical surface:**
-
-```text
-backend/AGENTS.md                         NEW scoped policy
-frontend/AGENTS.md                        NEW
-ops/AGENTS.md                             NEW
-docs/AGENTS.md                            NEW
-docs/context/**
-docs/generated/context-index.*
-tools/agent.ps1
-tools/agent_system/context.py             NEW
-tools/generate_context_index.py           NEW
-existing frontend/backend maps            REUSE
-```
-
-**Exit:** ordinary UI cold task читает <15 source files, target ≤8; no unexplained
-full reads hotspots; repeated broad scans = 0.
-
----
-
-## PHASE 4 — продуктовый regression contract и supply-chain quality floor
-
-### `STAB-PRODUCT-CONTRACT-001`
-
-**Проблема:** существующий `TEST_PLAN.md` полезен, но не является достаточным
-machine-readable current contract всех критичных пользовательских journeys.
-
-**Canonical surface:**
-
-```text
-architecture/product-flows.json           NEW reviewed critical-flow contract
-tools/generate_product_flow_map.py         NEW deterministic generator
-docs/generated/product-flow-map.*          GENERATED
-TEST_PLAN.md                                concise human entry/update
-tests/e2e or existing focused tests         link, not duplicate
-```
-
-Каждый critical flow содержит: id, user surface, auth state, entry route, API
-chain, durable result, billing/data side effects, expected failures, owner,
-minimum automated evidence.
-
-Минимальные flows: login/session, image generation, result/gallery, publish/feed,
-billing/payment state, chat, video, audio, Telegram/MAX trusted entry, admin
-critical operations.
-
-**Acceptance:** изменение critical flow contract без связанного regression test
-или explicit migration package fail.
-
-### `STAB-SUPPLY-CHAIN-001`
-
-**Current evidence:** CI должен учитывать фактические npm/Python dependency risks,
-а не только lockfile наличие.
-
-**Canonical surface:**
-
-```text
-frontend/package.json
-frontend/package-lock.json
-backend/requirements.txt
-architecture/security-policy.json          NEW reviewed thresholds/exceptions
-tools/supply_chain_audit.py                 NEW
-.github/workflows/ci.yml
-tools/verify.ps1
-```
-
-**Policy:**
-
-- baseline existing vulnerabilities отдельно инвентаризируются;
-- новые critical/high vulnerabilities fail closed;
-- existing high/critical не становятся вечным baseline: каждый имеет issue,
-  owner, rationale, remediation path и expiry;
-- lockfile updates выполняются отдельными dependency packages;
-- secret scanning обязателен для changed files/repo history boundary;
-- license policy проверяется для новых production dependencies;
-- auto-fix без review запрещён.
-
-### `STAB-TEST-HEALTH-001`
-
-**Purpose:** CI не должен быть зелёным ценой flaky tests, растущих warnings или
-неубираемых temp resources.
-
-Контролировать:
-
-- failed/flaky/retried tests;
-- warning count by category;
-- cleanup errors;
-- suite runtime trend;
-- tests with hidden network/provider access.
-
-**Exit phase:** critical product flow contract существует; security delta
-контролируется; test-health baseline определён и не ухудшается.
-
----
-
-## PHASE 5 — isolated dev environment и affected verification
-
-### `AI-DEV-ENV-001`
-
-**Surface:**
-
-```text
-tools/agent.ps1
-tools/agent_system/env.py                  NEW
-backend/test_support/**                    REUSE/EXTEND
-.runtime/**                                local only, never Git data
-tests for cleanup/isolation
-```
-
-Temporary DB/media/secrets, fake providers, unique ports, cleanup receipt.
-
-### `AI-VERIFY-001`
-
-**Surface:**
-
-```text
-tools/agent.ps1
-tools/agent_system/verify.py               NEW
-architecture/contract.json                 reviewed impact semantics
-tools/verify.ps1
-tools/generate_frontend_map.mjs            REUSE
-tools/generate_architecture_inventory.py   REUSE
-.github/workflows/ci.yml
-```
-
-Связать changed path/symbol → domain/contracts → unit/component/integration/e2e.
-Full — один раз на clean integration/release candidate.
-
-**Exit:** micro-task не запускает unrelated full-system verification; environment
-не имеет доступа к production data/providers.
-
----
-
-## PHASE 6 — Docker DEV/TEST
-
-### `DOCKER-DEV-001`
-
-Docker вводится только после scope/context/env/verify foundations.
-
-**Surface:**
-
-```text
-ops/docker/dev/compose.yml                  NEW
-ops/docker/dev/Dockerfile.backend           NEW
-ops/docker/dev/Dockerfile.frontend          if justified
-ops/docker/dev/.env.example                 secret-free
-.dockerignore
-backend/app/config.py                       only portable config changes
-tools/agent.ps1                             env-up/env-down integration
-```
-
-**Portability audit:** Windows paths, DPAPI-only assumptions, localhost,
-subprocess/service control, filesystem semantics, provider endpoints, GPU deps,
-persistence roots.
-
-ComfyUI/Ollama/Qwen остаются host-native/fake на этом этапе.
-
-**Exit:** clean machine/agent поднимает безопасную DEV/TEST environment одной
-командой; Windows production не меняется. `DOCKER-DEV-001` остаётся DEV/TEST,
-но является первым обязательным Docker-этапом пути к production Docker и сам по
-себе не является production migration.
-
----
-
-## PHASE 7 — frontend hotspot decomposition
-
-### `AI-DECOMPOSE-FRONTEND-*`
-
-Не массовый rewrite. Выбирать boundary по фактическим touch points.
-
-Целевое направление:
-
-```text
-StudioShell
-features/
-  navigation/
-  generation/
-  result/
-  history/
-  gallery/
-  profile/
-  billing/
-  video/
-  audio/
-  chat/
-```
-
-Feature по возможности владеет component + hook/state + API facade + scoped CSS
-+ tests.
-
-Порядок каждой extraction:
-
-```text
-characterization
-→ extract without behavior change
-→ targeted parity tests
-→ update maps/context
-→ lower hotspot budget
-→ merge + checkpoint
-→ separate feature package
-```
-
-**Exit:** новая небольшая UI-функция обычно живёт в одной feature boundary;
-global CSS growth = 0; cold-task locality улучшается.
-
----
-
-## PHASE 8 — backend hotspot decomposition
-
-### `AI-DECOMPOSE-BACKEND-*`
-
-Canonical owners уже существуют в:
-
-```text
-backend/app/api/**
-backend/app/billing/**
-backend/app/database/**
-backend/app/integrations/**
-backend/app/lifespan/**
-backend/app/security/**
-backend/app/services/**
-backend/app/storage/**
-```
-
-Не создавать `backend_new`, `core2`, `services_new`.
-
-Порядок: characterization → route/service/data boundary → extraction → parity →
-maps/context → lower `main.py` budget → отдельный behavior package.
-
-Priority определяется activity/blast radius: workers, generation/recovery, feed,
-auth, billing/payments, media lifecycle, admin operations.
-
-**Exit:** новое business logic не попадает в `backend/main.py`; composition shell
-имеет устойчивый downward trend.
-
----
-
-## PHASE 9 — data integrity, recovery, runtime health и performance floor
-
-### `STAB-DATA-RECOVERY-001`
-
-Существующие backup/restore runbooks переиспользуются. Не создавать второй
-production backup mechanism.
-
-**Проверить на безопасных копиях:**
-
-- SQLite `quick_check`/integrity;
-- migration ledger/checksum compatibility;
-- backup creation via supported mechanism;
-- restore rehearsal в isolated location;
-- media/database referential consistency;
-- startup после restore;
-- rollback boundary;
-- RPO/RTO фактически измерены для rehearsal, не придуманы.
-
-**Acceptance:** restore rehearsal создаёт receipt и не затрагивает production.
-
-### `STAB-RUNTIME-HEALTH-001`
-
-Каждый persistent worker/listener/integration имеет owner, durable state,
-recovery, retry/idempotency, health evidence и понятное degraded state.
-
-`watchdog: missing` для production-critical persistent worker должен быть либо
-закрыт, либо иметь явный approved waiver с rationale.
-
-Добавить/уточнить readiness отдельно от process-is-running.
-
-### `STAB-PERFORMANCE-001`
-
-Сначала измерить deterministic baseline, затем задать budgets. Не использовать
-внешнюю AI/provider latency как жёсткий CI gate.
-
-Контролировать минимум:
-
-- frontend bundle/build size trend;
-- app startup/readiness time;
-- latency локальных deterministic API endpoints;
-- SQLite hot-path/query regressions там, где есть measurable scenario;
-- worker backlog/loop health;
-- test/CI duration;
-- memory/resource regression для deterministic dev/test workloads.
-
-Default rule: >10–15% unexplained regression требует review, а hard threshold
-фиксируется только после baseline package.
-
-**Exit phase:** recovery rehearsal проходит; persistent runtime имеет health
-contracts; deterministic performance не деградирует бесконтрольно.
-
----
-
-## PHASE 10 — contract graph и drift
-
-### `AI-CONTRACT-GRAPH-001`
-
-Описывать:
-
-```text
-UI → API → service → DB → worker → provider → billing/media result
-```
-
-Использовать `unknown`, а не догадки.
-
-### `STAB-DRIFT-001`
-
-Расширять существующие generators/`verify.ps1`, не создавать второй audit engine.
-
-CI обнаруживает:
-
-- source/context mismatch;
-- stale generated maps;
-- ownerless route/worker/integration;
-- undeclared cross-domain dependency;
-- file/symbol budget drift;
-- duplicate ownership;
-- stale contract edge;
-- critical product-flow test drift;
-- security-policy exception expiry.
-
-**Exit:** существенный architectural/product/security drift невозможно незаметно
-протащить в green package.
-
----
-
-## PHASE 11 — финальный cold-agent acceptance
-
-### `AI-EVAL-001`
-
-Независимые cases:
-
-1. micro UI;
-2. bounded backend behavior;
-3. chat;
-4. admin economics;
-5. diagnosis-only;
-6. extraction;
-7. dependency/security maintenance;
-8. data-safe migration/verification case без production mutation.
-
-Метрики:
-
-```text
-filesOpened
-largeFilesOpened
-filesChanged
-crossDomainViolations
-repeatedScans
-toolCalls
-ownerCorrections
-firstPassAcceptance
-factualTokenUsage
-verificationTime
-```
-
-Bot-stability targets:
-
-- first-pass acceptance ≥80%;
-- ordinary UI source reads <15, target ≤8;
-- undeclared cross-domain changes = 0;
-- merged scope violations = 0;
-- protected hotspot growth = 0;
-- repeated broad scans = 0;
-- unauthorized production/release action = 0;
-- ordinary coding-agent direct main writes = 0.
-
-**Exit:** результат лучше baseline и выполнены bot-stability acceptance gates ниже; после #123 фиксируется `BOT-STABILITY ACCEPTED`, но полная программа продолжается через обязательные #124–#126.
-
----
-
-## PHASE 12 — mandatory production-container readiness/shadow
-
-Эта фаза обязательна после core bot-stability acceptance. Она не переключает
-production traffic, но является обязательным gate перед production Docker.
-
-### `CONTAINER-READY-001` / issue #124
-
-Устранить только доказанные portability blockers: Windows paths, localhost,
-DPAPI coupling, service-control/domain coupling, storage/media roots,
-readiness/shutdown, provider endpoints. Не выполнять широкую platform migration.
-
-### `CONTAINER-SHADOW-001` / issue #125
-
-Запустить изолированный Docker shadow на безопасных данных без production traffic
-и доказать frontend/API/jobs/storage/shutdown/resource parity.
-
----
-
-## PHASE 13 — mandatory production Docker
-
-### `CONTAINER-PRODUCTION-001` / issue #126
-
-Каноническая конечная topology:
-
-```text
-Windows host
-├── approved edge / FRP
-├── ComfyUI host-native GPU
-├── Ollama host-native GPU
-├── Qwen ASR host-native GPU
-└── Docker
-     ├── IZO frontend
-     ├── IZO backend
-     ├── IZO workers
-     ├── SQLite persistent volume
-     └── media persistent volume
-```
-
-Обязательны exact image ↔ Git SHA identity, persistent volumes, consistent SQLite
-backup/restore evidence, portable secrets, readiness/health, worker recovery,
-container recreate без потери durable state, проверенные container ↔ host GPU
-endpoints, public application flow и rollback на Windows application runtime.
-Windows runtime остаётся rollback-путём до operational verification production Docker.
-
-Docker migration нельзя совмещать с SQLite → PostgreSQL. GPU containers и
-Linux-host migration — отдельные будущие решения.
-
----
-
-# 12. Минимальные проверки по типу изменений
-
-| Изменение | До | После |
-|---|---|---|
-| extraction | characterization/regression | parity + map + lower budget |
-| micro-ui | focused component/browser baseline | targeted + desktop/mobile evidence |
-| backend feature | relevant contract/unit baseline | service/API + Quick |
-| worker/job | lifecycle/idempotency baseline | focused race/idempotency x5 |
-| auth/billing | security boundary baseline | focused security/race x5 + review |
-| dependency update | audit + lockfile diff | audit no worse + targeted behavior |
-| architecture/tooling | generator check | tool tests + deterministic `--check` + Quick |
-| dev environment | isolated CI baseline | temp/fake cleanup + no prod access |
-| Docker DEV | native dev smoke | clean build/recreate parity |
-| data/recovery | backup/restore preflight on copy | integrity + restore receipt |
-| release-ops | runbook preflight | exact-SHA operational evidence |
-
----
-
-# 13. Program-wide quality floor
-
-Программа не считается завершённой только потому, что боты читают меньше файлов.
-Нужны одновременно пять уровней качества.
-
-## 13.1. Agent safety
-
-- scope enforced mechanically;
-- one writer/package;
-- direct main write denied;
-- bounded context;
-- affected verification;
-- no unauthorized production actions.
-
-## 13.2. Architecture health
-
-- protected hotspots не растут;
-- новые ordinary modules не превышают hard thresholds;
-- ownerless routes/workers/integrations = 0;
-- no silent duplicate ownership;
-- cross-domain dependency trend объясним и bounded.
-
-## 13.3. Product regression safety
-
-- critical product flows имеют owners и minimum automated evidence;
-- behavior-preserving extraction доказывает parity;
-- user-visible change имеет before/after acceptance;
-- legacy compatibility меняется только отдельным contract.
-
-## 13.4. Security/supply-chain
-
-- secret scan clean для changed scope;
-- новые critical/high dependency vulnerabilities = 0;
-- существующие exceptions time-bounded и tracked;
-- new production dependency проходит license/security review;
-- lockfile changes принадлежат отдельному package или явному scope.
-
-## 13.5. Data/runtime recoverability
-
-- migration checksums/ledger consistent;
-- isolated restore rehearsal проходит;
-- persistent workers имеют recovery/health evidence;
-- deterministic performance/resource budgets не имеют unexplained regression.
-
----
-
-# 14. Definition of Done программы
-
-## 14.1. BOT-STABILITY ACCEPTED
-
-После core acceptance #123 статус `BOT-STABILITY ACCEPTED` означает, что:
-
-1. Cold agent правильно определяет repo/domain/package без истории чата.
-2. Task scope проверяется технически, не только текстом.
-3. Coding-agent не может записать `main` напрямую.
-4. Один writer не пересекает чужой package незаметно.
-5. Ordinary UI task не требует чтения больших монолитов.
-6. Protected hotspots не растут и имеют downward trend при touch.
-7. Новый business code находится в bounded modules.
-8. File/coupling/architecture drift автоматически блокирует regression.
-9. Critical product flows имеют current machine-readable contract и tests.
-10. New high/critical dependency vulnerabilities не допускаются.
-11. Existing high/critical dependency debt имеет bounded remediation/expiry.
-12. Test-health baseline не деградирует: flaky/warning/cleanup debt tracked.
-13. Isolated dev/test не использует production DB/media/providers.
-14. Docker DEV/TEST воспроизводим и остаётся DEV/TEST, не production migration.
-15. Affected tests выбираются автоматически и объяснимо.
-16. Restore rehearsal на безопасной копии проходит с evidence.
-17. Persistent runtime components имеют owner/recovery/health semantics.
-18. Deterministic performance budgets не имеют unexplained regression.
-19. Cold-agent first-pass acceptance ≥80%.
-20. Undeclared cross-domain changes = 0.
-21. Merged scope violations = 0.
-22. Unauthorized production/release actions = 0.
-23. Каждый третий implementation package оставляет Architecture Checkpoint.
-24. Каждая core-фаза закрывается Phase Acceptance Gate.
-
-Если эти обязательные пункты не выполнены, статус `BOT-STABILITY ACCEPTED` не
-выдаётся. Получение этого статуса не закрывает полную программу.
-
-## 14.2. FULL PROGRAM COMPLETE
-
-Полная программа и epic получают `FULL PROGRAM COMPLETE` только после успешных:
-
-```text
-#124 CONTAINER-READY-001
-→ #125 CONTAINER-SHADOW-001
-→ #126 CONTAINER-PRODUCTION-001
-```
-
-Full Program DoD дополнительно требует:
-
-- production IZO application runs in Docker;
-- frontend/backend/workers containerized;
-- SQLite persists outside ephemeral container layer;
-- media persists outside ephemeral container layer;
-- container recreate does not destroy durable state;
-- health/readiness works;
-- worker recovery works;
-- backup/restore evidence exists;
-- container ↔ host GPU endpoints verified;
-- exact image ↔ Git SHA identity verified;
-- public application flow verified;
-- Windows rollback remains available until production Docker is operationally verified.
-
----
-
-# 15. Порядок следующей работы
-
-После merge master-spec первым остаётся существующий read-only package:
-
-```text
-AI-EVAL-BASELINE-001
-```
-
-Далее dependency chain:
-
-```text
-AI-EVAL-BASELINE-001
-→ AI-PACKAGE-001
-→ STAB-MAIN-GUARD-001
-→ AI-ENFORCE-001
-→ STAB-SIZE-001
-→ AI-INSTRUCTION-SCOPE-001
-→ AI-CONTEXT-SCHEMA-001
-→ AI-CONTEXT-PILOT-001
-→ AI-SYMBOL-CONTEXT-001
-→ AI-CONTEXT-EXPAND-001
-→ STAB-PRODUCT-CONTRACT-001
-→ STAB-SUPPLY-CHAIN-001
-→ STAB-TEST-HEALTH-001
-→ AI-DEV-ENV-001
-→ AI-VERIFY-001
-→ DOCKER-DEV-001
-→ AI-DECOMPOSE-FRONTEND-*
-→ AI-DECOMPOSE-BACKEND-*
-→ STAB-DATA-RECOVERY-001
-→ STAB-RUNTIME-HEALTH-001
-→ STAB-PERFORMANCE-001
-→ AI-CONTRACT-GRAPH-001
-→ STAB-DRIFT-001
-→ AI-EVAL-001
-→ CONTAINER-READY-001
-→ CONTAINER-SHADOW-001
-→ CONTAINER-PRODUCTION-001
-```
-
-После каждого package — Package Health Gate. После каждых трёх merged
-implementation packages — Architecture Checkpoint. После каждой фазы — Phase
-Acceptance Gate.
-
-Ключевое правило на всём пути:
-
-```text
-если feature требует роста уже перегруженной boundary,
-сначала минимальный behavior-preserving extraction/stabilization package,
-затем отдельный feature package.
-```
+## Рубеж Д3 — поддерживаемые функции и целевая машина
+
+Результат: проверенная матрица всех включённых функций, явные внешние зависимости,
+проверка реальных моделей и ресурсов на разрешённом сервере.
+
+Связанные работы: №110–112, №118–120, №124 и нужные извлечения №116–117.
+Работа через настоящий API и браузер обязательна для затронутых функций.
+
+Пропущенный генератором маршрут — пробел доказательства, а не основание убрать
+работающую функцию из приёмки. Исправить опись или предъявить отдельный точный тест.
+Озвучивание через Windows, общий путь опроса заданий и административные операции
+должны получить явное решение. Нельзя молча отключать их ради зелёного результата.
+
+Для каждого включённого сценария нужны обязательные тесты и проверенный результат.
+3D остаётся отключённым/контрактным, пока отдельная реализация не принята.
+Визуальные улучшения допустимы отдельными проверяемыми работами после Д1, без
+ожидания глобального разбиения интерфейса и без смешивания с переносом данных.
+
+Приёмка: Д3-01–Д3-04. Сетевые/платные вызовы — только по явному разрешению владельца.
+
+## Рубеж Д4 — теневой запуск и перенос рабочего сервиса
+
+Результат: на целевой машине проверена совместимость контейнерного комплекта,
+затем отдельно разрешённый перенос данных и трафика с проверенным откатом.
+
+Сначала №125: отдельные безопасные данные, отсутствие рабочего трафика и внешних
+эффектов. Затем №126: отдельное решение владельца на перенос, резервная копия,
+прекращение старой записи/обработки, миграция, переключение, контрольный прогон.
+
+Одновременно работающие старый и новый обработчики не должны выполнять одно задание,
+получать одни и те же обновления ботов или писать в одну рабочую БД.
+Репетиция отката проверяет не только образ, но и совместимость схемы/файлов/секретов.
+
+Приёмка: Д4-01–Д4-04. Без закрытых критических замечаний по безопасности, данным и
+включённым функциям перенос запрещён. Документ не является разрешением переноса.
+
+## 8. Сопоставление с существующими задачами
+
+Номера сохраняются; новая иерархия задач вместо существующей не создаётся.
+
+| Задача | Роль после пересмотра |
+|---|---|
+| №71 `AI-EVAL-BASELINE-001` | Сохранить неизменную исходную контрольную точку |
+| №101 `AI-PACKAGE-001`, №102 `STAB-MAIN-GUARD-001`, №103 `AI-ENFORCE-001`, №104 `STAB-SIZE-001` | Сохранить владение, физические ограничения прав, scope и бюджеты |
+| №105–110, №139 | Сохранить принятые результаты контекста, описи сценариев и изоляции; не переделывать ради нумерации |
+| №111 | Реализация supply-chain аудита и политики принята, PR №151 слит в `main`; №153–156 остаются OPEN tracked debt, а Issue/NOW status transition ещё не выполнен; это не закрывает Д0-01 |
+| №112 | Стабильность тестов; сопровождать Д0–Д3, не скрывать flaky/warning/cleanup debt |
+| №113 | Минимальная изоляция до Д1, дальнейшая автоматизация по фактическим потребностям |
+| №114 | Явный выбор подходящих проверок сейчас; автоматический выбор не блокирует первый smoke |
+| №115 `DOCKER-DEV-001` | Версионный комплект DEV/TEST для Д1; итоговая приёмка после воспроизводимости и очистки |
+| №116–117 | Только нужные bounded извлечения; не обязательная полная переделка до первого запуска |
+| №118–119 | Сохранность данных и фоновые процессы; обязательны до рабочего переноса |
+| №120 | Измерение ресурсов и производительности целевого сценария до Д4 |
+| №121–122 | Достоверность карт и контроль дрейфа; критические пробелы закрываются до затрагиваемого релиза |
+| №123 `AI-EVAL-001` | Экзамен агентов против frozen baseline; не предшественник Д1 или всей контейнеризации |
+| №124 `CONTAINER-READY-001` | Проверка переносимости начинается с Д0–Д1; все включённые функции проверены до Д3 |
+| №125 `CONTAINER-SHADOW-001` | Обязательная теневая приёмка после Д2–Д3, до рабочего переключения |
+| №126 `CONTAINER-PRODUCTION-001` | Обязательный рабочий перенос только после release-ops разрешения и Д4 gates |
+
+После принятия этой редакции интегратор синхронизирует prerequisites в затронутых
+Issues и маршрутизацию `NOW` в рамках того же перехода. Нельзя одновременно оставлять
+в текущем ТЗ «Д1 раньше» и в исполняемом Issue «ждать №123». До синхронизации новый
+пакет не активируется. Содержательные критерии безопасности Issues не ослабляются.
+
+Уже открытые PR сохраняются: сначала сверить их base/head, владельца, scope и
+пересечения. Изменение главной ветки требует проверки новой основы, а не удаления
+работы, автоматического reset или продолжения по устаревшему отчёту.
+
+## 9. Проверки по применимости, а не постоянные исключения
+
+| Вид изменения | Обязательное доказательство |
+|---|---|
+| Только документация | Ссылки, структура, непротиворечивость, тесты договорённых правил, scope/diff |
+| Инструмент или генератор | Положительные/отрицательные тесты, детерминизм, настоящий запуск на exact source |
+| Прикладной код | Затронутые unit/API/browser проверки и соответствующий пользовательский путь |
+| Контейнерный комплект | Сборка, запуск, готовность, идентичность, тома, сценарии и очистка |
+| Задания/хранение/auth/billing | Границы прав, отказ, идемпотентность/конкурентность, сохранность и откат |
+| Действующий сервер | Отдельная operational-проверка установленной версии и разрешённых внешних эффектов |
+
+Manifest заранее перечисляет команды и требуемый тип evidence. Отсутствие проверки
+не заменяется словом «не применимо». Неприменимость живой проверки документации
+объясняется типом изменения; обязательная живая проверка runtime без среды блокируется.
+
+Действующий `tools/verify.ps1` не изменяется этим ТЗ. До его отдельного исправления
+для repository-only пакета допустимы перечисленные focused checks и действующий
+`CI`-профиль с фиксацией точного состава. Запуск старого `Quick` не называется PASS,
+если его live-предусловия отсутствуют. Package-specific waiver не наследуется.
+
+Реальное упрощение управления статусом выполняется внутри №114 отдельной небольшой
+правкой: тесты валидируют согласованность, а не вечные даты и номера. Пока старые
+тесты существуют, их нельзя молча отключать или подделывать результаты.
+
+## 10. Размер работы, независимая проверка и остановка
+
+Одна задача — один наблюдаемый результат, один писатель и один PR. Manifest сразу
+описывает всю принятую цель пакета; внутренние шаги не требуют нового разрешения,
+если scope, риск и результат не изменились. Полезные законченные commits допустимы.
+
+Расширение scope оформляется штатно до записи. Нельзя вручную исправлять registry,
+fingerprint или выдавать отсутствие локального lifecycle за его успешное выполнение.
+GitHub-only создание документационного PR не доказывает физическую изоляцию агента.
+
+Защита `main`: предпочтительны provider-side правила или реально разделённые права.
+Настройка workflow, local hooks, имена исполнителя и environment markers сами по себе
+не доказывают изоляцию. До живых операций привилегированный путь проверяется отдельно.
+
+Protected hotspots: обычная правка не увеличивает лимит; извлечение уменьшает файл
+и снижает бюджет в том же пакете. Нормальный новый модуль до 500 строк, 501–750 —
+явный размерный review, свыше 750 — отказ по действующему архитектурному контракту.
+Не заменять один монолит несколькими тесно связанными копиями.
+
+Бюджет manifest оценивается до реализации. Если он недостаточен, требуется
+обоснованное изменение границы/согласование, а не minify, удаление assertions,
+сжатие JSON в гигантские строки или искусственное уменьшение diff. Generated output
+не редактировать руками; фактический способ подсчёта показывает enforcement receipt.
+
+После пакета — Package Health Gate; после трёх implementation-пакетов — Architecture
+Checkpoint по существующим receipts; после рубежа — соответствующая приёмка.
+Неизмеряемые fan-in/fan-out, связи и метрики отмечаются неизвестными, а не нулевыми.
+
+Останавливают работу: риск потери данных; чужой scope; отсутствие разрешения на
+внешний эффект; изменение проверяемой версии; неподтверждённый origin; утечка секрета;
+новая неразобранная высокая/критическая уязвимость; провал обязательного теста.
+После двух одинаковых инфраструктурных неудач менять способ исполнения или сообщать
+конкретную зависимость, а не повторять тот же план с тем же препятствием.
+
+Не останавливать каждый безопасный внутренний шаг ради нового задания владельца.
+Повтор старого отчёта не засчитывается как новая работа: сверить PR, SHA и артефакт.
+
+## 11. Безопасность, тесты и данные — обязательный параллельный контур
+
+№111 использует готовые npm/Python/secret/license scanners. Политика различает
+production/dev зависимости, новые и исторические находки, advisory identity,
+affected version и путь обновления. Исключение имеет владельца, Issue, причину,
+срок и remediation; просроченное исключение блокирует. Реальные значения секретов
+не попадают в журналы, отчёты и снимки экрана.
+
+Нельзя выдавать registry outage за чистый аудит или автоматически принимать весь
+старый долг. Чисто диагностический сбор при findings не означает security PASS.
+Обновление lockfile, product dependencies и реальная remediation — отдельный scope.
+
+№112 фиксирует flaky/retry, warnings по категориям, длительность, скрытую сеть и
+остаточные процессы/файлы. Нельзя получать зелёный результат исключением неудобного
+теста. Сетевой тест выполняется отдельно от детерминированного разбора его отчёта.
+
+№118–120: резервные копии и миграции, восстановление, фоновые процессы, измеренные
+ресурсы и время. Рабочие целевые RPO/RTO/нагрузка устанавливаются до Д4, на основе
+репетиции и решения владельца; не выдумываются из числа зелёных тестов.
+
+## 12. Что означает завершение
+
+`DOCKER_PRODUCTION_ACCEPTED`: Д0–Д4 пройдены, поддерживаемый сайт работает из
+проверенных образов, данные и задания защищены, откат испытан, наблюдение после
+переключения завершено. Это достижение продуктовой цели владельца.
+
+`BOT-STABILITY ACCEPTED`: №123 подтверждает цели системы разработки против
+неизменной точки A: first-pass acceptance не ниже 80%, обычный UI source read <15
+(цель <=8), незаявленные пересечения и неразрешённые рабочие действия равны нулю,
+protected growth равен нулю. История этой переписки не считается независимым тестом.
+
+`FULL PROGRAM COMPLETE`: достигнуты оба результата и закрыты обязательные
+security/test/data/runtime/architecture обязательства №111–126. Новая редакция
+не объявляет экзамен агентов выполненным и не превращает долги в вечные исключения.
+
+Состояния «описано», «реализовано», «проверено на имитаторе», «проверено на реальном
+сервисе», «слито», «развёрнуто» и «проверено в эксплуатации» всегда различаются.
+
+## 13. Формат задания и отчёта
+
+Короткое задание боту содержит: репозиторий и исходную версию; один результат;
+разрешённые файлы; обязательные проверки; запреты и конечную границу. Подробные
+условия даются ссылками на это ТЗ и идентификаторы испытаний, не перепечатываются.
+
+Отчёт владельцу — по-русски: где мы на маршруте; что стало работать; точная версия;
+ссылки на evidence; что не доказано; следующая одна задача. Не выдавать проценты
+готовности или дату завершения без измеримой основы.
+
+Ближайшее действие при принятии редакции: не продолжать реализацию №111 — её
+implementation accepted, PR №151 merged в `main`. Status transition Issue №111 /
+`docs/NOW.md` остаётся отдельным невыполненным шагом. До объявления Д0 завершённым
+нужно фактически доказать Д0-01 на независимом GitHub-hosted executor. Не трогать
+чужие контейнеры и рабочий сайт.

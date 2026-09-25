@@ -1,0 +1,38 @@
+manifestVersion = 1
+id = "GOV-DOCKER-DELIVERY-PLAN-001"
+baseSha = "480984d7e175eef1a1b06f6c078d76184cec2a43"
+goal = "Пересмотреть маршрут поставки ИЗО АСА: ранний безопасный Docker-комплект, измеримая приёмка, сохранность данных и отдельно разрешённый рабочий перенос."
+userOutcome = "Владелец и исполнитель используют одно непротиворечивое ТЗ с проверяемыми рубежами, короткими заданиями и явными пределами доказательств."
+beforeScenario = "Первый контейнерный результат отложен до обширной программы агентов; карты и локальные исключения смешиваются с доказательством работоспособности."
+afterScenario = "Мастер-ТЗ определяет Д0–Д4, документ приёмки задаёт 24 испытания, правила различают исходники/изолированный запуск/рабочую эксплуатацию; существующая реализация и PR сохранены."
+nonGoals = ["реализация Docker", "изменение #111 или PR #151", "изменение рабочего сервиса", "смена активного пакета NOW", "изменение зависимостей", "ослабление обязательных live/security/data gates"]
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+declaredFiles = [
+  "AGENTS.md",
+  "AI_START_HERE.md",
+  "docs/stabilization-optimization-master-spec.md",
+  "docs/docker-delivery-acceptance.md",
+  "tools/test_agent_instructions.py",
+  "tasks/GOV-DOCKER-DELIVERY-PLAN-001.toml",
+]
+allowedPatterns = []
+forbiddenPatterns = ["backend/**", "frontend/**", "ops/**", "architecture/**", "docs/context/**", "docs/generated/**", "docs/NOW.md", ".github/**", "tools/agent_system/**", "tools/agent.ps1", "tools/verify.ps1"]
+protectedFilesTouched = []
+maxProductionFiles = 0
+maxChangedLines = 3000
+acceptance = [
+  "Редакция 3.0 заменяет прежнюю последовательность, сохраняя обязательные safety/security/data критерии и исторические результаты.",
+  "Первый безопасный Docker-комплект не ждёт полного экзамена агентов; рабочий перенос требует отдельного разрешения и Д4 gates.",
+  "Документ приёмки содержит ровно 24 уникальных испытания Д0–Д4 и не заявляет их выполненными.",
+  "AGENTS и входной документ согласованы с применимостью проверок; обязательные живые проверки не заменяются статическими.",
+  "Тесты сохраняют исторические receipts и текущий NOW, проверяют новый порядок и технические критерии.",
+  "Нет изменений продуктового кода, workflow, зависимостей, NOW или чужого PR; нет deploy/restart.",
+  "PR остаётся Draft до независимой приёмки; CI и local static evidence указываются раздельно.",
+]
+requiredEvidence = ["read-only exact main и открытые PR", "проверка структуры и UTF-8", "полный diff", "package enforcement", "exact-head GitHub CI", "отдельная независимая приёмка до merge"]
+targetedTests = ["tools/test_agent_instructions.py", "tools/test_context_docs.py", "tools/test_agent_enforce.py"]
+fileGrowthExpectations = ["AGENTS <=5000 bytes", "AI_START_HERE <=120 lines", "не увеличивать лимиты для прохождения", "новый документ — требования, не fake runtime evidence"]
+forbiddenOperations = ["deploy", "restart", "production-data", "provider-call", "dependency-change", "direct-main", "merge-without-review", "modify-pr-151"]
+rollbackBoundary = "Вернуть только шесть документационных/test/manifest файлов. Данные, сервер, контейнеры, зависимости и PR #151 не меняются."

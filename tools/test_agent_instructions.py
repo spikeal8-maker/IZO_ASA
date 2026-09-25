@@ -248,18 +248,28 @@ def _assert_program_and_package_status() -> None:
     assert "BOT-STABILITY ACCEPTED" in master
     assert "FULL PROGRAM COMPLETE" in master
     assert "production IZO application runs in Docker" in master
-    assert "## PHASE 12 — mandatory production-container readiness/shadow" in master
-    assert "## PHASE 13 — mandatory production Docker" in master
+    assert "program_version: 3.0" in master
     assert "DOCKER-DEV-001" in master
-    assert "первым обязательным Docker-этапом пути к production Docker" in master
-    dependency_order = (
-        "AI-EVAL-001",
-        "CONTAINER-READY-001",
-        "CONTAINER-SHADOW-001",
-        "CONTAINER-PRODUCTION-001",
-    )
-    dependency_positions = [master.rindex(item) for item in dependency_order]
-    assert dependency_positions == sorted(dependency_positions)
+    assert "DOCKER_PRODUCTION_ACCEPTED" in master
+    for package in ("CONTAINER-READY-001", "CONTAINER-SHADOW-001", "CONTAINER-PRODUCTION-001"):
+        assert package in master
+    stages = tuple(f"## Рубеж Д{number} —" for number in range(5))
+    assert [master.index(stage) for stage in stages] == sorted(master.index(stage) for stage in stages)
+    assert "Не ждать полной декомпозиции №116–117 или экзамена №123." in master
+    acceptance_path = ROOT / "docs" / "docker-delivery-acceptance.md"
+    assert acceptance_path.is_file()
+    acceptance = _text(acceptance_path)
+    assert "production_change_authorized: false" in acceptance
+    case_ids = re.findall(r"^\| (Д[0-4]-[0-9]{2}) \|", acceptance, re.MULTILINE)
+    expected_ids = [f"Д{stage}-{number:02d}" for stage, count in ((0, 2), (1, 8), (2, 6), (3, 4), (4, 4)) for number in range(1, count + 1)]
+    assert case_ids == expected_ids
+    assert "имитатор подменяет только внешнюю модель" in acceptance
+    assert "Здесь изложены **требования к будущей реализации**" in acceptance
+    assert "Сохранённый том не является резервной копией." in master
+    assert "Откат образа не откатывает схему." in acceptance
+    for document in (master, acceptance):
+        assert not re.search(r"\?{4,}", document)
+        assert "\ufffd" not in document
     for stale in (
         "PHASE 12 — optional",
         "PHASE 13 — optional",

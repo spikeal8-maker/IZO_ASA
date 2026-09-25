@@ -58,9 +58,9 @@ current-status/program router. Follow both before opening source.
 
 ## 5. Verification, commits and review
 
-- Use the smallest gate that proves the change: characterization when needed,
-  targeted tests after edits, structural checks for architecture changes, then
-  `tools/verify.ps1 -Mode Quick` for a completed ordinary package.
+- Match gates to the change: docs/tools use focused/CI checks; app/container
+  changes need relevant runtime tests. Legacy `Quick` needs host runtime;
+  absence is never PASS. Declare gates in the Task Contract.
 - Full/integration verification is single-flight and belongs to the integration
   candidate; do not launch duplicate Full runs.
 - High-assurance auth/billing/migration/storage/worker races repeat the focused
