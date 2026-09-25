@@ -75,9 +75,27 @@ function Invoke-NativeStep {
             if (-not (Test-Path -LiteralPath $outputDirectory -PathType Container)) {
                 throw "Verification output directory does not exist: $outputDirectory"
             }
-            $capturedOutput = @(& $FilePath @ArgumentList 2>&1)
-            $stepExitCode = $LASTEXITCODE
-            $capturedLines = @($capturedOutput | ForEach-Object { [string]$_ })
+            $stdoutPath = $OutputPath + ".stdout"
+            $stderrPath = $OutputPath + ".stderr"
+            $processArguments = @{
+                FilePath = $FilePath
+                ArgumentList = $ArgumentList
+                WorkingDirectory = $WorkingDirectory
+                NoNewWindow = $true
+                Wait = $true
+                PassThru = $true
+                RedirectStandardOutput = $stdoutPath
+                RedirectStandardError = $stderrPath
+            }
+            $process = Start-Process @processArguments
+            $stepExitCode = $process.ExitCode
+            $capturedLines = @()
+            if (Test-Path -LiteralPath $stdoutPath -PathType Leaf) {
+                $capturedLines += @(Get-Content -LiteralPath $stdoutPath)
+            }
+            if (Test-Path -LiteralPath $stderrPath -PathType Leaf) {
+                $capturedLines += @(Get-Content -LiteralPath $stderrPath)
+            }
             [IO.File]::WriteAllLines($OutputPath, [string[]]$capturedLines, $utf8NoBom)
             $capturedLines | Write-Host
         } else {
