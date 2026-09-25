@@ -2,18 +2,18 @@ manifestVersion = 1
 id = "STAB-TEST-HEALTH-001"
 baseSha = "cf0f1db9d55205d78c81fd73eaf2d045201e0316"
 
-goal = "Capture a fresh exact-head machine-readable test-health baseline from the existing pytest/verify path without remediation or threshold enforcement."
+goal = "Turn the accepted exact-head Slice 1 warning/cleanup baseline into a reviewed non-regression gate without remediation."
 
-userOutcome = "Issue #112 Slice 1 produces safe raw and normalized evidence for test counts, warnings, cleanup debt and timing on the exact candidate HEAD."
+userOutcome = "Issue #112 Slice 2 fails fresh exact-head CI only when warning/cleanup health regresses beyond the accepted 97/1 baseline or reviewed debt metadata becomes invalid."
 
-beforeScenario = "Main CI is green but test-health evidence exists only as console output; historical warning and cleanup counts are not a fresh machine-readable baseline."
+beforeScenario = "Slice 1 accepted artifact 10890620713 on ab1aab849e634918247c4a420fd6b1094ff9bb65 records 97 warnings and 1 cleanup PermissionError, but those exact records are not yet enforced against regressions."
 
-afterScenario = "The existing full verification captures its single pytest run into a safe raw log, normalizes test/warning/cleanup/timing evidence, uploads an exact-head artifact, and leaves existing debt unenforced."
+afterScenario = "Fresh CI reuses the same single full pytest run, compares normalized warning/cleanup evidence with the accepted Slice 1 baseline, allows decreases, fails new/increased debt, validates bounded debt reviews #162-#165, and uploads exact-head evidence."
 
 nonGoals = [
   "fix warnings",
   "fix cleanup PermissionError",
-  "introduce warning or cleanup tolerances",
+  "invent warning or cleanup tolerances beyond the accepted Slice 1 baseline",
   "add retries",
   "suppress warnings",
   "rewrite product tests",
@@ -66,8 +66,8 @@ acceptance = [
   "Receipt reports passed/failed/skipped/xfailed/xpassed, warning total plus normalized category/source records, cleanup error records, pytest/full-verify timing and bounded slowest durations.",
   "Retry/flaky state is NOT_OBSERVABLE or UNKNOWN unless the current runner output proves a retry count; absence is never fabricated as zero.",
   "Random temp/runner paths are normalized so identical warning/cleanup types do not create false new categories.",
-  "Malformed/incomplete evidence, failed test execution, parser failure, missing evidence or exact-head mismatch fails Slice 1.",
-  "Existing warning and cleanup debt alone does not fail Slice 1 and no numeric tolerances/exceptions are introduced.",
+  "Malformed/incomplete evidence, failed test execution, parser failure, missing evidence or exact-head mismatch fails the package.",
+  "Accepted warning/cleanup debt may decrease, but new categories, count increases, total increases, missing debt review fields or expired reviews fail Slice 2.",
   "No warning suppression, cleanup remediation, retry addition, product/dependency change, #113/#115, Docker, deploy or restart occurs.",
   "Normal repository exact-head CI remains green with zero production/dependency/scope violations.",
 ]
@@ -77,6 +77,7 @@ requiredEvidence = [
   "tools/test_verify_script.py",
   "tools/test_ci_workflow.py",
   "test-health-evidence exact-head GitHub Actions artifact",
+  "debt Issues #162, #163, #164 and #165",
   "package enforcement receipt",
   "exact-head GitHub CI",
 ]
@@ -89,7 +90,7 @@ targetedTests = [
 
 fileGrowthExpectations = [
   "tools/test_health_audit.py remains a parser/normalizer only and contains no remediation or custom test-runner logic.",
-  "architecture/test-health-policy.json contains schema/status semantics only, not invented tolerances.",
+  "architecture/test-health-policy.json contains the exact accepted 97/1 baseline and reviewed debt references, with no timing threshold.",
   "CI reuses the existing full verify path and does not add a second full pytest run.",
   "No production or dependency source grows.",
 ]
