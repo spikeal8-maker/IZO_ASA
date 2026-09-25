@@ -150,9 +150,9 @@ def _normalize_cleanup_path(lines: list[str]) -> tuple[str, str]:
 
 
 def _parse_cleanup(raw_output: str) -> dict[str, Any]:
-    logical = re.sub(r"PytestWa\\s*rning", "PytestWarning", raw_output)
+    logical = re.sub(r"PytestWa\s*rning", "PytestWarning", raw_output)
     pattern = re.compile(
-        r"PytestWarning:\\s*\\(rm_rf\\)(?P<body>.*?)(?=PytestWarning:\\s*\\(rm_rf\\)|\\Z)",
+        r"PytestWarning:\s*\(rm_rf\)(?P<body>.*?)(?=PytestWarning:\s*\(rm_rf\)|\Z)",
         re.DOTALL,
     )
     aggregate: Counter[tuple[str, str, str]] = Counter()
