@@ -1,0 +1,109 @@
+manifestVersion = 1
+id = "D0-EXECUTOR-001"
+baseSha = "b77dc5da183b5dd46faa825af3fe40a5c5e263d9"
+
+goal = "Prove D0-01 with one real GitHub-hosted Linux run tied to the exact candidate SHA, pinned project toolchains, real registry access and a safe evidence artifact."
+
+userOutcome = "Issue #157 has reproducible evidence that the project can execute a bounded proof on independent GitHub-hosted Linux without D2, production credentials, application startup or Docker implementation."
+
+beforeScenario = "D0 supply-chain is accepted, but D0-01 independent GitHub-hosted execution is active and not yet proven."
+
+afterScenario = "A dedicated ubuntu-24.04 GitHub-hosted workflow verifies exact checkout, pinned Python/Node, Docker availability, npm/PyPI/Docker registry access, credential absence and uploads an exact-head safe receipt."
+
+nonGoals = [
+  "start the IZO application",
+  "implement Docker application files",
+  "implement #112, #113 or #115",
+  "change docs/NOW.md",
+  "change repository CI",
+  "change dependencies",
+  "deploy or restart",
+  "use D2/Desktop Commander/owner computer",
+]
+
+declaredFiles = [
+  "tasks/D0-EXECUTOR-001.toml",
+  ".github/workflows/d0-executor-proof.yml",
+  "tools/d0_executor_probe.py",
+  "tools/test_d0_executor_probe.py",
+  "tools/test_d0_executor_workflow.py",
+]
+
+allowedPatterns = []
+
+forbiddenPatterns = [
+  ".github/workflows/ci.yml",
+  "docs/NOW.md",
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+  "frontend/package.json",
+  "frontend/package-lock.json",
+  "backend/requirements.txt",
+  "tools/agent_system/**",
+  "tools/agent.ps1",
+  "tools/verify.ps1",
+]
+
+protectedFilesTouched = [
+  ".github/workflows/d0-executor-proof.yml",
+]
+
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+
+maxProductionFiles = 0
+maxChangedLines = 1200
+
+acceptance = [
+  "The proof job runs on ubuntu-24.04 and requires runner.environment=github-hosted.",
+  "PR checkout uses github.event.pull_request.head.sha; manual checkout uses github.sha; git HEAD must equal expected SHA.",
+  "Python and Node exactly match .python-version and .node-version; npm and Docker client/server/buildx are recorded.",
+  "Real read-only npm metadata, PyPI download and Docker Hub manifest probes all PASS; DNS-only evidence is insufficient.",
+  "No production credential/path presence is detected; credential values are never emitted.",
+  "The workflow does not start the application, use D2, Desktop Commander or an owner computer.",
+  "d0-executor-receipt.json is uploaded as d0-executor-evidence-<exact-head> and D0_01 is PASS only from a real complete run.",
+  "Wrong SHA, self-hosted environment, missing tool, failed registry probe and production credential presence fail deterministic tests.",
+  "All GitHub Actions are pinned to full commit SHAs.",
+  "Normal repository exact-head CI also passes with zero production/dependency/scope violations.",
+]
+
+requiredEvidence = [
+  "real GitHub-hosted D0 Executor Proof workflow run",
+  "d0-executor-receipt.json exact-head artifact",
+  "tools/test_d0_executor_probe.py",
+  "tools/test_d0_executor_workflow.py",
+  "package enforcement receipt",
+  "normal repository exact-head CI",
+]
+
+targetedTests = [
+  "tools/test_d0_executor_probe.py",
+  "tools/test_d0_executor_workflow.py",
+]
+
+fileGrowthExpectations = [
+  "Probe code remains bounded to evidence collection/evaluation and does not become a second general CI framework.",
+  "Workflow remains isolated from application startup and production/dependency surfaces.",
+  "No production source grows.",
+]
+
+forbiddenOperations = [
+  "deploy",
+  "restart",
+  "production-data",
+  "provider-call",
+  "direct-main",
+  "dependency-change",
+  "application-start",
+  "docker-application-implementation",
+  "d2",
+  "desktop-commander",
+  "issue-112-implementation",
+  "issue-113-implementation",
+  "issue-115-implementation",
+]
+
+rollbackBoundary = "Revert only the D0 proof manifest/workflow/probe/tests; production, dependencies, NOW, Docker application files and runtime remain untouched."
