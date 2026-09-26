@@ -56,8 +56,12 @@ def video_api(tmp_path: Path, monkeypatch):
     async def exchange():
         return {"rate": 80.0, "source": "test"}
 
+    async def poll(**_kwargs):
+        return {"status": "pending", "progress": 10}
+
     monkeypatch.setattr(main, "fetch_openrouter_video_catalog", catalog)
     monkeypatch.setattr(main, "fetch_usd_rub_rate", exchange)
+    monkeypatch.setattr(main, "poll_openrouter_video", poll)
     monkeypatch.setattr(main, "openrouter_headers", lambda: {"Authorization": "Bearer test"})
     monkeypatch.setattr(main, "_saved_setting", lambda key: {"enabled": {"text_to_video": [MODEL["id"]], "image_to_video": [MODEL["id"]], "first_last_frame": [MODEL["id"]]}} if key == "openrouter_video_models" else {})
     client = TestClient(main.app)
