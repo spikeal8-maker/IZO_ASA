@@ -41,6 +41,7 @@ declaredFiles = [
   "backend/test_admin_v2.py",
   "backend/test_auth_telegram_v2.py",
   "backend/test_product_consistency_20e2b.py",
+  "backend/test_video_generation_api.py",
 ]
 
 allowedPatterns = []
@@ -154,4 +155,9 @@ recordedAtUtc = "2026-09-26T00:00:00Z"
 [[scopeExpansions]]
 path = "backend/test_product_consistency_20e2b.py"
 reason = "Known #112 Slice 3 hidden outbound owner: seed deterministic exchange state for tariff assertions that do not test the exchange provider."
+recordedAtUtc = "2026-09-26T00:00:00Z"
+
+[[scopeExpansions]]
+path = "backend/test_video_generation_api.py"
+reason = "Full-suite telemetry after known background fixes still attributed one blocked OpenRouter attempt to test_video_generate_persists_real_source_thumbnail_and_returns_lineage; scope added for isolated diagnosis before any fixture patch."
 recordedAtUtc = "2026-09-26T00:00:00Z"
