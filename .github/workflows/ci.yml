@@ -474,7 +474,7 @@ jobs:
           $focusedTelemetry = Join-Path $env:RUNNER_TEMP "test-health-focused.json"
           $env:IZO_TEST_HEALTH_TELEMETRY = $focusedTelemetry
           $python = (Get-Command python.exe).Source
-          & $python -m pytest -q -p tools.test_health_pytest_plugin backend/test_account_sync_models_tokens.py backend/test_admin_v2.py backend/test_auth_telegram_v2.py backend/test_product_consistency_20e2b.py
+          & $python -m pytest -q -p tools.test_health_pytest_plugin backend/test_account_sync_models_tokens.py backend/test_admin_v2.py backend/test_auth_telegram_v2.py backend/test_product_consistency_20e2b.py backend/test_video_generation_api.py::test_video_generate_persists_real_source_thumbnail_and_returns_lineage
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (-not (Test-Path -LiteralPath $focusedTelemetry -PathType Leaf)) { throw "Focused test-health telemetry missing." }
           $focused = Get-Content -LiteralPath $focusedTelemetry -Raw | ConvertFrom-Json
