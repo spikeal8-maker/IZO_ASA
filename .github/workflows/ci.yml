@@ -480,6 +480,7 @@ jobs:
           $healthDir = Join-Path $env:RUNNER_TEMP "test-health"
           New-Item -ItemType Directory -Force -Path $healthDir | Out-Null
           $pytestRaw = Join-Path $healthDir "pytest-raw.log"
+          $telemetryPath = Join-Path $healthDir "pytest-telemetry.json"
           $metadataPath = Join-Path $healthDir "metadata.json"
           $receiptPath = Join-Path $healthDir "test-health-receipt.json"
 
@@ -500,6 +501,14 @@ jobs:
           }
           $finishedAt = [DateTimeOffset]::UtcNow
           $durationSeconds = [math]::Round(($finishedAt - $startedAt).TotalSeconds, 2)
+          $processLeakMarker = $pytestRaw + ".process-leak"
+          $processLeakStatus = "UNKNOWN"
+          if (
+            (Test-Path -LiteralPath $processLeakMarker -PathType Leaf) -and
+            ((Get-Content -LiteralPath $processLeakMarker -Raw).Trim() -eq "PASS")
+          ) {
+            $processLeakStatus = "PASS"
+          }
 
           $metadata = [ordered]@{
             schemaVersion = 1
@@ -514,10 +523,11 @@ jobs:
             startedAt = $startedAt.ToString("o")
             durationSeconds = $durationSeconds
             exitCode = $verifyExit
+            pytestProcessLeakCheck = $processLeakStatus
           }
           [IO.File]::WriteAllText($metadataPath, ($metadata | ConvertTo-Json -Depth 5), (New-Object System.Text.UTF8Encoding($false)))
 
-          & $python tools/test_health_audit.py normalize --raw-output $pytestRaw --metadata $metadataPath --policy architecture/test-health-policy.json --output $receiptPath
+          & $python tools/test_health_audit.py normalize --raw-output $pytestRaw --metadata $metadataPath --policy architecture/test-health-policy.json --telemetry $telemetryPath --output $receiptPath
           $parserExit = $LASTEXITCODE
           if ($verifyExit -ne 0) { throw "Repository verification failed while collecting test-health baseline." }
           if ($parserExit -ne 0) { exit $parserExit }
@@ -529,6 +539,7 @@ jobs:
           name: test-health-evidence-${{ steps.supply_chain_range.outputs.exact_head }}
           path: |
             ${{ runner.temp }}\test-health\pytest-raw.log
+            ${{ runner.temp }}\test-health\pytest-telemetry.json
             ${{ runner.temp }}\test-health\test-health-receipt.json
             ${{ runner.temp }}\test-health\metadata.json
           if-no-files-found: error
