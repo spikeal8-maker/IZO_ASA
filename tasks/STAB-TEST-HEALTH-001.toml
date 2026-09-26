@@ -1,0 +1,170 @@
+manifestVersion = 1
+id = "STAB-TEST-HEALTH-001"
+baseSha = "cf0f1db9d55205d78c81fd73eaf2d045201e0316"
+
+goal = "Add fail-closed pytest network/rerun/process observability on top of the accepted warning/cleanup non-regression baseline without remediation."
+
+userOutcome = "Issue #112 implementation candidate proves one full pytest run has no external outbound attempts, no pytest rerun events and no process leak while preserving the accepted warning/cleanup floor."
+
+beforeScenario = "Slice 2 enforces the accepted 97/1 warning/cleanup floor, but pytest-level outbound network attempts and rerun events are not yet directly observable."
+
+afterScenario = "Fresh CI reuses the same single full pytest run with an opt-in telemetry plugin, blocks and records external socket attempts before connection, observes actual rerun reports/plugins, records the existing process-leak check, preserves warning/cleanup non-regression and uploads exact-head evidence."
+
+nonGoals = [
+  "fix warnings",
+  "fix cleanup PermissionError",
+  "invent warning or cleanup tolerances beyond the accepted Slice 1 baseline",
+  "add retries",
+  "add retry or socket dependencies",
+  "broadly allow external network",
+  "remediate provider/network callers",
+  "suppress warnings",
+  "rewrite product tests",
+  "change product behavior",
+  "implement #113 or #115",
+  "Docker work",
+  "deploy or restart",
+]
+
+declaredFiles = [
+  "tasks/STAB-TEST-HEALTH-001.toml",
+  "architecture/test-health-policy.json",
+  "tools/test_health_audit.py",
+  "tools/test_test_health_audit.py",
+  "tools/test_health_pytest_plugin.py",
+  "tools/test_test_health_pytest_plugin.py",
+  "tools/verify.ps1",
+  ".github/workflows/ci.yml",
+  "tools/test_verify_script.py",
+  "tools/test_ci_workflow.py",
+  "backend/test_account_sync_models_tokens.py",
+  "backend/test_admin_v2.py",
+  "backend/test_auth_telegram_v2.py",
+  "backend/test_product_consistency_20e2b.py",
+  "backend/test_video_generation_api.py",
+  "docs/admin-mutation-audit.md",
+]
+
+allowedPatterns = []
+forbiddenPatterns = [
+  "frontend/**",
+  "ops/**",
+  "docs/NOW.md",
+  "frontend/package.json",
+  "frontend/package-lock.json",
+  "backend/requirements.txt",
+  "tools/agent_system/**",
+  "tools/agent.ps1",
+]
+
+protectedFilesTouched = [
+  "architecture/test-health-policy.json",
+  "tools/verify.ps1",
+  ".github/workflows/ci.yml",
+]
+
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+maxProductionFiles = 0
+maxChangedLines = 2200
+
+acceptance = [
+  "Focused provider-isolation evidence is completed before final acceptance; exact-head CI runs the existing full verification and its full pytest suite exactly once.",
+  "The pytest invocation adds only bounded diagnostic duration reporting when test-health capture is requested.",
+  "The safe artifact contains pytest-raw.log, pytest-telemetry.json, test-health-receipt.json and metadata.json tied to exact HEAD/run/attempt.",
+  "Receipt reports passed/failed/skipped/xfailed/xpassed, warning total plus normalized category/source records, cleanup error records, pytest/full-verify timing and bounded slowest durations.",
+  "Pytest-level rerun observability is AVAILABLE from hooks; zero rerun reports is accepted only when telemetry is present, while repeat-run nondeterminism remains NOT_MEASURED.",
+  "Random temp/runner paths are normalized so identical warning/cleanup types do not create false new categories.",
+  "Malformed/incomplete evidence, failed test execution, parser failure, missing evidence or exact-head mismatch fails the package.",
+  "Accepted warning/cleanup debt may decrease, but new categories, count increases, total increases, missing debt review fields or expired reviews fail the implementation candidate.",
+  "No warning suppression, cleanup remediation, retry addition, product/dependency change, #113/#115, Docker, deploy or restart occurs.",
+  "The opt-in pytest plugin allows loopback/local IPC, blocks external getaddrinfo/create_connection/connect/connect_ex attempts before connection and records only safe target metadata.",
+  "Network telemetry is AVAILABLE with zero blocked external attempts; the external allowlist baseline remains empty.",
+  "Pytest rerun observability is AVAILABLE with zero rerun reports; loaded retry plugins are recorded and repeat-run nondeterminism remains NOT_MEASURED.",
+  "The existing Get-PytestProcesses verification records pytestProcessLeakCheck=PASS before policy acceptance.",
+  "The exact-head artifact includes pytest-raw.log, pytest-telemetry.json, test-health-receipt.json and metadata.json.",
+  "Normal repository exact-head CI remains green with zero production/dependency/scope violations.",
+]
+
+requiredEvidence = [
+  "tools/test_test_health_audit.py",
+  "tools/test_test_health_pytest_plugin.py",
+  "tools/test_verify_script.py",
+  "tools/test_ci_workflow.py",
+  "test-health-evidence exact-head GitHub Actions artifact",
+  "debt Issues #162, #163, #164 and #165",
+  "package enforcement receipt",
+  "exact-head GitHub CI",
+]
+
+targetedTests = [
+  "tools/test_test_health_audit.py",
+  "tools/test_test_health_pytest_plugin.py",
+  "tools/test_verify_script.py",
+  "tools/test_ci_workflow.py",
+]
+
+fileGrowthExpectations = [
+  "tools/test_health_audit.py remains a parser/normalizer only and contains no remediation or custom test-runner logic.",
+  "architecture/test-health-policy.json contains the exact accepted 97/1 baseline and reviewed debt references, with no timing threshold.",
+  "CI reuses the existing full verify path and runs the full pytest suite exactly once.",
+  "The pytest telemetry plugin remains opt-in to test-health capture and contains no product/provider remediation logic.",
+  "No production or dependency source grows.",
+]
+
+forbiddenOperations = [
+  "deploy",
+  "restart",
+  "production-data",
+  "provider-call",
+  "direct-main",
+  "dependency-change",
+  "warning-suppression",
+  "cleanup-remediation",
+  "retry-addition",
+  "retry-plugin-addition",
+  "network-broad-allowlist",
+  "provider-remediation",
+  "issue-113-implementation",
+  "issue-115-implementation",
+  "docker-implementation",
+  "next-slice",
+]
+
+rollbackBoundary = "Revert only the #112 test-health manifest/policy/parser/plugin/tests and diagnostic CI/verify telemetry wiring; product, dependencies, NOW, runtime and data remain untouched."
+
+[[sizeReviews]]
+path = "tools/test_health_audit.py"
+rationale = "The test-health parser/policy evaluator remains one bounded module across Slices 1-3 so warning/cleanup/network/rerun receipt semantics stay deterministic; no remediation or product logic is added."
+
+[[scopeExpansions]]
+path = "backend/test_account_sync_models_tokens.py"
+reason = "Known #112 Slice 3 hidden outbound owner: seed deterministic exchange state and fake existing OpenRouter capability boundary for non-provider assertions."
+recordedAtUtc = "2026-09-26T00:00:00Z"
+
+[[scopeExpansions]]
+path = "backend/test_admin_v2.py"
+reason = "Known #112 Slice 3 hidden outbound owner: seed deterministic exchange state and replace existing background OpenRouter catalog refresh boundary in secret persistence tests while preserving force-refresh FakeClient coverage."
+recordedAtUtc = "2026-09-26T00:00:00Z"
+
+[[scopeExpansions]]
+path = "backend/test_auth_telegram_v2.py"
+reason = "Known #112 Slice 3 hidden outbound owner: replace avatar-cache scheduling with deterministic no-network fixture while preserving Telegram signature validation."
+recordedAtUtc = "2026-09-26T00:00:00Z"
+
+[[scopeExpansions]]
+path = "backend/test_product_consistency_20e2b.py"
+reason = "Known #112 Slice 3 hidden outbound owner: seed deterministic exchange state for tariff assertions that do not test the exchange provider."
+recordedAtUtc = "2026-09-26T00:00:00Z"
+
+[[scopeExpansions]]
+path = "backend/test_video_generation_api.py"
+reason = "Full-suite telemetry after known background fixes still attributed one blocked OpenRouter attempt to test_video_generate_persists_real_source_thumbnail_and_returns_lineage; scope added for isolated diagnosis before any fixture patch."
+recordedAtUtc = "2026-09-26T00:00:00Z"
+
+[[scopeExpansions]]
+path = "docs/admin-mutation-audit.md"
+reason = "The two #112 test-owned provider fixture edits change cryptographic evidence-artifact hashes; update only those stored SHA-256 fingerprints so the existing admin mutation audit contract remains exact without product behavior changes."
+recordedAtUtc = "2026-09-26T20:30:00Z"
+

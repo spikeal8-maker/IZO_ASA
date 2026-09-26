@@ -6,6 +6,7 @@ param(
     [string]$PythonPath = "",
     [string]$NpmPath = "",
     [string]$ReceiptPath = "",
+    [string]$TestHealthOutputPath = "",
     [switch]$RequireStableLiveSource,
     [switch]$StoppedBackendRecovery,
     [switch]$PlanOnly
@@ -62,15 +63,57 @@ function Invoke-NativeStep {
         [string]$Name,
         [string]$FilePath,
         [string[]]$ArgumentList,
-        [string]$WorkingDirectory
+        [string]$WorkingDirectory,
+        [string]$OutputPath = ""
     )
 
     Write-Host "VERIFY_STEP_START name=$Name"
     Push-Location -LiteralPath $WorkingDirectory
     try {
-        & $FilePath @ArgumentList
-        if ($LASTEXITCODE -ne 0) {
-            throw "Verification step '$Name' failed with exit code $LASTEXITCODE."
+        if ($OutputPath.Trim()) {
+            $outputDirectory = Split-Path -Parent $OutputPath
+            if (-not (Test-Path -LiteralPath $outputDirectory -PathType Container)) {
+                throw "Verification output directory does not exist: $outputDirectory"
+            }
+            $stdoutPath = $OutputPath + ".stdout"
+            $stderrPath = $OutputPath + ".stderr"
+            $quotePs = {
+                param([string]$Value)
+                return "'" + $Value.Replace("'", "''") + "'"
+            }
+            $quotedFile = & $quotePs $FilePath
+            $quotedArguments = @($ArgumentList | ForEach-Object { & $quotePs ([string]$_) }) -join ", "
+            $quotedStdout = & $quotePs $stdoutPath
+            $quotedStderr = & $quotePs $stderrPath
+            $captureScript = "& $quotedFile @($quotedArguments) 1> $quotedStdout 2> $quotedStderr; exit `$LASTEXITCODE"
+            $encodedCapture = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($captureScript))
+            $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+            $startInfo.FileName = "powershell.exe"
+            $startInfo.Arguments = "-NoProfile -NonInteractive -EncodedCommand $encodedCapture"
+            $startInfo.WorkingDirectory = $WorkingDirectory
+            $startInfo.UseShellExecute = $false
+            $startInfo.CreateNoWindow = $true
+            $process = New-Object System.Diagnostics.Process
+            $process.StartInfo = $startInfo
+            [void]$process.Start()
+            $process.WaitForExit()
+            $stepExitCode = $process.ExitCode
+            $process.Dispose()
+            $capturedLines = @()
+            if (Test-Path -LiteralPath $stdoutPath -PathType Leaf) {
+                $capturedLines += @(Get-Content -LiteralPath $stdoutPath)
+            }
+            if (Test-Path -LiteralPath $stderrPath -PathType Leaf) {
+                $capturedLines += @(Get-Content -LiteralPath $stderrPath)
+            }
+            [IO.File]::WriteAllLines($OutputPath, [string[]]$capturedLines, $utf8NoBom)
+            $capturedLines | Write-Host
+        } else {
+            & $FilePath @ArgumentList
+            $stepExitCode = $LASTEXITCODE
+        }
+        if ($stepExitCode -ne 0) {
+            throw "Verification step '$Name' failed with exit code $stepExitCode."
         }
     } finally {
         Pop-Location
@@ -160,6 +203,7 @@ $stoppedBackendRecoveryScript = Join-Path $toolsDirectory "check-stopped-backend
 $receiptTool = Join-Path $toolsDirectory "release_verification_receipt.py"
 $caddyInstallScript = Join-Path $toolsDirectory "install-caddy.ps1"
 $caddyCheckScript = Join-Path $toolsDirectory "check-caddy-edge.ps1"
+$testHealthPlugin = Join-Path $toolsDirectory "test_health_pytest_plugin.py"
 $projectPython = Join-Path $backendDirectory ".venv\Scripts\python.exe"
 
 foreach ($requiredPath in @(
@@ -176,7 +220,8 @@ foreach ($requiredPath in @(
     $stoppedBackendRecoveryScript,
     $receiptTool,
     $caddyInstallScript,
-    $caddyCheckScript
+    $caddyCheckScript,
+    $testHealthPlugin
 )) {
     if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
         throw "Required verification input was not found: $requiredPath"
@@ -238,6 +283,15 @@ $quickTests = @(
 $fullTests = @("-m", "pytest", "-q", "backend", "tools")
 $usesLiveChecks = $Mode -ne "CI"
 $usesFullSuite = $Mode -ne "Quick"
+if ($TestHealthOutputPath.Trim()) {
+    if (-not $usesFullSuite) {
+        throw "TestHealthOutputPath requires Full or CI verification mode."
+    }
+    $TestHealthOutputPath = [IO.Path]::GetFullPath($TestHealthOutputPath)
+    if ([IO.Path]::GetExtension($TestHealthOutputPath) -ne ".log") {
+        throw "TestHealthOutputPath must be a .log file."
+    }
+}
 if ($StoppedBackendRecovery -and (
     $Mode -ne "Full" -or
     -not $ReceiptPath.Trim() -or
@@ -292,7 +346,8 @@ if ($PlanOnly) {
         }
     }
     if ($usesFullSuite) {
-        Write-Host "VERIFY_PLAN_STEP pytest scope=backend+tools"
+        $testHealthPlan = if ($TestHealthOutputPath.Trim()) { " capture=$TestHealthOutputPath durations=10" } else { "" }
+        Write-Host "VERIFY_PLAN_STEP pytest scope=backend+tools$testHealthPlan"
         Write-Host "VERIFY_PLAN_STEP frontend_lint command=npm run lint"
         Write-Host "VERIFY_PLAN_STEP frontend_build command=npm run build"
         Write-Host "VERIFY_PLAN_STEP frontend_release_identity command=npm run check:release"
@@ -465,13 +520,22 @@ foreach ($environmentName in $testEnvironmentNames) {
     $testEnvironment[$environmentName] = [Environment]::GetEnvironmentVariable($environmentName, "Process")
     [Environment]::SetEnvironmentVariable($environmentName, $null, "Process")
 }
+$previousTestHealthTelemetry = [Environment]::GetEnvironmentVariable("IZO_TEST_HEALTH_TELEMETRY", "Process")
 try {
     if ($usesFullSuite) {
-        Invoke-NativeStep -Name "pytest_full" -FilePath $python -ArgumentList $fullTests -WorkingDirectory $resolvedRoot
+        $pytestArguments = if ($TestHealthOutputPath.Trim()) {
+            $telemetryPath = Join-Path (Split-Path -Parent $TestHealthOutputPath) "pytest-telemetry.json"
+            [Environment]::SetEnvironmentVariable("IZO_TEST_HEALTH_TELEMETRY", $telemetryPath, "Process")
+            $fullTests + @("-p", "tools.test_health_pytest_plugin", "--durations=10", "--durations-min=0.1")
+        } else {
+            $fullTests
+        }
+        Invoke-NativeStep -Name "pytest_full" -FilePath $python -ArgumentList $pytestArguments -WorkingDirectory $resolvedRoot -OutputPath $TestHealthOutputPath
     } else {
         Invoke-NativeStep -Name "pytest_quick" -FilePath $python -ArgumentList $quickTests -WorkingDirectory $resolvedRoot
     }
 } finally {
+    [Environment]::SetEnvironmentVariable("IZO_TEST_HEALTH_TELEMETRY", $previousTestHealthTelemetry, "Process")
     foreach ($environmentName in $testEnvironmentNames) {
         [Environment]::SetEnvironmentVariable(
             $environmentName,
@@ -537,6 +601,11 @@ for ($attempt = 0; $attempt -lt 50 -and $pytestProcesses.Count -ne 0; $attempt++
 }
 if ($pytestProcesses.Count -ne 0) {
     throw "Pytest processes remain after verification: $($pytestProcesses.ProcessId -join ',')"
+}
+if ($TestHealthOutputPath.Trim()) {
+    $processLeakMarker = $TestHealthOutputPath + ".process-leak"
+    [IO.File]::WriteAllText($processLeakMarker, "PASS", $utf8NoBom)
+    Write-Host "VERIFY_PYTEST_PROCESS_LEAK_CHECK status=PASS"
 }
 
 $afterSnapshot = $null

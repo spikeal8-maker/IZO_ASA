@@ -5,6 +5,7 @@ backend/onenode.sqlite3 is never touched.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,26 @@ def temp_db(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(main, "DB_PATH", db_file)
     main.init_db()
     return db_file
+
+
+@pytest.fixture
+def fresh_exchange(temp_db):
+    now = datetime.now(timezone.utc)
+    main._save_setting(
+        "exchange_usd_rub",
+        {
+            "rate": 80.0,
+            "currency": "USD",
+            "base": "RUB",
+            "source": "test-fixture",
+            "sourceUrl": "test://exchange",
+            "sourceDate": now.date().isoformat(),
+            "fetchedAt": now.isoformat(),
+            "fetched_date": now.date().isoformat(),
+            "fallback": False,
+        },
+    )
+    return temp_db
 
 
 def make_user(internal_user_id, legacy_user_id, *, role="user", banned=0, username=None):
@@ -92,7 +113,7 @@ def test_admin_v2_without_session_401(temp_db):
         assert client.post("/api/admin/users/iuid-x/block-v2", json={"reason": "x"}).status_code == 401
 
 
-def test_admin_openrouter_status_without_key(temp_db, monkeypatch):
+def test_admin_openrouter_status_without_key(fresh_exchange, monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     sess = admin_session()
     with TestClient(main.app) as client:
@@ -103,13 +124,18 @@ def test_admin_openrouter_status_without_key(temp_db, monkeypatch):
     assert payload["usage"]["pricedImages"] == 0
 
 
-def test_admin_can_save_openrouter_key_without_exposing_secret(temp_db, monkeypatch):
+def test_admin_can_save_openrouter_key_without_exposing_secret(fresh_exchange, monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
     async def fake_status():
         return {"configured": True, "source": "dpapi", "ok": True, "data": {"limit": 10, "usage": 1}}
 
+    async def fake_refresh():
+        return main.openrouter_catalog_snapshot()
+
     monkeypatch.setattr(main, "fetch_openrouter_key_status", fake_status)
+    monkeypatch.setattr(main, "_openrouter_catalog_refresh_task", None)
+    monkeypatch.setattr(main, "refresh_openrouter_catalog", fake_refresh)
     sess = admin_session()
     with TestClient(main.app) as client:
         cookies = {"onenode_session": sess["session_token"]}

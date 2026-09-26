@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 import asyncio
 import json
+from datetime import datetime, timezone
 from fastapi.testclient import TestClient
 
 import main
@@ -28,6 +29,44 @@ def temp_db(tmp_path, monkeypatch):
     main.worker_started = False
     main.init_db()
     return db_file
+
+
+@pytest.fixture
+def tariff_provider_isolation(temp_db, monkeypatch):
+    now = datetime.now(timezone.utc)
+    main._save_setting(
+        "exchange_usd_rub",
+        {
+            "rate": 80.0,
+            "currency": "USD",
+            "base": "RUB",
+            "source": "test-fixture",
+            "sourceUrl": "test://exchange",
+            "sourceDate": now.date().isoformat(),
+            "fetchedAt": now.isoformat(),
+            "fetched_date": now.date().isoformat(),
+            "fallback": False,
+        },
+    )
+
+    async def fake_capabilities(*_args, **_kwargs):
+        return [
+            {
+                "id": "black-forest-labs/flux.2-pro",
+                "modes": ["text_to_image"],
+                "supportedResolutionIds": ["sq-hd"],
+                "maxInputReferences": 2,
+            },
+            {
+                "id": "black-forest-labs/flux.2-max",
+                "modes": ["text_to_image"],
+                "supportedResolutionIds": ["sq-hd"],
+                "maxInputReferences": 2,
+            },
+        ]
+
+    monkeypatch.setattr(main, "fetch_openrouter_image_capabilities", fake_capabilities)
+    return temp_db
 
 
 def bearer(token: str) -> dict[str, str]:
@@ -115,7 +154,7 @@ def test_mini_gallery_access_ignores_stale_disabled_flag(temp_db):
         assert main.user_gallery_allowed(conn, "missing", "missing") is False
 
 
-def test_tariff_defaults_and_admin_settings_normalize(temp_db):
+def test_tariff_defaults_and_admin_settings_normalize(tariff_provider_isolation):
     token = admin_token()
     with TestClient(main.app) as c:
         public = c.get("/api/tariffs")
@@ -132,7 +171,7 @@ def test_tariff_defaults_and_admin_settings_normalize(temp_db):
     assert settings.json()["tariffs"]["business"]["video_slots"] == 25
 
 
-def test_tariff_settings_persist_and_read_from_admin_settings(temp_db):
+def test_tariff_settings_persist_and_read_from_admin_settings(tariff_provider_isolation):
     token = admin_token()
     payload = {
         "free": {"daily_tokens": 11, "gallery_slots": 2},

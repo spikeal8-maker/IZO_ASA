@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 3,
+  "package": "STAB-TEST-HEALTH-001",
+  "slice": "observability-non-regression",
+  "baselineSource": "exact-head-github-ci",
+  "historicalCountsAcceptedAsFreshBaseline": false,
+  "acceptedBaseline": {
+    "exactHead": "ab1aab849e634918247c4a420fd6b1094ff9bb65",
+    "workflowRun": "36194614100",
+    "artifactId": 10890620713,
+    "artifactName": "test-health-evidence-ab1aab849e634918247c4a420fd6b1094ff9bb65",
+    "warnings": {
+      "total": 97,
+      "categories": [
+        {
+          "category": "DeprecationWarning",
+          "source": "backend/main.py",
+          "count": 4,
+          "issue": "#162"
+        },
+        {
+          "category": "DeprecationWarning",
+          "source": "backend/test_admin_bots_v2.py",
+          "count": 12,
+          "issue": "#164"
+        },
+        {
+          "category": "DeprecationWarning",
+          "source": "backend/test_admin_password_reset.py",
+          "count": 15,
+          "issue": "#164"
+        },
+        {
+          "category": "DeprecationWarning",
+          "source": "backend/test_admin_v2.py",
+          "count": 8,
+          "issue": "#164"
+        },
+        {
+          "category": "DeprecationWarning",
+          "source": "backend/test_auth_sessions.py",
+          "count": 1,
+          "issue": "#164"
+        },
+        {
+          "category": "DeprecationWarning",
+          "source": "backend/test_generation_protection.py",
+          "count": 16,
+          "issue": "#164"
+        },
+        {
+          "category": "DeprecationWarning",
+          "source": "backend/test_ownership_protection.py",
+          "count": 24,
+          "issue": "#164"
+        },
+        {
+          "category": "DeprecationWarning",
+          "source": "backend/test_prompt_improvement.py",
+          "count": 12,
+          "issue": "#164"
+        },
+        {
+          "category": "DeprecationWarning",
+          "source": "site-packages/fastapi/applications.py",
+          "count": 4,
+          "issue": "#162"
+        },
+        {
+          "category": "StarletteDeprecationWarning",
+          "source": "site-packages/fastapi/testclient.py",
+          "count": 1,
+          "issue": "#163"
+        }
+      ]
+    },
+    "cleanup": {
+      "total": 1,
+      "categories": [
+        {
+          "errorType": "PermissionError",
+          "owner": "apply-secrets",
+          "normalizedPath": "<PYTEST_TEMP>/apply-secrets",
+          "count": 1,
+          "issue": "#165"
+        }
+      ]
+    }
+  },
+  "debtReviews": {
+    "#162": {
+      "owner": "spikeal8-maker",
+      "reason": "FastAPI lifespan/on_event deprecation baseline: backend/main.py plus fastapi/applications.py.",
+      "reviewBy": "2026-10-26"
+    },
+    "#163": {
+      "owner": "spikeal8-maker",
+      "reason": "Starlette/FastAPI TestClient compatibility deprecation baseline.",
+      "reviewBy": "2026-10-26"
+    },
+    "#164": {
+      "owner": "spikeal8-maker",
+      "reason": "Per-request TestClient cookies deprecation across existing backend test sources.",
+      "reviewBy": "2026-10-26"
+    },
+    "#165": {
+      "owner": "spikeal8-maker",
+      "reason": "pytest temporary apply-secrets cleanup PermissionError baseline.",
+      "reviewBy": "2026-10-26"
+    }
+  },
+  "enforcement": {
+    "warnings": {
+      "newCategorySource": "FAIL",
+      "existingCategorySourceCountIncrease": "FAIL",
+      "totalAboveBaseline": "FAIL",
+      "decreases": "PASS"
+    },
+    "cleanup": {
+      "newCategoryOwner": "FAIL",
+      "existingCategoryCountIncrease": "FAIL",
+      "totalAboveBaseline": "FAIL",
+      "decreases": "PASS"
+    },
+    "evidenceUnavailable": "FAIL",
+    "exactHeadMismatch": "FAIL",
+    "testFailure": "FAIL",
+    "missingDebtReviewFields": "FAIL",
+    "expiredDebtReview": "FAIL",
+    "timingThresholdSeconds": null,
+    "retryFlaky": "NOT_OBSERVABLE_UNLESS_PROVEN",
+    "network": {
+      "telemetryUnavailable": "FAIL",
+      "blockedExternalAttemptsAbove": 0,
+      "externalAllowlistBaseline": []
+    },
+    "retry": {
+      "telemetryUnavailable": "FAIL",
+      "rerunReportsAbove": 0,
+      "repeatRunNondeterminism": "NOT_MEASURED"
+    },
+    "process": {
+      "pytestProcessLeakCheckNotPass": "FAIL"
+    }
+  }
+}
