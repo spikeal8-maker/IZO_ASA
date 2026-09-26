@@ -203,6 +203,7 @@ $stoppedBackendRecoveryScript = Join-Path $toolsDirectory "check-stopped-backend
 $receiptTool = Join-Path $toolsDirectory "release_verification_receipt.py"
 $caddyInstallScript = Join-Path $toolsDirectory "install-caddy.ps1"
 $caddyCheckScript = Join-Path $toolsDirectory "check-caddy-edge.ps1"
+$testHealthPlugin = Join-Path $toolsDirectory "test_health_pytest_plugin.py"
 $projectPython = Join-Path $backendDirectory ".venv\Scripts\python.exe"
 
 foreach ($requiredPath in @(
@@ -219,7 +220,8 @@ foreach ($requiredPath in @(
     $stoppedBackendRecoveryScript,
     $receiptTool,
     $caddyInstallScript,
-    $caddyCheckScript
+    $caddyCheckScript,
+    $testHealthPlugin
 )) {
     if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
         throw "Required verification input was not found: $requiredPath"
@@ -518,10 +520,13 @@ foreach ($environmentName in $testEnvironmentNames) {
     $testEnvironment[$environmentName] = [Environment]::GetEnvironmentVariable($environmentName, "Process")
     [Environment]::SetEnvironmentVariable($environmentName, $null, "Process")
 }
+$previousTestHealthTelemetry = [Environment]::GetEnvironmentVariable("IZO_TEST_HEALTH_TELEMETRY", "Process")
 try {
     if ($usesFullSuite) {
         $pytestArguments = if ($TestHealthOutputPath.Trim()) {
-            $fullTests + @("--durations=10", "--durations-min=0.1")
+            $telemetryPath = Join-Path (Split-Path -Parent $TestHealthOutputPath) "pytest-telemetry.json"
+            [Environment]::SetEnvironmentVariable("IZO_TEST_HEALTH_TELEMETRY", $telemetryPath, "Process")
+            $fullTests + @("-p", "tools.test_health_pytest_plugin", "--durations=10", "--durations-min=0.1")
         } else {
             $fullTests
         }
@@ -530,6 +535,7 @@ try {
         Invoke-NativeStep -Name "pytest_quick" -FilePath $python -ArgumentList $quickTests -WorkingDirectory $resolvedRoot
     }
 } finally {
+    [Environment]::SetEnvironmentVariable("IZO_TEST_HEALTH_TELEMETRY", $previousTestHealthTelemetry, "Process")
     foreach ($environmentName in $testEnvironmentNames) {
         [Environment]::SetEnvironmentVariable(
             $environmentName,
@@ -595,6 +601,11 @@ for ($attempt = 0; $attempt -lt 50 -and $pytestProcesses.Count -ne 0; $attempt++
 }
 if ($pytestProcesses.Count -ne 0) {
     throw "Pytest processes remain after verification: $($pytestProcesses.ProcessId -join ',')"
+}
+if ($TestHealthOutputPath.Trim()) {
+    $processLeakMarker = $TestHealthOutputPath + ".process-leak"
+    [IO.File]::WriteAllText($processLeakMarker, "PASS", $utf8NoBom)
+    Write-Host "VERIFY_PYTEST_PROCESS_LEAK_CHECK status=PASS"
 }
 
 $afterSnapshot = $null
