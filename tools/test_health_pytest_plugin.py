@@ -39,7 +39,7 @@ def classify_host(value: Any) -> str:
 
 
 def _address_parts(address: Any, family: int | None = None) -> tuple[str, int | None, str]:
-    if family == getattr(socket, "AF_UNIX", object()):
+    if getattr(socket, "AF_UNIX", None) is not None and family == socket.AF_UNIX:
         return "<LOCAL_IPC>", None, "local_ipc"
     if isinstance(address, tuple) and address:
         host = _safe_host(address[0])
