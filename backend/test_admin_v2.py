@@ -113,8 +113,13 @@ def test_admin_can_save_openrouter_key_without_exposing_secret(temp_db, monkeypa
         return {"configured": True, "source": "dpapi", "ok": True, "data": {"limit": 10, "usage": 1}}
 
     refresh_calls = []
+
+    async def fake_refresh():
+        refresh_calls.append(True)
+        return main.openrouter_catalog_snapshot()
+
     monkeypatch.setattr(main, "fetch_openrouter_key_status", fake_status)
-    monkeypatch.setattr(main, "schedule_openrouter_catalog_refresh", lambda: refresh_calls.append(True) or True)
+    monkeypatch.setattr(main, "refresh_openrouter_catalog", fake_refresh)
     sess = admin_session()
     with TestClient(main.app) as client:
         cookies = {"onenode_session": sess["session_token"]}
