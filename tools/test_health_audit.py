@@ -235,7 +235,7 @@ def _reference_date(metadata: dict[str, Any]) -> date | None:
 
 
 def _validate_debt_reviews(policy: dict[str, Any], metadata: dict[str, Any]) -> list[str]:
-    if policy.get("slice") != "baseline-non-regression":
+    if policy.get("slice") not in {"baseline-non-regression", "observability-non-regression"}:
         return []
 
     violations: list[str] = []
@@ -310,7 +310,7 @@ def _evaluate_non_regression(
     cleanup: dict[str, Any],
     policy: dict[str, Any],
 ) -> list[str]:
-    if policy.get("slice") != "baseline-non-regression":
+    if policy.get("slice") not in {"baseline-non-regression", "observability-non-regression"}:
         return []
 
     violations: list[str] = []
@@ -374,7 +374,82 @@ def _evaluate_non_regression(
     return violations
 
 
-def normalize(raw_output: str, metadata: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
+def _evaluate_observability(
+    telemetry: dict[str, Any] | None,
+    metadata: dict[str, Any],
+    policy: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], list[str]]:
+    if policy.get("slice") != "observability-non-regression":
+        return (
+            {"status": "NOT_REQUIRED", "blockedExternalAttempts": None, "attempts": []},
+            {
+                "observability": "NOT_REQUIRED",
+                "rerunReports": None,
+                "rerunNodeids": [],
+                "loadedRetryPlugins": [],
+                "flakyStatus": "NOT_MEASURED",
+                "repeatRunNondeterminism": "NOT_MEASURED",
+            },
+            {"pytestProcessLeakCheck": metadata.get("pytestProcessLeakCheck")},
+            [],
+        )
+
+    violations: list[str] = []
+    if not isinstance(telemetry, dict):
+        telemetry = {}
+
+    network = telemetry.get("network")
+    if not isinstance(network, dict):
+        network = {"status": "UNAVAILABLE", "blockedExternalAttempts": None, "attempts": []}
+        violations.append("NETWORK_TELEMETRY_UNAVAILABLE")
+    else:
+        if network.get("status") != "AVAILABLE":
+            violations.append("NETWORK_TELEMETRY_UNAVAILABLE")
+        blocked = network.get("blockedExternalAttempts")
+        if not isinstance(blocked, int):
+            violations.append("NETWORK_BLOCKED_COUNT_UNAVAILABLE")
+        elif blocked > 0:
+            violations.append("BLOCKED_EXTERNAL_NETWORK_ATTEMPTS")
+
+    retry = telemetry.get("retry")
+    if not isinstance(retry, dict):
+        retry = {
+            "observability": "UNAVAILABLE",
+            "rerunReports": None,
+            "rerunNodeids": [],
+            "loadedRetryPlugins": [],
+            "flakyStatus": "UNKNOWN",
+            "repeatRunNondeterminism": "NOT_MEASURED",
+        }
+        violations.append("RETRY_TELEMETRY_UNAVAILABLE")
+    else:
+        if retry.get("observability") != "AVAILABLE":
+            violations.append("RETRY_TELEMETRY_UNAVAILABLE")
+        reruns = retry.get("rerunReports")
+        if not isinstance(reruns, int):
+            violations.append("RERUN_REPORT_COUNT_UNAVAILABLE")
+        elif reruns > 0:
+            violations.append("PYTEST_RERUN_EVENTS_OBSERVED")
+        if not isinstance(retry.get("rerunNodeids"), list):
+            violations.append("RERUN_NODEIDS_UNAVAILABLE")
+        if not isinstance(retry.get("loadedRetryPlugins"), list):
+            violations.append("RETRY_PLUGIN_LIST_UNAVAILABLE")
+        if retry.get("repeatRunNondeterminism") != "NOT_MEASURED":
+            violations.append("REPEAT_RUN_NONDETERMINISM_SCOPE_INVALID")
+
+    process = {"pytestProcessLeakCheck": metadata.get("pytestProcessLeakCheck")}
+    if process["pytestProcessLeakCheck"] != "PASS":
+        violations.append("PYTEST_PROCESS_LEAK_CHECK_NOT_PASS")
+
+    return network, retry, process, violations
+
+
+def normalize(
+    raw_output: str,
+    metadata: dict[str, Any],
+    policy: dict[str, Any],
+    telemetry: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     lines = raw_output.splitlines()
     violations: list[str] = []
 
@@ -453,6 +528,10 @@ def normalize(raw_output: str, metadata: dict[str, Any], policy: dict[str, Any])
 
     violations.extend(_validate_debt_reviews(policy, metadata))
     violations.extend(_evaluate_non_regression(warning_info, cleanup_info, policy))
+    network_info, retry_info, process_info, observability_violations = _evaluate_observability(
+        telemetry, metadata, policy
+    )
+    violations.extend(observability_violations)
 
     evidence_status = "AVAILABLE" if "PYTEST_SUMMARY_UNAVAILABLE" not in violations else "UNAVAILABLE"
     policy_status = "PASS" if not violations else "FAIL"
@@ -471,6 +550,9 @@ def normalize(raw_output: str, metadata: dict[str, Any], policy: dict[str, Any])
             "slowest": slowest,
         },
         "retryFlakyObservability": retry_observability,
+        "network": network_info,
+        "retry": retry_info,
+        "process": process_info,
         "metadata": {
             "repository": metadata.get("repository"),
             "eventName": metadata.get("eventName"),
@@ -481,13 +563,17 @@ def normalize(raw_output: str, metadata: dict[str, Any], policy: dict[str, Any])
             "startedAt": metadata.get("startedAt"),
             "durationSeconds": metadata.get("durationSeconds"),
             "exitCode": metadata.get("exitCode"),
+            "pytestProcessLeakCheck": metadata.get("pytestProcessLeakCheck"),
         },
         "policy": {
             "slice": policy.get("slice"),
             "status": policy_status,
             "violations": sorted(set(violations)),
-            "warningNonRegressionEnforced": policy.get("slice") == "baseline-non-regression",
-            "cleanupNonRegressionEnforced": policy.get("slice") == "baseline-non-regression",
+            "warningNonRegressionEnforced": policy.get("slice") in {"baseline-non-regression", "observability-non-regression"},
+            "cleanupNonRegressionEnforced": policy.get("slice") in {"baseline-non-regression", "observability-non-regression"},
+            "networkObservabilityEnforced": policy.get("slice") == "observability-non-regression",
+            "retryObservabilityEnforced": policy.get("slice") == "observability-non-regression",
+            "processLeakCheckEnforced": policy.get("slice") == "observability-non-regression",
             "timingThresholdEnforced": False,
         },
     }
@@ -500,6 +586,7 @@ def main() -> int:
     normalize_parser.add_argument("--raw-output", required=True, type=Path)
     normalize_parser.add_argument("--metadata", required=True, type=Path)
     normalize_parser.add_argument("--policy", required=True, type=Path)
+    normalize_parser.add_argument("--telemetry", required=False, type=Path)
     normalize_parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
 
@@ -519,8 +606,14 @@ def main() -> int:
     except Exception:
         raw = ""
         setup_violations.append("RAW_OUTPUT_UNAVAILABLE")
+    telemetry = None
+    if args.telemetry is not None:
+        try:
+            telemetry = json.loads(_read_text(args.telemetry))
+        except Exception:
+            setup_violations.append("TELEMETRY_UNAVAILABLE")
 
-    receipt = normalize(raw, metadata, policy)
+    receipt = normalize(raw, metadata, policy, telemetry)
     if setup_violations:
         receipt["evidenceStatus"] = "UNAVAILABLE"
         receipt["policy"]["status"] = "FAIL"
