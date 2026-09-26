@@ -223,22 +223,26 @@ def deterministic_provider_test_fakes(
     import main
 
     if nodeid in EXCHANGE_FIXTURE_NODES:
-        request.getfixturevalue("temp_db")
         now = datetime.now(timezone.utc)
-        main._save_setting(
-            "exchange_usd_rub",
-            {
-                "rate": 80.0,
-                "currency": "USD",
-                "base": "RUB",
-                "source": "test-fixture",
-                "sourceUrl": "test://exchange",
-                "sourceDate": now.date().isoformat(),
-                "fetchedAt": now.isoformat(),
-                "fetched_date": now.date().isoformat(),
-                "fallback": False,
-            },
-        )
+        exchange = {
+            "rate": 80.0,
+            "currency": "USD",
+            "base": "RUB",
+            "source": "test-fixture",
+            "sourceUrl": "test://exchange",
+            "sourceDate": now.date().isoformat(),
+            "fetchedAt": now.isoformat(),
+            "fetched_date": now.date().isoformat(),
+            "fallback": False,
+        }
+        saved_setting = main._saved_setting
+
+        def fake_saved_setting(key: str):
+            if key == "exchange_usd_rub":
+                return dict(exchange)
+            return saved_setting(key)
+
+        monkeypatch.setattr(main, "_saved_setting", fake_saved_setting)
 
     if nodeid in CAPABILITY_FIXTURE_NODES:
         async def fake_capabilities(*_args: Any, **_kwargs: Any) -> list[dict[str, Any]]:
