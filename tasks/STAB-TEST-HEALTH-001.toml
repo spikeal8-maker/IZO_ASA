@@ -69,7 +69,7 @@ maxProductionFiles = 0
 maxChangedLines = 2200
 
 acceptance = [
-  "Focused provider-isolation evidence is completed before final acceptance; exact-head CI runs the existing full verification and its full pytest suite exactly once."
+  "Focused provider-isolation evidence is completed before final acceptance; exact-head CI runs the existing full verification and its full pytest suite exactly once.",
   "The pytest invocation adds only bounded diagnostic duration reporting when test-health capture is requested.",
   "The safe artifact contains pytest-raw.log, pytest-telemetry.json, test-health-receipt.json and metadata.json tied to exact HEAD/run/attempt.",
   "Receipt reports passed/failed/skipped/xfailed/xpassed, warning total plus normalized category/source records, cleanup error records, pytest/full-verify timing and bounded slowest durations.",
@@ -107,7 +107,7 @@ targetedTests = [
 fileGrowthExpectations = [
   "tools/test_health_audit.py remains a parser/normalizer only and contains no remediation or custom test-runner logic.",
   "architecture/test-health-policy.json contains the exact accepted 97/1 baseline and reviewed debt references, with no timing threshold.",
-  "CI reuses the existing full verify path and runs the full pytest suite exactly once."
+  "CI reuses the existing full verify path and runs the full pytest suite exactly once.",
   "The pytest telemetry plugin remains opt-in to test-health capture and contains no product/provider remediation logic.",
   "No production or dependency source grows.",
 ]
