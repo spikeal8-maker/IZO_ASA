@@ -1,16 +1,12 @@
 from __future__ import annotations
-
 import socket
 import unittest
-
 from tools.test_health_pytest_plugin import (
     NetworkGuard,
     OutboundNetworkBlocked,
     TelemetryState,
     classify_host,
 )
-
-
 class TestHealthPytestPluginTests(unittest.TestCase):
     def test_loopback_is_allowed_by_guard(self) -> None:
         state = TelemetryState(active_nodeid="tools/test_plugin.py::test_loopback")
@@ -18,7 +14,6 @@ class TestHealthPytestPluginTests(unittest.TestCase):
         state.check("getaddrinfo", "::1", port=80)
         self.assertEqual([item["blocked"] for item in state.attempts], [False, False])
         self.assertEqual([item["classification"] for item in state.attempts], ["loopback", "loopback"])
-
     def test_synthetic_external_provider_is_blocked_before_real_network(self) -> None:
         state = TelemetryState(active_nodeid="tools/test_plugin.py::test_external")
         with self.assertRaises(OutboundNetworkBlocked):
@@ -34,19 +29,16 @@ class TestHealthPytestPluginTests(unittest.TestCase):
                 "blocked": True,
             }],
         )
-
     def test_numeric_external_ip_is_blocked(self) -> None:
         state = TelemetryState()
         with self.assertRaises(OutboundNetworkBlocked):
             state.check("socket.connect", ("8.8.8.8", 53), family=socket.AF_INET)
         self.assertEqual(state.attempts[0]["classification"], "external")
-
     def test_local_ipc_is_allowed(self) -> None:
         state = TelemetryState()
         state.check("socket.connect", "/tmp/izo.sock", family=getattr(socket, "AF_UNIX", None))
         self.assertEqual(state.attempts[0]["classification"], "local_ipc")
         self.assertFalse(state.attempts[0]["blocked"])
-
     def test_retry_payload_zero_is_observable_not_inferred(self) -> None:
         payload = TelemetryState().payload()
         self.assertEqual(payload["retry"]["observability"], "AVAILABLE")
@@ -54,20 +46,16 @@ class TestHealthPytestPluginTests(unittest.TestCase):
         self.assertEqual(payload["retry"]["rerunNodeids"], [])
         self.assertEqual(payload["retry"]["flakyStatus"], "NO_PYTEST_RERUN_EVENTS_OBSERVED")
         self.assertEqual(payload["retry"]["repeatRunNondeterminism"], "NOT_MEASURED")
-
     def test_rerun_reports_are_counted_from_hook_state(self) -> None:
         state = TelemetryState(rerun_nodeids=["a::test_x", "a::test_x", "b::test_y"])
         payload = state.payload()
         self.assertEqual(payload["retry"]["rerunReports"], 3)
         self.assertEqual(payload["retry"]["rerunNodeids"], ["a::test_x", "b::test_y"])
         self.assertEqual(payload["retry"]["flakyStatus"], "PYTEST_RERUN_EVENTS_OBSERVED")
-
     def test_host_classification_is_bounded(self) -> None:
         self.assertEqual(classify_host("localhost"), "loopback")
         self.assertEqual(classify_host("127.9.8.7"), "loopback")
         self.assertEqual(classify_host("::1"), "loopback")
         self.assertEqual(classify_host("api.openrouter.ai"), "external")
-
-
 if __name__ == "__main__":
     unittest.main()
