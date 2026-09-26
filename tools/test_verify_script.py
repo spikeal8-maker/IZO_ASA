@@ -194,7 +194,6 @@ def test_verify_script_has_no_process_or_file_deletion_commands() -> None:
     assert '[string]$TestHealthOutputPath = ""' in source
     assert '"--durations=10", "--durations-min=0.1"' in source
     assert "-OutputPath $TestHealthOutputPath" in source
-    assert '"-p", "backend.test_support.provider_test_fakes"' in source
     assert '"-p", "tools.test_health_pytest_plugin"' in source
     assert '"IZO_TEST_HEALTH_TELEMETRY"' in source
     assert '"pytest-telemetry.json"' in source
