@@ -2,19 +2,22 @@ manifestVersion = 1
 id = "STAB-TEST-HEALTH-001"
 baseSha = "cf0f1db9d55205d78c81fd73eaf2d045201e0316"
 
-goal = "Turn the accepted exact-head Slice 1 warning/cleanup baseline into a reviewed non-regression gate without remediation."
+goal = "Add fail-closed pytest network/rerun/process observability on top of the accepted warning/cleanup non-regression baseline without remediation."
 
-userOutcome = "Issue #112 Slice 2 fails fresh exact-head CI only when warning/cleanup health regresses beyond the accepted 97/1 baseline or reviewed debt metadata becomes invalid."
+userOutcome = "Issue #112 implementation candidate proves one full pytest run has no external outbound attempts, no pytest rerun events and no process leak while preserving the accepted warning/cleanup floor."
 
-beforeScenario = "Slice 1 accepted artifact 10890620713 on ab1aab849e634918247c4a420fd6b1094ff9bb65 records 97 warnings and 1 cleanup PermissionError, but those exact records are not yet enforced against regressions."
+beforeScenario = "Slice 2 enforces the accepted 97/1 warning/cleanup floor, but pytest-level outbound network attempts and rerun events are not yet directly observable."
 
-afterScenario = "Fresh CI reuses the same single full pytest run, compares normalized warning/cleanup evidence with the accepted Slice 1 baseline, allows decreases, fails new/increased debt, validates bounded debt reviews #162-#165, and uploads exact-head evidence."
+afterScenario = "Fresh CI reuses the same single full pytest run with an opt-in telemetry plugin, blocks and records external socket attempts before connection, observes actual rerun reports/plugins, records the existing process-leak check, preserves warning/cleanup non-regression and uploads exact-head evidence."
 
 nonGoals = [
   "fix warnings",
   "fix cleanup PermissionError",
   "invent warning or cleanup tolerances beyond the accepted Slice 1 baseline",
   "add retries",
+  "add retry or socket dependencies",
+  "broadly allow external network",
+  "remediate provider/network callers",
   "suppress warnings",
   "rewrite product tests",
   "change product behavior",
@@ -28,6 +31,8 @@ declaredFiles = [
   "architecture/test-health-policy.json",
   "tools/test_health_audit.py",
   "tools/test_test_health_audit.py",
+  "tools/test_health_pytest_plugin.py",
+  "tools/test_test_health_pytest_plugin.py",
   "tools/verify.ps1",
   ".github/workflows/ci.yml",
   "tools/test_verify_script.py",
@@ -69,11 +74,17 @@ acceptance = [
   "Malformed/incomplete evidence, failed test execution, parser failure, missing evidence or exact-head mismatch fails the package.",
   "Accepted warning/cleanup debt may decrease, but new categories, count increases, total increases, missing debt review fields or expired reviews fail Slice 2.",
   "No warning suppression, cleanup remediation, retry addition, product/dependency change, #113/#115, Docker, deploy or restart occurs.",
+  "The opt-in pytest plugin allows loopback/local IPC, blocks external getaddrinfo/create_connection/connect/connect_ex attempts before connection and records only safe target metadata.",
+  "Network telemetry is AVAILABLE with zero blocked external attempts; the external allowlist baseline remains empty.",
+  "Pytest rerun observability is AVAILABLE with zero rerun reports; loaded retry plugins are recorded and repeat-run nondeterminism remains NOT_MEASURED.",
+  "The existing Get-PytestProcesses verification records pytestProcessLeakCheck=PASS before policy acceptance.",
+  "The exact-head artifact includes pytest-raw.log, pytest-telemetry.json, test-health-receipt.json and metadata.json.",
   "Normal repository exact-head CI remains green with zero production/dependency/scope violations.",
 ]
 
 requiredEvidence = [
   "tools/test_test_health_audit.py",
+  "tools/test_test_health_pytest_plugin.py",
   "tools/test_verify_script.py",
   "tools/test_ci_workflow.py",
   "test-health-evidence exact-head GitHub Actions artifact",
@@ -84,7 +95,8 @@ requiredEvidence = [
 
 targetedTests = [
   "tools/test_test_health_audit.py",
-  "tools/test_verify_script.py",
+  "tools/test_test_health_pytest_plugin.py",
+  "tools/test_verify_script.py"
   "tools/test_ci_workflow.py",
 ]
 
@@ -92,6 +104,7 @@ fileGrowthExpectations = [
   "tools/test_health_audit.py remains a parser/normalizer only and contains no remediation or custom test-runner logic.",
   "architecture/test-health-policy.json contains the exact accepted 97/1 baseline and reviewed debt references, with no timing threshold.",
   "CI reuses the existing full verify path and does not add a second full pytest run.",
+  "The pytest telemetry plugin remains opt-in to test-health capture and contains no product/provider remediation logic.",
   "No production or dependency source grows.",
 ]
 
@@ -105,6 +118,9 @@ forbiddenOperations = [
   "warning-suppression",
   "cleanup-remediation",
   "retry-addition",
+  "retry-plugin-addition",
+  "network-broad-allowlist",
+  "provider-remediation",
   "issue-113-implementation",
   "issue-115-implementation",
   "docker-implementation",
