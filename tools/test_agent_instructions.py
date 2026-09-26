@@ -310,20 +310,33 @@ def _assert_program_and_package_status() -> None:
     assert "all three receipts exist before #107 starts" in amendment
 
     now = _text(ROOT / "docs" / "NOW.md")
-    assert "updated: 2026-09-25" in now
-    assert "source_main_at_status_update: 3ea6b12fb945533e40fcfa6b26453597d82553b5" in now
-    assert "last_verified_main: 3ea6b12fb945533e40fcfa6b26453597d82553b5" in now
-    assert "completed_package: D0-EXECUTOR-001" in now
-    assert "active_package: STAB-TEST-HEALTH-001" in now
-    assert "active_task_contract: github-issue-112" in now
+    assert "updated: 2026-09-27" in now
+    assert "source_main_at_status_update: eb3632e651618dd22f6c391106c3f37b0d20dca3" in now
+    assert "last_verified_main: eb3632e651618dd22f6c391106c3f37b0d20dca3" in now
+    assert "production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa" in now
+    assert "production_release_verified_at: 2026-09-02T00:08:04+03:00" in now
+    assert "completed_package: STAB-TEST-HEALTH-001" in now
+    assert "active_package: AI-DEV-ENV-001" in now
+    assert "active_task_contract: github-issue-113" in now
     assert "baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a" in now
     assert "baseline_status: completed-point-A-accepted" in now
     assert "\nblocker:" not in now
     assert "blocker: shared-host-gh-write-credential-visible" not in now
-    assert "next_candidate: AI-DEV-ENV-001" in now
-    assert "Completed: `D0-EXECUTOR-001` (#157)." in now
-    assert "Active: `STAB-TEST-HEALTH-001` (#112)." in now
-    assert "Next: `AI-DEV-ENV-001` (#113)." in now
+    assert "next_candidate: DOCKER-DEV-001" in now
+    assert "Completed: `STAB-TEST-HEALTH-001` (#112)." in now
+    assert "Active: `AI-DEV-ENV-001` (#113)." in now
+    assert "#112 test-health = COMPLETE." in now
+    assert "warning baseline 97" in now
+    assert "cleanup baseline 1" in now
+    assert "hidden outbound external = 0 required" in now
+    assert "pytest rerun observability active" in now
+    assert "process leak gate active" in now
+    assert "Tracked debt: #162, #163, #164, #165." in now
+    assert "#113 AI-DEV-ENV = ACTIVE; implementation NOT STARTED." in now
+    assert "#114 AI-VERIFY = OPEN / PREPARED; not active; not prerequisite for first D1 Docker smoke." in now
+    assert "#115 DOCKER-DEV = NEXT." in now
+    assert "D1 Docker = NOT STARTED." in now
+    assert "Next: `DOCKER-DEV-001` (#115)." in now
     assert "Architecture checkpoint after #108-#110: PASS;" in now
     assert "routes/workers/tables 251/8/65" in now
     assert "product-flow count 14" in now
