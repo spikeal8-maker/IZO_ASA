@@ -1,7 +1,7 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "package": "STAB-TEST-HEALTH-001",
-  "slice": "baseline-non-regression",
+  "slice": "observability-non-regression",
   "baselineSource": "exact-head-github-ci",
   "historicalCountsAcceptedAsFreshBaseline": false,
   "acceptedBaseline": {
@@ -128,6 +128,19 @@
     "missingDebtReviewFields": "FAIL",
     "expiredDebtReview": "FAIL",
     "timingThresholdSeconds": null,
-    "retryFlaky": "NOT_OBSERVABLE_UNLESS_PROVEN"
+    "retryFlaky": "NOT_OBSERVABLE_UNLESS_PROVEN",
+    "network": {
+      "telemetryUnavailable": "FAIL",
+      "blockedExternalAttemptsAbove": 0,
+      "externalAllowlistBaseline": []
+    },
+    "retry": {
+      "telemetryUnavailable": "FAIL",
+      "rerunReportsAbove": 0,
+      "repeatRunNondeterminism": "NOT_MEASURED"
+    },
+    "process": {
+      "pytestProcessLeakCheckNotPass": "FAIL"
+    }
   }
 }
