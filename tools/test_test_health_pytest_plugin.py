@@ -1,4 +1,5 @@
 from __future__ import annotations
+from pathlib import Path
 import socket
 import unittest
 from tools.test_health_pytest_plugin import (
@@ -58,5 +59,24 @@ class TestHealthPytestPluginTests(unittest.TestCase):
         self.assertEqual(classify_host("127.9.8.7"), "loopback")
         self.assertEqual(classify_host("::1"), "loopback")
         self.assertEqual(classify_host("api.openrouter.ai"), "external")
+
+    def test_plugin_is_observation_only(self) -> None:
+        source = Path(__file__).with_name("test_health_pytest_plugin.py").read_text(encoding="utf-8")
+        forbidden = (
+            "backend/test_",
+            "deterministic_provider_test_fakes",
+            "EXCHANGE_FIXTURE_NODES",
+            "CAPABILITY_FIXTURE_NODES",
+            "import main",
+            "monkeypatch",
+            "fetch_openrouter_image_capabilities",
+            "refresh_openrouter_catalog",
+            "_saved_setting",
+            "from datetime import",
+            "@pytest.fixture",
+        )
+        for token in forbidden:
+            with self.subTest(token=token):
+                self.assertNotIn(token, source)
 if __name__ == "__main__":
     unittest.main()

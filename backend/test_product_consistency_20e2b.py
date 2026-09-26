@@ -12,6 +12,10 @@ from test_api import fake_send_to_comfyui, wait_for_terminal_job
 # Authorization header does not bypass CSRF while a sensitive cookie is present
 # (AUTH-LEGACY-001B).
 from test_support.browser_origin import BROWSER_ORIGIN
+from test_support.provider_fakes import (
+    patch_openrouter_image_capabilities,
+    seed_fresh_usd_rub_exchange,
+)
 
 PW = "S3cret-Password!"
 
@@ -28,6 +32,13 @@ def temp_db(tmp_path, monkeypatch):
     main.worker_started = False
     main.init_db()
     return db_file
+
+
+@pytest.fixture
+def tariff_provider_isolation(temp_db, monkeypatch):
+    seed_fresh_usd_rub_exchange(main)
+    patch_openrouter_image_capabilities(monkeypatch, main)
+    return temp_db
 
 
 def bearer(token: str) -> dict[str, str]:
@@ -115,7 +126,7 @@ def test_mini_gallery_access_ignores_stale_disabled_flag(temp_db):
         assert main.user_gallery_allowed(conn, "missing", "missing") is False
 
 
-def test_tariff_defaults_and_admin_settings_normalize(temp_db):
+def test_tariff_defaults_and_admin_settings_normalize(tariff_provider_isolation):
     token = admin_token()
     with TestClient(main.app) as c:
         public = c.get("/api/tariffs")
@@ -132,7 +143,7 @@ def test_tariff_defaults_and_admin_settings_normalize(temp_db):
     assert settings.json()["tariffs"]["business"]["video_slots"] == 25
 
 
-def test_tariff_settings_persist_and_read_from_admin_settings(temp_db):
+def test_tariff_settings_persist_and_read_from_admin_settings(tariff_provider_isolation):
     token = admin_token()
     payload = {
         "free": {"daily_tokens": 11, "gallery_slots": 2},
