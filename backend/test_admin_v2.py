@@ -5,16 +5,13 @@ backend/onenode.sqlite3 is never touched.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 import main
-from test_support.provider_fakes import (
-    patch_openrouter_catalog_refresh,
-    seed_fresh_usd_rub_exchange,
-)
 
 
 NOW = "2026-06-25T00:00:00+00:00"
@@ -30,7 +27,21 @@ def temp_db(tmp_path: Path, monkeypatch):
 
 @pytest.fixture
 def fresh_exchange(temp_db):
-    seed_fresh_usd_rub_exchange(main)
+    now = datetime.now(timezone.utc)
+    main._save_setting(
+        "exchange_usd_rub",
+        {
+            "rate": 80.0,
+            "currency": "USD",
+            "base": "RUB",
+            "source": "test-fixture",
+            "sourceUrl": "test://exchange",
+            "sourceDate": now.date().isoformat(),
+            "fetchedAt": now.isoformat(),
+            "fetched_date": now.date().isoformat(),
+            "fallback": False,
+        },
+    )
     return temp_db
 
 
@@ -119,8 +130,12 @@ def test_admin_can_save_openrouter_key_without_exposing_secret(fresh_exchange, m
     async def fake_status():
         return {"configured": True, "source": "dpapi", "ok": True, "data": {"limit": 10, "usage": 1}}
 
+    async def fake_refresh():
+        return main.openrouter_catalog_snapshot()
+
     monkeypatch.setattr(main, "fetch_openrouter_key_status", fake_status)
-    patch_openrouter_catalog_refresh(monkeypatch, main)
+    monkeypatch.setattr(main, "_openrouter_catalog_refresh_task", None)
+    monkeypatch.setattr(main, "refresh_openrouter_catalog", fake_refresh)
     sess = admin_session()
     with TestClient(main.app) as client:
         cookies = {"onenode_session": sess["session_token"]}
