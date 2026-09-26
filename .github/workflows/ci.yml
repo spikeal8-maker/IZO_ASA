@@ -455,6 +455,33 @@ jobs:
         working-directory: frontend
         run: npx playwright install chromium
 
+      - name: Run focused provider-isolation telemetry
+        shell: powershell
+        run: |
+          $env:APP_ENV = "test"
+          $env:BOT_UPDATES_MODE = "disabled"
+          $env:MAX_UPDATES_MODE = "disabled"
+          $env:COMFYUI_REQUIRED = "false"
+          $env:COMFYUI_MOCK_FALLBACK = "false"
+          $env:TELEGRAM_BOT_TOKEN = ""
+          $env:MAX_BOT_TOKEN = ""
+          $env:OPENROUTER_API_KEY = ""
+          $env:SESSION_HMAC_SECRET = ""
+          $env:EMAIL_PROVIDER = ""
+          $env:DATABASE_URL = Join-Path $env:RUNNER_TEMP "izo-ci-focused.sqlite3"
+          $env:MEDIA_DIR = Join-Path $env:RUNNER_TEMP "izo-ci-focused-media"
+          $env:IZO_SECRET_DIR = Join-Path $env:RUNNER_TEMP "izo-ci-focused-secrets"
+          $focusedTelemetry = Join-Path $env:RUNNER_TEMP "test-health-focused.json"
+          $env:IZO_TEST_HEALTH_TELEMETRY = $focusedTelemetry
+          $python = (Get-Command python.exe).Source
+          & $python -m pytest -q -p tools.test_health_pytest_plugin backend/test_account_sync_models_tokens.py backend/test_admin_v2.py backend/test_auth_telegram_v2.py backend/test_product_consistency_20e2b.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path -LiteralPath $focusedTelemetry -PathType Leaf)) { throw "Focused test-health telemetry missing." }
+          $focused = Get-Content -LiteralPath $focusedTelemetry -Raw | ConvertFrom-Json
+          if ($focused.network.status -ne "AVAILABLE") { throw "Focused network telemetry unavailable." }
+          if ([int]$focused.network.blockedExternalAttempts -ne 0) { throw "Focused external network attempts detected." }
+          Write-Host "FOCUSED_TEST_HEALTH_NETWORK=PASS external_attempts=0"
+
       - name: Run deterministic repository verification
         id: test_health
         shell: powershell
@@ -555,7 +582,11 @@ jobs:
             (Join-Path $env:RUNNER_TEMP "izo-ci-secrets"),
             (Join-Path $env:RUNNER_TEMP "supply-chain-audit"),
             (Join-Path $env:RUNNER_TEMP "supply-chain-tools"),
-            (Join-Path $env:RUNNER_TEMP "test-health")
+            (Join-Path $env:RUNNER_TEMP "test-health"),
+            (Join-Path $env:RUNNER_TEMP "test-health-focused.json"),
+            (Join-Path $env:RUNNER_TEMP "izo-ci-focused.sqlite3"),
+            (Join-Path $env:RUNNER_TEMP "izo-ci-focused-media"),
+            (Join-Path $env:RUNNER_TEMP "izo-ci-focused-secrets")
           )) {
             Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
           }
