@@ -52,6 +52,7 @@ def temp_db(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(main, "DB_PATH", db_file)
     monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", TEST_BOT_TOKEN)
     monkeypatch.setattr(main, "TELEGRAM_INIT_DATA_TTL_SECONDS", 86400)
+    monkeypatch.setattr(main, "schedule_avatar_cache", lambda _provider, _provider_user_id: None)
     main.init_db()
     return db_file
 
