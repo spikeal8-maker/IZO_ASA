@@ -194,6 +194,11 @@ def test_verify_script_has_no_process_or_file_deletion_commands() -> None:
     assert '[string]$TestHealthOutputPath = ""' in source
     assert '"--durations=10", "--durations-min=0.1"' in source
     assert "-OutputPath $TestHealthOutputPath" in source
+    assert '"-p", "tools.test_health_pytest_plugin"' in source
+    assert '"IZO_TEST_HEALTH_TELEMETRY"' in source
+    assert '"pytest-telemetry.json"' in source
+    assert 'VERIFY_PYTEST_PROCESS_LEAK_CHECK status=PASS' in source
+    assert '$processLeakMarker = $TestHealthOutputPath + ".process-leak"' in source
     assert "System.Diagnostics.ProcessStartInfo" in source
     assert "-EncodedCommand $encodedCapture" in source
     assert "$process.WaitForExit()" in source
