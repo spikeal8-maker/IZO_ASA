@@ -1,0 +1,82 @@
+manifestVersion = 1
+id = "AI-DEV-ENV-001"
+baseSha = "93a0a9d4bef1b478030788700e4c2241d9ef1cca"
+goal = "Create a deterministic plan-only isolated per-package environment contract for DB, media, secrets, provider policy, ports, production-root guards and a machine-readable receipt."
+userOutcome = "An active agent package can deterministically plan isolated roots and ports, fail closed on production/credential/ownership hazards, and emit a secret-free planned receipt without starting any application process."
+beforeScenario = "AI-DEV-ENV-001 is active in docs/NOW.md but no canonical isolated package-environment planner or receipt contract exists."
+afterScenario = "The active package ownership identity deterministically plans <worktree>/.runtime/agent-env/<PACKAGE_ID> storage, isolated provider policy and candidate ports, validates fail-closed safety, and writes only planned environment state/receipt."
+nonGoals = [
+  "start backend or frontend",
+  "bind or reserve ports",
+  "implement environment lifecycle or env-down",
+  "probe providers",
+  "create real credentials",
+  "implement Docker",
+  "implement AI-VERIFY-001",
+  "change product/runtime/dependency code",
+]
+declaredFiles = [
+  "tasks/AI-DEV-ENV-001.toml",
+  "tools/agent_system/env.py",
+  "tools/test_agent_env.py",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "docs/**",
+  "architecture/**",
+  ".github/**",
+  "tools/agent.ps1",
+  "tools/verify.ps1",
+]
+protectedFilesTouched = [
+]
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+maxProductionFiles = 0
+maxChangedLines = 1200
+acceptance = [
+  "Environment identity comes from existing package registry and ownership.json; no second registry is introduced.",
+  "Same package identity yields deterministic roots and ports; two package identities yield disjoint roots and non-colliding deterministic candidate ports.",
+  "Environment layout is <worktree>/.runtime/agent-env/<PACKAGE_ID> with db/app.sqlite3, media, secrets and state/environment.json plus state/environment-receipt.json.",
+  "Slice 1 state is planned only; no PID, listener, backend, frontend, provider probe, reservation or env-down lifecycle exists.",
+  "Known production database, media and secret paths are resolved from repository-owned production contracts; UNKNOWN production safety fails closed.",
+  "Paths outside the current worktree, paths inside .git/tracked production storage and symlink escapes fail closed.",
+  "Provider mode is isolated; external providers are disabled/fake; ComfyUI, Ollama and Qwen are local-endpoint-allowed with external Internet forbidden.",
+  "Secret mode is fake-only; dangerous real credential presence fails without exposing secret values in receipt or diagnostics.",
+  "Backend/frontend candidate ports are distinct, valid and deterministic without binding or random fallback.",
+  "Malformed/stale ownership fails closed.",
+  "Focused tests and exact-head CI pass while test-health and supply-chain non-regression gates remain green.",
+]
+requiredEvidence = [
+  "tools/test_agent_env.py focused tests",
+  "package enforcement receipt with productionFileCount=0 and no scope findings",
+  "exact-head GitHub CI with test-health and supply-chain PASS",
+]
+targetedTests = [
+  "tools/test_agent_env.py",
+  "tools/test_agent_package.py",
+]
+fileGrowthExpectations = [
+  "tools/agent_system/env.py remains cohesive and bounded.",
+  "tools/test_agent_env.py covers the contract without product fixtures.",
+  "No product source grows.",
+]
+forbiddenOperations = [
+  "deploy",
+  "restart",
+  "production-data",
+  "provider-call",
+  "port-bind",
+  "process-start",
+  "env-down",
+  "docker",
+  "issue-114-implementation",
+  "issue-115-implementation",
+  "dependency-change",
+]
+rollbackBoundary = "Revert the environment planner, its focused tests and this package manifest; no product/runtime/dependency/deploy state is touched."
