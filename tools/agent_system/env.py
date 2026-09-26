@@ -109,11 +109,11 @@ def _normalize_contract_root(value: str) -> str:
         return path
     return str(Path(raw).expanduser().resolve(strict=False))
 def discover_production_path_contract(repo_root: Path | str) -> ProductionPathContract:
-    """Read production-sensitive root families from tracked release contracts.
-    The current production release contract explicitly constrains live SQLite to
-    the C:/F: IZO roots and pins the production secret root. We treat those root
-    families as production-sensitive for *all* environment storage so an agent
-    environment can never be created below them. Missing evidence is UNKNOWN.
+    """Read production-sensitive roots from tracked release contracts.
+
+    The release contract constrains live SQLite root families and pins the
+    production secret root. It does not currently define an exact/canonical
+    MEDIA_DIR, so media remains UNKNOWN and default planning fails closed.
     """
     repo = resolve_repo_root(repo_root)
     promoter = repo / PRODUCTION_PROMOTER
@@ -133,11 +133,10 @@ def discover_production_path_contract(repo_root: Path | str) -> ProductionPathCo
     secret_match = SECRET_ROOT_PATTERN.search(source)
     secret_exact = _normalize_contract_root(secret_match.group(1)) if secret_match else ""
     database_status = "KNOWN" if database_roots else "UNKNOWN"
-    # No tracked exact MEDIA_DIR exists in the release template. The tracked
-    # live-storage root families are still authoritative production-sensitive
-    # boundaries and therefore apply to media as a stricter guard.
-    media_roots = database_roots
-    media_status = "KNOWN" if media_roots else "UNKNOWN"
+    # Fail closed: the tracked release contract has no canonical current
+    # MEDIA_DIR, so DB root families must not be relabeled as media evidence.
+    media_roots: tuple[str, ...] = ()
+    media_status = "UNKNOWN"
     secret_roots = tuple(dict.fromkeys((*(database_roots or ()), *((secret_exact,) if secret_exact else ()))))
     secret_status = "KNOWN" if secret_exact and secret_roots else "UNKNOWN"
     overall = (

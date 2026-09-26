@@ -179,15 +179,18 @@ def _contains_key(value: object, forbidden: str) -> bool:
     return False
 
 
-def test_repository_production_contract_is_known_from_tracked_release_contract() -> None:
+def test_repository_production_contract_fails_closed_on_unknown_media_root() -> None:
     contract = discover_production_path_contract(ROOT)
-    assert contract.status == "KNOWN"
+    assert contract.status == "UNKNOWN"
     assert contract.database_status == "KNOWN"
-    assert contract.media_status == "KNOWN"
+    assert contract.media_status == "UNKNOWN"
+    assert contract.media_roots == ()
     assert contract.secret_status == "KNOWN"
     assert contract.source_files == ("ops/release/promote-project-release.ps1",)
     assert any(root.casefold() == r"c:\izo_asa".casefold() for root in contract.database_roots)
     assert any(root.casefold() == r"c:\izo_asa\secrets".casefold() for root in contract.secret_roots)
+    with pytest.raises(EnvironmentContractError, match=r"PRODUCTION_PATH_STATUS_UNKNOWN.*media=UNKNOWN"):
+        build_environment_plan(ROOT, environment={}, production_contract=contract)
 
 
 def test_same_package_has_same_deterministic_roots_and_ports(tmp_path: Path) -> None:
