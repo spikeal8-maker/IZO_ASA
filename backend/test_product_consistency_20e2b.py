@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import pytest
-from datetime import datetime, timezone
 import asyncio
 import json
 from fastapi.testclient import TestClient
@@ -28,14 +27,6 @@ def temp_db(tmp_path, monkeypatch):
     main.queue = asyncio.Queue()
     main.worker_started = False
     main.init_db()
-    now = datetime.now(timezone.utc)
-    main._save_setting("exchange_usd_rub", {"rate": 80.0, "currency": "USD", "base": "RUB", "source": "test-fixture", "sourceUrl": "test://exchange", "sourceDate": now.date().isoformat(), "fetchedAt": now.isoformat(), "fetched_date": now.date().isoformat(), "fallback": False})
-    async def fake_capabilities(*_args, **_kwargs):
-        return [
-            {"id": "black-forest-labs/flux.2-pro", "modes": ["text_to_image"], "supportedResolutionIds": ["sq-hd"], "maxInputReferences": 2},
-            {"id": "black-forest-labs/flux.2-max", "modes": ["text_to_image"], "supportedResolutionIds": ["sq-hd"], "maxInputReferences": 2},
-        ]
-    monkeypatch.setattr(main, "fetch_openrouter_image_capabilities", fake_capabilities)
     return db_file
 
 
