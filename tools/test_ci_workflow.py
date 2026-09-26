@@ -243,3 +243,17 @@ def test_ci_workflow_collects_test_health_baseline_without_changing_test_semanti
     assert '(Join-Path $env:RUNNER_TEMP "test-health")' in source
     assert "filterwarnings" not in source.lower()
     assert "--reruns" not in source
+
+
+def test_ci_runs_bounded_provider_isolation_preflight_before_full_verify() -> None:
+    source = workflow_source()
+    focused = source.split("- name: Run focused provider-isolation telemetry", 1)[1].split(
+        "- name: Run deterministic repository verification", 1
+    )[0]
+    assert "tools.test_health_pytest_plugin" in focused
+    assert "backend/test_account_sync_models_tokens.py" in focused
+    assert "backend/test_admin_v2.py" in focused
+    assert "backend/test_auth_telegram_v2.py" in focused
+    assert "backend/test_product_consistency_20e2b.py" in focused
+    assert "backend/test_video_generation_api.py" not in focused
+    assert "FOCUSED_TEST_HEALTH_NETWORK=PASS external_attempts=0" in focused
