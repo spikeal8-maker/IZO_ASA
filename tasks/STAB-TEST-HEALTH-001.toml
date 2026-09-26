@@ -42,6 +42,7 @@ declaredFiles = [
   "backend/test_auth_telegram_v2.py",
   "backend/test_product_consistency_20e2b.py",
   "backend/test_video_generation_api.py",
+  "docs/admin-mutation-audit.md",
 ]
 
 allowedPatterns = []
@@ -161,4 +162,9 @@ recordedAtUtc = "2026-09-26T00:00:00Z"
 path = "backend/test_video_generation_api.py"
 reason = "Full-suite telemetry after known background fixes still attributed one blocked OpenRouter attempt to test_video_generate_persists_real_source_thumbnail_and_returns_lineage; scope added for isolated diagnosis before any fixture patch."
 recordedAtUtc = "2026-09-26T00:00:00Z"
+
+[[scopeExpansions]]
+path = "docs/admin-mutation-audit.md"
+reason = "The two #112 test-owned provider fixture edits change cryptographic evidence-artifact hashes; update only those stored SHA-256 fingerprints so the existing admin mutation audit contract remains exact without product behavior changes."
+recordedAtUtc = "2026-09-26T20:30:00Z"
 
