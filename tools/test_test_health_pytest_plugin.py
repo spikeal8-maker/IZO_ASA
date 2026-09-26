@@ -35,8 +35,9 @@ class TestHealthPytestPluginTests(unittest.TestCase):
             state.check("socket.connect", ("8.8.8.8", 53), family=socket.AF_INET)
         self.assertEqual(state.attempts[0]["classification"], "external")
     def test_local_ipc_is_allowed(self) -> None:
+        if not hasattr(socket, "AF_UNIX"): self.skipTest("AF_UNIX unavailable")
         state = TelemetryState()
-        state.check("socket.connect", "/tmp/izo.sock", family=getattr(socket, "AF_UNIX", None))
+        state.check("socket.connect", "/tmp/izo.sock", family=socket.AF_UNIX)
         self.assertEqual(state.attempts[0]["classification"], "local_ipc")
         self.assertFalse(state.attempts[0]["blocked"])
     def test_retry_payload_zero_is_observable_not_inferred(self) -> None:
