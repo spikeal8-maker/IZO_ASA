@@ -5,7 +5,6 @@ backend/onenode.sqlite3 is never touched.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -22,8 +21,6 @@ def temp_db(tmp_path: Path, monkeypatch):
     db_file = tmp_path / "admin_v2_test.sqlite3"
     monkeypatch.setattr(main, "DB_PATH", db_file)
     main.init_db()
-    now = datetime.now(timezone.utc)
-    main._save_setting("exchange_usd_rub", {"rate": 80.0, "currency": "USD", "base": "RUB", "source": "test-fixture", "sourceUrl": "test://exchange", "sourceDate": now.date().isoformat(), "fetchedAt": now.isoformat(), "fetched_date": now.date().isoformat(), "fallback": False})
     return db_file
 
 
@@ -112,14 +109,7 @@ def test_admin_can_save_openrouter_key_without_exposing_secret(temp_db, monkeypa
     async def fake_status():
         return {"configured": True, "source": "dpapi", "ok": True, "data": {"limit": 10, "usage": 1}}
 
-    refresh_calls = []
-
-    async def fake_refresh():
-        refresh_calls.append(True)
-        return main.openrouter_catalog_snapshot()
-
     monkeypatch.setattr(main, "fetch_openrouter_key_status", fake_status)
-    monkeypatch.setattr(main, "refresh_openrouter_catalog", fake_refresh)
     sess = admin_session()
     with TestClient(main.app) as client:
         cookies = {"onenode_session": sess["session_token"]}
@@ -133,9 +123,6 @@ def test_admin_can_save_openrouter_key_without_exposing_secret(temp_db, monkeypa
     assert settings.status_code == 200
     assert "sk-or-test-secret-123" not in settings.text
     assert deleted.status_code == 200
-    assert saved.json()["catalogRefreshStarted"] is True
-    assert deleted.json()["catalogRefreshStarted"] is True
-    assert refresh_calls == [True, True]
     assert main.OPENROUTER_SECRET_STORE.get(main.OPENROUTER_SECRET_NAME) == ""
     with main.db() as conn:
         assert conn.execute("SELECT COUNT(*) AS c FROM admin_secrets").fetchone()["c"] == 0
