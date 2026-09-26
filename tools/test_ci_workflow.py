@@ -234,6 +234,10 @@ def test_ci_workflow_collects_test_health_baseline_without_changing_test_semanti
     assert "test-health-evidence-" in source
     assert "pytest-raw.log" in source
     assert "test-health-receipt.json" in source
+    assert "pytest-telemetry.json" in source
+    assert "--telemetry $telemetryPath" in source
+    assert "pytestProcessLeakCheck = $processLeakStatus" in source
+    assert '$processLeakMarker = $pytestRaw + ".process-leak"' in source
     assert 'IZO_EXPECTED_HEAD_SHA: ${{ steps.supply_chain_range.outputs.exact_head }}' in source
     assert "Test-health exact-head mismatch" in source
     assert '(Join-Path $env:RUNNER_TEMP "test-health")' in source
