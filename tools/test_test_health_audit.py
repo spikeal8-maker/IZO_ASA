@@ -7,6 +7,7 @@ from pathlib import Path
 
 from tools.test_health_audit import (
     _evaluate_non_regression,
+    _evaluate_observability,
     _validate_debt_reviews,
     normalize,
 )
@@ -32,6 +33,7 @@ def metadata(**overrides):
         "startedAt": "2026-09-25T00:00:00+00:00",
         "durationSeconds": 716.0,
         "exitCode": 0,
+        "pytestProcessLeakCheck": "PASS",
     }
     result.update(overrides)
     return result
@@ -274,6 +276,103 @@ class TestHealthNonRegressionPolicy(unittest.TestCase):
     def test_retry_not_observable_remains_null(self) -> None:
         receipt = normalize("3 passed in 0.50s\n", metadata(), POLICY)
         self.assertEqual(receipt["retryFlakyObservability"], {"status": "NOT_OBSERVABLE", "retries": None})
+
+
+
+
+class TestHealthObservabilityPolicy(unittest.TestCase):
+    def clean_telemetry(self) -> dict:
+        return {
+            "network": {
+                "status": "AVAILABLE",
+                "blockedExternalAttempts": 0,
+                "attempts": [],
+            },
+            "retry": {
+                "observability": "AVAILABLE",
+                "rerunReports": 0,
+                "rerunNodeids": [],
+                "loadedRetryPlugins": [],
+                "flakyStatus": "NO_PYTEST_RERUN_EVENTS_OBSERVED",
+                "repeatRunNondeterminism": "NOT_MEASURED",
+            },
+        }
+
+    def test_zero_network_and_rerun_telemetry_passes(self) -> None:
+        network, retry, process, violations = _evaluate_observability(
+            self.clean_telemetry(), metadata(), NON_REGRESSION_POLICY
+        )
+        self.assertEqual(violations, [])
+        self.assertEqual(network["blockedExternalAttempts"], 0)
+        self.assertEqual(retry["observability"], "AVAILABLE")
+        self.assertEqual(retry["rerunReports"], 0)
+        self.assertEqual(retry["repeatRunNondeterminism"], "NOT_MEASURED")
+        self.assertEqual(process["pytestProcessLeakCheck"], "PASS")
+
+    def test_external_network_synthetic_attempt_fails_policy(self) -> None:
+        telemetry = self.clean_telemetry()
+        telemetry["network"] = {
+            "status": "AVAILABLE",
+            "blockedExternalAttempts": 1,
+            "attempts": [{
+                "testNodeid": "tools/test_x.py::test_provider",
+                "operation": "create_connection",
+                "host": "api.openrouter.ai",
+                "port": 443,
+                "classification": "external",
+                "blocked": True,
+            }],
+        }
+        _network, _retry, _process, violations = _evaluate_observability(
+            telemetry, metadata(), NON_REGRESSION_POLICY
+        )
+        self.assertIn("BLOCKED_EXTERNAL_NETWORK_ATTEMPTS", violations)
+
+    def test_network_telemetry_missing_fails(self) -> None:
+        telemetry = self.clean_telemetry()
+        del telemetry["network"]
+        _network, _retry, _process, violations = _evaluate_observability(
+            telemetry, metadata(), NON_REGRESSION_POLICY
+        )
+        self.assertIn("NETWORK_TELEMETRY_UNAVAILABLE", violations)
+
+    def test_synthetic_rerun_report_fails(self) -> None:
+        telemetry = self.clean_telemetry()
+        telemetry["retry"] = {
+            "observability": "AVAILABLE",
+            "rerunReports": 1,
+            "rerunNodeids": ["backend/test_x.py::test_y"],
+            "loadedRetryPlugins": ["pytest-rerunfailures"],
+            "flakyStatus": "PYTEST_RERUN_EVENTS_OBSERVED",
+            "repeatRunNondeterminism": "NOT_MEASURED",
+        }
+        _network, _retry, _process, violations = _evaluate_observability(
+            telemetry, metadata(), NON_REGRESSION_POLICY
+        )
+        self.assertIn("PYTEST_RERUN_EVENTS_OBSERVED", violations)
+
+    def test_retry_telemetry_missing_fails(self) -> None:
+        telemetry = self.clean_telemetry()
+        del telemetry["retry"]
+        _network, _retry, _process, violations = _evaluate_observability(
+            telemetry, metadata(), NON_REGRESSION_POLICY
+        )
+        self.assertIn("RETRY_TELEMETRY_UNAVAILABLE", violations)
+
+    def test_process_leak_check_must_be_real_pass(self) -> None:
+        _network, _retry, _process, violations = _evaluate_observability(
+            self.clean_telemetry(),
+            metadata(pytestProcessLeakCheck="UNKNOWN"),
+            NON_REGRESSION_POLICY,
+        )
+        self.assertIn("PYTEST_PROCESS_LEAK_CHECK_NOT_PASS", violations)
+
+    def test_observability_policy_fails_closed_when_telemetry_unavailable(self) -> None:
+        raw = "3 passed in 0.50s\n"
+        receipt = normalize(raw, metadata(), NON_REGRESSION_POLICY, telemetry=None)
+        self.assertEqual(receipt["policy"]["status"], "FAIL")
+        self.assertIn("NETWORK_TELEMETRY_UNAVAILABLE", receipt["policy"]["violations"])
+        self.assertIn("RETRY_TELEMETRY_UNAVAILABLE", receipt["policy"]["violations"])
 
 
 if __name__ == "__main__":
