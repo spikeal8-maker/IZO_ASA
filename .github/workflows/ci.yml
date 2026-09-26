@@ -479,7 +479,11 @@ jobs:
           if (-not (Test-Path -LiteralPath $focusedTelemetry -PathType Leaf)) { throw "Focused test-health telemetry missing." }
           $focused = Get-Content -LiteralPath $focusedTelemetry -Raw | ConvertFrom-Json
           if ($focused.network.status -ne "AVAILABLE") { throw "Focused network telemetry unavailable." }
-          if ([int]$focused.network.blockedExternalAttempts -ne 0) { throw "Focused external network attempts detected." }
+          $blocked = @($focused.network.attempts | Where-Object { $_.blocked })
+          if ($blocked.Count -ne 0) {
+            Write-Host ("FOCUSED_TEST_HEALTH_BLOCKED=" + ($blocked | ConvertTo-Json -Compress -Depth 5))
+            throw "Focused external network attempts detected."
+          }
           Write-Host "FOCUSED_TEST_HEALTH_NETWORK=PASS external_attempts=0"
 
       - name: Run deterministic repository verification
