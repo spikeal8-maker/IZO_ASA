@@ -42,7 +42,6 @@ declaredFiles = [
   "backend/test_auth_telegram_v2.py",
   "backend/test_product_consistency_20e2b.py",
   "backend/test_video_generation_api.py",
-  "backend/test_support/provider_test_fakes.py",
 ]
 
 allowedPatterns = []
@@ -70,7 +69,7 @@ maxProductionFiles = 0
 maxChangedLines = 2200
 
 acceptance = [
-  "Fresh exact-head CI runs a bounded four-file provider-isolation telemetry preflight first, then runs the existing full verification and its full pytest suite exactly once.",
+  "Focused provider-isolation evidence is completed before final acceptance; exact-head CI runs the existing full verification and its full pytest suite exactly once."
   "The pytest invocation adds only bounded diagnostic duration reporting when test-health capture is requested.",
   "The safe artifact contains pytest-raw.log, pytest-telemetry.json, test-health-receipt.json and metadata.json tied to exact HEAD/run/attempt.",
   "Receipt reports passed/failed/skipped/xfailed/xpassed, warning total plus normalized category/source records, cleanup error records, pytest/full-verify timing and bounded slowest durations.",
@@ -108,7 +107,7 @@ targetedTests = [
 fileGrowthExpectations = [
   "tools/test_health_audit.py remains a parser/normalizer only and contains no remediation or custom test-runner logic.",
   "architecture/test-health-policy.json contains the exact accepted 97/1 baseline and reviewed debt references, with no timing threshold.",
-  "CI adds only a bounded four-file no-network preflight and still runs the existing full pytest suite exactly once.",
+  "CI reuses the existing full verify path and runs the full pytest suite exactly once."
   "The pytest telemetry plugin remains opt-in to test-health capture and contains no product/provider remediation logic.",
   "No production or dependency source grows.",
 ]
@@ -163,7 +162,3 @@ path = "backend/test_video_generation_api.py"
 reason = "Full-suite telemetry after known background fixes still attributed one blocked OpenRouter attempt to test_video_generate_persists_real_source_thumbnail_and_returns_lineage; scope added for isolated diagnosis before any fixture patch."
 recordedAtUtc = "2026-09-26T00:00:00Z"
 
-[[scopeExpansions]]
-path = "backend/test_support/provider_test_fakes.py"
-reason = "Deterministic high-level provider seams for audited admin/product tests without modifying their fingerprinted source files; used only in #112 test-health runs."
-recordedAtUtc = "2026-09-26T00:00:00Z"
