@@ -3,8 +3,8 @@ status: canonical
 status_role: current-status-aggregator
 backlog_role: program-router
 updated: 2026-09-27
-source_main_at_status_update: eb3632e651618dd22f6c391106c3f37b0d20dca3
-last_verified_main: eb3632e651618dd22f6c391106c3f37b0d20dca3
+source_main_at_status_update: 93a0a9d4bef1b478030788700e4c2241d9ef1cca
+last_verified_main: 93a0a9d4bef1b478030788700e4c2241d9ef1cca
 production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_verified_at: 2026-09-02T00:08:04+03:00
 completed_package: STAB-TEST-HEALTH-001
@@ -31,8 +31,8 @@ git rev-parse HEAD
 git rev-parse origin/main
 git worktree list
 ```
-Source `main` при последнем status transition:
-`eb3632e651618dd22f6c391106c3f37b0d20dca3`.
+Source `main` при последнем status verification:
+`93a0a9d4bef1b478030788700e4c2241d9ef1cca`.
 
 Последний отдельно operationally verified production release:
 `d223c179d5944bc208cace867d5e93bc1341a3aa` от 2026-09-02. Не выводить deploy
@@ -46,7 +46,7 @@ D0 = COMPLETE.
 #112 test-health = COMPLETE.
 Active non-regression: warning baseline 97; cleanup baseline 1; hidden outbound external = 0 required; pytest rerun observability active; process leak gate active.
 Tracked debt: #162, #163, #164, #165.
-#113 AI-DEV-ENV = ACTIVE; implementation NOT STARTED.
+#113 AI-DEV-ENV = ACTIVE; implementation IN PROGRESS in Draft PR #167. Current candidate exact HEAD `bfc8a6d06da45d3b3bbd2623e4d18be1d2bd3a14` has exact-head CI #709 SUCCESS; final application-ready completion and package acceptance remain pending.
 #114 AI-VERIFY = OPEN / PREPARED; not active; not prerequisite for first D1 Docker smoke.
 #115 DOCKER-DEV = NEXT.
 D1 Docker = NOT STARTED.
