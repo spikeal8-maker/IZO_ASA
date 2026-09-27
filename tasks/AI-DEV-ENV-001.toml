@@ -17,11 +17,13 @@ nonGoals = [
 ]
 declaredFiles = [
   "tasks/AI-DEV-ENV-001.toml",
+  "tools/agent.ps1",
   "tools/agent_system/env.py",
   "tools/agent_system/env_lifecycle.py",
+  "tools/agent_system/env_ready.py",
   "tools/test_agent_env.py",
   "tools/test_agent_env_lifecycle.py",
-  "tools/agent.ps1",
+  "tools/test_agent_env_ready.py",
 ]
 allowedPatterns = [
 ]
@@ -40,7 +42,7 @@ domain = "agent-control-plane"
 riskClass = "standard"
 changeClass = "architecture"
 maxProductionFiles = 0
-maxChangedLines = 2400
+maxChangedLines = 3200
 acceptance = [
   "Environment identity comes from existing package registry and ownership.json; no second registry is introduced.",
   "Same package identity yields deterministic roots and ports; two package identities yield disjoint roots and non-colliding deterministic candidate ports.",
@@ -55,20 +57,31 @@ acceptance = [
   "Normal env-down cooperatively stops only the validated package lease holder, proves both ports released, removes only package-owned payload and preserves stopped cleanup receipts.",
   "Malformed/stale ownership fails closed.",
   "Focused tests and exact-head CI pass while test-health and supply-chain non-regression gates remain green.",
+  "Application-ready preparation creates db/app.sqlite3 from import-safe application schema/migration primitives, reaches the current reusable migration version, passes PRAGMA integrity_check and verifies required core tables.",
+  "Package-local fake/test secret material is READY, explicitly fake-only and productionCompatible=false; real external-provider credentials remain ABSENT and no secret values appear in receipts.",
+  "External providers are disabled/fake with external Internet forbidden; ComfyUI, Ollama and Qwen are local-configurable only through validated loopback HTTP endpoints, with providerNetworkProbe=NOT_RUN.",
+  "Successful preparation records databaseInitialization=READY and applicationReady=PASS while explicitly deferring main.py-only identity finalization, video tariff migration and demo-feed restore.",
+  "Application-ready preparation failure removes only owned DB/media/fake-secret payload; public agent env-up best-effort invokes owned env-down and returns the original ready failure.",
+  "Repeated prepare and agent env-up on an ACTIVE+READY environment are idempotent; agent env-down removes package-owned SQLite/fake-secret payload and never touches foreign resources.",
+  "Neither backend nor frontend applications are started and provider connectivity is never probed.",
 ]
 requiredEvidence = [
-  "tools/test_agent_env.py focused tests",
+  "tools/test_agent_env.py, tools/test_agent_env_lifecycle.py and tools/test_agent_env_ready.py focused tests",
+  "application-ready receipt proving SQLite integrity/migration/table checks, fake-only secrets, disabled external providers and NOT_RUN provider probe",
   "package enforcement receipt with productionFileCount=0 and no scope findings",
   "exact-head GitHub CI with test-health and supply-chain PASS",
 ]
 targetedTests = [
   "tools/test_agent_env.py",
   "tools/test_agent_env_lifecycle.py",
+  "tools/test_agent_env_ready.py",
   "tools/test_agent_package.py",
 ]
 fileGrowthExpectations = [
-  "tools/agent_system/env.py remains <= 500 physical lines and owns planning/isolation only.",
-  "tools/agent_system/env_lifecycle.py remains <= 500 physical lines and owns lifecycle/port lease only.",
+  "tools/agent_system/env.py does not grow and remains <= 500 physical lines with planning/isolation ownership only.",
+  "tools/agent_system/env_lifecycle.py does not grow and remains <= 500 physical lines with lifecycle/port-lease ownership only.",
+  "tools/agent_system/env_ready.py remains <= 500 physical lines and owns only application-ready isolated fixture preparation.",
+  "tools/test_agent_env_ready.py remains <= 500 physical lines as a separate focused suite.",
   "tools/test_agent_env.py and tools/test_agent_env_lifecycle.py remain separate focused suites.",
   "No product source grows.",
 ]

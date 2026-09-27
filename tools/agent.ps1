@@ -15,7 +15,10 @@ param(
     [switch]$SandboxInteractive,
     [switch]$RecoverStale,
     [string]$WorktreePath = "",
-    [string]$RepoRoot = ""
+    [string]$RepoRoot = "",
+    [string]$ComfyUIEndpoint = "",
+    [string]$OllamaEndpoint = "",
+    [string]$QwenEndpoint = ""
 )
 
 Set-StrictMode -Version Latest
@@ -107,6 +110,9 @@ if ($Command -eq "sandbox") {
 if ($RecoverStale -and $Command -ne "env-down") {
     throw "-RecoverStale is valid only with agent env-down."
 }
+if (($ComfyUIEndpoint.Trim() -or $OllamaEndpoint.Trim() -or $QwenEndpoint.Trim()) -and $Command -ne "env-up") {
+    throw "Provider endpoint overrides are valid only with agent env-up."
+}
 
 if ($Command -in @("env-up", "env-status", "env-down")) {
     $lifecycleCommand = switch ($Command) {
@@ -125,7 +131,52 @@ if ($Command -in @("env-up", "env-status", "env-down")) {
     Push-Location -LiteralPath $RepoRoot
     try {
         & $python @lifecycleArguments
-        exit $LASTEXITCODE
+        $lifecycleExit = $LASTEXITCODE
+        if ($lifecycleExit -ne 0 -or $Command -ne "env-up") {
+            exit $lifecycleExit
+        }
+
+        $readyArguments = @(
+            "-m", "tools.agent_system.env_ready",
+            "--repo-root", $RepoRoot,
+            "prepare"
+        )
+        if ($ComfyUIEndpoint.Trim()) {
+            $readyArguments += @("--comfyui-endpoint", $ComfyUIEndpoint)
+        }
+        if ($OllamaEndpoint.Trim()) {
+            $readyArguments += @("--ollama-endpoint", $OllamaEndpoint)
+        }
+        if ($QwenEndpoint.Trim()) {
+            $readyArguments += @("--qwen-endpoint", $QwenEndpoint)
+        }
+        $previousErrorActionPreference = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            $readyOutput = @(& $python @readyArguments 2>&1)
+            $readyExit = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
+        if ($readyExit -ne 0) {
+            $downArguments = @(
+                "-m", "tools.agent_system.env_lifecycle",
+                "--repo-root", $RepoRoot,
+                "down"
+            )
+            try {
+                & $python @downArguments | Out-Null
+            } catch {
+            }
+            foreach ($line in $readyOutput) {
+                [Console]::Error.WriteLine([string]$line)
+            }
+            exit $readyExit
+        }
+        foreach ($line in $readyOutput) {
+            Write-Output $line
+        }
+        exit 0
     } finally {
         Pop-Location
     }
