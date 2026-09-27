@@ -11,6 +11,7 @@ import pytest
 from tools.agent_system.env import (
     CONTRACT_ID,
     EnvironmentContractError,
+    EnvironmentIdentity,
     EnvironmentPaths,
     ProductionPathContract,
     build_environment_plan,
@@ -179,9 +180,7 @@ def _contains_key(value: object, forbidden: str) -> bool:
     return False
 
 
-def test_repository_production_contract_fails_closed_on_unknown_media_root(
-    tmp_path: Path,
-) -> None:
+def test_repository_unknown_media_knowledge_allows_package_local_isolation(tmp_path: Path) -> None:
     contract = discover_production_path_contract(ROOT)
     assert contract.status == "UNKNOWN"
     assert contract.database_status == "KNOWN"
@@ -193,12 +192,25 @@ def test_repository_production_contract_fails_closed_on_unknown_media_root(
     assert any(root.casefold() == r"c:\izo_asa\secrets".casefold() for root in contract.secret_roots)
 
     synthetic_worktree, _synthetic_contract = _single_package(tmp_path)
-    with pytest.raises(EnvironmentContractError, match=r"PRODUCTION_PATH_STATUS_UNKNOWN.*media=UNKNOWN"):
-        build_environment_plan(
-            synthetic_worktree,
-            environment={},
-            production_contract=contract,
-        )
+    plan = build_environment_plan(
+        synthetic_worktree,
+        environment={},
+        production_contract=contract,
+        timestamp=FIXED_TIME,
+    )
+    assert plan["productionPathKnowledge"] == {
+        "status": "UNKNOWN",
+        "database": "KNOWN",
+        "media": "UNKNOWN",
+        "secrets": "KNOWN",
+        "sources": ["ops/release/promote-project-release.ps1"],
+    }
+    assert plan["environmentIsolation"] == "PASS"
+    proof = plan["isolationProof"]
+    assert proof["environmentRoot"] == "PACKAGE_OWNED"
+    assert proof["database"] == proof["media"] == proof["secrets"] == "PACKAGE_LOCAL_DERIVED"
+    assert proof["knownProductionRootOverlap"] == "NONE"
+    assert proof["ambientPathInheritance"] == "NONE"
 
 
 def test_same_package_has_same_deterministic_roots_and_ports(tmp_path: Path) -> None:
@@ -274,11 +286,18 @@ def test_known_production_paths_are_rejected(
         validate_environment_paths(identity, unsafe, contract)
 
 
-def test_unknown_production_path_status_fails_closed(tmp_path: Path) -> None:
+def test_unknown_database_or_secret_production_knowledge_fails_closed(tmp_path: Path) -> None:
     worktree, _contract = _single_package(tmp_path)
     unknown = ProductionPathContract("UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN", (), (), (), ())
-    with pytest.raises(EnvironmentContractError, match="PRODUCTION_PATH_STATUS_UNKNOWN"):
+    with pytest.raises(EnvironmentContractError, match=r"PRODUCTION_PATH_STATUS_UNKNOWN database=UNKNOWN media=UNKNOWN secrets=UNKNOWN"):
         build_environment_plan(worktree, environment={}, production_contract=unknown)
+
+
+def test_worktree_inside_known_production_family_fails_closed() -> None:
+    contract = discover_production_path_contract(ROOT)
+    identity = EnvironmentIdentity("PKG-ALPHA", "0" * 40, Path(r"C:\IZO_ASA\releases\synthetic\backend"), "agent/pkg-alpha")
+    with pytest.raises(EnvironmentContractError, match="WORKTREE_INSIDE_PRODUCTION_ROOT"):
+        validate_environment_paths(identity, derive_environment_paths(identity), contract)
 
 
 def test_outside_git_and_symlink_escape_fail_closed(tmp_path: Path) -> None:
@@ -294,10 +313,48 @@ def test_outside_git_and_symlink_escape_fail_closed(tmp_path: Path) -> None:
     with pytest.raises(EnvironmentContractError, match="MEDIA_PATH_INSIDE_GIT"):
         validate_environment_paths(identity, inside_git, contract)
 
+    outside_environment = replace(paths, media_root=worktree / ".runtime" / "foreign-media")
+    with pytest.raises(EnvironmentContractError, match="MEDIA_PATH_OUTSIDE_ENVIRONMENT_ROOT"):
+        validate_environment_paths(identity, outside_environment, contract)
+
     agent_env = worktree / ".runtime" / "agent-env"
     _directory_link(agent_env, tmp_path / "symlink-escape")
     with pytest.raises(EnvironmentContractError, match="ENVIRONMENT_SYMLINK_ESCAPE"):
         validate_environment_paths(identity, paths, contract)
+
+
+@pytest.mark.parametrize("name", ("DATABASE_URL", "MEDIA_DIR", "IZO_SECRET_DIR"))
+def test_ambient_path_variables_fail_closed_without_value_leak(tmp_path: Path, name: str) -> None:
+    worktree, contract = _single_package(tmp_path)
+    secret_path = r"C:\do-not-leak\production-path"
+    with pytest.raises(EnvironmentContractError) as captured:
+        build_environment_plan(worktree, environment={name: secret_path}, production_contract=contract, timestamp=FIXED_TIME)
+    assert str(captured.value) == f"AMBIENT_PATH_VARIABLE_PRESENT variable={name}"
+    assert secret_path not in str(captured.value)
+
+
+def test_unowned_preexisting_environment_root_fails_closed(tmp_path: Path) -> None:
+    worktree, contract = _single_package(tmp_path)
+    identity = load_environment_identity(worktree)
+    paths = derive_environment_paths(identity)
+    paths.state_root.mkdir(parents=True)
+    paths.environment_state_path.write_text(
+        json.dumps(
+            {
+                "packageId": "FOREIGN-PACKAGE",
+                "worktreePath": str(worktree),
+                "contractId": CONTRACT_ID,
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(EnvironmentContractError, match="UNOWNED_ENVIRONMENT_ROOT"):
+        build_environment_plan(
+            worktree,
+            environment={},
+            production_contract=contract,
+            timestamp=FIXED_TIME,
+        )
 
 
 def test_real_provider_credential_fails_without_exposing_value(tmp_path: Path) -> None:
@@ -365,12 +422,21 @@ def test_stale_or_malformed_ownership_fails_closed(tmp_path: Path) -> None:
         build_environment_plan(worktree, environment={}, production_contract=contract)
 
 
-def test_receipt_structure_is_deterministic_planned_and_secret_free(tmp_path: Path) -> None:
-    worktree, contract = _single_package(tmp_path)
-    receipt = write_planned_environment(
+def test_owned_receipt_is_idempotent_and_preserves_unknown_media_knowledge(
+    tmp_path: Path,
+) -> None:
+    worktree, _contract = _single_package(tmp_path)
+    real_contract = discover_production_path_contract(ROOT)
+    first = write_planned_environment(
         worktree,
         environment={},
-        production_contract=contract,
+        production_contract=real_contract,
+        timestamp=FIXED_TIME,
+    )
+    second = write_planned_environment(
+        worktree,
+        environment={},
+        production_contract=real_contract,
         timestamp=FIXED_TIME,
     )
     identity = load_environment_identity(worktree)
@@ -378,7 +444,7 @@ def test_receipt_structure_is_deterministic_planned_and_secret_free(tmp_path: Pa
 
     stored_receipt = json.loads(paths.receipt_path.read_text(encoding="utf-8"))
     state = json.loads(paths.environment_state_path.read_text(encoding="utf-8"))
-    assert receipt == stored_receipt
+    assert first == second == stored_receipt
     assert stored_receipt["documentType"] == "environment-receipt"
     assert state["documentType"] == "environment-state"
     assert stored_receipt["state"] == "planned"
@@ -386,7 +452,14 @@ def test_receipt_structure_is_deterministic_planned_and_secret_free(tmp_path: Pa
     assert stored_receipt["updatedAt"] == FIXED_TIME
     assert stored_receipt["ports"]["deterministic"] is True
     assert stored_receipt["ports"]["reserved"] is False
-    assert stored_receipt["productionPathGuard"]["status"] == "PASS"
+    assert stored_receipt["productionPathKnowledge"]["database"] == "KNOWN"
+    assert stored_receipt["productionPathKnowledge"]["media"] == "UNKNOWN"
+    assert stored_receipt["productionPathKnowledge"]["secrets"] == "KNOWN"
+    assert stored_receipt["isolationProof"]["media"] == "PACKAGE_LOCAL_DERIVED"
+    assert stored_receipt["isolationProof"]["knownProductionRootOverlap"] == "NONE"
+    assert stored_receipt["isolationProof"]["ambientPathInheritance"] == "NONE"
+    assert stored_receipt["environmentIsolation"] == "PASS"
+    assert "productionPathGuard" not in stored_receipt
     assert not paths.database_path.exists()
     assert not _contains_key(stored_receipt, "pid")
     assert not _contains_key(stored_receipt, "token")

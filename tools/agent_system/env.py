@@ -60,6 +60,7 @@ CREDENTIAL_CLASSIFICATIONS = {
 }
 CREDENTIAL_PREFIXES = ("OPENROUTER", "TELEGRAM", "MAX", "SMTP", "VK", "YOOKASSA")
 CREDENTIAL_MARKERS = ("TOKEN", "KEY", "SECRET", "PASSWORD", "USERNAME", "CREDENTIAL")
+AMBIENT_PATH_VARIABLES = ("DATABASE_URL", "MEDIA_DIR", "IZO_SECRET_DIR")
 class EnvironmentContractError(RuntimeError):
     """Fail-closed environment contract violation."""
 @dataclass(frozen=True)
@@ -214,13 +215,36 @@ def _is_within(candidate: str | Path, root: str | Path) -> bool:
         return True
     except ValueError:
         return False
-def _require_known_production_contract(contract: ProductionPathContract) -> None:
-    if contract.status != "KNOWN":
+def _require_production_exclusion_knowledge(contract: ProductionPathContract) -> None:
+    if (
+        contract.database_status != "KNOWN"
+        or not contract.database_roots
+        or contract.secret_status != "KNOWN"
+        or not contract.secret_roots
+    ):
         raise EnvironmentContractError(
             "PRODUCTION_PATH_STATUS_UNKNOWN "
             f"database={contract.database_status} media={contract.media_status} "
             f"secrets={contract.secret_status}"
         )
+    if contract.media_status == "UNKNOWN" and contract.media_roots:
+        raise EnvironmentContractError("PRODUCTION_MEDIA_KNOWLEDGE_INCONSISTENT")
+    if contract.media_status not in {"KNOWN", "UNKNOWN"}:
+        raise EnvironmentContractError("PRODUCTION_MEDIA_KNOWLEDGE_INVALID")
+    if contract.media_status == "KNOWN" and not contract.media_roots:
+        raise EnvironmentContractError("PRODUCTION_MEDIA_KNOWLEDGE_INCONSISTENT")
+
+
+def _assert_no_ambient_path_inheritance(
+    environment: Mapping[str, str] | None,
+) -> None:
+    source = os.environ if environment is None else environment
+    upper_source = {str(key).upper(): str(value) for key, value in source.items()}
+    for name in AMBIENT_PATH_VARIABLES:
+        if upper_source.get(name, "").strip():
+            raise EnvironmentContractError(
+                f"AMBIENT_PATH_VARIABLE_PRESENT variable={name}"
+            )
 def _reject_production_path(
     kind: str, candidate: Path, contract: ProductionPathContract
 ) -> None:
@@ -244,13 +268,36 @@ def _resolve_inside_worktree(candidate: Path, worktree: Path, *, kind: str) -> P
     except ValueError:
         raise EnvironmentContractError(f"{kind.upper()}_SYMLINK_ESCAPE") from None
     return resolved
+
+
+def _assert_existing_environment_root_owned(
+    identity: EnvironmentIdentity,
+    paths: EnvironmentPaths,
+) -> None:
+    root = paths.environment_root
+    if not root.exists():
+        return
+    if not root.is_dir():
+        raise EnvironmentContractError("UNOWNED_ENVIRONMENT_ROOT")
+    expected = {"packageId": identity.package_id, "worktreePath": str(identity.worktree_path), "contractId": CONTRACT_ID}
+    for document_path in (paths.environment_state_path, paths.receipt_path):
+        try:
+            document = json.loads(document_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            raise EnvironmentContractError("UNOWNED_ENVIRONMENT_ROOT") from None
+        if not isinstance(document, dict) or any(
+            document.get(key) != value for key, value in expected.items()
+        ):
+            raise EnvironmentContractError("UNOWNED_ENVIRONMENT_ROOT")
+
+
 def validate_environment_paths(
     identity: EnvironmentIdentity,
     paths: EnvironmentPaths,
     production_contract: ProductionPathContract,
 ) -> None:
     """Validate canonical layout, production boundaries and symlink containment."""
-    _require_known_production_contract(production_contract)
+    _require_production_exclusion_knowledge(production_contract)
     for root in production_contract.all_roots:
         if _is_within(identity.worktree_path, root):
             raise EnvironmentContractError("WORKTREE_INSIDE_PRODUCTION_ROOT")
@@ -273,6 +320,14 @@ def validate_environment_paths(
         resolved_paths[kind] = _resolve_inside_worktree(
             candidate, identity.worktree_path, kind=kind
         )
+    environment_resolved = resolved_paths["environment"]
+    for kind in ("database", "media", "secret", "state"):
+        try:
+            resolved_paths[kind].relative_to(environment_resolved)
+        except ValueError:
+            raise EnvironmentContractError(
+                f"{kind.upper()}_PATH_OUTSIDE_ENVIRONMENT_ROOT"
+            ) from None
     expected = derive_environment_paths(identity)
     for kind, actual, canonical in (
         ("environment", paths.environment_root, expected.environment_root),
@@ -283,14 +338,6 @@ def validate_environment_paths(
     ):
         if Path(os.path.abspath(str(actual))) != Path(os.path.abspath(str(canonical))):
             raise EnvironmentContractError(f"{kind.upper()}_LAYOUT_MISMATCH")
-    environment_resolved = resolved_paths["environment"]
-    for kind in ("database", "media", "secret", "state"):
-        try:
-            resolved_paths[kind].relative_to(environment_resolved)
-        except ValueError:
-            raise EnvironmentContractError(
-                f"{kind.upper()}_PATH_OUTSIDE_ENVIRONMENT_ROOT"
-            ) from None
 def _credential_classification(name: str) -> str:
     upper = name.upper()
     for prefix in CREDENTIAL_PREFIXES:
@@ -369,6 +416,8 @@ def build_environment_plan(
     identity = load_environment_identity(repo_root)
     paths = derive_environment_paths(identity)
     contract = production_contract or discover_production_path_contract(identity.worktree_path)
+    _assert_no_ambient_path_inheritance(environment)
+    _assert_existing_environment_root_owned(identity, paths)
     validate_environment_paths(identity, paths, contract)
     credentials = inspect_provider_credentials(environment)
     _assert_fake_only_credentials(credentials)
@@ -394,14 +443,23 @@ def build_environment_plan(
             "deterministic": True,
             "reserved": False,
         },
-        "productionPathGuard": {
-            "status": "PASS",
-            "database": "PASS",
-            "media": "PASS",
-            "secrets": "PASS",
-            "symlinkEscape": "PASS",
+        "productionPathKnowledge": {
+            "status": contract.status,
+            "database": contract.database_status,
+            "media": contract.media_status,
+            "secrets": contract.secret_status,
             "sources": list(contract.source_files),
         },
+        "isolationProof": {
+            "environmentRoot": "PACKAGE_OWNED",
+            "database": "PACKAGE_LOCAL_DERIVED",
+            "media": "PACKAGE_LOCAL_DERIVED",
+            "secrets": "PACKAGE_LOCAL_DERIVED",
+            "knownProductionRootOverlap": "NONE",
+            "ambientPathInheritance": "NONE",
+            "productionDataImport": "NONE",
+        },
+        "environmentIsolation": "PASS",
         "credentials": credentials,
         "state": PLANNED_STATE,
         "createdAt": stamp,
