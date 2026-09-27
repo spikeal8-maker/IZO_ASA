@@ -1,0 +1,106 @@
+manifestVersion = 1
+id = "GOV-STATUS-DOCS-REPAIR-001"
+baseSha = "93a0a9d4bef1b478030788700e4c2241d9ef1cca"
+
+goal = "Repair canonical status/documentation synchronization so volatile state has one owner and governance tests validate semantics rather than frozen current values."
+
+userOutcome = "docs/NOW.md is the sole volatile current-state router; stable specifications remain requirement contracts; governance updates resolve through one declared low-risk package."
+
+beforeScenario = "PR #168 contains a truthful #113 progress correction but lacks a package manifest, exceeds the core context budget, rewrites transition identity during re-verification, and leaves stable specs/tests coupled to stale current-state facts."
+
+afterScenario = "The five-file governance repair distinguishes transition and verification SHAs, keeps NOW compact, validates status semantics, removes volatile progress from stable specs, and is enforceable with productionFileCount zero."
+
+nonGoals = [
+  "AI-DEV-ENV implementation",
+  "Docker implementation",
+  "product or runtime behavior",
+  "dependency changes",
+  "generated evidence changes",
+  "deploy, restart, provider calls or production-data actions",
+  "issue #113 implementation",
+  "issue #114 implementation",
+  "issue #115 implementation",
+]
+
+declaredFiles = [
+  "tasks/GOV-STATUS-DOCS-REPAIR-001.toml",
+  "docs/NOW.md",
+  "tools/test_agent_instructions.py",
+  "docs/stabilization-optimization-master-spec.md",
+  "docs/docker-delivery-acceptance.md",
+]
+
+allowedPatterns = []
+
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "docs/generated/**",
+  "architecture/**",
+  ".github/**",
+  "pyproject.toml",
+  "requirements.txt",
+  "package.json",
+  "package-lock.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+  "poetry.lock",
+  "uv.lock",
+]
+
+protectedFilesTouched = []
+
+domain = "agent-control-plane"
+riskClass = "low"
+changeClass = "architecture"
+
+maxProductionFiles = 0
+maxChangedLines = 1800
+
+acceptance = [
+  "docs/NOW.md keeps completed_package STAB-TEST-HEALTH-001, active_package AI-DEV-ENV-001, active_task_contract github-issue-113, and next_candidate DOCKER-DEV-001.",
+  "source_main_at_status_update remains the SHA of the actual routing transition while last_verified_main records the freshly verified main.",
+  "NOW reports #113 implementation in progress in Draft PR #167 with final acceptance pending and contains no exact PR head, CI run number, test-count receipt or changed-line receipt.",
+  "AGENTS.md plus AI_START_HERE.md plus docs/NOW.md remains at or below 16384 bytes.",
+  "Status tests validate ISO date shape, 40-hex SHAs, non-empty routing fields, github-issue-N task contracts, and frontmatter-to-human consistency without freezing current values.",
+  "Master-spec remains program_version 3.0, preserves Docker-first D0-D4 ordering and safety/data/recovery/rollback requirements, and delegates current routing to docs/NOW.md.",
+  "Docker acceptance preserves D0-01..D0-02, D1-01..D1-08, D2-01..D2-06, D3-01..D3-04 and D4-01..D4-04 semantics while delegating current PASS/FAIL to NOW/evidence.",
+  "Package enforcement resolves this single manifest with productionFileCount=0 and no scope findings.",
+  "No product, runtime, dependency, generated evidence, Docker implementation, deploy, restart, provider, production-data, #113, #114 or #115 implementation change occurs.",
+]
+
+requiredEvidence = [
+  "git diff --check",
+  "python -m pytest -q tools/test_agent_instructions.py",
+  "python -m tools.agent_system.enforce --repo-root . ci --target-base 93a0a9d4bef1b478030788700e4c2241d9ef1cca",
+  "core mandatory-context byte measurement",
+  "five-file diff and productionFileCount zero",
+]
+
+targetedTests = [
+  "tools/test_agent_instructions.py",
+]
+
+fileGrowthExpectations = [
+  "docs/NOW.md becomes smaller than the current PR head and remains a compact router.",
+  "No production source grows.",
+]
+
+forbiddenOperations = [
+  "product-change",
+  "runtime-change",
+  "dependency-change",
+  "generated-evidence-change",
+  "docker-implementation",
+  "deploy",
+  "restart",
+  "provider-call",
+  "production-data",
+  "issue-113-implementation",
+  "issue-114-implementation",
+  "issue-115-implementation",
+  "direct-main",
+]
+
+rollbackBoundary = "Revert only this governance task manifest, NOW status correction, semantic status assertions, master-spec volatile-state cleanup and Docker acceptance volatile-state cleanup; product/runtime/dependency/deploy state remains untouched."

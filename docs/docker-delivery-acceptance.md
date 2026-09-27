@@ -1,8 +1,8 @@
 ---
-status: reviewed-requirements-candidate
+status: canonical
 role: docker-delivery-acceptance-contract
 daily_context: false
-updated: 2026-09-22
+updated: 2026-09-27
 repository: spikeal8-maker/IZO_ASA
 master_spec: docs/stabilization-optimization-master-spec.md
 reviewed_source: 480984d7e175eef1a1b06f6c078d76184cec2a43
@@ -239,12 +239,11 @@ backup/restore/rollback со ссылками на существующие runb
 Задание исполнителю ссылается на репозиторий, текущую согласованную основу и
 идентификаторы нужных испытаний. Оно не повторяет этот документ целиком.
 
-Supply-chain implementation №111 принята; PR №151 слит в `main`
-`480984d7e175eef1a1b06f6c078d76184cec2a43`. №153–156 остаются OPEN tracked debt. Status transition
-Issue №111 / `docs/NOW.md` ещё не выполнен. Д0 целиком не завершён: supply-chain
-часть Д0 выполнена, но Д0-01 на независимом GitHub-hosted executor ещё не доказан.
-Следующие Docker-испытания не объявляются пройденными этим документом и не начинаются
-как часть данного PR.
+Этот документ не фиксирует текущий PASS/FAIL рубежей, completed/active/next package
+или состояние переходов. Единственный current router — `docs/NOW.md`; фактическое
+прохождение критериев подтверждается evidence соответствующего Issue/PR/CI.
+Ни один Docker acceptance criterion не считается пройденным самим наличием этого
+канонического контракта.
 
 Отчёт: результат рубежа; исходный SHA; PR и CI run; образы; пройденные/непройденные
 испытания; снимки; ограничения; состояние данных и собственной очистки; один следующий
