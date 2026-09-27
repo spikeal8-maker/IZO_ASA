@@ -303,13 +303,16 @@ def test_two_packages_run_concurrently_and_down_is_isolated(tmp_path: Path) -> N
         _cleanup(b, contract)
 
 
-def test_holder_environment_does_not_inherit_sensitive_names(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    worktree, contract = _single(tmp_path, "PKG-ENV-SCRUB")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "should-not-reach-holder")
+def test_env_up_preserves_real_provider_credential_guard(tmp_path: Path) -> None:
+    worktree, contract = _single(tmp_path, "PKG-CREDENTIAL-GUARD")
+    secret_value = "should-not-leak-provider-secret"
     with pytest.raises(
         lifecycle.EnvironmentLifecycleError,
         match="REAL_PROVIDER_CREDENTIAL_PRESENT",
-    ):
-        lifecycle.env_up(worktree, production_contract=contract)
+    ) as captured:
+        lifecycle.env_up(
+            worktree,
+            environment={"OPENROUTER_API_KEY": secret_value},
+            production_contract=contract,
+        )
+    assert secret_value not in str(captured.value)
