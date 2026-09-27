@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0, Mandatory = $true)]
-    [ValidateSet("doctor", "start", "status", "scope-add", "finish", "main-guard", "context", "sandbox", "symbol", "env-up", "verify", "audit", "eval")]
+    [ValidateSet("doctor", "start", "status", "scope-add", "finish", "main-guard", "context", "sandbox", "symbol", "env-up", "env-status", "env-down", "verify", "audit", "eval")]
     [string]$Command,
     [string]$Manifest = "",
     [string]$Path = "",
@@ -13,6 +13,7 @@ param(
     [string]$SandboxAction = "",
     [string]$SandboxCommand = "",
     [switch]$SandboxInteractive,
+    [switch]$RecoverStale,
     [string]$WorktreePath = "",
     [string]$RepoRoot = ""
 )
@@ -98,6 +99,49 @@ if ($Command -eq "sandbox") {
     try {
         & $python @sandboxArguments
         exit $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
+}
+
+if ($RecoverStale -and $Command -ne "env-down") {
+    throw "-RecoverStale is valid only with agent env-down."
+}
+
+if ($Command -in @("env-up", "env-status", "env-down")) {
+    $lifecycleCommand = switch ($Command) {
+        "env-up" { "up" }
+        "env-status" { "status" }
+        "env-down" { "down" }
+    }
+    $lifecycleArguments = @(
+        "-m", "tools.agent_system.env_lifecycle",
+        "--repo-root", $RepoRoot,
+        $lifecycleCommand
+    )
+    if ($Command -eq "env-down" -and $RecoverStale) {
+        $lifecycleArguments += "--recover-stale"
+    }
+    Push-Location -LiteralPath $RepoRoot
+    try {
+        & $python @lifecycleArguments
+        exit $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
+}
+
+if ($Command -eq "status") {
+    Push-Location -LiteralPath $RepoRoot
+    try {
+        & $python -m tools.agent_system.package --repo-root $RepoRoot status
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        $ownership = Join-Path $RepoRoot ".runtime\agent\ownership.json"
+        if (Test-Path -LiteralPath $ownership -PathType Leaf) {
+            & $python -m tools.agent_system.env_lifecycle --repo-root $RepoRoot status
+            exit $LASTEXITCODE
+        }
+        exit 0
     } finally {
         Pop-Location
     }

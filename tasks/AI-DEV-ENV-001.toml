@@ -1,14 +1,14 @@
 manifestVersion = 1
 id = "AI-DEV-ENV-001"
 baseSha = "93a0a9d4bef1b478030788700e4c2241d9ef1cca"
-goal = "Create a deterministic plan-only isolated per-package environment contract for DB, media, secrets, provider policy, ports, production-root guards and a machine-readable receipt."
-userOutcome = "An active agent package can deterministically plan isolated roots and ports, fail closed on production/credential/ownership hazards, and emit a secret-free planned receipt without starting any application process."
+goal = "Create a deterministic isolated per-package environment contract and lifecycle for DB, media, secrets, provider policy, owned loopback port leases, state transitions and machine-readable receipts."
+userOutcome = "An active agent package can plan, activate, inspect, stop and explicitly recover its isolated environment without starting backend/frontend/providers or touching foreign resources."
 beforeScenario = "AI-DEV-ENV-001 is active in docs/NOW.md but no canonical isolated package-environment planner or receipt contract exists."
-afterScenario = "The active package ownership identity deterministically plans <worktree>/.runtime/agent-env/<PACKAGE_ID> storage, isolated provider policy and candidate ports, validates fail-closed safety, and writes only planned environment state/receipt."
+afterScenario = "The active package owns <worktree>/.runtime/agent-env/<PACKAGE_ID>, can reserve deterministic loopback ports with a verifiable lease holder, report active/stale/stopped state, cooperatively stop only its own holder, and explicitly recover safe stale state."
 nonGoals = [
   "start backend or frontend",
-  "bind or reserve ports",
-  "implement environment lifecycle or env-down",
+  "start any application listener on reserved ports",
+  "kill foreign or guessed processes",
   "probe providers",
   "create real credentials",
   "implement Docker",
@@ -18,7 +18,10 @@ nonGoals = [
 declaredFiles = [
   "tasks/AI-DEV-ENV-001.toml",
   "tools/agent_system/env.py",
+  "tools/agent_system/env_lifecycle.py",
   "tools/test_agent_env.py",
+  "tools/test_agent_env_lifecycle.py",
+  "tools/agent.ps1",
 ]
 allowedPatterns = [
 ]
@@ -29,7 +32,6 @@ forbiddenPatterns = [
   "docs/**",
   "architecture/**",
   ".github/**",
-  "tools/agent.ps1",
   "tools/verify.ps1",
 ]
 protectedFilesTouched = [
@@ -38,17 +40,19 @@ domain = "agent-control-plane"
 riskClass = "standard"
 changeClass = "architecture"
 maxProductionFiles = 0
-maxChangedLines = 1200
+maxChangedLines = 2400
 acceptance = [
   "Environment identity comes from existing package registry and ownership.json; no second registry is introduced.",
   "Same package identity yields deterministic roots and ports; two package identities yield disjoint roots and non-colliding deterministic candidate ports.",
   "Environment layout is <worktree>/.runtime/agent-env/<PACKAGE_ID> with db/app.sqlite3, media, secrets and state/environment.json plus state/environment-receipt.json.",
-  "Slice 1 state is planned only; no PID, listener, backend, frontend, provider probe, reservation or env-down lifecycle exists.",
+  "Lifecycle states are planned/active/stale/stopped; the only process started by this package is a Python std-lib loopback port-lease holder for the two deterministic package ports.",
   "Known production database and secret exclusions are required; production MEDIA may remain UNKNOWN only when the media path is package-owned, derived inside the active worktree environment root, and all isolation invariants pass.",
   "Paths outside the current worktree, paths inside .git/tracked production storage, symlink escapes, ambient DATABASE_URL/MEDIA_DIR/IZO_SECRET_DIR inheritance, and unowned pre-existing environment roots fail closed.",
   "Provider mode is isolated; external providers are disabled/fake; ComfyUI, Ollama and Qwen are local-endpoint-allowed with external Internet forbidden.",
   "Secret mode is fake-only; dangerous real credential presence fails without exposing secret values in receipt or diagnostics.",
-  "Backend/frontend candidate ports are distinct, valid and deterministic without binding or random fallback.",
+  "Backend/frontend candidate ports are distinct, deterministic and reserved on 127.0.0.1 only; collision has no random fallback and partial reservation is released.",
+  "Active ownership requires package registry/ownership plus PID and loopback lease handshake; stale recovery is explicit and never kills a foreign occupant.",
+  "Normal env-down cooperatively stops only the validated package lease holder, proves both ports released, removes only package-owned payload and preserves stopped cleanup receipts.",
   "Malformed/stale ownership fails closed.",
   "Focused tests and exact-head CI pass while test-health and supply-chain non-regression gates remain green.",
 ]
@@ -59,11 +63,13 @@ requiredEvidence = [
 ]
 targetedTests = [
   "tools/test_agent_env.py",
+  "tools/test_agent_env_lifecycle.py",
   "tools/test_agent_package.py",
 ]
 fileGrowthExpectations = [
-  "tools/agent_system/env.py remains cohesive and bounded.",
-  "tools/test_agent_env.py covers the contract without product fixtures.",
+  "tools/agent_system/env.py remains <= 500 physical lines and owns planning/isolation only.",
+  "tools/agent_system/env_lifecycle.py remains <= 500 physical lines and owns lifecycle/port lease only.",
+  "tools/test_agent_env.py and tools/test_agent_env_lifecycle.py remain separate focused suites.",
   "No product source grows.",
 ]
 forbiddenOperations = [
@@ -71,12 +77,9 @@ forbiddenOperations = [
   "restart",
   "production-data",
   "provider-call",
-  "port-bind",
-  "process-start",
-  "env-down",
   "docker",
   "issue-114-implementation",
   "issue-115-implementation",
   "dependency-change",
 ]
-rollbackBoundary = "Revert the environment planner, its focused tests and this package manifest; no product/runtime/dependency/deploy state is touched."
+rollbackBoundary = "Revert the planner/lifecycle tooling, agent CLI wiring, focused tests and this manifest; stop/recover only package-owned lease resources and leave product/runtime/dependency/deploy state untouched."
