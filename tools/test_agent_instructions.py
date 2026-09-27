@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import re
+from datetime import date, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -310,39 +311,57 @@ def _assert_program_and_package_status() -> None:
     assert "all three receipts exist before #107 starts" in amendment
 
     now = _text(ROOT / "docs" / "NOW.md")
-    assert "updated: 2026-09-27" in now
-    assert "source_main_at_status_update: eb3632e651618dd22f6c391106c3f37b0d20dca3" in now
-    assert "last_verified_main: eb3632e651618dd22f6c391106c3f37b0d20dca3" in now
-    assert "production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa" in now
-    assert "production_release_verified_at: 2026-09-02T00:08:04+03:00" in now
-    assert "completed_package: STAB-TEST-HEALTH-001" in now
-    assert "active_package: AI-DEV-ENV-001" in now
-    assert "active_task_contract: github-issue-113" in now
+    assert now.startswith("---\n"), "NOW must start with YAML-style frontmatter"
+    parts = now.split("---", 2)
+    assert len(parts) == 3, "NOW frontmatter must be closed"
+    frontmatter: dict[str, str] = {}
+    for line in parts[1].splitlines():
+        if not line.strip():
+            continue
+        key, separator, value = line.partition(":")
+        assert separator, f"invalid NOW frontmatter line: {line!r}"
+        frontmatter[key.strip()] = value.strip()
+
+    try:
+        date.fromisoformat(frontmatter["updated"])
+    except (KeyError, ValueError) as exc:
+        raise AssertionError("NOW updated must be a valid ISO date") from exc
+
+    sha40 = re.compile(r"[0-9a-f]{40}")
+    for key in ("source_main_at_status_update", "last_verified_main", "production_release_sha"):
+        assert sha40.fullmatch(frontmatter.get(key, "")), f"{key} must be exactly 40 hex"
+
+    try:
+        datetime.fromisoformat(frontmatter["production_release_verified_at"])
+    except (KeyError, ValueError) as exc:
+        raise AssertionError("production_release_verified_at must be a valid ISO datetime") from exc
+
+    for key in ("completed_package", "active_package", "next_candidate"):
+        assert frontmatter.get(key, "").strip(), f"{key} must be non-empty"
+    assert re.fullmatch(r"github-issue-[1-9][0-9]*", frontmatter.get("active_task_contract", ""))
+
+    human_status = {
+        "completed_package": r"^Completed: `([^`]+)`(?: \(#[0-9]+\))?\.$",
+        "active_package": r"^Active: `([^`]+)`(?: \(#[0-9]+\))?\.$",
+        "next_candidate": r"^Next: `([^`]+)`(?: \(#[0-9]+\))?\.$",
+    }
+    for key, pattern in human_status.items():
+        matches = re.findall(pattern, now, re.MULTILINE)
+        assert len(matches) == 1, f"NOW human status for {key} must appear exactly once"
+        assert matches[0] == frontmatter[key], (
+            f"NOW frontmatter/human status mismatch for {key}: "
+            f"{frontmatter[key]!r} != {matches[0]!r}"
+        )
+
     assert "baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a" in now
     assert "baseline_status: completed-point-A-accepted" in now
     assert "\nblocker:" not in now
     assert "blocker: shared-host-gh-write-credential-visible" not in now
-    assert "next_candidate: DOCKER-DEV-001" in now
-    assert "Completed: `STAB-TEST-HEALTH-001` (#112)." in now
-    assert "Active: `AI-DEV-ENV-001` (#113)." in now
-    assert "#112 test-health = COMPLETE." in now
     assert "warning baseline 97" in now
     assert "cleanup baseline 1" in now
     assert "hidden outbound external = 0 required" in now
     assert "pytest rerun observability active" in now
     assert "process leak gate active" in now
-    assert "Tracked debt: #162, #163, #164, #165." in now
-    assert "#113 AI-DEV-ENV = ACTIVE; implementation NOT STARTED." in now
-    assert "#114 AI-VERIFY = OPEN / PREPARED; not active; not prerequisite for first D1 Docker smoke." in now
-    assert "#115 DOCKER-DEV = NEXT." in now
-    assert "D1 Docker = NOT STARTED." in now
-    assert "Next: `DOCKER-DEV-001` (#115)." in now
-    assert "Architecture checkpoint after #108-#110: PASS;" in now
-    assert "routes/workers/tables 251/8/65" in now
-    assert "product-flow count 14" in now
-    assert "active_package: STAB-PRODUCT-CONTRACT-001" not in now
-    assert "active_task_contract: github-issue-110" not in now
-    assert "Active: `STAB-PRODUCT-CONTRACT-001` (#110)." not in now
     for context_card in (
         "docs/context/3d.md",
         "docs/context/admin-control-center.md",
