@@ -1,6 +1,6 @@
 manifestVersion = 1
 id = "AI-DEV-ENV-001"
-baseSha = "93a0a9d4bef1b478030788700e4c2241d9ef1cca"
+baseSha = "89d6d94093fdb6d2a52cacd269e15fce342a155a"
 goal = "Create a deterministic isolated per-package environment contract and lifecycle for DB, media, secrets, provider policy, owned loopback port leases, state transitions and machine-readable receipts."
 userOutcome = "An active agent package can plan, activate, inspect, stop and explicitly recover its isolated environment without starting backend/frontend/providers or touching foreign resources."
 beforeScenario = "AI-DEV-ENV-001 is active in docs/NOW.md but no canonical isolated package-environment planner or receipt contract exists."
