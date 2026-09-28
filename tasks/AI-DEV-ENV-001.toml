@@ -1,0 +1,110 @@
+manifestVersion = 1
+id = "AI-DEV-ENV-001"
+baseSha = "89d6d94093fdb6d2a52cacd269e15fce342a155a"
+goal = "Create a deterministic isolated per-package environment contract and lifecycle for DB, media, secrets, provider policy, owned loopback port leases, state transitions and machine-readable receipts."
+userOutcome = "An active agent package can plan, activate, inspect, stop and explicitly recover its isolated environment without starting backend/frontend/providers or touching foreign resources."
+beforeScenario = "AI-DEV-ENV-001 is active in docs/NOW.md but no canonical isolated package-environment planner or receipt contract exists."
+afterScenario = "The active package owns <worktree>/.runtime/agent-env/<PACKAGE_ID>, can reserve deterministic loopback ports with a verifiable lease holder, report active/stale/stopped state, cooperatively stop only its own holder, and explicitly recover safe stale state."
+nonGoals = [
+  "start backend or frontend",
+  "start any application listener on reserved ports",
+  "kill foreign or guessed processes",
+  "probe providers",
+  "create real credentials",
+  "implement Docker",
+  "implement AI-VERIFY-001",
+  "change product/runtime/dependency code",
+]
+declaredFiles = [
+  "tasks/AI-DEV-ENV-001.toml",
+  "tools/agent.ps1",
+  "tools/agent_system/env.py",
+  "tools/agent_system/env_lifecycle.py",
+  "tools/agent_system/env_ready.py",
+  "tools/agent_system/env_runtime.py",
+  "tools/agent_system/env_secret_store.py",
+  "tools/test_agent_env.py",
+  "tools/test_agent_env_lifecycle.py",
+  "tools/test_agent_env_ready.py",
+  "tools/test_agent_env_runtime.py",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "docs/**",
+  "architecture/**",
+  ".github/**",
+  "tools/verify.ps1",
+]
+protectedFilesTouched = [
+]
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+maxProductionFiles = 0
+maxChangedLines = 3800
+acceptance = [
+  "Environment identity comes from existing package registry and ownership.json; no second registry is introduced.",
+  "Same package identity yields deterministic roots and ports; two package identities yield disjoint roots and non-colliding deterministic candidate ports.",
+  "Environment layout is <worktree>/.runtime/agent-env/<PACKAGE_ID> with db/app.sqlite3, media, secrets and state/environment.json plus state/environment-receipt.json.",
+  "Lifecycle states are planned/active/stale/stopped; the only process started by this package is a Python std-lib loopback port-lease holder for the two deterministic package ports.",
+  "Known production database and secret exclusions are required; production MEDIA may remain UNKNOWN only when the media path is package-owned, derived inside the active worktree environment root, and all isolation invariants pass.",
+  "Paths outside the current worktree, paths inside .git/tracked production storage, symlink escapes, ambient DATABASE_URL/MEDIA_DIR/IZO_SECRET_DIR inheritance, and unowned pre-existing environment roots fail closed.",
+  "Provider mode is isolated; external providers are disabled/fake; ComfyUI, Ollama and Qwen are local-endpoint-allowed with external Internet forbidden.",
+  "Secret mode is fake-only; dangerous real credential presence fails without exposing secret values in receipt or diagnostics.",
+  "Backend/frontend candidate ports are distinct, deterministic and reserved on 127.0.0.1 only; collision has no random fallback and partial reservation is released.",
+  "Active ownership requires package registry/ownership plus PID and loopback lease handshake; stale recovery is explicit and never kills a foreign occupant.",
+  "Normal env-down cooperatively stops only the validated package lease holder, proves both ports released, removes only package-owned payload and preserves stopped cleanup receipts.",
+  "Malformed/stale ownership fails closed.",
+  "Focused tests and exact-head CI pass while test-health and supply-chain non-regression gates remain green.",
+  "Application-ready preparation creates db/app.sqlite3 from import-safe application schema/migration primitives, reaches the current reusable migration version, passes PRAGMA integrity_check and verifies required core tables.",
+  "Package-local fake/test secret material is READY, explicitly fake-only and productionCompatible=false; real external-provider credentials remain ABSENT and no secret values appear in receipts.",
+  "External providers are disabled/fake with external Internet forbidden; ComfyUI, Ollama and Qwen are local-configurable only through validated loopback HTTP endpoints, with providerNetworkProbe=NOT_RUN.",
+  "Successful preparation records databaseInitialization=READY and applicationReady=PASS while explicitly deferring main.py-only identity finalization, video tariff migration and demo-feed restore.",
+  "Application-ready preparation failure removes only owned DB/media/fake-secret payload; public agent env-up best-effort invokes owned env-down and returns the original ready failure.",
+  "Repeated prepare and agent env-up on an ACTIVE+READY environment are idempotent; agent env-down removes package-owned SQLite/fake-secret payload and never touches foreign resources.",
+  "Neither backend nor frontend applications are started and provider connectivity is never probed.",
+  "Import-safe database preparation includes the billing payment_notification_outbox schema in production init_db order.",
+  "A materialized state/runtime-environment.json forbids ambient/backend-dotenv/host-secret inheritance, routes DB/media to package-owned paths, disables bot/external effects, and is removed by owned env-down cleanup; external secret-store rejects Windows junction/reparse escape, cleanup never traverses a reparse point, and actual Windows junction challenges preserve target data.",
+  "External secret-store rejects worktree or known-production temp roots before any managed parent, leaf, or owner-marker filesystem mutation.",
+  "Exact child environment blocks backend .env from reintroducing credential/auth/bootstrap secrets.",
+  "All non-local automatic outbound runtime paths are neutralized and LOCAL LTX shares the validated loopback ComfyUI boundary.",
+  "Failed public env-up attempts both ready-resource cleanup and lifecycle cleanup while preserving the original ready failure.",
+]
+requiredEvidence = [
+  "tools/test_agent_env.py, tools/test_agent_env_lifecycle.py and tools/test_agent_env_ready.py focused tests",
+  "application-ready receipt proving SQLite integrity/migration/table checks, fake-only secrets, disabled external providers and NOT_RUN provider probe",
+  "package enforcement receipt with productionFileCount=0 and no scope findings",
+  "exact-head GitHub CI with test-health and supply-chain PASS",
+]
+targetedTests = [
+  "tools/test_agent_env.py",
+  "tools/test_agent_env_lifecycle.py",
+  "tools/test_agent_env_ready.py",
+  "tools/test_agent_env_runtime.py",
+  "tools/test_agent_package.py",
+]
+fileGrowthExpectations = [
+  "tools/agent_system/env.py does not grow and remains <= 500 physical lines with planning/isolation ownership only.",
+  "tools/agent_system/env_lifecycle.py does not grow and remains <= 500 physical lines with lifecycle/port-lease ownership only.",
+  "tools/agent_system/env_ready.py remains <= 500 physical lines and owns only application-ready isolated fixture preparation.",
+  "tools/agent_system/env_runtime.py remains <= 250 physical lines and owns only the exact sanitized child runtime environment contract.",
+  "tools/test_agent_env_ready.py remains <= 500 physical lines as a separate focused suite.",
+  "tools/test_agent_env_runtime.py remains <= 500 physical lines as a separate runtime-contract suite.",
+  "tools/test_agent_env.py and tools/test_agent_env_lifecycle.py remain separate focused suites.",
+  "No product source grows.",
+]
+forbiddenOperations = [
+  "deploy",
+  "restart",
+  "production-data",
+  "provider-call",
+  "docker",
+  "issue-114-implementation",
+  "issue-115-implementation",
+  "dependency-change",
+]
+rollbackBoundary = "Revert the planner/lifecycle tooling, agent CLI wiring, focused tests and this manifest; stop/recover only package-owned lease resources and leave product/runtime/dependency/deploy state untouched."
