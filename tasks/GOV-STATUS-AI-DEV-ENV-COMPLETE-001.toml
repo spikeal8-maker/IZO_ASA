@@ -1,0 +1,98 @@
+manifestVersion = 1
+id = "GOV-STATUS-AI-DEV-ENV-COMPLETE-001"
+baseSha = "2fcaa27c2f20f78d59a26de3686bccb676614b51"
+
+goal = "Record AI-DEV-ENV-001 issue #113 as complete in canonical routing, activate DOCKER-DEV-001 issue #115 without implementing it, and route CONTAINER-READY-001 issue #124 as next."
+
+userOutcome = "Canonical NOW records #113 complete, #115 active/not started, #124 next, and #114 open/prepared but not active or blocking the first D1 Docker smoke."
+
+beforeScenario = "AI-DEV-ENV-001 implementation is merged and post-merge verified, but docs/NOW.md still routes #113 as active and #115 as next."
+
+afterScenario = "NOW records AI-DEV-ENV-001 #113 completed, DOCKER-DEV-001 #115 active/not started, CONTAINER-READY-001 #124 next, and AI-VERIFY-001 #114 open/prepared/non-blocking."
+
+nonGoals = [
+  "implement DOCKER-DEV-001",
+  "implement AI-VERIFY-001",
+  "implement CONTAINER-READY-001",
+  "change Docker files",
+  "change product or runtime behavior",
+  "change dependencies",
+  "deploy or restart",
+  "close issue #113",
+]
+
+declaredFiles = [
+  "tasks/GOV-STATUS-AI-DEV-ENV-COMPLETE-001.toml",
+  "docs/NOW.md",
+]
+
+allowedPatterns = []
+
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+  ".github/**",
+  "tools/agent_system/**",
+  "tools/agent.ps1",
+  "tools/verify.ps1",
+  "Dockerfile*",
+  "compose*",
+  ".dockerignore",
+]
+
+protectedFilesTouched = []
+
+domain = "agent-control-plane"
+riskClass = "low"
+changeClass = "architecture"
+
+maxProductionFiles = 0
+maxChangedLines = 350
+
+acceptance = [
+  "docs/NOW.md records AI-DEV-ENV-001 #113 as completed, DOCKER-DEV-001 #115 as active, and CONTAINER-READY-001 #124 as next.",
+  "docs/NOW.md records AI-VERIFY-001 #114 as OPEN/PREPARED, not active, and not a prerequisite for the first D1 Docker smoke.",
+  "docs/NOW.md records source_main_at_status_update and last_verified_main as 2fcaa27c2f20f78d59a26de3686bccb676614b51.",
+  "docs/NOW.md leaves production release evidence and frozen baseline fields unchanged.",
+  "DOCKER-DEV-001 implementation remains NOT STARTED; no Docker, product, runtime, dependency, deploy or restart change occurs.",
+  "AGENTS.md plus AI_START_HERE.md plus docs/NOW.md remains at or below 16384 bytes without increasing the limit.",
+  "Focused governance tests, git diff --check and package enforcement pass with productionFileCount=0 and no findings.",
+  "Issue #113 remains open until independent review and merge of this status-transition PR.",
+]
+
+requiredEvidence = [
+  "post-merge CI #721 run 36485667709 attempt 2 SUCCESS",
+  "python -m pytest -q tools/test_agent_instructions.py",
+  "git diff --check",
+  "package enforcement against 2fcaa27c2f20f78d59a26de3686bccb676614b51",
+  "core mandatory-context byte measurement",
+]
+
+targetedTests = [
+  "tools/test_agent_instructions.py",
+]
+
+fileGrowthExpectations = [
+  "docs/NOW.md remains a compact status router.",
+  "No production source grows.",
+]
+
+forbiddenOperations = [
+  "docker-implementation",
+  "product-change",
+  "runtime-change",
+  "dependency-change",
+  "deploy",
+  "restart",
+  "provider-call",
+  "production-data",
+  "issue-113-close",
+  "issue-114-implementation",
+  "issue-115-implementation",
+  "issue-124-implementation",
+  "direct-main",
+]
+
+rollbackBoundary = "Revert only the governance manifest and docs/NOW.md routing transition; product/runtime/dependency/Docker/deploy state remains untouched."
