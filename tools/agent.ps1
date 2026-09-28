@@ -175,6 +175,15 @@ if ($Command -in @("env-up", "env-status", "env-down")) {
                 & $python @downArguments | Out-Null
             } catch {
             }
+            $readyCleanupArguments = @(
+                "-m", "tools.agent_system.env_ready",
+                "--repo-root", $RepoRoot,
+                "cleanup"
+            )
+            try {
+                & $python @readyCleanupArguments | Out-Null
+            } catch {
+            }
             foreach ($line in $readyOutput) {
                 [Console]::Error.WriteLine([string]$line)
             }

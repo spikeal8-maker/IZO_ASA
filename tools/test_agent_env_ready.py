@@ -297,7 +297,7 @@ def test_env_ready_module_does_not_import_backend_main() -> None:
     assert "backend.main" not in imports
 
 
-def _run_agent_with_fake_python(tmp_path: Path, *, ready_fails: bool):
+def _run_agent_with_fake_python(tmp_path: Path, *, ready_fails: bool, cleanup_fails: bool = False):
     import os
     import shutil
     import subprocess
@@ -314,10 +314,14 @@ def _run_agent_with_fake_python(tmp_path: Path, *, ready_fails: bool):
     shim.mkdir()
     log = tmp_path / "calls.log"
     fail_line = 'if "%*"=="-m tools.agent_system.env_ready --repo-root ' + str(repo) + ' prepare" exit /b 23' if ready_fails else ""
+    down_fail_line = 'if "%*"=="-m tools.agent_system.env_lifecycle --repo-root ' + str(repo) + ' down" exit /b 41' if cleanup_fails else ""
+    cleanup_fail_line = 'if "%*"=="-m tools.agent_system.env_ready --repo-root ' + str(repo) + ' cleanup" exit /b 42' if cleanup_fails else ""
     (shim / "python.cmd").write_text(
         "@echo off\r\n"
         f"echo %*>>\"{log}\"\r\n"
         f"{fail_line}\r\n"
+        f"{down_fail_line}\r\n"
+        f"{cleanup_fail_line}\r\n"
         "exit /b 0\r\n",
         encoding="utf-8",
     )
@@ -347,6 +351,16 @@ def test_agent_env_up_ready_failure_invokes_owned_cleanup(tmp_path: Path) -> Non
     assert "tools.agent_system.env_lifecycle" in calls[0] and calls[0].endswith(" up")
     assert "tools.agent_system.env_ready" in calls[1] and calls[1].endswith(" prepare")
     assert "tools.agent_system.env_lifecycle" in calls[2] and calls[2].endswith(" down")
+    assert "tools.agent_system.env_ready" in calls[3] and calls[3].endswith(" cleanup")
+
+
+def test_agent_env_up_cleanup_failures_preserve_ready_error(tmp_path: Path) -> None:
+    result, calls = _run_agent_with_fake_python(
+        tmp_path, ready_fails=True, cleanup_fails=True
+    )
+    assert result.returncode == 23
+    assert "env_lifecycle" in calls[2] and calls[2].endswith(" down")
+    assert "env_ready" in calls[3] and calls[3].endswith(" cleanup")
 
 
 ROOT = Path(__file__).resolve().parents[1]

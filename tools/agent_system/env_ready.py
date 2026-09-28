@@ -55,7 +55,7 @@ from .env import (
     validate_environment_paths,
 )
 from .env_lifecycle import environment_status
-from . import env_secret_store
+from . import env_runtime, env_secret_store
 from .registry import atomic_write_text, resolve_repo_root
 
 READY_CONTRACT_ID = "izo.agent-env.ready.v1"
@@ -73,25 +73,6 @@ REQUIRED_TABLES = (
     "phone_chat_threads",
     "phone_chat_requests",
     "payment_notification_outbox",
-)
-RUNTIME_CONTRACT_ID = "izo.agent-env.runtime.v1"
-RUNTIME_CREDENTIAL_VARIABLES = (
-    "OPENROUTER_API_KEY",
-    "TELEGRAM_BOT_TOKEN",
-    "TELEGRAM_WEBHOOK_SECRET",
-    "MAX_BOT_TOKEN",
-    "MAX_WEBHOOK_SECRET",
-    "SMTP_USERNAME",
-    "SMTP_PASSWORD",
-    "SMTP_TOKEN",
-    "UNISENDER_API_KEY",
-    "YOOKASSA_SECRET_KEY",
-    "VK_ACCESS_TOKEN",
-    "VK_TOKEN",
-    "VK_API_KEY",
-    "VK_SECRET",
-    "VK_SERVICE_TOKEN",
-    "PAYMENT_PROVIDER_TOKEN",
 )
 DEFAULT_LOCAL_PROVIDER_ENDPOINTS = {
     "comfyui": "http://127.0.0.1:8188",
@@ -196,7 +177,7 @@ def _assert_real_provider_credentials_absent(
     ]
     present.extend(
         name
-        for name in RUNTIME_CREDENTIAL_VARIABLES
+        for name in env_runtime.PROVIDER_CREDENTIAL_KEYS
         if str(source.get(name, "")).strip() and name not in present
     )
     if present:
@@ -225,7 +206,7 @@ def _write_fake_secrets(paths, package_id: str) -> tuple[str, ...]:
 def _runtime_secret_store_path(paths) -> Path:
     return env_secret_store.canonical_external_secret_store(paths.environment_root)[1]
 
-def _runtime_environment_contract(paths, package_id: str, state, provider_runtime, production_contract) -> dict[str, object]:
+def _write_runtime_environment(paths, package_id: str, state, provider_runtime, production_contract) -> Path:
     lease = state.get("portLease")
     lease_id = str(lease.get("leaseId") or "") if isinstance(lease, dict) else ""
     if not lease_id:
@@ -239,26 +220,19 @@ def _runtime_environment_contract(paths, package_id: str, state, provider_runtim
     except env_secret_store.ExternalSecretStoreError as exc:
         raise ApplicationReadyError(str(exc)) from None
     local = provider_runtime["local"]
-    routing = {"DATABASE_URL": str(paths.database_path), "MEDIA_DIR": str(paths.media_root), "IZO_SECRET_DIR": str(runtime_secret_store)}
-    labels = {"APP_ENV": "test", "ENV": "test", "MODE": "test"}
-    bots = {"BOT_MODE": "disabled", "BOT_UPDATES_MODE": "disabled", "TELEGRAM_POLLING_ENABLED": False, "MAX_UPDATES_MODE": "disabled", "MAX_POLLING_ENABLED": False}
-    providers = {"COMFYUI_BASE_URL": local["comfyui"]["endpoint"], "OLLAMA_BASE_URL": local["ollama"]["endpoint"], "QWEN_ASR_BASE_URL": local["qwen"]["endpoint"]}
-    credentials = {name: {"inherit": False, "productionCredential": "ABSENT"} for name in RUNTIME_CREDENTIAL_VARIABLES}
-    environment = {**routing, **labels, **providers, **{k: str(v).lower() if isinstance(v, bool) else v for k, v in bots.items()}, **{name: "" for name in RUNTIME_CREDENTIAL_VARIABLES}}
-    return {
-        "contractId": RUNTIME_CONTRACT_ID, "packageId": package_id,
-        "inheritAmbient": False, "backendDotEnvAllowed": False,
-        "backendDotEnvInheritance": "FORBIDDEN", "hostSecretStoreInheritance": "FORBIDDEN",
-        "externalInternetAllowed": False, "routing": routing, "runtimeLabels": labels,
-        "botActivity": bots, "localProviders": providers, "credentials": credentials,
-        "environment": environment,
-    }
-
-def _write_runtime_environment(paths, package_id: str, state, provider_runtime, production_contract) -> Path:
+    runtime_document = env_runtime.build_runtime_environment_contract(
+        package_id=package_id,
+        database_path=paths.database_path,
+        media_root=paths.media_root,
+        secret_dir=runtime_secret_store,
+        local_provider_endpoints={
+            "COMFYUI_BASE_URL": local["comfyui"]["endpoint"],
+            "OLLAMA_BASE_URL": local["ollama"]["endpoint"],
+            "QWEN_ASR_BASE_URL": local["qwen"]["endpoint"],
+        },
+    )
     runtime_path = paths.state_root / "runtime-environment.json"
-    atomic_write_text(runtime_path, _render(
-        _runtime_environment_contract(paths, package_id, state, provider_runtime, production_contract)
-    ))
+    atomic_write_text(runtime_path, _render(runtime_document))
     return runtime_path
 
 def _initialize_database(database_path: Path, *, stamp: str) -> dict[str, object]:
