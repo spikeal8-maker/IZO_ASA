@@ -11,6 +11,7 @@ import ipaddress
 import json
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 from typing import Mapping
 from urllib.parse import urlsplit
@@ -53,6 +54,7 @@ from .env import (
     load_environment_identity,
     utc_now,
     validate_environment_paths,
+    _is_within,
 )
 from .env_lifecycle import environment_status
 from .registry import atomic_write_text, resolve_repo_root
@@ -221,48 +223,41 @@ def _write_fake_secrets(paths, package_id: str) -> tuple[str, ...]:
     atomic_write_text(paths.secret_root / "test-secrets.json", _render(payload))
     return tuple(sorted(secrets))
 
-def _runtime_environment_contract(paths, package_id: str, provider_runtime) -> dict[str, object]:
-    runtime_secret_store = paths.secret_root / "runtime-store"
+def _runtime_secret_store_path(paths) -> Path:
+    identity = hashlib.sha256(str(paths.environment_root.resolve()).encode()).hexdigest()[:24]
+    return Path(tempfile.gettempdir()).resolve() / "izo-asa-agent-secrets" / identity
+
+def _runtime_environment_contract(paths, package_id: str, provider_runtime, production_contract) -> dict[str, object]:
+    runtime_secret_store = _runtime_secret_store_path(paths)
+    worktree = paths.environment_root.parents[2].resolve()
+    if runtime_secret_store.parent.is_symlink() or _is_within(runtime_secret_store, worktree) or any(
+        _is_within(runtime_secret_store, root) for root in production_contract.all_roots
+    ):
+        raise ApplicationReadyError("RUNTIME_SECRET_STORE_PATH_REJECTED")
     runtime_secret_store.mkdir(parents=True, exist_ok=True)
+    if any(runtime_secret_store.iterdir()):
+        raise ApplicationReadyError("RUNTIME_SECRET_STORE_NOT_EMPTY")
     local = provider_runtime["local"]
+    routing = {"DATABASE_URL": str(paths.database_path), "MEDIA_DIR": str(paths.media_root), "IZO_SECRET_DIR": str(runtime_secret_store)}
+    labels = {"APP_ENV": "test", "ENV": "test", "MODE": "test"}
+    bots = {"BOT_MODE": "disabled", "BOT_UPDATES_MODE": "disabled", "TELEGRAM_POLLING_ENABLED": False, "MAX_UPDATES_MODE": "disabled", "MAX_POLLING_ENABLED": False}
+    providers = {"COMFYUI_BASE_URL": local["comfyui"]["endpoint"], "OLLAMA_BASE_URL": local["ollama"]["endpoint"], "QWEN_ASR_BASE_URL": local["qwen"]["endpoint"]}
+    credentials = {name: {"inherit": False, "productionCredential": "ABSENT"} for name in RUNTIME_CREDENTIAL_VARIABLES}
+    environment = {**routing, **labels, **providers, **{k: str(v).lower() if isinstance(v, bool) else v for k, v in bots.items()}, **{name: "" for name in RUNTIME_CREDENTIAL_VARIABLES}}
     return {
-        "contractId": RUNTIME_CONTRACT_ID,
-        "packageId": package_id,
-        "inheritAmbient": False,
-        "backendDotEnvAllowed": False,
-        "backendDotEnvInheritance": "FORBIDDEN",
-        "hostSecretStoreInheritance": "FORBIDDEN",
-        "externalInternetAllowed": False,
-        "routing": {
-            "DATABASE_URL": str(paths.database_path),
-            "MEDIA_DIR": str(paths.media_root),
-            "IZO_SECRET_DIR": str(runtime_secret_store),
-        },
-        "runtimeLabels": {"APP_ENV": "test", "ENV": "test", "MODE": "test"},
-        "botActivity": {
-            "BOT_MODE": "disabled",
-            "BOT_UPDATES_MODE": "disabled",
-            "TELEGRAM_POLLING_ENABLED": False,
-            "MAX_UPDATES_MODE": "disabled",
-            "MAX_POLLING_ENABLED": False,
-        },
-        "localProviders": {
-            "COMFYUI_BASE_URL": local["comfyui"]["endpoint"],
-            "OLLAMA_BASE_URL": local["ollama"]["endpoint"],
-            "QWEN_ASR_BASE_URL": local["qwen"]["endpoint"],
-        },
-        "credentials": {
-            name: {"inherit": False, "productionCredential": "ABSENT"}
-            for name in RUNTIME_CREDENTIAL_VARIABLES
-        },
+        "contractId": RUNTIME_CONTRACT_ID, "packageId": package_id,
+        "inheritAmbient": False, "backendDotEnvAllowed": False,
+        "backendDotEnvInheritance": "FORBIDDEN", "hostSecretStoreInheritance": "FORBIDDEN",
+        "externalInternetAllowed": False, "routing": routing, "runtimeLabels": labels,
+        "botActivity": bots, "localProviders": providers, "credentials": credentials,
+        "environment": environment,
     }
 
-def _write_runtime_environment(paths, package_id: str, provider_runtime) -> Path:
+def _write_runtime_environment(paths, package_id: str, provider_runtime, production_contract) -> Path:
     runtime_path = paths.state_root / "runtime-environment.json"
-    atomic_write_text(
-        runtime_path,
-        _render(_runtime_environment_contract(paths, package_id, provider_runtime)),
-    )
+    atomic_write_text(runtime_path, _render(
+        _runtime_environment_contract(paths, package_id, provider_runtime, production_contract)
+    ))
     return runtime_path
 
 def _initialize_database(database_path: Path, *, stamp: str) -> dict[str, object]:
@@ -346,6 +341,9 @@ def _remove_owned_payload(paths) -> None:
             shutil.rmtree(target)
     (paths.state_root / "provider-config.json").unlink(missing_ok=True)
     (paths.state_root / "runtime-environment.json").unlink(missing_ok=True)
+    external = _runtime_secret_store_path(paths)
+    if external.exists() and not external.is_symlink() and not external.parent.is_symlink():
+        shutil.rmtree(external)
 
 def prepare_application_ready(
     repo_root: Path | str,
@@ -361,11 +359,8 @@ def prepare_application_ready(
     try:
         identity, paths, state = _load_active_owned_state(repo)
         was_ready = state.get("applicationReady") == "PASS"
-        validate_environment_paths(
-            identity,
-            paths,
-            production_contract or discover_production_path_contract(repo),
-        )
+        contract = production_contract or discover_production_path_contract(repo)
+        validate_environment_paths(identity, paths, contract)
         _assert_real_provider_credentials_absent(environment)
         provider_runtime = build_provider_configuration(local_provider_endpoints)
         stamp = timestamp or utc_now()
@@ -377,7 +372,7 @@ def prepare_application_ready(
         provider_path = paths.state_root / "provider-config.json"
         atomic_write_text(provider_path, _render(provider_runtime))
         runtime_path = _write_runtime_environment(
-            paths, identity.package_id, provider_runtime
+            paths, identity.package_id, provider_runtime, contract
         )
 
         ready_fields: dict[str, object] = {
@@ -447,6 +442,9 @@ def cleanup_runtime_environment(repo_root: Path | str) -> dict[str, object]:
     paths = derive_environment_paths(identity)
     runtime_path = paths.state_root / "runtime-environment.json"
     runtime_path.unlink(missing_ok=True)
+    external = _runtime_secret_store_path(paths)
+    if external.exists() and not external.is_symlink() and not external.parent.is_symlink():
+        shutil.rmtree(external)
     return {"status": "CLEANED", "runtimeEnvironment": "REMOVED"}
 
 def _parser() -> argparse.ArgumentParser:
