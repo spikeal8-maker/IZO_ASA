@@ -140,7 +140,8 @@ def test_runtime_contract_never_copies_ambient_values_and_unisender_fails_closed
 def test_runtime_materialization_failure_blocks_application_ready_and_cleans_payload(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    worktree, contract, paths = _active(tmp_path, "PKG-RUNTIME-FAIL")
+    package_id = _available_package_id("PKG-RUNTIME-FAIL")
+    worktree, contract, paths = _active(tmp_path, package_id)
     original_receipt = paths.receipt_path.read_text(encoding="utf-8")
 
     def fail_runtime(*_args, **_kwargs):
