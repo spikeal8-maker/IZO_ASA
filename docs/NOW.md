@@ -16,27 +16,14 @@ next_candidate: CONTAINER-READY-001
 ---
 # IZO_ASA — NOW
 
-Это единственный current-status aggregator/router. Порядок чтения определяет
-только `AI_START_HERE.md`. Подробный stabilization backlog находится в
-`docs/stabilization-optimization-master-spec.md`, agent-specific capabilities —
-в `docs/agent-control-plane.md`.
+Порядок чтения: `AI_START_HERE.md`; NOW — компактный current-status router.
 
 ## 1. Перед работой
 
-```powershell
-git rev-parse --show-toplevel
-git remote get-url origin
-git status --short --branch
-git rev-parse HEAD
-git rev-parse origin/main
-git worktree list
-```
-Source `main` при последнем status verification:
-`2fcaa27c2f20f78d59a26de3686bccb676614b51`.
-
-Последний отдельно operationally verified production release:
-`d223c179d5944bc208cace867d5e93bc1341a3aa` от 2026-09-02. Не выводить deploy
-из GitHub: production подтверждается installed runtime evidence и `/api/version`.
+Сверить repository root, origin, clean status, HEAD/origin-main и worktrees.
+Source main: `2fcaa27c2f20f78d59a26de3686bccb676614b51`.
+Production release: `d223c179d5944bc208cace867d5e93bc1341a3aa` (2026-09-02);
+production подтверждается installed runtime evidence.
 
 ## 2. Активный stabilization package
 

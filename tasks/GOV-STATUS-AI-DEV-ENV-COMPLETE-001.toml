@@ -37,8 +37,11 @@ forbiddenPatterns = [
   "tools/agent_system/**",
   "tools/agent.ps1",
   "tools/verify.ps1",
-  "Dockerfile*",
-  "compose*",
+  "Dockerfile",
+  "compose.yaml",
+  "compose.yml",
+  "docker-compose.yaml",
+  "docker-compose.yml",
   ".dockerignore",
 ]
 
