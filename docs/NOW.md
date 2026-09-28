@@ -2,56 +2,44 @@
 status: canonical
 status_role: current-status-aggregator
 backlog_role: program-router
-updated: 2026-09-27
-source_main_at_status_update: eb3632e651618dd22f6c391106c3f37b0d20dca3
-last_verified_main: 93a0a9d4bef1b478030788700e4c2241d9ef1cca
+updated: 2026-09-29
+source_main_at_status_update: 2fcaa27c2f20f78d59a26de3686bccb676614b51
+last_verified_main: 2fcaa27c2f20f78d59a26de3686bccb676614b51
 production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_verified_at: 2026-09-02T00:08:04+03:00
-completed_package: STAB-TEST-HEALTH-001
-active_package: AI-DEV-ENV-001
-active_task_contract: github-issue-113
+completed_package: AI-DEV-ENV-001
+active_package: DOCKER-DEV-001
+active_task_contract: github-issue-115
 baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a
 baseline_status: completed-point-A-accepted
-next_candidate: DOCKER-DEV-001
+next_candidate: CONTAINER-READY-001
 ---
 # IZO_ASA — NOW
 
-Это единственный current-status aggregator/router. Порядок чтения определяет
-только `AI_START_HERE.md`. Подробный stabilization backlog находится в
-`docs/stabilization-optimization-master-spec.md`, agent-specific capabilities —
-в `docs/agent-control-plane.md`.
+Порядок чтения: `AI_START_HERE.md`; NOW — компактный current-status router.
 
 ## 1. Перед работой
 
-```powershell
-git rev-parse --show-toplevel
-git remote get-url origin
-git status --short --branch
-git rev-parse HEAD
-git rev-parse origin/main
-git worktree list
-```
-Source `main` при последнем status verification:
-`93a0a9d4bef1b478030788700e4c2241d9ef1cca`.
-
-Последний отдельно operationally verified production release:
-`d223c179d5944bc208cace867d5e93bc1341a3aa` от 2026-09-02. Не выводить deploy
-из GitHub: production подтверждается installed runtime evidence и `/api/version`.
+Сверить repository root, origin, clean status, HEAD/origin-main и worktrees.
+Source main: `2fcaa27c2f20f78d59a26de3686bccb676614b51`.
+Production release: `d223c179d5944bc208cace867d5e93bc1341a3aa` (2026-09-02);
+production подтверждается installed runtime evidence.
 
 ## 2. Активный stabilization package
 
-Completed: `STAB-TEST-HEALTH-001` (#112).
-Active: `AI-DEV-ENV-001` (#113).
+Completed: `AI-DEV-ENV-001` (#113).
+Active: `DOCKER-DEV-001` (#115).
+Next: `CONTAINER-READY-001` (#124).
 D0 = COMPLETE.
 #112 test-health = COMPLETE.
 Active non-regression: warning baseline 97; cleanup baseline 1; hidden outbound external = 0 required; pytest rerun observability active; process leak gate active.
 Tracked debt: #162, #163, #164, #165.
-#113 AI-DEV-ENV = ACTIVE; implementation IN PROGRESS in Draft PR #167; final acceptance pending.
+#113 AI-DEV-ENV = COMPLETE; implementation + post-merge verification accepted.
 #114 AI-VERIFY = OPEN / PREPARED; not active; not prerequisite for first D1 Docker smoke.
-#115 DOCKER-DEV = NEXT.
+#115 DOCKER-DEV = ACTIVE; implementation NOT STARTED.
+#124 CONTAINER-READY = NEXT.
 D1 Docker = NOT STARTED.
 Architecture checkpoint after #108-#110: PASS; routes/workers/tables 251/8/65; product-flow count 14.
-Next: `DOCKER-DEV-001` (#115).
 
 ## 3. Frozen baseline — completed point A
 
