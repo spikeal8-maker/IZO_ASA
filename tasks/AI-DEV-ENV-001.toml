@@ -24,6 +24,7 @@ declaredFiles = [
   "tools/test_agent_env.py",
   "tools/test_agent_env_lifecycle.py",
   "tools/test_agent_env_ready.py",
+  "tools/test_agent_env_runtime.py",
 ]
 allowedPatterns = [
 ]
@@ -64,6 +65,8 @@ acceptance = [
   "Application-ready preparation failure removes only owned DB/media/fake-secret payload; public agent env-up best-effort invokes owned env-down and returns the original ready failure.",
   "Repeated prepare and agent env-up on an ACTIVE+READY environment are idempotent; agent env-down removes package-owned SQLite/fake-secret payload and never touches foreign resources.",
   "Neither backend nor frontend applications are started and provider connectivity is never probed.",
+  "Import-safe database preparation includes the billing payment_notification_outbox schema in production init_db order.",
+  "A materialized state/runtime-environment.json forbids ambient/backend-dotenv/host-secret inheritance, routes DB/media to package-owned paths, disables bot/external effects, and is removed by owned env-down cleanup.",
 ]
 requiredEvidence = [
   "tools/test_agent_env.py, tools/test_agent_env_lifecycle.py and tools/test_agent_env_ready.py focused tests",
@@ -75,6 +78,7 @@ targetedTests = [
   "tools/test_agent_env.py",
   "tools/test_agent_env_lifecycle.py",
   "tools/test_agent_env_ready.py",
+  "tools/test_agent_env_runtime.py",
   "tools/test_agent_package.py",
 ]
 fileGrowthExpectations = [
@@ -82,6 +86,7 @@ fileGrowthExpectations = [
   "tools/agent_system/env_lifecycle.py does not grow and remains <= 500 physical lines with lifecycle/port-lease ownership only.",
   "tools/agent_system/env_ready.py remains <= 500 physical lines and owns only application-ready isolated fixture preparation.",
   "tools/test_agent_env_ready.py remains <= 500 physical lines as a separate focused suite.",
+  "tools/test_agent_env_runtime.py remains <= 500 physical lines as a separate runtime-contract suite.",
   "tools/test_agent_env.py and tools/test_agent_env_lifecycle.py remain separate focused suites.",
   "No product source grows.",
 ]

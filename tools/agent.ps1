@@ -132,8 +132,15 @@ if ($Command -in @("env-up", "env-status", "env-down")) {
     try {
         & $python @lifecycleArguments
         $lifecycleExit = $LASTEXITCODE
-        if ($lifecycleExit -ne 0 -or $Command -ne "env-up") {
+        if ($lifecycleExit -ne 0) {
             exit $lifecycleExit
+        }
+        if ($Command -eq "env-down") {
+            & $python -m tools.agent_system.env_ready --repo-root $RepoRoot cleanup
+            exit $LASTEXITCODE
+        }
+        if ($Command -ne "env-up") {
+            exit 0
         }
 
         $readyArguments = @(
