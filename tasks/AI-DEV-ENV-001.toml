@@ -44,7 +44,7 @@ domain = "agent-control-plane"
 riskClass = "standard"
 changeClass = "architecture"
 maxProductionFiles = 0
-maxChangedLines = 3300
+maxChangedLines = 3400
 acceptance = [
   "Environment identity comes from existing package registry and ownership.json; no second registry is introduced.",
   "Same package identity yields deterministic roots and ports; two package identities yield disjoint roots and non-colliding deterministic candidate ports.",
@@ -68,6 +68,7 @@ acceptance = [
   "Neither backend nor frontend applications are started and provider connectivity is never probed.",
   "Import-safe database preparation includes the billing payment_notification_outbox schema in production init_db order.",
   "A materialized state/runtime-environment.json forbids ambient/backend-dotenv/host-secret inheritance, routes DB/media to package-owned paths, disables bot/external effects, and is removed by owned env-down cleanup; external secret-store rejects Windows junction/reparse escape, cleanup never traverses a reparse point, and actual Windows junction challenges preserve target data.",
+  "External secret-store rejects worktree or known-production temp roots before any managed parent, leaf, or owner-marker filesystem mutation.",
 ]
 requiredEvidence = [
   "tools/test_agent_env.py, tools/test_agent_env_lifecycle.py and tools/test_agent_env_ready.py focused tests",

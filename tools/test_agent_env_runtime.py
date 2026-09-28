@@ -167,6 +167,65 @@ def test_runtime_contract_never_copies_ambient_values_and_unisender_fails_closed
         _cleanup(worktree, contract)
 
 
+def test_production_temp_root_rejected_before_secret_store_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package_id = _available_package_id("PKG-RUNTIME-PREWRITE-PROD")
+    worktree, contract, paths = _active(tmp_path, package_id)
+    production_root = Path(contract.secret_roots[-1])
+    production_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(secret_store.tempfile, "gettempdir", lambda: str(production_root))
+    managed_parent = production_root.resolve() / "izo-asa-agent-secrets"
+    try:
+        with pytest.raises(ready.ApplicationReadyError, match="RUNTIME_SECRET_STORE_PATH_REJECTED"):
+            _prepare(worktree, contract)
+        assert not managed_parent.exists()
+    finally:
+        _cleanup(worktree, contract)
+
+
+def test_worktree_temp_root_rejected_before_secret_store_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package_id = _available_package_id("PKG-RUNTIME-PREWRITE-WORKTREE")
+    worktree, contract, paths = _active(tmp_path, package_id)
+    temp_base = worktree / "synthetic-system-temp"
+    temp_base.mkdir()
+    monkeypatch.setattr(secret_store.tempfile, "gettempdir", lambda: str(temp_base))
+    managed_parent = temp_base.resolve() / "izo-asa-agent-secrets"
+    try:
+        with pytest.raises(ready.ApplicationReadyError, match="RUNTIME_SECRET_STORE_PATH_REJECTED"):
+            _prepare(worktree, contract)
+        assert temp_base.is_dir()
+        assert not managed_parent.exists()
+    finally:
+        _cleanup(worktree, contract)
+
+
+@pytest.mark.parametrize("boundary", ("temp", "parent", "leaf"))
+def test_external_secret_store_rejects_each_known_production_boundary_prewrite(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, boundary: str
+) -> None:
+    package_id = _available_package_id("PKG-RUNTIME-PREWRITE-BOUNDARY")
+    worktree, contract, paths = _active(tmp_path, package_id)
+    temp_base = tmp_path / "system-temp"
+    temp_base.mkdir()
+    monkeypatch.setattr(secret_store.tempfile, "gettempdir", lambda: str(temp_base))
+    parent, leaf, marker = secret_store.canonical_external_secret_store(paths.environment_root)
+    production_root = {"temp": temp_base.resolve(), "parent": parent, "leaf": leaf}[boundary]
+    try:
+        with pytest.raises(secret_store.ExternalSecretStoreError, match="RUNTIME_SECRET_STORE_PATH_REJECTED"):
+            secret_store.prepare_external_secret_store(
+                paths.environment_root, package_id, "synthetic-lease",
+                allow_existing=False, production_roots=(str(production_root),),
+            )
+        assert not parent.exists()
+        assert not leaf.exists()
+        assert not marker.exists()
+    finally:
+        _cleanup(worktree, contract)
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Actual Windows junction challenge.")
 def test_windows_external_secret_store_junction_challenges(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

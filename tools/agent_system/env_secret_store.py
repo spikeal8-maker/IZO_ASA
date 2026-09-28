@@ -16,6 +16,20 @@ def canonical_external_secret_store(environment_root: Path) -> tuple[Path, Path,
     name = hashlib.sha256(str(environment).encode()).hexdigest()[:24]
     parent = Path(tempfile.gettempdir()).expanduser().resolve() / "izo-asa-agent-secrets"
     return parent, parent / name, parent / f".{name}.owner"
+def _is_within(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+def _assert_prewrite_path_safe(environment_root: Path, parent: Path, leaf: Path, production_roots) -> None:
+    worktree = Path(environment_root).resolve().parents[2]
+    roots = tuple(Path(value).expanduser().resolve(strict=False) for value in production_roots)
+    candidates = (parent.parent, parent, leaf)
+    if any(_is_within(candidate, worktree) for candidate in candidates):
+        raise ExternalSecretStoreError("RUNTIME_SECRET_STORE_PATH_REJECTED")
+    if any(_is_within(candidate, root) for candidate in candidates for root in roots):
+        raise ExternalSecretStoreError("RUNTIME_SECRET_STORE_PATH_REJECTED")
 def _owner(environment_root: Path, package_id: str, lease_id: str) -> str:
     return "|".join((_OWNER_ID, package_id, str(Path(environment_root).resolve().parents[2]), lease_id))
 def _owned(marker: Path, environment_root: Path, package_id: str, lease_id: str | None = None) -> bool:
@@ -38,6 +52,7 @@ def _remove_reparse(path: Path) -> None:
         raise ExternalSecretStoreError("RUNTIME_SECRET_STORE_REPARSE_POINT")
 def prepare_external_secret_store(environment_root: Path, package_id: str, lease_id: str, *, allow_existing: bool, production_roots) -> Path:
     parent, leaf, marker = canonical_external_secret_store(environment_root)
+    _assert_prewrite_path_safe(environment_root, parent, leaf, production_roots)
     if _lstat(parent) is not None and is_reparse_point(parent):
         raise ExternalSecretStoreError("RUNTIME_SECRET_STORE_REPARSE_POINT")
     parent.mkdir(parents=True, exist_ok=True)
