@@ -4,12 +4,14 @@ import json
 import os
 import runpy
 import sqlite3
+import subprocess
 from pathlib import Path
 
 import pytest
 
 from backend.app.config import load_local_env
 from tools.agent_system import env_lifecycle as lifecycle
+from tools.agent_system import env_secret_store as secret_store
 from tools.agent_system import env_ready as ready
 from tools.agent_system.env import derive_environment_paths, load_environment_identity
 from tools.test_agent_env_ready import (
@@ -165,32 +167,56 @@ def test_runtime_contract_never_copies_ambient_values_and_unisender_fails_closed
         _cleanup(worktree, contract)
 
 
-def test_runtime_materialization_failure_blocks_application_ready_and_cleans_payload(
+@pytest.mark.skipif(os.name != "nt", reason="Actual Windows junction challenge.")
+def test_windows_external_secret_store_junction_challenges(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    package_id = _available_package_id("PKG-RUNTIME-FAIL")
+    package_id = _available_package_id("PKG-RUNTIME-JUNCTION")
     worktree, contract, paths = _active(tmp_path, package_id)
     original_receipt = paths.receipt_path.read_text(encoding="utf-8")
     external = ready._runtime_secret_store_path(paths)
+    def junction(link: Path, target: Path) -> None:
+        target.mkdir(parents=True, exist_ok=True)
+        link.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["cmd.exe", "/d", "/c", "mklink", "/J", str(link), str(target)], check=True)
 
-    def fail_runtime(*_args, **_kwargs):
-        external.mkdir(parents=True, exist_ok=True)
-        raise ready.ApplicationReadyError("RUNTIME_ENVIRONMENT_WRITE_FAILED")
-
-    monkeypatch.setattr(ready, "_write_runtime_environment", fail_runtime)
     try:
-        with pytest.raises(
-            ready.ApplicationReadyError, match="RUNTIME_ENVIRONMENT_WRITE_FAILED"
-        ):
+        external.mkdir(parents=True)
+        with pytest.raises(ready.ApplicationReadyError, match="OWNERSHIP_INVALID"):
             _prepare(worktree, contract)
+        external.rmdir()
+
+        target = Path(contract.secret_roots[-1])
+        marker = target / "production.marker"
+        target.mkdir(parents=True, exist_ok=True)
+        marker.write_text("preserve", encoding="utf-8")
+        junction(external, target)
+        assert secret_store.is_reparse_point(external)
+        ready.cleanup_runtime_environment(worktree)
+        assert not external.exists() and target.is_dir() and marker.is_file()
+
+        junction(external, target)
+        with pytest.raises(ready.ApplicationReadyError, match="RUNTIME_SECRET_STORE_REPARSE_POINT"):
+            _prepare(worktree, contract)
+        assert not external.exists() and marker.read_text(encoding="utf-8") == "preserve"
         assert paths.receipt_path.read_text(encoding="utf-8") == original_receipt
-        assert '"applicationReady": "PASS"' not in original_receipt
-        assert not (paths.environment_root / "db").exists()
-        assert not paths.media_root.exists()
-        assert not paths.secret_root.exists()
-        assert not (paths.state_root / "provider-config.json").exists()
-        assert not (paths.state_root / "runtime-environment.json").exists()
-        assert not external.exists()
+        assert not any(path.exists() for path in (paths.environment_root / "db", paths.media_root, paths.secret_root))
+        assert not any((paths.state_root / name).exists() for name in ("provider-config.json", "runtime-environment.json"))
+
+        system_temp = tmp_path / "system-temp"
+        system_temp.mkdir()
+        monkeypatch.setattr(secret_store.tempfile, "gettempdir", lambda: str(system_temp))
+        parent, _leaf, _owner = secret_store.canonical_external_secret_store(paths.environment_root)
+        parent_target = tmp_path / "parent-target"
+        parent_marker = parent_target / "production.marker"
+        parent_target.mkdir()
+        parent_marker.write_text("preserve", encoding="utf-8")
+        junction(parent, parent_target)
+        with pytest.raises(ready.ApplicationReadyError, match="RUNTIME_SECRET_STORE_REPARSE_POINT"):
+            _prepare(worktree, contract)
+        assert parent_marker.read_text(encoding="utf-8") == "preserve"
+        assert list(parent_target.iterdir()) == [parent_marker]
+        os.rmdir(parent)
     finally:
         _cleanup(worktree, contract)
 
