@@ -1,10 +1,10 @@
 manifestVersion = 1
 id = "DOCKER-DEV-001"
 baseSha = "e62dd06ef68f8d68041adaed5287a0f583289e68"
-goal = "Establish Slice A build-only Docker foundation for the backend application with an immutable Python base, constrained build context, non-root image identity and exact source revision evidence."
-userOutcome = "The repository can reproducibly build and inspect a backend Linux image from an exact commit without starting the application, Compose, providers or deployment."
-beforeScenario = "DOCKER-DEV-001 is active, but no application backend Docker build foundation exists."
-afterScenario = "A pinned build-only backend Dockerfile, safe root .dockerignore and static contract tests prove the first bounded Docker foundation while runtime remains not started."
+goal = "Establish the cumulative build-only Docker foundation for DOCKER-DEV-001: a pinned non-root backend image plus a safe single-service Compose build contract, without starting application runtime."
+userOutcome = "The backend image can be built directly and through Docker Compose from exact source identity without creating containers, volumes or networks and without starting runtime, providers or deployment."
+beforeScenario = "DOCKER-DEV-001 is active, but no application Docker build foundation exists."
+afterScenario = "A pinned backend Dockerfile, safe root build context, single-service build-only Compose contract, non-secret .env.example, cumulative contract tests and real Docker/Compose builds prove accepted Slice A+B while application runtime remains NOT STARTED."
 nonGoals = [
   "start application runtime",
   "docker compose up or down",
@@ -73,13 +73,18 @@ targetedTests = [
   "tools/test_docker_dev_contract.py",
 ]
 fileGrowthExpectations = [
-  "Dockerfile.backend remains a small build/runtime packaging boundary.",
-  "Static Docker contract tests remain focused on Slice A invariants.",
+  "Dockerfile.backend remains small and build-focused.",
+  "compose.yml remains a minimal build-only one-service contract until runtime Slice C.",
+  "Docker contract tests cover cumulative accepted Slice A+B invariants.",
   "No production source grows.",
 ]
 forbiddenOperations = [
   "application-runtime",
-  "docker-compose",
+  "docker-compose-up",
+  "docker-compose-run",
+  "docker-compose-create",
+  "docker-compose-start",
+  "docker-compose-down",
   "frontend-container",
   "provider-call",
   "gpu-containerization",
@@ -91,4 +96,4 @@ forbiddenOperations = [
   "issue-114-implementation",
   "issue-124-implementation",
 ]
-rollbackBoundary = "Revert only Slice A manifest, backend Dockerfile, root .dockerignore and static Docker contract test; no runtime, product, provider, production or Windows state is changed."
+rollbackBoundary = "Revert only the cumulative Slice A+B files: tasks/DOCKER-DEV-001.toml, ops/docker/dev/Dockerfile.backend, .dockerignore, tools/test_docker_dev_contract.py, ops/docker/dev/compose.yml and ops/docker/dev/.env.example; no application runtime, product behavior, provider state, production state or Windows settings are changed."
