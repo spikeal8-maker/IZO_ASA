@@ -23,6 +23,8 @@ declaredFiles = [
   "ops/docker/dev/Dockerfile.backend",
   ".dockerignore",
   "tools/test_docker_dev_contract.py",
+  "ops/docker/dev/compose.yml",
+  "ops/docker/dev/.env.example",
 ]
 allowedPatterns = []
 forbiddenPatterns = [
@@ -34,9 +36,7 @@ forbiddenPatterns = [
   "ops/docker/agent-sandbox/**",
   "tools/agent.ps1",
   "tools/agent_system/**",
-  "ops/docker/dev/compose.yml",
   "ops/docker/dev/Dockerfile.frontend",
-  "ops/docker/dev/.env.example",
 ]
 protectedFilesTouched = []
 domain = "agent-control-plane"
@@ -54,6 +54,10 @@ acceptance = [
   "An exact committed source image builds successfully without starting a container.",
   "Image inspection proves linux OS, non-root user and org.opencontainers.image.revision equal to the exact commit.",
   "Exact-head CI passes repository verification, test-health, process-leak, supply-chain and package enforcement gates.",
+  "Slice B adds build-only Compose metadata with exactly one backend service and no runtime ports, volumes, networks, environment, env_file, healthcheck, dependencies, restart, command or entrypoint overrides.",
+  "Compose requires explicit IZO_SOURCE_SHA and IZO_COMPOSE_PROJECT inputs, reuses the accepted backend Dockerfile and preserves exact OCI source revision identity.",
+  "ops/docker/dev/.env.example contains only non-secret build template keys and no real credentials or runtime configuration.",
+  "docker compose config and docker compose build backend pass without creating application containers, volumes or networks.",
 ]
 requiredEvidence = [
   "python -m pytest -q tools/test_docker_dev_contract.py",
@@ -62,6 +66,8 @@ requiredEvidence = [
   "docker build from exact committed HEAD with IZO_SOURCE_SHA equal to that HEAD",
   "docker image inspect evidence for OS, user, revision label and image ID",
   "exact-head GitHub CI",
+  "docker compose config with exact committed IZO_SOURCE_SHA and unique non-secret project name",
+  "docker compose build --pull backend with image inspection proving linux, uid 10001 and exact OCI revision label",
 ]
 targetedTests = [
   "tools/test_docker_dev_contract.py",

@@ -1,0 +1,10 @@
+name: ${IZO_COMPOSE_PROJECT:?IZO_COMPOSE_PROJECT is required}
+
+services:
+  backend:
+    build:
+      context: ../../..
+      dockerfile: ops/docker/dev/Dockerfile.backend
+      args:
+        IZO_SOURCE_SHA: ${IZO_SOURCE_SHA:?IZO_SOURCE_SHA is required}
+    image: izo-asa-dev-backend:${IZO_SOURCE_SHA:?IZO_SOURCE_SHA is required}
