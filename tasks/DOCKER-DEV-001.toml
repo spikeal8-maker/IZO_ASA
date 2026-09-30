@@ -1,20 +1,21 @@
 manifestVersion = 1
 id = "DOCKER-DEV-001"
 baseSha = "e62dd06ef68f8d68041adaed5287a0f583289e68"
-goal = "Establish the cumulative build-only Docker foundation for DOCKER-DEV-001: a pinned non-root backend image plus a safe single-service Compose build contract, without starting application runtime."
-userOutcome = "The backend image can be built directly and through Docker Compose from exact source identity without creating containers, volumes or networks and without starting runtime, providers or deployment."
+goal = "Establish cumulative Slice A+B+C Docker DEV foundation: a pinned non-root backend image, safe single-service Compose build contract, and first disposable network-isolated backend runtime smoke without frontend, host publication, real providers or production state."
+userOutcome = "From exact source identity, the backend can be built directly and through Docker Compose and run once in an owned disposable container with network_mode none, no mounts or published ports, sanitized test environment, health and SQLite evidence, and owned cleanup while production and host services remain untouched."
 beforeScenario = "DOCKER-DEV-001 is active, but no application Docker build foundation exists."
-afterScenario = "A pinned backend Dockerfile, safe root build context, single-service build-only Compose contract, non-secret .env.example, cumulative contract tests and real Docker/Compose builds prove accepted Slice A+B while application runtime remains NOT STARTED."
+afterScenario = "Cumulative Slice A+B+C provides the pinned backend image, safe build context, one-service Compose contract, non-secret .env.example, exact sanitized runtime, one isolated backend health/SQLite smoke and owned cleanup; frontend, provider connectivity, persistent storage and D1 user/product flows remain not started."
 nonGoals = [
-  "start application runtime",
-  "docker compose up or down",
-  "create a frontend container",
-  "connect to ComfyUI, Ollama or Qwen",
-  "make provider calls",
-  "containerize GPU services",
+  "start frontend runtime",
+  "publish backend ports to the host",
+  "use persistent or named volumes or host bind mounts",
+  "connect to host ComfyUI, Ollama or Qwen",
+  "make real provider calls or test host-provider connectivity",
+  "containerize GPU services or grant device access",
   "deploy or restart production",
   "use production data or secrets",
-  "change Windows production settings",
+  "run D1 user/product flows beyond the internal backend health and SQLite smoke",
+  "change Windows or Docker Desktop settings",
   "implement AI-VERIFY-001 #114",
   "implement CONTAINER-READY-001 #124",
 ]
@@ -53,11 +54,19 @@ acceptance = [
   "Focused Docker contract tests, git diff --check and package enforcement pass with productionFileCount=0.",
   "An exact committed source image builds successfully without starting a container.",
   "Image inspection proves linux OS, non-root user and org.opencontainers.image.revision equal to the exact commit.",
-  "Exact-head CI passes repository verification, test-health, process-leak, supply-chain and package enforcement gates.",
+  "Accepted Slice A+B exact-head CI remains historical evidence; Slice C exact-head CI is deferred until a separate authorized publication task and is NOT_RUN here.",
   "Slice B adds build-only Compose metadata with exactly one backend service and no runtime ports, volumes, networks, environment, env_file, healthcheck, dependencies, restart, command or entrypoint overrides.",
   "Compose requires explicit IZO_SOURCE_SHA and IZO_COMPOSE_PROJECT inputs, reuses the accepted backend Dockerfile and preserves exact OCI source revision identity.",
   "ops/docker/dev/.env.example contains only non-secret build template keys and no real credentials or runtime configuration.",
   "docker compose config and docker compose build backend pass without creating application containers, volumes or networks.",
+  "Slice C changes only .dockerignore, compose.yml, this manifest and tools/test_docker_dev_contract.py; Dockerfile.backend, .env.example, product source, workflows and agent-sandbox remain unchanged.",
+  "The Docker build context explicitly excludes sqlite/sqlite3/db rollback, WAL and SHM sidecars, .env, runtime media/secrets and temporary artifacts while retaining required backend source.",
+  "Slice C Compose has one backend service with network_mode none, uid 10001, no published ports or mounts, fixed CPU/memory/PID limits, all capabilities dropped and no-new-privileges enabled.",
+  "All protected runtime credentials are literal empty strings; provider URLs are disabled loopback or empty and host proxy inheritance is neutralized inside the container.",
+  "The exact local candidate image is inspected before start and the created backend container matches that image, user, network isolation, empty mounts/port bindings and resource limits.",
+  "One real backend start reaches /api/health internally with HTTP 200 and JSON ok=true, ready=true, app=izo-asa; provider connectivity remains NOT_RUN.",
+  "The disposable startup creates its own SQLite/media state under /home/izo, SQLite integrity_check is ok and schema evidence is recorded without production data or secrets.",
+  "Cleanup stops/removes only the exact owned backend/checker containers and own image tag, leaves no owned volumes/networks, and preserves foreign Docker resources.",
 ]
 requiredEvidence = [
   "python -m pytest -q tools/test_docker_dev_contract.py",
@@ -65,35 +74,43 @@ requiredEvidence = [
   "package enforcement against e62dd06ef68f8d68041adaed5287a0f583289e68 with productionFileCount=0 and no findings",
   "docker build from exact committed HEAD with IZO_SOURCE_SHA equal to that HEAD",
   "docker image inspect evidence for OS, user, revision label and image ID",
-  "exact-head GitHub CI",
+  "accepted Slice A+B exact-head GitHub CI #726 attempt 2; Slice C exact-head CI is deferred to the separate publication task",
   "docker compose config with exact committed IZO_SOURCE_SHA and unique non-secret project name",
   "docker compose build --pull backend with image inspection proving linux, uid 10001 and exact OCI revision label",
+  "containerized static contract tests and package enforcement on D2-R2 without host dependency installation",
+  "synthetic BuildKit .dockerignore export matrix proving safe backend files included and sqlite/db/env/media/secrets markers excluded",
+  "exact Compose JSON model for the local candidate proving one backend, network_mode none, no ports/volumes/mounts and reviewed sanitized environment",
+  "pre-start inspect receipt for exact image ID, uid, isolation, limits, protected empty credentials and zero mounts/port bindings",
+  "internal /api/health JSON smoke plus SQLite integrity/schema/media evidence from the real backend startup",
+  "addressed cleanup receipt for owned resources with foreign-resource preservation",
 ]
 targetedTests = [
   "tools/test_docker_dev_contract.py",
 ]
 fileGrowthExpectations = [
-  "Dockerfile.backend remains small and build-focused.",
-  "compose.yml remains a minimal build-only one-service contract until runtime Slice C.",
-  "Docker contract tests cover cumulative accepted Slice A+B invariants.",
+  "Dockerfile.backend remains unchanged, small and build-focused.",
+  "compose.yml remains a single-backend contract and grows only by the bounded isolated Slice C runtime settings.",
+  "Docker contract tests cover cumulative accepted Slice A+B+C invariants and remain <= 500 physical lines.",
   "No production source grows.",
 ]
 forbiddenOperations = [
-  "application-runtime",
-  "docker-compose-up",
-  "docker-compose-run",
-  "docker-compose-create",
-  "docker-compose-start",
-  "docker-compose-down",
   "frontend-container",
+  "host-port-publish",
+  "persistent-volume",
+  "host-bind-mount",
   "provider-call",
+  "host-provider-connectivity",
   "gpu-containerization",
+  "docker-socket",
+  "multi-service-runtime",
   "production-deploy",
   "production-restart",
   "production-data",
   "production-secrets",
+  "foreign-resource-mutation",
+  "d1-user-product-flows",
   "windows-settings-change",
   "issue-114-implementation",
   "issue-124-implementation",
 ]
-rollbackBoundary = "Revert only the cumulative Slice A+B files: tasks/DOCKER-DEV-001.toml, ops/docker/dev/Dockerfile.backend, .dockerignore, tools/test_docker_dev_contract.py, ops/docker/dev/compose.yml and ops/docker/dev/.env.example; no application runtime, product behavior, provider state, production state or Windows settings are changed."
+rollbackBoundary = "Revert only the cumulative Slice A+B+C files: tasks/DOCKER-DEV-001.toml, ops/docker/dev/Dockerfile.backend, .dockerignore, tools/test_docker_dev_contract.py, ops/docker/dev/compose.yml and ops/docker/dev/.env.example; remove only exact owned Slice C containers/tags, and leave application production behavior, provider state, production state, foreign Docker resources and Windows settings untouched."

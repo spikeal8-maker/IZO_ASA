@@ -4,6 +4,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from tools.agent_system.env_runtime import EMPTY_CREDENTIAL_KEYS
+
 ROOT = Path(__file__).resolve().parents[1]
 DOCKERFILE = ROOT / "ops" / "docker" / "dev" / "Dockerfile.backend"
 DOCKERIGNORE = ROOT / ".dockerignore"
@@ -14,15 +16,7 @@ BASE_SHA = "e62dd06ef68f8d68041adaed5287a0f583289e68"
 BASE_IMAGE = "python:3.11.9-slim-bookworm"
 BASE_DIGEST = "sha256:8fb099199b9f2d70342674bd9dbccd3ed03a258f26bbd1d556822c6dfc60c317"
 
-CREDENTIAL_NAMES = (
-    "OPENROUTER_API_KEY",
-    "TELEGRAM_BOT_TOKEN",
-    "MAX_BOT_TOKEN",
-    "SMTP_PASSWORD",
-    "YOOKASSA_SECRET_KEY",
-    "SESSION_HMAC_SECRET",
-    "ADMIN_ONE_TIME_CODE",
-)
+CREDENTIAL_NAMES = EMPTY_CREDENTIAL_KEYS
 
 
 def _dockerfile() -> str:
@@ -31,6 +25,23 @@ def _dockerfile() -> str:
 
 def _compose() -> str:
     return COMPOSE.read_text(encoding="utf-8")
+
+
+def _compose_environment() -> dict[str, str]:
+    values: dict[str, str] = {}
+    in_environment = False
+    for line in _compose().splitlines():
+        if line == "    environment:":
+            in_environment = True
+            continue
+        if in_environment and line and not line.startswith("      "):
+            break
+        if not in_environment:
+            continue
+        match = re.fullmatch(r"      ([A-Za-z0-9_]+):(?: (.*))?", line)
+        if match:
+            values[match.group(1)] = (match.group(2) or "").strip()
+    return values
 
 
 def _env_example() -> dict[str, str]:
@@ -114,9 +125,17 @@ def test_dockerignore_is_safe_and_keeps_backend_source() -> None:
         "**/__pycache__",
         "**/*.pyc",
         "**/*.sqlite",
-        "**/*.sqlite3",
         "**/*.sqlite-wal",
         "**/*.sqlite-shm",
+        "**/*.sqlite-journal",
+        "**/*.sqlite3",
+        "**/*.sqlite3-wal",
+        "**/*.sqlite3-shm",
+        "**/*.sqlite3-journal",
+        "**/*.db",
+        "**/*.db-wal",
+        "**/*.db-shm",
+        "**/*.db-journal",
         "**/media/",
         "**/secrets/",
         "**/.pytest_cache",
@@ -183,29 +202,84 @@ def test_compose_build_only_backend_contract() -> None:
     assert "        IZO_SOURCE_SHA: ${IZO_SOURCE_SHA:?IZO_SOURCE_SHA is required}" in text
     assert "    image: izo-asa-dev-backend:${IZO_SOURCE_SHA:?IZO_SOURCE_SHA is required}" in text
 
-def test_compose_has_no_runtime_contract_yet() -> None:
+def test_compose_runtime_c_isolated_contract() -> None:
     text = _compose()
+    assert "    network_mode: none" in text
+    assert '    user: "10001:10001"' in text
+    assert '    restart: "no"' in text
+    assert "    cpus: 2.0" in text
+    assert "    mem_limit: 2g" in text
+    assert "    pids_limit: 128" in text
+    assert re.search(r"(?m)^    cap_drop:\s*\n      - ALL$", text)
+    assert re.search(
+        r"(?m)^    security_opt:\s*\n      - no-new-privileges:true$", text
+    )
+
     forbidden_keys = (
         "ports",
+        "expose",
         "volumes",
+        "tmpfs",
         "networks",
-        "environment",
         "env_file",
         "secrets",
         "configs",
         "healthcheck",
         "depends_on",
-        "restart",
         "privileged",
-        "network_mode",
         "pid",
         "ipc",
+        "devices",
+        "gpus",
         "command",
         "entrypoint",
     )
     for key in forbidden_keys:
         assert re.search(rf"(?m)^\s*{re.escape(key)}\s*:", text) is None
+    assert "network_mode: host" not in text
     assert "ops/docker/agent-sandbox" not in text
+
+
+def test_compose_runtime_c_environment_is_sanitized() -> None:
+    env = _compose_environment()
+    expected = {
+        "DATABASE_URL": "/home/izo/app.sqlite3",
+        "MEDIA_DIR": "/home/izo/media",
+        "IZO_SECRET_DIR": "/home/izo/secrets",
+        "APP_ENV": "test",
+        "ENV": "test",
+        "MODE": "test",
+        "BOT_MODE": "disabled",
+        "BOT_UPDATES_MODE": "disabled",
+        "TELEGRAM_POLLING_ENABLED": '"false"',
+        "MAX_UPDATES_MODE": "disabled",
+        "MAX_POLLING_ENABLED": '"false"',
+        "LOCAL_LTX_ENABLED": '"false"',
+        "EMAIL_OTP_DEBUG_RETURN_CODE": '"false"',
+        "COMFYUI_BASE_URL": "http://127.0.0.1:1",
+        "OLLAMA_BASE_URL": "http://127.0.0.1:1",
+        "QWEN_ASR_BASE_URL": "http://127.0.0.1:1",
+        "LOCAL_LTX_COMFYUI_BASE_URL": "http://127.0.0.1:1",
+        "OPENROUTER_BASE_URL": "http://127.0.0.1:1",
+        "MAX_API_BASE_URL": "http://127.0.0.1:1",
+        "CBR_DAILY_XML_URL": "http://127.0.0.1:1",
+        "USD_RUB_FALLBACK_URL": "http://127.0.0.1:1",
+        "MAX_WEBHOOK_URL": '""',
+        "BACKEND_PUBLIC_URL": '""',
+        "RUNTIME_ALERT_WEBHOOK_URL": '""',
+        "HTTP_PROXY": '""',
+        "HTTPS_PROXY": '""',
+        "ALL_PROXY": '""',
+        "http_proxy": '""',
+        "https_proxy": '""',
+        "all_proxy": '""',
+        "NO_PROXY": "localhost,127.0.0.1",
+        "no_proxy": "localhost,127.0.0.1",
+    }
+    for key, value in expected.items():
+        assert env.get(key) == value
+    for name in CREDENTIAL_NAMES:
+        assert env.get(name) == '""'
 
 def test_env_example_is_non_secret_build_template_only() -> None:
     assert ENV_EXAMPLE.is_file()
@@ -215,6 +289,6 @@ def test_env_example_is_non_secret_build_template_only() -> None:
         "IZO_COMPOSE_PROJECT": "izo-asa-dev-<unique-suffix>",
     }
 
-    combined = _compose() + "\n" + ENV_EXAMPLE.read_text(encoding="utf-8")
+    env_text = ENV_EXAMPLE.read_text(encoding="utf-8")
     for name in CREDENTIAL_NAMES:
-        assert name not in combined
+        assert name not in env_text
