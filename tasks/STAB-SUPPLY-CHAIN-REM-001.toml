@@ -1,0 +1,83 @@
+manifestVersion = 1
+id = "STAB-SUPPLY-CHAIN-REM-001"
+baseSha = "e62dd06ef68f8d68041adaed5287a0f583289e68"
+goal = "Remediate Issue #153 by refreshing only the transitive brace-expansion lock resolution and removing its obsolete reviewed-baseline exception without product or runtime mutation."
+userOutcome = "The exact-main remediation candidate resolves brace-expansion to 5.0.12, preserves minimatch and all unrelated dependency versions, removes only Issue #153 from the npm baseline exceptions, and keeps production code unchanged."
+beforeScenario = "The reviewed dev-only npm baseline contains brace-expansion 5.0.6 behind minimatch 10.2.5 and a temporary Issue #153 high-severity exception."
+afterScenario = "The lockfile resolves brace-expansion 5.0.12 through the existing minimatch ^5.0.5 range, the Issue #153 exception is absent, and supply-chain policy still fails closed for new HIGH/CRITICAL findings."
+nonGoals = [
+  "change frontend/package.json",
+  "change frontend/src product code",
+  "change backend product code",
+  "change Docker or ops files",
+  "change GitHub workflows",
+  "change documentation",
+  "change supply-chain parser or enforcement semantics",
+  "remediate browserslist, nanoid, or postcss",
+  "deploy, restart, merge, or touch PR #171",
+]
+declaredFiles = [
+  "tasks/STAB-SUPPLY-CHAIN-REM-001.toml",
+  "frontend/package-lock.json",
+  "architecture/security-policy.json",
+  "tools/test_supply_chain_audit.py",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "frontend/package.json",
+  "frontend/src/**",
+  "backend/**",
+  "ops/**",
+  ".github/**",
+  "docs/**",
+]
+protectedFilesTouched = [
+  "architecture/security-policy.json",
+]
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+maxProductionFiles = 0
+maxChangedLines = 500
+acceptance = [
+  "Only the four declared remediation files change against exact base e62dd06ef68f8d68041adaed5287a0f583289e68.",
+  "frontend/package.json remains byte-for-byte unchanged.",
+  "frontend/package-lock.json changes only node_modules/brace-expansion from 5.0.6 to 5.0.12; minimatch remains 10.2.5 with brace-expansion range ^5.0.5.",
+  "architecture/security-policy.json removes only the brace-expansion Issue #153 baseline exception and leaves browserslist, nanoid, and postcss exceptions unchanged.",
+  "tools/test_supply_chain_audit.py models the remediated three-HIGH reviewed baseline while preserving fail-closed new HIGH, new CRITICAL, expired-exception, and scanner-unavailable coverage.",
+  "Fresh full npm audit contains no brace-expansion finding and production npm audit remains zero critical/high/moderate/low.",
+  "Focused supply-chain tests and package enforcement pass with productionFileCount=0 and findings=[].",
+]
+requiredEvidence = [
+  "portable Node v24.14.1 and npm 11.11.0 exact-version proof",
+  "targeted package-lock-only resolver proof",
+  "lockfile semantic delta proof",
+  "python -m pytest -q tools/test_supply_chain_audit.py",
+  "fresh npm audit --json and npm audit --omit=dev --json",
+  "package enforcement receipt against e62dd06ef68f8d68041adaed5287a0f583289e68",
+]
+targetedTests = [
+  "tools/test_supply_chain_audit.py",
+]
+fileGrowthExpectations = [
+  "New task manifest is bounded to this remediation.",
+  "Security policy becomes smaller by removing one obsolete exception.",
+  "Supply-chain test fixture becomes smaller by removing the remediated finding.",
+  "No production source file changes.",
+]
+forbiddenOperations = [
+  "deploy",
+  "restart",
+  "production-data",
+  "provider-call",
+  "direct-main",
+  "npm-audit-fix",
+  "npm-audit-fix-force",
+  "broad-npm-update",
+  "dependency-major-upgrade",
+  "docker-mutation",
+  "workflow-change",
+  "merge",
+]
+rollbackBoundary = "Restore the prior brace-expansion lock entry, Issue #153 baseline exception, and matching reviewed-baseline test fixture; no product/runtime file is involved."

@@ -51,22 +51,12 @@ def _report(*, counts: dict[str, int] | None = None, vulnerabilities: dict | Non
 
 def _current_full_report() -> dict:
     raw = _report(
-        counts={"critical": 0, "high": 4, "moderate": 1, "low": 0, "total": 5},
+        counts={"critical": 0, "high": 3, "moderate": 1, "low": 0, "total": 4},
         vulnerabilities={
             "baseline-browser-mapping": {
                 "severity": "moderate",
                 "range": ">=2.0.0 <2.11.0",
                 "via": [_via("GHSA-w5vr-8v7q-w6rv", "moderate", 1193686)],
-                "fixAvailable": True,
-            },
-            "brace-expansion": {
-                "severity": "high",
-                "range": "3.0.0 - 5.0.8",
-                "via": [
-                    _via("GHSA-3jxr-9vmj-r5cp", "high", 1123898),
-                    _via("GHSA-mh99-v99m-4gvg", "high", 1130591),
-                    _via("GHSA-rgw5-rvv9-x895", "high", 1130734),
-                ],
                 "fixAvailable": True,
             },
             "browserslist": {
@@ -240,7 +230,7 @@ def test_nonzero_exit_with_valid_vulnerability_report_is_data_not_failure() -> N
 def test_current_reviewed_baseline_passes_and_moderate_needs_no_high_exception() -> None:
     result = evaluate_npm_policy(_current_full_report(), _clean_report(), POLICY, as_of=REVIEW_DATE)
     assert result["status"] == POLICY_PASS
-    assert len(POLICY["baselineExceptions"]) == 4
+    assert len(POLICY["baselineExceptions"]) == 3
     moderate = next(item for item in result["classifiedFindings"] if item["package"] == "baseline-browser-mapping")
     assert moderate["severity"] == "moderate"
     assert moderate["runtimeOrDev"] == CLASS_DEV_ONLY

@@ -58,22 +58,6 @@
   ],
   "baselineExceptions": [
     {
-      "package": "brace-expansion",
-      "severity": "high",
-      "affectedRange": "3.0.0 - 5.0.8",
-      "advisories": [
-        "GHSA-3jxr-9vmj-r5cp",
-        "GHSA-mh99-v99m-4gvg",
-        "GHSA-rgw5-rvv9-x895"
-      ],
-      "classification": "dev-only",
-      "issue": "#153",
-      "owner": "spikeal8-maker",
-      "reason": "Reviewed current npm baseline; dependency mutation is intentionally deferred to the tracked remediation issue.",
-      "remediation": "Update the ESLint/typescript-eslint minimatch chain so brace-expansion is outside all affected ranges, with a separately reviewed dependency/lockfile delta.",
-      "reviewBy": "2026-10-23"
-    },
-    {
       "package": "browserslist",
       "severity": "high",
       "affectedRange": "<=4.28.6",
