@@ -1,6 +1,6 @@
 manifestVersion = 1
 id = "DOCKER-DEV-001"
-baseSha = "e62dd06ef68f8d68041adaed5287a0f583289e68"
+baseSha = "126d276ef1a9fc09935125203288c013627457ed"
 goal = "Establish cumulative Slice A+B+C Docker DEV foundation: a pinned non-root backend image, safe single-service Compose build contract, and first disposable network-isolated backend runtime smoke without frontend, host publication, real providers or production state."
 userOutcome = "From exact source identity, the backend can be built directly and through Docker Compose and run once in an owned disposable container with network_mode none, no mounts or published ports, sanitized test environment, health and SQLite evidence, and owned cleanup while production and host services remain untouched."
 beforeScenario = "DOCKER-DEV-001 is active, but no application Docker build foundation exists."
@@ -54,7 +54,7 @@ acceptance = [
   "Focused Docker contract tests, git diff --check and package enforcement pass with productionFileCount=0.",
   "An exact committed source image builds successfully without starting a container.",
   "Image inspection proves linux OS, non-root user and org.opencontainers.image.revision equal to the exact commit.",
-  "Accepted Slice A+B exact-head CI remains historical evidence; Slice C exact-head CI is deferred until a separate authorized publication task and is NOT_RUN here.",
+  "Final converged Slice C exact-head GitHub CI must pass before acceptance.",
   "Slice B adds build-only Compose metadata with exactly one backend service and no runtime ports, volumes, networks, environment, env_file, healthcheck, dependencies, restart, command or entrypoint overrides.",
   "Compose requires explicit IZO_SOURCE_SHA and IZO_COMPOSE_PROJECT inputs, reuses the accepted backend Dockerfile and preserves exact OCI source revision identity.",
   "ops/docker/dev/.env.example contains only non-secret build template keys and no real credentials or runtime configuration.",
@@ -71,10 +71,10 @@ acceptance = [
 requiredEvidence = [
   "python -m pytest -q tools/test_docker_dev_contract.py",
   "git diff --check",
-  "package enforcement against e62dd06ef68f8d68041adaed5287a0f583289e68 with productionFileCount=0 and no findings",
+  "package enforcement against 126d276ef1a9fc09935125203288c013627457ed with productionFileCount=0 and no findings",
   "docker build from exact committed HEAD with IZO_SOURCE_SHA equal to that HEAD",
   "docker image inspect evidence for OS, user, revision label and image ID",
-  "accepted Slice A+B exact-head GitHub CI #726 attempt 2; Slice C exact-head CI is deferred to the separate publication task",
+  "exact-head GitHub CI on final converged PR head",
   "docker compose config with exact committed IZO_SOURCE_SHA and unique non-secret project name",
   "docker compose build --pull backend with image inspection proving linux, uid 10001 and exact OCI revision label",
   "containerized static contract tests and package enforcement on D2-R2 without host dependency installation",
