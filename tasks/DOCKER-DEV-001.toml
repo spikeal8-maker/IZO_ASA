@@ -1,14 +1,14 @@
 manifestVersion = 1
 id = "DOCKER-DEV-001"
 baseSha = "126d276ef1a9fc09935125203288c013627457ed"
-goal = "Establish cumulative Slice A+B+C Docker DEV foundation: a pinned non-root backend image, safe single-service Compose build contract, and first disposable network-isolated backend runtime smoke without frontend, host publication, real providers or production state."
-userOutcome = "From exact source identity, the backend can be built directly and through Docker Compose and run once in an owned disposable container with network_mode none, no mounts or published ports, sanitized test environment, health and SQLite evidence, and owned cleanup while production and host services remain untouched."
+goal = "Establish cumulative Slice A+B+C+D Docker DEV foundation: pinned non-root backend image, safe single-service Compose contract, isolated runtime/storage proof, and idempotent project-scoped DEV lifecycle with Docker-owned SQLite/media persistence."
+userOutcome = "From exact source identity, one existing agent CLI surface can bring the Docker DEV backend up/down idempotently; SQLite and media survive owned container recreate through project-scoped named volumes while secrets/container-only state remain ephemeral and production/foreign resources stay untouched."
 beforeScenario = "DOCKER-DEV-001 is active, but no application Docker build foundation exists."
-afterScenario = "Cumulative Slice A+B+C provides the pinned backend image, safe build context, one-service Compose contract, non-secret .env.example, exact sanitized runtime, one isolated backend health/SQLite smoke and owned cleanup; frontend, provider connectivity, persistent storage and D1 user/product flows remain not started."
+afterScenario = "Cumulative Slice A+B+C+D provides the pinned backend image, safe build context, one-service Compose contract, sanitized isolated runtime, project-scoped Docker DEV up/down, persistent SQLite/media named volumes, ephemeral secrets/container state, recreate evidence and addressed final cleanup; frontend, real provider connectivity and production remain not started."
 nonGoals = [
   "start frontend runtime",
   "publish backend ports to the host",
-  "use persistent or named volumes or host bind mounts",
+  "use host bind mounts or persist DEV secrets",
   "connect to host ComfyUI, Ollama or Qwen",
   "make real provider calls or test host-provider connectivity",
   "containerize GPU services or grant device access",
@@ -26,6 +26,7 @@ declaredFiles = [
   "tools/test_docker_dev_contract.py",
   "ops/docker/dev/compose.yml",
   "ops/docker/dev/.env.example",
+  "tools/agent.ps1",
 ]
 allowedPatterns = []
 forbiddenPatterns = [
@@ -35,7 +36,6 @@ forbiddenPatterns = [
   "architecture/**",
   ".github/**",
   "ops/docker/agent-sandbox/**",
-  "tools/agent.ps1",
   "tools/agent_system/**",
   "ops/docker/dev/Dockerfile.frontend",
 ]
@@ -54,7 +54,7 @@ acceptance = [
   "Focused Docker contract tests, git diff --check and package enforcement pass with productionFileCount=0.",
   "An exact committed source image builds successfully without starting a container.",
   "Image inspection proves linux OS, non-root user and org.opencontainers.image.revision equal to the exact commit.",
-  "Final converged Slice C exact-head GitHub CI must pass before acceptance.",
+  "Final cumulative Slice D exact-head GitHub CI must pass before final acceptance after publication.",
   "Slice B adds build-only Compose metadata with exactly one backend service and no runtime ports, volumes, networks, environment, env_file, healthcheck, dependencies, restart, command or entrypoint overrides.",
   "Compose requires explicit IZO_SOURCE_SHA and IZO_COMPOSE_PROJECT inputs, reuses the accepted backend Dockerfile and preserves exact OCI source revision identity.",
   "ops/docker/dev/.env.example contains only non-secret build template keys and no real credentials or runtime configuration.",
@@ -63,10 +63,17 @@ acceptance = [
   "The Docker build context explicitly excludes sqlite/sqlite3/db rollback, WAL and SHM sidecars, .env, runtime media/secrets and temporary artifacts while retaining required backend source.",
   "Slice C Compose has one backend service with network_mode none, uid 10001, no published ports or mounts, fixed CPU/memory/PID limits, all capabilities dropped and no-new-privileges enabled.",
   "All protected runtime credentials are literal empty strings; provider URLs are disabled loopback or empty and host proxy inheritance is neutralized inside the container.",
-  "The exact local candidate image is inspected before start and the created backend container matches that image, user, network isolation, empty mounts/port bindings and resource limits.",
+  "The accepted Slice C runtime proved exact image identity, user, network isolation, empty mounts/port bindings and resource limits before Slice D persistence was introduced.",
   "One real backend start reaches /api/health internally with HTTP 200 and JSON ok=true, ready=true, app=izo-asa; provider connectivity remains NOT_RUN.",
-  "The disposable startup creates its own SQLite/media state under /home/izo, SQLite integrity_check is ok and schema evidence is recorded without production data or secrets.",
-  "Cleanup stops/removes only the exact owned backend/checker containers and own image tag, leaves no owned volumes/networks, and preserves foreign Docker resources.",
+  "The accepted Slice C startup created isolated SQLite/media state under /home/izo; current Slice D keeps SQLite at /home/izo/data/app.sqlite3 and media at /home/izo/media with integrity/schema evidence and no production data or secrets.",
+  "Slice C cleanup stopped/removed only exact owned runtime resources; Slice D adds addressed final cleanup for its exact project containers, named volumes and image tag while preserving foreign Docker resources.",
+  "Slice D reuses tools/agent.ps1 only as a thin Docker Compose CLI surface with explicit exact source SHA and bounded project identity; existing host env-up/env-down semantics remain unchanged.",
+  "Docker DEV up fails closed with DOCKER_DEV_SOURCE_DIRTY before Docker mutation unless git HEAD equals SourceSha and git status --porcelain is empty; Docker DEV down remains available for exact project cleanup even when the worktree is dirty.",
+  "Docker DEV up is idempotent while already active and creates no duplicate containers, networks or volumes.",
+  "Docker DEV down is idempotent, removes only project-scoped containers/networks and preserves the intended SQLite/media named volumes for recreate.",
+  "SQLite and synthetic DEV media markers survive container recreate; container-layer synthetic state and DEV secrets do not persist.",
+  "After recreate, SQLite integrity_check remains ok, user_version remains 7 and all seven required schema tables remain present.",
+  "Final addressed cleanup removes the exact project named volumes and image tag and leaves zero owned containers/volumes/networks with no observed foreign-resource mutation.",
 ]
 requiredEvidence = [
   "python -m pytest -q tools/test_docker_dev_contract.py",
@@ -75,12 +82,18 @@ requiredEvidence = [
   "docker build from exact committed HEAD with IZO_SOURCE_SHA equal to that HEAD",
   "docker image inspect evidence for OS, user, revision label and image ID",
   "exact-head GitHub CI on final converged PR head",
+  "focused Slice D Docker contract and agent lifecycle tests",
+  "dirty-worktree negative proof that docker-dev-up returns DOCKER_DEV_SOURCE_DIRTY with zero containers, volumes, networks and no built image before the Slice D commit",
+  "exact committed Slice D runtime proof where clean git HEAD, SourceSha, image tag and org.opencontainers.image.revision all equal the local candidate SHA",
+  "dirty-worktree cleanup proof showing docker-dev-down remains usable after a temporary untracked test marker while preserving intended named volumes",
+  "real D2-R2 unique-project lifecycle proof: idempotent up/down, health before/after recreate, SQLite/media persistence, ephemeral-state loss and exact final cleanup",
+  "foreign Docker container/volume/network snapshots before and after Slice D with no removed or modified foreign resources",
   "docker compose config with exact committed IZO_SOURCE_SHA and unique non-secret project name",
   "docker compose build --pull backend with image inspection proving linux, uid 10001 and exact OCI revision label",
   "containerized static contract tests and package enforcement on D2-R2 without host dependency installation",
   "synthetic BuildKit .dockerignore export matrix proving safe backend files included and sqlite/db/env/media/secrets markers excluded",
-  "exact Compose JSON model for the local candidate proving one backend, network_mode none, no ports/volumes/mounts and reviewed sanitized environment",
-  "pre-start inspect receipt for exact image ID, uid, isolation, limits, protected empty credentials and zero mounts/port bindings",
+  "accepted historical Slice C Compose evidence proving one backend, network_mode none, published ports=0 and mounts=0; current Slice D Compose evidence proving exactly two intended named volume mounts at /home/izo/data and /home/izo/media, bind mounts=0 and published ports=0",
+  "accepted historical Slice C pre-start receipt proving zero mounts/port bindings; current Slice D inspect proving exact image identity, uid/isolation/limits, protected empty credentials, exactly two named volume mounts, bind mounts=0 and port bindings=0",
   "internal /api/health JSON smoke plus SQLite integrity/schema/media evidence from the real backend startup",
   "addressed cleanup receipt for owned resources with foreign-resource preservation",
 ]
@@ -88,15 +101,16 @@ targetedTests = [
   "tools/test_docker_dev_contract.py",
 ]
 fileGrowthExpectations = [
-  "Dockerfile.backend remains unchanged, small and build-focused.",
-  "compose.yml remains a single-backend contract and grows only by the bounded isolated Slice C runtime settings.",
-  "Docker contract tests cover cumulative accepted Slice A+B+C invariants and remain <= 500 physical lines.",
+  "Dockerfile.backend grows only by bounded non-root SQLite/media mountpoint preparation and remains build-focused.",
+  "compose.yml remains a single-backend contract and grows only by bounded Slice D named-volume ownership/persistence settings.",
+  "Docker contract tests cover cumulative accepted Slice A+B+C+D invariants and remain <= 500 physical lines.",
+  "tools/agent.ps1 grows only by a thin project-scoped Docker Compose dispatcher; host env lifecycle implementation remains unchanged.",
   "No production source grows.",
 ]
 forbiddenOperations = [
   "frontend-container",
   "host-port-publish",
-  "persistent-volume",
+  "persistent-secret-volume",
   "host-bind-mount",
   "provider-call",
   "host-provider-connectivity",
@@ -113,4 +127,4 @@ forbiddenOperations = [
   "issue-114-implementation",
   "issue-124-implementation",
 ]
-rollbackBoundary = "Revert only the cumulative Slice A+B+C files: tasks/DOCKER-DEV-001.toml, ops/docker/dev/Dockerfile.backend, .dockerignore, tools/test_docker_dev_contract.py, ops/docker/dev/compose.yml and ops/docker/dev/.env.example; remove only exact owned Slice C containers/tags, and leave application production behavior, provider state, production state, foreign Docker resources and Windows settings untouched."
+rollbackBoundary = "Revert only the cumulative Slice A+B+C+D files: tasks/DOCKER-DEV-001.toml, ops/docker/dev/Dockerfile.backend, .dockerignore, tools/test_docker_dev_contract.py, ops/docker/dev/compose.yml, ops/docker/dev/.env.example and tools/agent.ps1; clean up only exact owned Docker DEV containers, sqlite-data volume, media-data volume and exact image tag, and leave application production behavior, provider state, production state, foreign Docker resources and Windows settings untouched."

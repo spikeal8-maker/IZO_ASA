@@ -18,8 +18,18 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    labels:
+      io.izo.owner: DOCKER-DEV-001
+      io.izo.project: ${IZO_COMPOSE_PROJECT:?IZO_COMPOSE_PROJECT is required}
+    volumes:
+      - type: volume
+        source: sqlite-data
+        target: /home/izo/data
+      - type: volume
+        source: media-data
+        target: /home/izo/media
     environment:
-      DATABASE_URL: /home/izo/app.sqlite3
+      DATABASE_URL: /home/izo/data/app.sqlite3
       MEDIA_DIR: /home/izo/media
       IZO_SECRET_DIR: /home/izo/secrets
       APP_ENV: test
@@ -71,3 +81,15 @@ services:
       all_proxy: ""
       NO_PROXY: localhost,127.0.0.1
       no_proxy: localhost,127.0.0.1
+
+volumes:
+  sqlite-data:
+    labels:
+      io.izo.owner: DOCKER-DEV-001
+      io.izo.project: ${IZO_COMPOSE_PROJECT:?IZO_COMPOSE_PROJECT is required}
+      io.izo.state: sqlite
+  media-data:
+    labels:
+      io.izo.owner: DOCKER-DEV-001
+      io.izo.project: ${IZO_COMPOSE_PROJECT:?IZO_COMPOSE_PROJECT is required}
+      io.izo.state: media

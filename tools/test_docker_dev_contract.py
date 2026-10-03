@@ -12,7 +12,7 @@ DOCKERIGNORE = ROOT / ".dockerignore"
 COMPOSE = ROOT / "ops" / "docker" / "dev" / "compose.yml"
 ENV_EXAMPLE = ROOT / "ops" / "docker" / "dev" / ".env.example"
 AGENT_SANDBOX = ROOT / "ops" / "docker" / "agent-sandbox"
-BASE_SHA = "e62dd06ef68f8d68041adaed5287a0f583289e68"
+BASE_SHA = "126d276ef1a9fc09935125203288c013627457ed"
 BASE_IMAGE = "python:3.11.9-slim-bookworm"
 BASE_DIGEST = "sha256:8fb099199b9f2d70342674bd9dbccd3ed03a258f26bbd1d556822c6dfc60c317"
 
@@ -218,7 +218,6 @@ def test_compose_runtime_c_isolated_contract() -> None:
     forbidden_keys = (
         "ports",
         "expose",
-        "volumes",
         "tmpfs",
         "networks",
         "env_file",
@@ -243,7 +242,7 @@ def test_compose_runtime_c_isolated_contract() -> None:
 def test_compose_runtime_c_environment_is_sanitized() -> None:
     env = _compose_environment()
     expected = {
-        "DATABASE_URL": "/home/izo/app.sqlite3",
+        "DATABASE_URL": "/home/izo/data/app.sqlite3",
         "MEDIA_DIR": "/home/izo/media",
         "IZO_SECRET_DIR": "/home/izo/secrets",
         "APP_ENV": "test",
@@ -292,3 +291,62 @@ def test_env_example_is_non_secret_build_template_only() -> None:
     env_text = ENV_EXAMPLE.read_text(encoding="utf-8")
     for name in CREDENTIAL_NAMES:
         assert name not in env_text
+
+def test_slice_d_named_volume_contract_and_non_root_mountpoints() -> None:
+    dockerfile = _dockerfile()
+    compose = _compose()
+    assert "RUN install -d -o 10001 -g 10001 /home/izo/data /home/izo/media" in dockerfile
+    assert "      - type: volume\n        source: sqlite-data\n        target: /home/izo/data" in compose
+    assert "      - type: volume\n        source: media-data\n        target: /home/izo/media" in compose
+    assert "\nvolumes:\n  sqlite-data:" in compose
+    assert "\n  media-data:" in compose
+    assert "io.izo.state: sqlite" in compose
+    assert "io.izo.state: media" in compose
+    assert "type: bind" not in compose
+    assert "IZO_SECRET_DIR: /home/izo/secrets" in compose
+    assert "source: secrets" not in compose
+    assert "target: /home/izo/secrets" not in compose
+
+
+def test_slice_d_agent_cli_is_project_scoped_exact_sha_and_preserves_volumes_on_down() -> None:
+    text = (ROOT / "tools" / "agent.ps1").read_text(encoding="utf-8")
+    assert '"docker-dev-up"' in text
+    assert '"docker-dev-down"' in text
+    assert "-DockerProject is required for Docker DEV lifecycle." in text
+    assert "-SourceSha must be an exact lowercase 40-hex Git SHA." in text
+    assert '$currentHead -cne $SourceSha' in text
+    assert '"--project-name", $DockerProject' in text
+    assert '"--context", "desktop-linux"' in text
+    assert '$composeArguments += @("up", "-d", "--build", "backend")' in text
+    assert '$composeArguments += @("down")' in text
+    assert "--volumes" not in text
+    assert "docker system prune" not in text
+    assert "docker container prune" not in text
+    assert "docker volume prune" not in text
+    assert "docker network prune" not in text
+
+def test_slice_d_provenance_guard_blocks_dirty_up_but_not_down() -> None:
+    text = (ROOT / "tools" / "agent.ps1").read_text(encoding="utf-8")
+    up_guard = re.search(
+        r'if \(\$Command -eq "docker-dev-up"\) \{\s*'
+        r'\$sourceStatus = @\(& git -C \$RepoRoot status --porcelain\)\s*'
+        r'if \(\$LASTEXITCODE -ne 0\) \{\s*'
+        r'throw "DOCKER_DEV_SOURCE_STATUS_FAILED"\s*'
+        r'\}\s*'
+        r'if \(\$sourceStatus\.Count -ne 0\) \{\s*'
+        r'throw "DOCKER_DEV_SOURCE_DIRTY"\s*'
+        r'\}\s*'
+        r'\}',
+        text,
+        re.DOTALL,
+    )
+    assert up_guard is not None
+    assert text.index("$currentHead -cne $SourceSha") < up_guard.start()
+    assert up_guard.end() < text.index("$dockerCommand = Get-Command docker")
+    assert text.count("git -C $RepoRoot status --porcelain") == 1
+    assert '$composeArguments += @("down")' in text
+    assert "--volumes" not in text
+    assert "docker system prune" not in text
+    assert "docker container prune" not in text
+    assert "docker volume prune" not in text
+    assert "docker network prune" not in text
