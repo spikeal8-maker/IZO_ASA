@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from tools.agent_system import registry as registry_module
 from tools.agent_system.package import (
     AgentPackageError,
     finish,
@@ -22,7 +23,9 @@ from tools.agent_system.package import (
     status,
 )
 from tools.agent_system.registry import (
+    AgentRegistryError,
     atomic_write_bytes,
+    git_common_dir,
     load_registry,
     registry_path,
     token_hash,
@@ -159,6 +162,88 @@ def test_manifest_filename_and_overlap_semantics(tmp_path: Path) -> None:
     assert scopes_overlap("frontend/**", "frontend/src/**")
     assert not scopes_overlap("frontend/src/a.tsx", "frontend/src/b.tsx")
     assert not scopes_overlap("frontend/**", "backend/**")
+
+
+def test_git_common_dir_normal_repository_uses_filesystem_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    dotgit = repo / ".git"
+    dotgit.mkdir(parents=True)
+
+    monkeypatch.setattr(
+        registry_module,
+        "_git",
+        lambda *_args, **_kwargs: pytest.fail("unexpected git subprocess"),
+    )
+
+    assert git_common_dir(repo) == dotgit.resolve()
+    assert registry_path(repo) == dotgit.resolve() / "izo-agent" / "registry-v1.json"
+
+
+def test_git_common_dir_linked_worktree_absolute_gitdir(tmp_path: Path) -> None:
+    common = tmp_path / "control" / ".git"
+    git_dir = common / "worktrees" / "wt"
+    git_dir.mkdir(parents=True)
+    (git_dir / "commondir").write_text("../..\n", encoding="utf-8")
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    (worktree / ".git").write_text(
+        f"gitdir: {git_dir}\n",
+        encoding="utf-8",
+    )
+
+    assert git_common_dir(worktree) == common.resolve()
+    assert registry_path(worktree) == common.resolve() / "izo-agent" / "registry-v1.json"
+
+
+def test_git_common_dir_linked_worktree_relative_gitdir(tmp_path: Path) -> None:
+    common = tmp_path / "control" / ".git"
+    git_dir = common / "worktrees" / "wt"
+    git_dir.mkdir(parents=True)
+    (git_dir / "commondir").write_text("../..\n", encoding="utf-8")
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    (worktree / ".git").write_text(
+        "gitdir: ../control/.git/worktrees/wt\n",
+        encoding="utf-8",
+    )
+
+    assert git_common_dir(worktree) == common.resolve()
+
+
+def test_git_common_dir_rejects_malformed_dotgit_file(tmp_path: Path) -> None:
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    (worktree / ".git").write_text("invalid\n", encoding="utf-8")
+
+    with pytest.raises(AgentRegistryError, match="^GIT_METADATA_INVALID$"):
+        git_common_dir(worktree)
+
+
+def test_git_common_dir_rejects_empty_commondir_without_git_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    common = tmp_path / "control" / ".git"
+    git_dir = common / "worktrees" / "wt"
+    git_dir.mkdir(parents=True)
+    (git_dir / "commondir").write_text("\n", encoding="utf-8")
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    (worktree / ".git").write_text(
+        f"gitdir: {git_dir}\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        registry_module,
+        "_git",
+        lambda *_args, **_kwargs: pytest.fail("unexpected git subprocess"),
+    )
+    with pytest.raises(AgentRegistryError, match="^GIT_METADATA_INVALID$"):
+        git_common_dir(worktree)
 
 
 def test_start_creates_canonical_manifest_and_shared_registry(tmp_path: Path) -> None:

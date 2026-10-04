@@ -23,11 +23,46 @@ def resolve_repo_root(path: Path | str) -> Path:
     root = _git(Path(path).resolve(), "rev-parse", "--show-toplevel")
     return Path(root).resolve()
 def git_common_dir(repo_root: Path) -> Path:
-    raw = _git(repo_root, "rev-parse", "--git-common-dir")
-    common = Path(raw)
-    if not common.is_absolute():
-        common = repo_root / common
-    return common.resolve()
+    repo = Path(repo_root).resolve()
+    dotgit = repo / ".git"
+    try:
+        if dotgit.is_dir():
+            git_dir = dotgit.resolve(strict=True)
+        elif dotgit.is_file():
+            raw = dotgit.read_text(encoding="utf-8").strip()
+            if "\n" in raw or "\r" in raw or not raw.startswith("gitdir:"):
+                raise AgentRegistryError("GIT_METADATA_INVALID")
+            target = raw[len("gitdir:"):].strip()
+            if not target:
+                raise AgentRegistryError("GIT_METADATA_INVALID")
+            candidate = Path(target)
+            if not candidate.is_absolute():
+                candidate = dotgit.parent / candidate
+            git_dir = candidate.resolve(strict=True)
+            if not git_dir.is_dir():
+                raise AgentRegistryError("GIT_METADATA_INVALID")
+        else:
+            raise AgentRegistryError("GIT_METADATA_INVALID")
+
+        commondir = git_dir / "commondir"
+        if not commondir.exists():
+            return git_dir
+        if not commondir.is_file():
+            raise AgentRegistryError("GIT_METADATA_INVALID")
+        raw_common = commondir.read_text(encoding="utf-8").strip()
+        if not raw_common or "\n" in raw_common or "\r" in raw_common:
+            raise AgentRegistryError("GIT_METADATA_INVALID")
+        common = Path(raw_common)
+        if not common.is_absolute():
+            common = git_dir / common
+        resolved = common.resolve(strict=True)
+        if not resolved.is_dir():
+            raise AgentRegistryError("GIT_METADATA_INVALID")
+        return resolved
+    except AgentRegistryError:
+        raise
+    except (OSError, RuntimeError, ValueError):
+        raise AgentRegistryError("GIT_METADATA_INVALID") from None
 def state_root(repo_root: Path) -> Path:
     return git_common_dir(repo_root) / "izo-agent"
 def registry_path(repo_root: Path) -> Path:

@@ -1,10 +1,10 @@
 manifestVersion = 1
 id = "STAB-TEST-HEALTH-PORT-LEASE-001"
 baseSha = "126d276ef1a9fc09935125203288c013627457ed"
-goal = "Identify the exact blocking sub-operation inside load_environment_identity after same-SHA CI #733 proved the child reaches _holder but can remain before IDENTITY_OK for the full 20-second budget, without semantic repair, timeout increase or retry."
-userOutcome = "Exact-head CI reports the last safe START/OK stage across repo-root resolution, registry access and ownership/manifest validation so the exact blocking operation can be classified without inferring an OS cause."
+goal = "Remove the evidenced git rev-parse --git-common-dir subprocess from holder-path registry common-directory resolution and replace it with deterministic Git metadata filesystem resolution while preserving shared registry semantics, deep diagnostics and all other Git calls."
+userOutcome = "Normal repositories and linked worktrees resolve the same common Git directory and shared registry directly from standard .git/commondir metadata with no git-common-dir subprocess, while malformed metadata fails closed and unrelated Git queries remain unchanged."
 beforeScenario = "CI #731 attempts 1 and 2 fail different tools/test_agent_env_runtime.py cases with PORT_LEASE_START_TIMEOUT while tools/agent_system/env_lifecycle.py is unchanged by PR #171 and the existing startup budget is 8 seconds."
-afterScenario = "The 20-second budget remains unchanged; optional diagnostic callbacks leave normal callers unchanged, _holder records exact deep identity stages, timeout stderr reports pre/post-terminate process state, and CI classifies the exact blocking sub-operation or non-reproduction."
+afterScenario = "The 20-second budget and deep diagnostics remain unchanged; REGISTRY_COMMON_DIR stages now describe filesystem metadata resolution, git rev-parse --git-common-dir is absent from runtime implementation, and exact-head same-SHA CI determines whether the evidenced timeout boundary is stable."
 nonGoals = [
   "change product behavior",
   "change Docker behavior or Docker files",
@@ -30,6 +30,7 @@ declaredFiles = [
   "tools/agent_system/registry.py",
   "tools/agent_system/package.py",
   "tools/test_agent_env_lifecycle.py",
+  "tools/test_agent_package.py",
 ]
 allowedPatterns = []
 forbiddenPatterns = [
@@ -50,7 +51,7 @@ domain = "agent-control-plane"
 riskClass = "standard"
 changeClass = "architecture"
 maxProductionFiles = 0
-maxChangedLines = 520
+maxChangedLines = 641
 acceptance = [
   "Only the three declared files change against exact base 126d276ef1a9fc09935125203288c013627457ed.",
   "The already committed STARTUP_TIMEOUT_SECONDS=20.0 remains unchanged; CI #732 demonstrates that the 8→20 change alone is insufficient and this package now adds diagnostics only.",
@@ -71,6 +72,10 @@ acceptance = [
   "START stages are recorded before each potentially blocking operation and matching OK stages replace them only after that operation returns successfully.",
   "Timeout stderr includes stage, processAliveBeforeTerminate, pid and bounded elapsedMs; after terminate/wait it also emits processAliveAfterTerminate without paths or secrets.",
   "Required outcome is exact blocking sub-operation classification; this package does not claim root cause fixed.",
+  "CI #734 attempt 2 established the root-cause boundary at REGISTRY_COMMON_DIR_START before REGISTRY_COMMON_DIR_OK, where the observed implementation operation was git rev-parse --git-common-dir; underlying OS cause remains NOT_ESTABLISHED.",
+  "git_common_dir resolves standard .git directory, linked-worktree gitdir files and commondir metadata entirely through filesystem operations, with GIT_METADATA_INVALID fail-closed behavior and no Git subprocess fallback.",
+  "registry_path(main repo) equals registry_path(linked worktree), preserving the shared registry invariant.",
+  "resolve_repo_root remains git rev-parse --show-toplevel and ownership branch verification remains git branch --show-current because neither was the evidenced blocker.",
   "One exact-head CI must classify any reproduced startup failure using PRE_HOLDER_ENTRY or the last exact holder stage; if it succeeds, exactly one same-SHA rerun may test whether the diagnostic failure reproduces.",
 ]
 requiredEvidence = [
@@ -79,6 +84,10 @@ requiredEvidence = [
   "safe CI log line PORT_LEASE_START_DIAGNOSTIC when a startup timeout or child exit reproduces",
   "deep identity diagnostic sequence test exercising real load_environment_identity/load_registry/_assert_owner operations with a fake callback",
   "focused tools/test_agent_env.py and tools/test_agent_package.py results",
+  "synthetic normal-repository, absolute linked-worktree, relative linked-worktree, malformed .git and malformed commondir resolver tests",
+  "deterministic proof that git_common_dir and registry_path do not invoke git rev-parse --git-common-dir",
+  "existing real linked-worktree test_start_creates_canonical_manifest_and_shared_registry proving registry_path equality",
+  "static runtime implementation grep for rev-parse --git-common-dir = 0",
   "holder orphan coverage by the current process-leak gate: NOT_PROVEN",
   "package enforcement against 126d276ef1a9fc09935125203288c013627457ed with productionFileCount=0 and findings=[]",
   "exact-head GitHub CI diagnostic run on the repair SHA",
@@ -92,7 +101,7 @@ fileGrowthExpectations = [
   "env_lifecycle.py keeps 20/8/0.5 timeout values and only extends the existing secret-safe stage/cleanup diagnostics.",
   "test_agent_env_lifecycle.py expands the existing fake clock/process coverage for PRE_HOLDER_ENTRY, holder-stage timeout, child exit and READY diagnostic cleanup without real 20-second sleeps.",
   "The new task manifest documents the bounded test-health child repair and same-SHA stability confirmation.",
-  "env.py, registry.py and package.py grow only by optional diagnostic callback plumbing/stage emits; algorithms and default behavior remain unchanged.",
+  "registry.py replaces only git_common_dir subprocess resolution with bounded filesystem metadata parsing; env.py/package.py deep diagnostic plumbing remains otherwise unchanged.",
   "No production or dependency source grows.",
 ]
 forbiddenOperations = [
@@ -114,4 +123,4 @@ forbiddenOperations = [
   "pr-171-change",
   "merge",
 ]
-rollbackBoundary = "Revert only tasks/STAB-TEST-HEALTH-PORT-LEASE-001.toml and diagnostic callback/stage instrumentation in env_lifecycle.py, env.py, registry.py, package.py plus focused lifecycle tests; algorithms, product, Docker, PR #171, dependencies, timeout values and production remain untouched."
+rollbackBoundary = "Revert only tasks/STAB-TEST-HEALTH-PORT-LEASE-001.toml, the filesystem-only git_common_dir change in registry.py, its focused package tests, and the existing diagnostic instrumentation commits if rolling back the whole #173 branch; product, Docker, PR #171, dependencies, timeout values and production remain untouched."
