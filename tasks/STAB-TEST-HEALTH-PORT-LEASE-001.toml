@@ -1,0 +1,100 @@
+manifestVersion = 1
+id = "STAB-TEST-HEALTH-PORT-LEASE-001"
+baseSha = "126d276ef1a9fc09935125203288c013627457ed"
+goal = "Stabilize the Windows test-health port-lease holder startup budget discovered in CI #731 without changing lease behavior, ownership, cleanup, product behavior or Docker behavior."
+userOutcome = "Exact-main CI keeps the existing fail-closed port-lease lifecycle while allowing bounded Windows process/import startup variance: startup budget 8s to 20s, no retries, no hidden errors and no product/runtime semantic change."
+beforeScenario = "CI #731 attempts 1 and 2 fail different tools/test_agent_env_runtime.py cases with PORT_LEASE_START_TIMEOUT while tools/agent_system/env_lifecycle.py is unchanged by PR #171 and the existing startup budget is 8 seconds."
+afterScenario = "The holder startup budget is 20 seconds, the timeout remains finite and fail-closed, and deterministic focused coverage proves budget exhaustion still terminates the child and raises PORT_LEASE_START_TIMEOUT."
+nonGoals = [
+  "change product behavior",
+  "change Docker behavior or Docker files",
+  "change tools/agent.ps1",
+  "change stop timeout",
+  "change socket timeout",
+  "add retries",
+  "hide startup errors",
+  "change port selection",
+  "change ownership or HMAC semantics",
+  "change lease protocol semantics",
+  "change cleanup semantics",
+  "change backend or frontend",
+  "change workflows",
+  "change architecture policy",
+  "change package dependencies",
+  "touch PR #171",
+  "deploy or restart production",
+]
+declaredFiles = [
+  "tasks/STAB-TEST-HEALTH-PORT-LEASE-001.toml",
+  "tools/agent_system/env_lifecycle.py",
+  "tools/test_agent_env_lifecycle.py",
+]
+allowedPatterns = []
+forbiddenPatterns = [
+  "tools/agent.ps1",
+  "ops/**",
+  "backend/**",
+  "frontend/**",
+  ".github/**",
+  "architecture/**",
+  "docs/**",
+  "frontend/package.json",
+  "frontend/package-lock.json",
+  "backend/requirements.txt",
+  "tools/test_agent_env_runtime.py",
+]
+protectedFilesTouched = []
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+maxProductionFiles = 0
+maxChangedLines = 300
+acceptance = [
+  "Only the three declared files change against exact base 126d276ef1a9fc09935125203288c013627457ed.",
+  "STARTUP_TIMEOUT_SECONDS changes only from 8.0 to 20.0.",
+  "STOP_TIMEOUT_SECONDS remains exactly 8.0 and SOCKET_TIMEOUT_SECONDS remains exactly 0.5.",
+  "Port selection, holder ownership/HMAC, lease protocol, error propagation and cleanup semantics remain byte-equivalent except for the startup budget constant.",
+  "The 20-second value is a bounded startup budget for observed self-hosted Windows process/import variance, not a performance target; no retry loop, infinite wait or success masking is added.",
+  "A deterministic fake-clock test proves no READY file before the controlled budget raises PORT_LEASE_START_TIMEOUT and terminates the child without waiting 20 real seconds.",
+  "Existing READY, startup ERROR, child-exit-before-READY, PORT_IN_USE and stale-recovery semantics remain covered by the existing focused lifecycle suite.",
+  "Focused env lifecycle and env runtime tests pass where repository-compatible local Python is available; exact-head CI is authoritative for Windows full-suite runtime behavior.",
+  "Package enforcement passes with productionFileCount=0 and findings=[].",
+  "Two same-SHA full CI executions must succeed before independent review because the repair targets intermittent timing instability.",
+]
+requiredEvidence = [
+  "python -m pytest -q tools/test_agent_env_lifecycle.py",
+  "python -m pytest -q tools/test_agent_env_runtime.py",
+  "package enforcement against 126d276ef1a9fc09935125203288c013627457ed with productionFileCount=0 and findings=[]",
+  "exact-head GitHub CI success on the repair SHA",
+  "second controlled same-SHA CI success with no code changes between attempts",
+]
+targetedTests = [
+  "tools/test_agent_env_lifecycle.py",
+  "tools/test_agent_env_runtime.py",
+]
+fileGrowthExpectations = [
+  "env_lifecycle.py changes one numeric startup-budget constant only.",
+  "test_agent_env_lifecycle.py grows by one deterministic fake-clock timeout test and a minimal fake process.",
+  "The new task manifest documents the bounded test-health child repair and same-SHA stability confirmation.",
+  "No production or dependency source grows.",
+]
+forbiddenOperations = [
+  "deploy",
+  "restart",
+  "production-data",
+  "provider-call",
+  "direct-main",
+  "docker-mutation",
+  "workflow-change",
+  "dependency-change",
+  "retry-addition",
+  "infinite-wait",
+  "timeout-success-masking",
+  "port-selection-change",
+  "ownership-change",
+  "hmac-change",
+  "cleanup-change",
+  "pr-171-change",
+  "merge",
+]
+rollbackBoundary = "Revert only tasks/STAB-TEST-HEALTH-PORT-LEASE-001.toml, the STARTUP_TIMEOUT_SECONDS 20.0 change in tools/agent_system/env_lifecycle.py and its deterministic lifecycle regression test; product, Docker, PR #171, dependencies and production remain untouched."

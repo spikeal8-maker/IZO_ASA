@@ -316,3 +316,45 @@ def test_env_up_preserves_real_provider_credential_guard(tmp_path: Path) -> None
             production_contract=contract,
         )
     assert secret_value not in str(captured.value)
+
+class _NeverReadyProcess:
+    def __init__(self) -> None:
+        self.terminated = False
+        self.wait_timeouts: list[float] = []
+
+    def poll(self):
+        return None
+
+    def terminate(self) -> None:
+        self.terminated = True
+
+    def wait(self, timeout: float):
+        self.wait_timeouts.append(timeout)
+        return 0
+
+
+def test_wait_startup_budget_exhaustion_fails_closed_without_real_wait(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    startup = tmp_path / "never-ready.json"
+    process = _NeverReadyProcess()
+    clock = {"now": 0.0}
+
+    monkeypatch.setattr(lifecycle, "STARTUP_TIMEOUT_SECONDS", 0.15)
+    monkeypatch.setattr(lifecycle.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(
+        lifecycle.time,
+        "sleep",
+        lambda seconds: clock.__setitem__("now", clock["now"] + seconds),
+    )
+
+    with pytest.raises(
+        lifecycle.EnvironmentLifecycleError,
+        match="PORT_LEASE_START_TIMEOUT",
+    ):
+        lifecycle._wait_startup(process, startup)
+
+    assert process.terminated is True
+    assert process.wait_timeouts == [2]
+    assert clock["now"] >= 0.15

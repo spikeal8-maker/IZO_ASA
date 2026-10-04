@@ -28,7 +28,7 @@ from .env import (
 )
 from .registry import atomic_write_text, resolve_repo_root
 LOOPBACK = "127.0.0.1"
-STARTUP_TIMEOUT_SECONDS = 8.0
+STARTUP_TIMEOUT_SECONDS = 20.0
 STOP_TIMEOUT_SECONDS = 8.0
 SOCKET_TIMEOUT_SECONDS = 0.5
 STATE_NAMES = {"planned", "active", "stale", "stopped"}
