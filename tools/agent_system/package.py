@@ -13,8 +13,8 @@ import tomllib
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Any
-from .registry import AgentRegistryError, active_entries, atomic_write_text, load_registry, registry_lock, registry_path, resolve_repo_root, save_registry, token_hash
+from typing import Any, Callable
+from .registry import AgentRegistryError, active_entries, atomic_write_text, current_branch_from_metadata, load_registry, registry_lock, registry_path, resolve_repo_root, save_registry, token_hash
 ID_RE = re.compile(r"^[A-Z0-9][A-Z0-9-]{2,79}$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 RISK_CLASSES = {"low", "standard", "high-assurance", "release-ops"}
@@ -213,17 +213,52 @@ def _write_ownership(repo: Path, package_id: str, token: str, owner_id: str) -> 
         pass
 def _entry_for(payload: dict[str, Any], package_id: str) -> dict[str, Any] | None:
     return next((entry for entry in payload["entries"] if entry.get("packageId") == package_id and entry.get("state") in {"active", "blocked-dirty"}), None)
-def _assert_owner(repo: Path, payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], TaskManifest, Path]:
+def _assert_owner(
+    repo: Path,
+    payload: dict[str, Any],
+    diagnostic: Callable[[str], None] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any], TaskManifest, Path]:
+    if diagnostic:
+        diagnostic("OWNERSHIP_READ_START")
     ownership = _read_ownership(repo)
+    if diagnostic:
+        diagnostic("OWNERSHIP_READ_OK")
+        diagnostic("REGISTRY_ENTRY_LOOKUP_START")
     entry = _entry_for(payload, ownership["packageId"])
-    if entry is None or not hmac.compare_digest(str(entry.get("ownershipTokenHash", "")), token_hash(ownership["token"])):
+    if diagnostic:
+        diagnostic("REGISTRY_ENTRY_LOOKUP_OK")
+        diagnostic("OWNERSHIP_TOKEN_CHECK_START")
+    if entry is None or not hmac.compare_digest(
+        str(entry.get("ownershipTokenHash", "")), token_hash(ownership["token"])
+    ):
         raise AgentPackageError("OWNERSHIP_MISMATCH")
-    if _path_key(Path(entry["worktreePath"])) != _path_key(repo) or entry.get("branch") != _git(repo, "branch", "--show-current"):
+    if diagnostic:
+        diagnostic("OWNERSHIP_TOKEN_CHECK_OK")
+        diagnostic("WORKTREE_PATH_CHECK_START")
+    if _path_key(Path(entry["worktreePath"])) != _path_key(repo):
+        raise AgentPackageError("OWNERSHIP_WORKTREE_MISMATCH")
+    if diagnostic:
+        diagnostic("WORKTREE_PATH_CHECK_OK")
+        diagnostic("BRANCH_QUERY_START")
+    branch = current_branch_from_metadata(repo)
+    if diagnostic:
+        diagnostic("BRANCH_QUERY_OK")
+    if entry.get("branch") != branch:
         raise AgentPackageError("OWNERSHIP_WORKTREE_MISMATCH")
     manifest_path = repo / "tasks" / f"{entry['packageId']}.toml"
+    if diagnostic:
+        diagnostic("MANIFEST_PARSE_START")
     manifest = parse_manifest(manifest_path)
-    if manifest_fingerprint(manifest) != entry.get("manifestFingerprint"):
+    if diagnostic:
+        diagnostic("MANIFEST_PARSE_OK")
+        diagnostic("MANIFEST_FINGERPRINT_START")
+    fingerprint = manifest_fingerprint(manifest)
+    if diagnostic:
+        diagnostic("MANIFEST_FINGERPRINT_OK")
+    if fingerprint != entry.get("manifestFingerprint"):
         raise AgentPackageError("MANIFEST_REGISTRY_DRIFT")
+    if diagnostic:
+        diagnostic("OWNER_ASSERT_OK")
     return ownership, entry, manifest, manifest_path
 def _overlap(payload: dict[str, Any], scopes: tuple[str, ...], exclude_id: str = "") -> tuple[str, str, str] | None:
     for entry in active_entries(payload):

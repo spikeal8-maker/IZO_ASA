@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 REGISTRY_VERSION = 1
 ACTIVE_STATES = {"active", "blocked-dirty"}
 class AgentRegistryError(RuntimeError):
@@ -22,12 +22,88 @@ def _git(repo_root: Path, *args: str) -> str:
 def resolve_repo_root(path: Path | str) -> Path:
     root = _git(Path(path).resolve(), "rev-parse", "--show-toplevel")
     return Path(root).resolve()
+def _git_dir_from_metadata(repo_root: Path) -> Path:
+    repo = Path(repo_root).resolve()
+    dotgit = repo / ".git"
+    try:
+        if dotgit.is_dir():
+            git_dir = dotgit.resolve(strict=True)
+        elif dotgit.is_file():
+            raw = dotgit.read_text(encoding="utf-8").strip()
+            if "\n" in raw or "\r" in raw or not raw.startswith("gitdir:"):
+                raise AgentRegistryError("GIT_METADATA_INVALID")
+            target = raw[len("gitdir:"):].strip()
+            if not target:
+                raise AgentRegistryError("GIT_METADATA_INVALID")
+            candidate = Path(target)
+            if not candidate.is_absolute():
+                candidate = dotgit.parent / candidate
+            git_dir = candidate.resolve(strict=True)
+            if not git_dir.is_dir():
+                raise AgentRegistryError("GIT_METADATA_INVALID")
+        else:
+            raise AgentRegistryError("GIT_METADATA_INVALID")
+        return git_dir
+    except AgentRegistryError:
+        raise
+    except (OSError, RuntimeError, ValueError):
+        raise AgentRegistryError("GIT_METADATA_INVALID") from None
+
+
 def git_common_dir(repo_root: Path) -> Path:
-    raw = _git(repo_root, "rev-parse", "--git-common-dir")
-    common = Path(raw)
-    if not common.is_absolute():
-        common = repo_root / common
-    return common.resolve()
+    git_dir = _git_dir_from_metadata(repo_root)
+    try:
+        commondir = git_dir / "commondir"
+        if not commondir.exists():
+            return git_dir
+        if not commondir.is_file():
+            raise AgentRegistryError("GIT_METADATA_INVALID")
+        raw_common = commondir.read_text(encoding="utf-8").strip()
+        if not raw_common or "\n" in raw_common or "\r" in raw_common:
+            raise AgentRegistryError("GIT_METADATA_INVALID")
+        common = Path(raw_common)
+        if not common.is_absolute():
+            common = git_dir / common
+        resolved = common.resolve(strict=True)
+        if not resolved.is_dir():
+            raise AgentRegistryError("GIT_METADATA_INVALID")
+        return resolved
+    except AgentRegistryError:
+        raise
+    except (OSError, RuntimeError, ValueError):
+        raise AgentRegistryError("GIT_METADATA_INVALID") from None
+
+
+def current_branch_from_metadata(repo_root: Path) -> str:
+    """Return the checked-out branch from worktree Git metadata without Git."""
+    git_dir = _git_dir_from_metadata(repo_root)
+    head = git_dir / "HEAD"
+    try:
+        if not head.is_file():
+            raise AgentRegistryError("GIT_METADATA_INVALID")
+        raw = head.read_text(encoding="utf-8").strip()
+        if not raw or "\n" in raw or "\r" in raw:
+            raise AgentRegistryError("GIT_METADATA_INVALID")
+        prefix = "ref: refs/heads/"
+        if raw.startswith(prefix):
+            branch = raw[len(prefix):]
+            if (
+                not branch
+                or branch.startswith("/")
+                or branch.endswith("/")
+                or any(char.isspace() or ord(char) < 32 for char in branch)
+            ):
+                raise AgentRegistryError("GIT_METADATA_INVALID")
+            return branch
+        if len(raw) == 40 and all(char in "0123456789abcdefABCDEF" for char in raw):
+            return ""
+        raise AgentRegistryError("GIT_METADATA_INVALID")
+    except AgentRegistryError:
+        raise
+    except (OSError, RuntimeError, ValueError, UnicodeError):
+        raise AgentRegistryError("GIT_METADATA_INVALID") from None
+
+
 def state_root(repo_root: Path) -> Path:
     return git_common_dir(repo_root) / "izo-agent"
 def registry_path(repo_root: Path) -> Path:
@@ -36,12 +112,30 @@ def token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 def empty_registry() -> dict[str, Any]:
     return {"registryVersion": REGISTRY_VERSION, "entries": []}
-def load_registry(repo_root: Path) -> dict[str, Any]:
+def load_registry(
+    repo_root: Path,
+    diagnostic: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
+    if diagnostic:
+        diagnostic("REGISTRY_COMMON_DIR_START")
     path = registry_path(repo_root)
-    if not path.exists():
+    if diagnostic:
+        diagnostic("REGISTRY_COMMON_DIR_OK")
+        diagnostic("REGISTRY_FILE_CHECK_START")
+    exists = path.exists()
+    if diagnostic:
+        diagnostic("REGISTRY_FILE_CHECK_OK")
+    if not exists:
         return empty_registry()
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        if diagnostic:
+            diagnostic("REGISTRY_FILE_READ_START")
+        source = path.read_text(encoding="utf-8")
+        if diagnostic:
+            diagnostic("REGISTRY_FILE_READ_OK")
+        payload = json.loads(source)
+        if diagnostic:
+            diagnostic("REGISTRY_JSON_PARSE_OK")
     except Exception as exc:
         raise AgentRegistryError(f"REGISTRY_INVALID path={path}") from exc
     if payload.get("registryVersion") != REGISTRY_VERSION or not isinstance(payload.get("entries"), list):

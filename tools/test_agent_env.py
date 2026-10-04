@@ -8,8 +8,12 @@ from pathlib import Path
 
 import pytest
 
+from tools.agent_system import env as env_module
+from tools.agent_system import package as package_module
+from tools.agent_system import registry as registry_module
 from tools.agent_system.env import (
     CONTRACT_ID,
+    _load_environment_identity_from_resolved_repo,
     EnvironmentContractError,
     EnvironmentIdentity,
     EnvironmentPaths,
@@ -224,6 +228,51 @@ def test_same_package_has_same_deterministic_roots_and_ports(tmp_path: Path) -> 
     for key in ("environmentRoot", "databasePath", "mediaRoot", "secretRoot", "ports"):
         assert first[key] == second[key]
     assert first == second
+
+
+def test_public_load_environment_identity_still_resolves_nested_repository_path(
+    tmp_path: Path,
+) -> None:
+    worktree, _contract = _single_package(tmp_path, "PKG-PUBLIC-RESOLVE")
+    nested = worktree / "nested" / "deeper"
+    nested.mkdir(parents=True)
+    stages: list[str] = []
+
+    identity = load_environment_identity(nested, diagnostic=stages.append)
+
+    assert identity.worktree_path == worktree.resolve()
+    assert stages[:4] == [
+        "IDENTITY_ENTERED",
+        "RESOLVE_REPO_ROOT_START",
+        "RESOLVE_REPO_ROOT_OK",
+        "LOAD_REGISTRY_START",
+    ]
+
+
+def test_resolved_environment_identity_loader_uses_no_git(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worktree, _contract = _single_package(tmp_path, "PKG-RESOLVED-NO-GIT")
+    expected = load_environment_identity(worktree)
+    stages: list[str] = []
+
+    def unexpected_git(*_args, **_kwargs):
+        pytest.fail("unexpected Git resolution/subprocess")
+
+    monkeypatch.setattr(env_module, "resolve_repo_root", unexpected_git)
+    monkeypatch.setattr(registry_module, "_git", unexpected_git)
+    monkeypatch.setattr(package_module, "_git", unexpected_git)
+
+    actual = _load_environment_identity_from_resolved_repo(
+        worktree.resolve(),
+        diagnostic=stages.append,
+    )
+
+    assert actual == expected
+    assert stages[0] == "LOAD_REGISTRY_START"
+    assert "RESOLVE_REPO_ROOT_START" not in stages
+    assert "RESOLVE_REPO_ROOT_OK" not in stages
 
 
 def test_two_packages_have_disjoint_roots_and_ports(tmp_path: Path) -> None:
