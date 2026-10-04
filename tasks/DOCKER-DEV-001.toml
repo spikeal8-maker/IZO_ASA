@@ -44,7 +44,7 @@ domain = "agent-control-plane"
 riskClass = "standard"
 changeClass = "architecture"
 maxProductionFiles = 0
-maxChangedLines = 900
+maxChangedLines = 950
 acceptance = [
   "Slice A changes only the manifest, backend Dockerfile, root .dockerignore and static Docker contract test.",
   "Backend base is Python 3.11.9 slim-bookworm pinned by immutable sha256 digest.",
@@ -74,6 +74,7 @@ acceptance = [
   "SQLite and synthetic DEV media markers survive container recreate; container-layer synthetic state and DEV secrets do not persist.",
   "After recreate, SQLite integrity_check remains ok, user_version remains 7 and all seven required schema tables remain present.",
   "Final addressed cleanup preserves foreign resources; Slice E additionally requires localhost/loopback rejection, no provider credentials, and deterministic native/Docker parity for health contract, isolated storage, provider configuration/disabled behavior and protected-empty credentials.",
+  "Default docker-dev-up with zero explicit provider parameters is executable under PowerShell StrictMode and treats the filtered provider collection as an empty array rather than null.",
 ]
 requiredEvidence = [
   "python -m pytest -q tools/test_docker_dev_contract.py",
@@ -96,6 +97,7 @@ requiredEvidence = [
   "accepted historical Slice C pre-start receipt proving zero mounts/port bindings; current Slice D inspect proving exact image identity, uid/isolation/limits, protected empty credentials, exactly two named volume mounts, bind mounts=0 and port bindings=0",
   "internal /api/health JSON smoke plus SQLite integrity/schema/media evidence from the real backend startup",
   "addressed cleanup receipt for owned resources with foreign-resource preservation",
+  "Windows executable regression uses a fake Docker shim and proves default network/provider environment before any real Docker mutation.",
 ]
 targetedTests = [
   "tools/test_docker_dev_contract.py",

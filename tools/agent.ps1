@@ -94,11 +94,13 @@ if ($Command -in @("docker-dev-up", "docker-dev-down")) {
         throw "Docker DEV compose file is missing."
     }
     $explicitProviderParameter = @(
-        $ComfyUIEndpoint,
-        $OllamaEndpoint,
-        $QwenEndpoint,
-        $LocalLtxComfyUIEndpoint
-    ) | Where-Object { $_.Trim() }
+        @(
+            $ComfyUIEndpoint,
+            $OllamaEndpoint,
+            $QwenEndpoint,
+            $LocalLtxComfyUIEndpoint
+        ) | Where-Object { $_.Trim() }
+    )
     if ($Command -eq "docker-dev-up" -and -not $DockerProvidersEnabled -and $explicitProviderParameter.Count -gt 0) {
         throw "DOCKER_DEV_PROVIDER_MODE_REQUIRED"
     }

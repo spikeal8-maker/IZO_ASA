@@ -1,8 +1,12 @@
 ﻿from __future__ import annotations
 
+import os
 import re
 import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 from tools.agent_system.env_runtime import EMPTY_CREDENTIAL_KEYS, build_exact_child_environment
 
@@ -432,3 +436,58 @@ def test_slice_e_native_docker_deterministic_parity_matrix() -> None:
         "no_production_paths": "IZO_ASA/releases" not in native_database and not docker["DATABASE_URL"].startswith("C:"),
     }
     assert matrix == {key: True for key in matrix}
+
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="PowerShell executable regression is Windows-only")
+def test_slice_e_default_powershell_path_uses_empty_provider_array_and_fake_docker(tmp_path: Path) -> None:
+    head = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+        check=True, capture_output=True, text=True,
+    ).stdout.strip()
+    status = subprocess.run(
+        ["git", "-C", str(ROOT), "status", "--porcelain"],
+        check=True, capture_output=True, text=True,
+    ).stdout.strip()
+    assert status == ""
+
+    receipt = tmp_path / "docker-receipt.txt"
+    docker_cmd = tmp_path / "docker.cmd"
+    docker_cmd.write_text(
+        "@echo off\n"
+        "> \"%FAKE_DOCKER_RECEIPT%\" (\n"
+        "echo ARGS=%*\n"
+        "echo IZO_DOCKER_NETWORK_MODE=%IZO_DOCKER_NETWORK_MODE%\n"
+        "echo IZO_DOCKER_COMFYUI_BASE_URL=%IZO_DOCKER_COMFYUI_BASE_URL%\n"
+        "echo IZO_DOCKER_OLLAMA_BASE_URL=%IZO_DOCKER_OLLAMA_BASE_URL%\n"
+        "echo IZO_DOCKER_QWEN_ASR_BASE_URL=%IZO_DOCKER_QWEN_ASR_BASE_URL%\n"
+        "echo IZO_DOCKER_LOCAL_LTX_COMFYUI_BASE_URL=%IZO_DOCKER_LOCAL_LTX_COMFYUI_BASE_URL%\n"
+        ")\nexit /b 0\n",
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["PATH"] = str(tmp_path) + os.pathsep + env["PATH"]
+    env["FAKE_DOCKER_RECEIPT"] = str(receipt)
+    powershell = Path(env.get("SystemRoot", r"C:\\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+    result = subprocess.run(
+        [
+            str(powershell), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+            "-File", str(ROOT / "tools" / "agent.ps1"), "docker-dev-up",
+            "-RepoRoot", str(ROOT), "-DockerProject", "izo-asa-e-default-regression",
+            "-SourceSha", head,
+        ],
+        env=env, capture_output=True, text=True,
+    )
+    combined = result.stdout + result.stderr
+    assert result.returncode == 0, combined
+    assert "PropertyNotFoundStrict" not in combined
+    assert receipt.is_file()
+    values = dict(line.split("=", 1) for line in receipt.read_text(encoding="utf-8").splitlines() if "=" in line)
+    assert values["IZO_DOCKER_NETWORK_MODE"] == "none"
+    for key in (
+        "IZO_DOCKER_COMFYUI_BASE_URL",
+        "IZO_DOCKER_OLLAMA_BASE_URL",
+        "IZO_DOCKER_QWEN_ASR_BASE_URL",
+        "IZO_DOCKER_LOCAL_LTX_COMFYUI_BASE_URL",
+    ):
+        assert values[key] == "http://127.0.0.1:1"
