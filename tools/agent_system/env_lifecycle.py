@@ -19,6 +19,7 @@ from .env import (
     EnvironmentIdentity,
     EnvironmentPaths,
     ProductionPathContract,
+    _load_environment_identity_from_resolved_repo,
     build_environment_plan,
     derive_environment_paths,
     discover_production_path_contract,
@@ -28,7 +29,7 @@ from .env import (
 )
 from .registry import atomic_write_text, resolve_repo_root
 LOOPBACK = "127.0.0.1"
-STARTUP_TIMEOUT_SECONDS = 8.0
+STARTUP_TIMEOUT_SECONDS = 20.0
 STOP_TIMEOUT_SECONDS = 8.0
 SOCKET_TIMEOUT_SECONDS = 0.5
 STATE_NAMES = {"planned", "active", "stale", "stopped"}
@@ -147,6 +148,78 @@ def environment_status(repo_root: Path | str) -> dict[str, object]:
     }
 def _runtime_dirs(paths: EnvironmentPaths) -> tuple[Path, ...]:
     return paths.environment_root / "db", paths.media_root, paths.secret_root, paths.state_root
+STARTUP_DIAGNOSTIC_STAGES = {
+    "HOLDER_ENTERED",
+    "IDENTITY_ENTERED",
+    "RESOLVE_REPO_ROOT_START",
+    "RESOLVE_REPO_ROOT_OK",
+    "LOAD_REGISTRY_START",
+    "REGISTRY_COMMON_DIR_START",
+    "REGISTRY_COMMON_DIR_OK",
+    "REGISTRY_FILE_CHECK_START",
+    "REGISTRY_FILE_CHECK_OK",
+    "REGISTRY_FILE_READ_START",
+    "REGISTRY_FILE_READ_OK",
+    "REGISTRY_JSON_PARSE_OK",
+    "LOAD_REGISTRY_OK",
+    "ASSERT_OWNER_START",
+    "OWNERSHIP_READ_START",
+    "OWNERSHIP_READ_OK",
+    "REGISTRY_ENTRY_LOOKUP_START",
+    "REGISTRY_ENTRY_LOOKUP_OK",
+    "OWNERSHIP_TOKEN_CHECK_START",
+    "OWNERSHIP_TOKEN_CHECK_OK",
+    "WORKTREE_PATH_CHECK_START",
+    "WORKTREE_PATH_CHECK_OK",
+    "BRANCH_QUERY_START",
+    "BRANCH_QUERY_OK",
+    "MANIFEST_PARSE_START",
+    "MANIFEST_PARSE_OK",
+    "MANIFEST_FINGERPRINT_START",
+    "MANIFEST_FINGERPRINT_OK",
+    "OWNER_ASSERT_OK",
+    "ASSERT_OWNER_OK",
+    "IDENTITY_OK",
+    "OWNERSHIP_OK",
+    "SOCKETS_BOUND",
+    "READY_WRITTEN",
+}
+
+def _startup_diagnostic_path(startup: Path) -> Path:
+    prefix = "lease-startup-"
+    suffix = startup.name[len(prefix):] if startup.name.startswith(prefix) else startup.name
+    return startup.with_name("lease-diagnostic-" + suffix)
+
+def _write_startup_diagnostic(path: Path, stage: str, pid: int) -> None:
+    if stage not in STARTUP_DIAGNOSTIC_STAGES:
+        raise EnvironmentLifecycleError("PORT_LEASE_DIAGNOSTIC_STAGE_INVALID")
+    atomic_write_text(path, _render({"stage": stage, "pid": int(pid)}))
+
+def _read_startup_diagnostic(path: Path) -> tuple[str, int | None]:
+    if not path.is_file():
+        return "PRE_HOLDER_ENTRY", None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return "PRE_HOLDER_ENTRY", None
+    stage, pid = str(payload.get("stage") or ""), payload.get("pid")
+    if stage not in STARTUP_DIAGNOSTIC_STAGES:
+        return "PRE_HOLDER_ENTRY", None
+    return stage, pid if isinstance(pid, int) and not isinstance(pid, bool) and pid > 0 else None
+
+def _startup_diagnostic_line(
+    *, stage: str, process_alive: bool, pid: int,
+    elapsed_ms: int | None = None, exit_code: int | None = None,
+) -> str:
+    alive_key = "processAliveBeforeTerminate" if elapsed_ms is not None else "processAlive"
+    fields = ["PORT_LEASE_START_DIAGNOSTIC", f"stage={stage}",
+              f"{alive_key}={str(process_alive).lower()}", f"pid={int(pid)}"]
+    if elapsed_ms is not None:
+        fields.append(f"elapsedMs={max(0, min(int(elapsed_ms), 120000))}")
+    if exit_code is not None:
+        fields.append(f"exitCode={int(exit_code)}")
+    return " ".join(fields)
+
 def _spawn_holder(
     repo: Path,
     identity: EnvironmentIdentity,
@@ -177,21 +250,55 @@ def _spawn_holder(
         kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
     return subprocess.Popen(command, **kwargs), startup
 def _wait_startup(process: subprocess.Popen[Any], startup: Path) -> dict[str, Any]:
-    deadline = time.monotonic() + STARTUP_TIMEOUT_SECONDS
+    started = time.monotonic()
+    deadline = started + STARTUP_TIMEOUT_SECONDS
+    diagnostic = _startup_diagnostic_path(startup)
     while time.monotonic() < deadline:
         if startup.exists():
             payload = _read_json(startup)
             if payload.get("status") == "READY":
+                diagnostic.unlink(missing_ok=True)
                 return payload
             raise EnvironmentLifecycleError(str(payload.get("error") or "PORT_LEASE_START_FAILED"))
-        if process.poll() is not None:
+        exit_code = process.poll()
+        if exit_code is not None:
+            stage, _diagnostic_pid = _read_startup_diagnostic(diagnostic)
+            print(
+                _startup_diagnostic_line(
+                    stage=stage,
+                    process_alive=False,
+                    pid=process.pid,
+                    exit_code=int(exit_code),
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
             raise EnvironmentLifecycleError("PORT_LEASE_START_FAILED")
         time.sleep(0.05)
+    stage, _diagnostic_pid = _read_startup_diagnostic(diagnostic)
+    process_alive = process.poll() is None
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    print(
+        _startup_diagnostic_line(
+            stage=stage,
+            process_alive=process_alive,
+            pid=process.pid,
+            elapsed_ms=elapsed_ms,
+        ),
+        file=sys.stderr,
+        flush=True,
+    )
     process.terminate()
     try:
         process.wait(timeout=2)
     except subprocess.TimeoutExpired:
         pass
+    print(
+        "PORT_LEASE_CLEANUP_DIAGNOSTIC "
+        f"processAliveAfterTerminate={str(process.poll() is None).lower()}",
+        file=sys.stderr,
+        flush=True,
+    )
     raise EnvironmentLifecycleError("PORT_LEASE_START_TIMEOUT")
 def _active_document(plan: Mapping[str, Any], pid: int, lease_id: str, stamp: str) -> dict[str, object]:
     ports = dict(plan["ports"])
@@ -253,6 +360,7 @@ def env_up(
         }
     except Exception:
         startup.unlink(missing_ok=True)
+        _startup_diagnostic_path(startup).unlink(missing_ok=True)
         if process.poll() is None:
             process.terminate()
             try:
@@ -279,10 +387,11 @@ def _cleanup_payload(paths: EnvironmentPaths) -> None:
         except ValueError:
             raise EnvironmentLifecycleError("CLEANUP_PATH_OUTSIDE_ENVIRONMENT") from None
         shutil.rmtree(target) if target.is_dir() else target.unlink()
-    for startup in paths.state_root.glob("lease-startup-*.json"):
-        if startup.is_symlink():
-            raise EnvironmentLifecycleError("CLEANUP_SYMLINK_FORBIDDEN")
-        startup.unlink(missing_ok=True)
+    for pattern in ("lease-startup-*.json", "lease-diagnostic-*.json"):
+        for startup in paths.state_root.glob(pattern):
+            if startup.is_symlink():
+                raise EnvironmentLifecycleError("CLEANUP_SYMLINK_FORBIDDEN")
+            startup.unlink(missing_ok=True)
 def _write_stopped(
     identity: EnvironmentIdentity,
     paths: EnvironmentPaths,
@@ -396,12 +505,20 @@ def _holder(
     startup_file: Path,
 ) -> int:
     listeners: list[socket.socket] = []
+    diagnostic = _startup_diagnostic_path(startup_file)
+    record_stage = lambda stage: _write_startup_diagnostic(
+        diagnostic, stage, os.getpid()
+    )
+    record_stage("HOLDER_ENTERED")
     try:
         try:
-            identity = load_environment_identity(repo)
+            identity = _load_environment_identity_from_resolved_repo(
+                repo, diagnostic=record_stage
+            )
             if identity.package_id != package_id:
                 raise EnvironmentContractError("PACKAGE_OWNERSHIP_INVALID")
             stop_proof = _control_proof(repo, package_id, lease_id)
+            _write_startup_diagnostic(diagnostic, "OWNERSHIP_OK", os.getpid())
         except (EnvironmentContractError, EnvironmentLifecycleError):
             atomic_write_text(
                 startup_file,
@@ -411,12 +528,15 @@ def _holder(
         try:
             listeners.append(_exclusive_socket(backend))
             listeners.append(_exclusive_socket(frontend))
+            _write_startup_diagnostic(diagnostic, "SOCKETS_BOUND", os.getpid())
         except OSError:
             atomic_write_text(
                 startup_file, _render({"status": "ERROR", "error": "PORT_IN_USE"})
             )
             return 2
         atomic_write_text(startup_file, _render({"status": "READY", "pid": os.getpid()}))
+        _write_startup_diagnostic(diagnostic, "READY_WRITTEN", os.getpid())
+        diagnostic.unlink(missing_ok=True)
         running = True
         while running:
             readable, _, _ = select.select(listeners, [], [], 0.5)
@@ -459,7 +579,14 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    repo = resolve_repo_root(args.repo_root)
+    if args.command == "_holder":
+        try:
+            repo = Path(args.repo_root).resolve(strict=True)
+        except (OSError, RuntimeError):
+            print("PACKAGE_OWNERSHIP_INVALID", file=sys.stderr)
+            return 2
+    else:
+        repo = resolve_repo_root(args.repo_root)
     try:
         if args.command == "up":
             print("AGENT_ENV_UP " + json.dumps(env_up(repo), sort_keys=True))

@@ -316,3 +316,213 @@ def test_env_up_preserves_real_provider_credential_guard(tmp_path: Path) -> None
             production_contract=contract,
         )
     assert secret_value not in str(captured.value)
+
+class _NeverReadyProcess:
+    def __init__(self, *, pid: int = 4242, exit_code: int | None = None) -> None:
+        self.pid = pid
+        self.exit_code = exit_code
+        self.terminated = False
+        self.wait_timeouts: list[float] = []
+
+    def poll(self):
+        return self.exit_code
+
+    def terminate(self) -> None:
+        self.terminated = True
+        self.exit_code = -15
+
+    def wait(self, timeout: float):
+        self.wait_timeouts.append(timeout)
+        return 0
+
+
+def _fake_startup_clock(monkeypatch: pytest.MonkeyPatch) -> dict[str, float]:
+    clock = {"now": 0.0}
+    monkeypatch.setattr(lifecycle, "STARTUP_TIMEOUT_SECONDS", 0.15)
+    monkeypatch.setattr(lifecycle.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(
+        lifecycle.time,
+        "sleep",
+        lambda seconds: clock.__setitem__("now", clock["now"] + seconds),
+    )
+    return clock
+
+
+@pytest.mark.parametrize(
+    ("recorded_stage", "expected_stage"),
+    ((None, "PRE_HOLDER_ENTRY"), ("HOLDER_ENTERED", "HOLDER_ENTERED")),
+)
+def test_wait_startup_timeout_reports_bounded_stage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    recorded_stage: str | None,
+    expected_stage: str,
+) -> None:
+    startup = tmp_path / "lease-startup-test.json"
+    diagnostic_path = lifecycle._startup_diagnostic_path(startup)
+    if recorded_stage is not None:
+        lifecycle._write_startup_diagnostic(diagnostic_path, recorded_stage, 4242)
+        assert set(json.loads(diagnostic_path.read_text(encoding="utf-8"))) == {"stage", "pid"}
+    process = _NeverReadyProcess()
+    clock = _fake_startup_clock(monkeypatch)
+
+    with pytest.raises(lifecycle.EnvironmentLifecycleError) as captured:
+        lifecycle._wait_startup(process, startup)
+
+    assert str(captured.value) == "PORT_LEASE_START_TIMEOUT"
+    stderr = capsys.readouterr().err
+    diagnostic, cleanup = stderr.strip().splitlines()
+    for field in (
+        f"stage={expected_stage}", "processAliveBeforeTerminate=true",
+        "pid=4242", "elapsedMs="
+    ):
+        assert field in diagnostic
+    assert diagnostic.startswith("PORT_LEASE_START_DIAGNOSTIC ")
+    assert cleanup == (
+        "PORT_LEASE_CLEANUP_DIAGNOSTIC processAliveAfterTerminate=false"
+    )
+    assert process.terminated is True
+    assert process.wait_timeouts == [2]
+    assert clock["now"] >= 0.15
+
+
+def test_wait_startup_child_exit_preserves_public_error_and_reports_stage(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    startup = tmp_path / "lease-startup-test.json"
+    diagnostic_path = lifecycle._startup_diagnostic_path(startup)
+    lifecycle._write_startup_diagnostic(
+        diagnostic_path, "IDENTITY_OK", 4242
+    )
+    process = _NeverReadyProcess(exit_code=17)
+
+    with pytest.raises(lifecycle.EnvironmentLifecycleError) as captured:
+        lifecycle._wait_startup(process, startup)
+
+    assert str(captured.value) == "PORT_LEASE_START_FAILED"
+    diagnostic = capsys.readouterr().err.strip()
+    assert "stage=IDENTITY_OK" in diagnostic
+    assert "processAlive=false" in diagnostic
+    assert "pid=4242" in diagnostic
+    assert "exitCode=17" in diagnostic
+    assert process.terminated is False
+
+
+def test_wait_startup_ready_removes_diagnostic_temp_file(tmp_path: Path) -> None:
+    startup = tmp_path / "lease-startup-test.json"
+    diagnostic_path = lifecycle._startup_diagnostic_path(startup)
+    startup.write_text(
+        json.dumps({"status": "READY", "pid": 4242}),
+        encoding="utf-8",
+    )
+    lifecycle._write_startup_diagnostic(
+        diagnostic_path, "READY_WRITTEN", 4242
+    )
+    process = _NeverReadyProcess()
+
+    payload = lifecycle._wait_startup(process, startup)
+
+    assert payload == {"status": "READY", "pid": 4242}
+    assert not diagnostic_path.exists()
+    assert process.terminated is False
+
+def test_internal_holder_command_uses_filesystem_path_without_repo_git_resolution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "resolved-worktree"
+    repo.mkdir()
+    reached: dict[str, object] = {}
+
+    def unexpected_resolve(*_args, **_kwargs):
+        pytest.fail("resolve_repo_root must not run for internal _holder")
+
+    def fake_holder(
+        holder_repo: Path,
+        package_id: str,
+        lease_id: str,
+        backend: int,
+        frontend: int,
+        startup_file: Path,
+    ) -> int:
+        reached.update(
+            repo=holder_repo,
+            package_id=package_id,
+            lease_id=lease_id,
+            backend=backend,
+            frontend=frontend,
+            startup_file=startup_file,
+        )
+        return 17
+
+    monkeypatch.setattr(lifecycle, "resolve_repo_root", unexpected_resolve)
+    monkeypatch.setattr(lifecycle, "_holder", fake_holder)
+
+    startup = tmp_path / "startup.json"
+    result = lifecycle.main(
+        [
+            "--repo-root",
+            str(repo),
+            "_holder",
+            "--package-id",
+            "PKG-HOLDER-ROUTE",
+            "--lease-id",
+            "lease-1",
+            "--backend-port",
+            "21000",
+            "--frontend-port",
+            "21001",
+            "--startup-file",
+            str(startup),
+        ]
+    )
+
+    assert result == 17
+    assert reached["repo"] == repo.resolve()
+    assert reached["package_id"] == "PKG-HOLDER-ROUTE"
+
+
+def test_environment_identity_deep_diagnostic_sequence_preserves_behavior(
+    tmp_path: Path,
+) -> None:
+    worktree, _contract_value = _single(tmp_path, "PKG-DEEP-DIAGNOSTIC")
+    stages: list[str] = []
+
+    instrumented = load_environment_identity(worktree, diagnostic=stages.append)
+    uninstrumented = load_environment_identity(worktree)
+
+    assert instrumented == uninstrumented
+    assert stages == [
+        "IDENTITY_ENTERED",
+        "RESOLVE_REPO_ROOT_START",
+        "RESOLVE_REPO_ROOT_OK",
+        "LOAD_REGISTRY_START",
+        "REGISTRY_COMMON_DIR_START",
+        "REGISTRY_COMMON_DIR_OK",
+        "REGISTRY_FILE_CHECK_START",
+        "REGISTRY_FILE_CHECK_OK",
+        "REGISTRY_FILE_READ_START",
+        "REGISTRY_FILE_READ_OK",
+        "REGISTRY_JSON_PARSE_OK",
+        "LOAD_REGISTRY_OK",
+        "ASSERT_OWNER_START",
+        "OWNERSHIP_READ_START",
+        "OWNERSHIP_READ_OK",
+        "REGISTRY_ENTRY_LOOKUP_START",
+        "REGISTRY_ENTRY_LOOKUP_OK",
+        "OWNERSHIP_TOKEN_CHECK_START",
+        "OWNERSHIP_TOKEN_CHECK_OK",
+        "WORKTREE_PATH_CHECK_START",
+        "WORKTREE_PATH_CHECK_OK",
+        "BRANCH_QUERY_START",
+        "BRANCH_QUERY_OK",
+        "MANIFEST_PARSE_START",
+        "MANIFEST_PARSE_OK",
+        "MANIFEST_FINGERPRINT_START",
+        "MANIFEST_FINGERPRINT_OK",
+        "OWNER_ASSERT_OK",
+        "ASSERT_OWNER_OK",
+        "IDENTITY_OK",
+    ]

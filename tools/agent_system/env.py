@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PureWindowsPath
-from typing import Mapping
+from typing import Callable, Mapping
 from .package import AgentPackageError, ID_RE, _assert_owner
 from .registry import (
     AgentRegistryError,
@@ -155,12 +155,24 @@ def discover_production_path_contract(repo_root: Path | str) -> ProductionPathCo
         secret_roots,
         (PRODUCTION_PROMOTER.as_posix(),),
     )
-def load_environment_identity(repo_root: Path | str) -> EnvironmentIdentity:
-    """Resolve the active package solely through the existing ownership/registry."""
-    repo = resolve_repo_root(repo_root)
+def _load_environment_identity_from_resolved_repo(
+    repo: Path,
+    diagnostic: Callable[[str], None] | None = None,
+) -> EnvironmentIdentity:
+    """Load package identity from an already canonical worktree without Git resolution."""
+    repo = Path(repo)
     try:
-        payload = load_registry(repo)
-        _ownership, entry, manifest, _manifest_path = _assert_owner(repo, payload)
+        if diagnostic:
+            diagnostic("LOAD_REGISTRY_START")
+        payload = load_registry(repo, diagnostic=diagnostic)
+        if diagnostic:
+            diagnostic("LOAD_REGISTRY_OK")
+            diagnostic("ASSERT_OWNER_START")
+        _ownership, entry, manifest, _manifest_path = _assert_owner(
+            repo, payload, diagnostic=diagnostic
+        )
+        if diagnostic:
+            diagnostic("ASSERT_OWNER_OK")
     except (AgentPackageError, AgentRegistryError) as exc:
         raise EnvironmentContractError(
             f"PACKAGE_OWNERSHIP_INVALID reason={str(exc)}"
@@ -169,12 +181,30 @@ def load_environment_identity(repo_root: Path | str) -> EnvironmentIdentity:
         raise EnvironmentContractError(
             f"PACKAGE_OWNERSHIP_NOT_ACTIVE packageId={manifest.id}"
         )
+    if diagnostic:
+        diagnostic("IDENTITY_OK")
     return EnvironmentIdentity(
         package_id=manifest.id,
         base_sha=manifest.base_sha,
         worktree_path=repo,
         branch=str(entry["branch"]),
     )
+
+
+def load_environment_identity(
+    repo_root: Path | str,
+    diagnostic: Callable[[str], None] | None = None,
+) -> EnvironmentIdentity:
+    """Resolve the repository root, then load the active package identity."""
+    if diagnostic:
+        diagnostic("IDENTITY_ENTERED")
+        diagnostic("RESOLVE_REPO_ROOT_START")
+    repo = resolve_repo_root(repo_root)
+    if diagnostic:
+        diagnostic("RESOLVE_REPO_ROOT_OK")
+    return _load_environment_identity_from_resolved_repo(repo, diagnostic=diagnostic)
+
+
 def derive_environment_paths(identity: EnvironmentIdentity) -> EnvironmentPaths:
     root = identity.worktree_path / ".runtime" / "agent-env" / identity.package_id
     return EnvironmentPaths(

@@ -1,6 +1,6 @@
 manifestVersion = 1
 id = "DOCKER-DEV-001"
-baseSha = "126d276ef1a9fc09935125203288c013627457ed"
+baseSha = "949ffae1914b732af53447fdf63a8419dd0bd151"
 goal = "Establish cumulative Slice A+B+C+D Docker DEV foundation: pinned non-root backend image, safe single-service Compose contract, isolated runtime/storage proof, and idempotent project-scoped DEV lifecycle with Docker-owned SQLite/media persistence."
 userOutcome = "From exact source identity, one existing agent CLI surface can bring the Docker DEV backend up/down idempotently; SQLite and media survive owned container recreate through project-scoped named volumes while secrets/container-only state remain ephemeral and production/foreign resources stay untouched."
 beforeScenario = "DOCKER-DEV-001 is active, but no application Docker build foundation exists."
@@ -78,7 +78,7 @@ acceptance = [
 requiredEvidence = [
   "python -m pytest -q tools/test_docker_dev_contract.py",
   "git diff --check",
-  "package enforcement against 126d276ef1a9fc09935125203288c013627457ed with productionFileCount=0 and no findings",
+  "package enforcement against 949ffae1914b732af53447fdf63a8419dd0bd151 with productionFileCount=0 and no findings",
   "docker build from exact committed HEAD with IZO_SOURCE_SHA equal to that HEAD",
   "docker image inspect evidence for OS, user, revision label and image ID",
   "exact-head GitHub CI on final converged PR head",
