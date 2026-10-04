@@ -54,10 +54,10 @@ changeClass = "architecture"
 maxProductionFiles = 0
 maxChangedLines = 900
 acceptance = [
-  "Only the three declared files change against exact base 126d276ef1a9fc09935125203288c013627457ed.",
-  "The already committed STARTUP_TIMEOUT_SECONDS=20.0 remains unchanged; CI #732 demonstrates that the 8→20 change alone is insufficient and this package now adds diagnostics only.",
+  "Only the files listed in declaredFiles change against exact base 126d276ef1a9fc09935125203288c013627457ed.",
+  "STARTUP_TIMEOUT_SECONDS remains exactly 20.0. Historical CI #732 established that the 8→20 budget change alone was insufficient; the package subsequently added bounded diagnostics and removed evidenced Git subprocesses from the holder startup hot path.",
   "STOP_TIMEOUT_SECONDS remains exactly 8.0 and SOCKET_TIMEOUT_SECONDS remains exactly 0.5.",
-  "Port selection, holder ownership/HMAC, lease protocol and DB/media/secret cleanup semantics remain unchanged; only project-owned temporary startup diagnostic receipts and their addressed cleanup are added.",
+  "Port selection, holder ownership/HMAC, lease protocol and DB/media/secret cleanup semantics remain unchanged; the package adds secret-safe startup diagnostics and filesystem-based no-Git holder identity/branch resolution.",
   "The 20-second value is a bounded startup budget for observed self-hosted Windows process/import variance, not a performance target; no retry loop, infinite wait or success masking is added.",
   "Deterministic fake-clock/fake-process tests prove absent diagnostics classify PRE_HOLDER_ENTRY, an existing holder stage is reported exactly, child exit preserves PORT_LEASE_START_FAILED, READY removes the diagnostic file, and timeout still terminates the child without a real 20-second sleep.",
   "Existing READY, startup ERROR, child-exit-before-READY, PORT_IN_USE and stale-recovery semantics remain covered by the existing focused lifecycle suite.",
@@ -68,11 +68,11 @@ acceptance = [
   "Public exception strings remain exactly PORT_LEASE_START_TIMEOUT and PORT_LEASE_START_FAILED.",
   "Normal READY removes its diagnostic receipt; normal lifecycle cleanup removes only owned lease-startup-*.json and lease-diagnostic-*.json receipts in addition to existing cleanup, without changing DB/media/secret cleanup semantics.",
   "Current verify process-leak holder-orphan coverage is NOT_PROVEN and tools/verify.ps1 is not changed in this package.",
-  "The 20-second budget alone is INSUFFICIENT; current evidence shows _holder entered but load_environment_identity did not complete within the budget.",
+  "Historical CI evidence established that the 20-second budget alone was insufficient and localized the stalls first to git rev-parse --git-common-dir and then to redundant git rev-parse --show-toplevel in holder startup.",
   "Deep diagnostics use optional callbacks with default None; existing callers without diagnostics preserve normal behavior and no identity/registry/ownership algorithm is duplicated in _holder.",
   "START stages are recorded before each potentially blocking operation and matching OK stages replace them only after that operation returns successfully.",
   "Timeout stderr includes stage, processAliveBeforeTerminate, pid and bounded elapsedMs; after terminate/wait it also emits processAliveAfterTerminate without paths or secrets.",
-  "Required outcome is exact blocking sub-operation classification; this package does not claim root cause fixed.",
+  "The evidenced Git subprocess boundaries are removed from the holder startup hot path, holder startup Git subprocess count before READY is zero, and exact-head same-SHA CI stability must be demonstrated.",
   "CI #734 attempt 2 established the root-cause boundary at REGISTRY_COMMON_DIR_START before REGISTRY_COMMON_DIR_OK, where the observed implementation operation was git rev-parse --git-common-dir; underlying OS cause remains NOT_ESTABLISHED.",
   "git_common_dir resolves standard .git directory, linked-worktree gitdir files and commondir metadata entirely through filesystem operations, with GIT_METADATA_INVALID fail-closed behavior and no Git subprocess fallback.",
   "registry_path(main repo) equals registry_path(linked worktree), preserving the shared registry invariant.",
@@ -108,8 +108,8 @@ targetedTests = [
   "tools/test_agent_env_runtime.py",
 ]
 fileGrowthExpectations = [
-  "env_lifecycle.py keeps 20/8/0.5 timeout values and only extends the existing secret-safe stage/cleanup diagnostics.",
-  "test_agent_env_lifecycle.py expands the existing fake clock/process coverage for PRE_HOLDER_ENTRY, holder-stage timeout, child exit and READY diagnostic cleanup without real 20-second sleeps.",
+  "env_lifecycle.py preserves 20/8/0.5 timeout and lease semantics, keeps bounded secret-safe diagnostics, and routes only internal _holder through the already-resolved filesystem identity path.",
+  "test_agent_env_lifecycle.py covers PRE_HOLDER_ENTRY, holder-stage timeout, child exit, READY diagnostic cleanup and internal _holder no-resolve routing without real 20-second sleeps.",
   "The new task manifest documents the bounded test-health child repair and same-SHA stability confirmation.",
   "registry.py shares bounded filesystem Git-dir parsing between common-dir and current-branch resolution; package.py changes only ownership branch acquisition, and public/general Git administration paths remain unchanged.",
   "env.py adds an internal resolved identity loader; env_lifecycle.py routes only internal _holder through filesystem normalization and that loader while up/status/down keep resolve_repo_root.",
