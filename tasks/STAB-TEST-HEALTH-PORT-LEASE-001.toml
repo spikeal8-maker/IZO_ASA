@@ -1,16 +1,15 @@
 manifestVersion = 1
 id = "STAB-TEST-HEALTH-PORT-LEASE-001"
 baseSha = "126d276ef1a9fc09935125203288c013627457ed"
-goal = "Stabilize the Windows test-health port-lease holder startup budget discovered in CI #731 without changing lease behavior, ownership, cleanup, product behavior or Docker behavior."
-userOutcome = "Exact-main CI keeps the existing fail-closed port-lease lifecycle while allowing bounded Windows process/import startup variance: startup budget 8s to 20s, no retries, no hidden errors and no product/runtime semantic change."
+goal = "Diagnose the Windows port-lease holder startup boundary after CI #732 proved that the 20-second startup budget alone is insufficient, without changing runtime semantics, timeout values, retry behavior, product behavior or Docker behavior."
+userOutcome = "Exact-main CI emits a secret-safe bounded holder startup stage when PORT_LEASE_START_TIMEOUT or child-exit-before-READY occurs, while public error codes, 20-second startup budget, ownership, lease and cleanup semantics remain unchanged."
 beforeScenario = "CI #731 attempts 1 and 2 fail different tools/test_agent_env_runtime.py cases with PORT_LEASE_START_TIMEOUT while tools/agent_system/env_lifecycle.py is unchanged by PR #171 and the existing startup budget is 8 seconds."
-afterScenario = "The holder startup budget is 20 seconds, the timeout remains finite and fail-closed, and deterministic focused coverage proves budget exhaustion still terminates the child and raises PORT_LEASE_START_TIMEOUT."
+afterScenario = "The 20-second startup budget remains unchanged; project-owned temporary diagnostics classify PRE_HOLDER_ENTRY or the last exact holder stage, stderr exposes only safe stage/process metadata, and deterministic tests prove public errors and fail-closed termination remain unchanged."
 nonGoals = [
   "change product behavior",
   "change Docker behavior or Docker files",
   "change tools/agent.ps1",
-  "change stop timeout",
-  "change socket timeout",
+  "change startup, stop or socket timeout beyond the already committed 20/8/0.5 values",
   "add retries",
   "hide startup errors",
   "change port selection",
@@ -51,30 +50,37 @@ maxProductionFiles = 0
 maxChangedLines = 300
 acceptance = [
   "Only the three declared files change against exact base 126d276ef1a9fc09935125203288c013627457ed.",
-  "STARTUP_TIMEOUT_SECONDS changes only from 8.0 to 20.0.",
+  "The already committed STARTUP_TIMEOUT_SECONDS=20.0 remains unchanged; CI #732 demonstrates that the 8→20 change alone is insufficient and this package now adds diagnostics only.",
   "STOP_TIMEOUT_SECONDS remains exactly 8.0 and SOCKET_TIMEOUT_SECONDS remains exactly 0.5.",
-  "Port selection, holder ownership/HMAC, lease protocol, error propagation and cleanup semantics remain byte-equivalent except for the startup budget constant.",
+  "Port selection, holder ownership/HMAC, lease protocol and DB/media/secret cleanup semantics remain unchanged; only project-owned temporary startup diagnostic receipts and their addressed cleanup are added.",
   "The 20-second value is a bounded startup budget for observed self-hosted Windows process/import variance, not a performance target; no retry loop, infinite wait or success masking is added.",
-  "A deterministic fake-clock test proves no READY file before the controlled budget raises PORT_LEASE_START_TIMEOUT and terminates the child without waiting 20 real seconds.",
+  "Deterministic fake-clock/fake-process tests prove absent diagnostics classify PRE_HOLDER_ENTRY, an existing holder stage is reported exactly, child exit preserves PORT_LEASE_START_FAILED, READY removes the diagnostic file, and timeout still terminates the child without a real 20-second sleep.",
   "Existing READY, startup ERROR, child-exit-before-READY, PORT_IN_USE and stale-recovery semantics remain covered by the existing focused lifecycle suite.",
   "Focused env lifecycle and env runtime tests pass where repository-compatible local Python is available; exact-head CI is authoritative for Windows full-suite runtime behavior.",
   "Package enforcement passes with productionFileCount=0 and findings=[].",
-  "Two same-SHA full CI executions must succeed before independent review because the repair targets intermittent timing instability.",
+  "Diagnostic files contain only stage and pid; stderr contains only stage, processAlive, pid and bounded elapsedMs or exitCode, with no paths, secrets, tokens, credentials, environment values or child stderr.",
+  "Holder stages are HOLDER_ENTERED, IDENTITY_OK, OWNERSHIP_OK, SOCKETS_BOUND and READY_WRITTEN in existing operation order; missing diagnostic at failure classifies PRE_HOLDER_ENTRY.",
+  "Public exception strings remain exactly PORT_LEASE_START_TIMEOUT and PORT_LEASE_START_FAILED.",
+  "Normal READY removes its diagnostic receipt; normal lifecycle cleanup removes only owned lease-startup-*.json and lease-diagnostic-*.json receipts in addition to existing cleanup, without changing DB/media/secret cleanup semantics.",
+  "Current verify process-leak holder-orphan coverage is NOT_PROVEN and tools/verify.ps1 is not changed in this package.",
+  "One exact-head CI must classify any reproduced startup failure using PRE_HOLDER_ENTRY or the last exact holder stage; if it succeeds, exactly one same-SHA rerun may test whether the diagnostic failure reproduces.",
 ]
 requiredEvidence = [
   "python -m pytest -q tools/test_agent_env_lifecycle.py",
   "python -m pytest -q tools/test_agent_env_runtime.py",
+  "safe CI log line PORT_LEASE_START_DIAGNOSTIC when a startup timeout or child exit reproduces",
+  "holder orphan coverage by the current process-leak gate: NOT_PROVEN",
   "package enforcement against 126d276ef1a9fc09935125203288c013627457ed with productionFileCount=0 and findings=[]",
-  "exact-head GitHub CI success on the repair SHA",
-  "second controlled same-SHA CI success with no code changes between attempts",
+  "exact-head GitHub CI diagnostic run on the repair SHA",
+  "if the first diagnostic CI succeeds, one controlled same-SHA rerun; otherwise no retry after the first classified diagnostic failure",
 ]
 targetedTests = [
   "tools/test_agent_env_lifecycle.py",
   "tools/test_agent_env_runtime.py",
 ]
 fileGrowthExpectations = [
-  "env_lifecycle.py changes one numeric startup-budget constant only.",
-  "test_agent_env_lifecycle.py grows by one deterministic fake-clock timeout test and a minimal fake process.",
+  "env_lifecycle.py keeps 20/8/0.5 timeout values and adds only bounded secret-safe temporary stage diagnostics around the existing holder startup operations.",
+  "test_agent_env_lifecycle.py expands the existing fake clock/process coverage for PRE_HOLDER_ENTRY, holder-stage timeout, child exit and READY diagnostic cleanup without real 20-second sleeps.",
   "The new task manifest documents the bounded test-health child repair and same-SHA stability confirmation.",
   "No production or dependency source grows.",
 ]
@@ -93,8 +99,8 @@ forbiddenOperations = [
   "port-selection-change",
   "ownership-change",
   "hmac-change",
-  "cleanup-change",
+  "db-media-secret-cleanup-change",
   "pr-171-change",
   "merge",
 ]
-rollbackBoundary = "Revert only tasks/STAB-TEST-HEALTH-PORT-LEASE-001.toml, the STARTUP_TIMEOUT_SECONDS 20.0 change in tools/agent_system/env_lifecycle.py and its deterministic lifecycle regression test; product, Docker, PR #171, dependencies and production remain untouched."
+rollbackBoundary = "Revert only tasks/STAB-TEST-HEALTH-PORT-LEASE-001.toml and the bounded holder startup diagnostic instrumentation/tests layered on the existing 20-second candidate; product, Docker, PR #171, dependencies, timeout values and production remain untouched."
