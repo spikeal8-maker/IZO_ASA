@@ -148,7 +148,40 @@ def environment_status(repo_root: Path | str) -> dict[str, object]:
 def _runtime_dirs(paths: EnvironmentPaths) -> tuple[Path, ...]:
     return paths.environment_root / "db", paths.media_root, paths.secret_root, paths.state_root
 STARTUP_DIAGNOSTIC_STAGES = {
-    "HOLDER_ENTERED", "IDENTITY_OK", "OWNERSHIP_OK", "SOCKETS_BOUND", "READY_WRITTEN"
+    "HOLDER_ENTERED",
+    "IDENTITY_ENTERED",
+    "RESOLVE_REPO_ROOT_START",
+    "RESOLVE_REPO_ROOT_OK",
+    "LOAD_REGISTRY_START",
+    "REGISTRY_COMMON_DIR_START",
+    "REGISTRY_COMMON_DIR_OK",
+    "REGISTRY_FILE_CHECK_START",
+    "REGISTRY_FILE_CHECK_OK",
+    "REGISTRY_FILE_READ_START",
+    "REGISTRY_FILE_READ_OK",
+    "REGISTRY_JSON_PARSE_OK",
+    "LOAD_REGISTRY_OK",
+    "ASSERT_OWNER_START",
+    "OWNERSHIP_READ_START",
+    "OWNERSHIP_READ_OK",
+    "REGISTRY_ENTRY_LOOKUP_START",
+    "REGISTRY_ENTRY_LOOKUP_OK",
+    "OWNERSHIP_TOKEN_CHECK_START",
+    "OWNERSHIP_TOKEN_CHECK_OK",
+    "WORKTREE_PATH_CHECK_START",
+    "WORKTREE_PATH_CHECK_OK",
+    "BRANCH_QUERY_START",
+    "BRANCH_QUERY_OK",
+    "MANIFEST_PARSE_START",
+    "MANIFEST_PARSE_OK",
+    "MANIFEST_FINGERPRINT_START",
+    "MANIFEST_FINGERPRINT_OK",
+    "OWNER_ASSERT_OK",
+    "ASSERT_OWNER_OK",
+    "IDENTITY_OK",
+    "OWNERSHIP_OK",
+    "SOCKETS_BOUND",
+    "READY_WRITTEN",
 }
 
 def _startup_diagnostic_path(startup: Path) -> Path:
@@ -177,8 +210,9 @@ def _startup_diagnostic_line(
     *, stage: str, process_alive: bool, pid: int,
     elapsed_ms: int | None = None, exit_code: int | None = None,
 ) -> str:
+    alive_key = "processAliveBeforeTerminate" if elapsed_ms is not None else "processAlive"
     fields = ["PORT_LEASE_START_DIAGNOSTIC", f"stage={stage}",
-              f"processAlive={str(process_alive).lower()}", f"pid={int(pid)}"]
+              f"{alive_key}={str(process_alive).lower()}", f"pid={int(pid)}"]
     if elapsed_ms is not None:
         fields.append(f"elapsedMs={max(0, min(int(elapsed_ms), 120000))}")
     if exit_code is not None:
@@ -258,6 +292,12 @@ def _wait_startup(process: subprocess.Popen[Any], startup: Path) -> dict[str, An
         process.wait(timeout=2)
     except subprocess.TimeoutExpired:
         pass
+    print(
+        "PORT_LEASE_CLEANUP_DIAGNOSTIC "
+        f"processAliveAfterTerminate={str(process.poll() is None).lower()}",
+        file=sys.stderr,
+        flush=True,
+    )
     raise EnvironmentLifecycleError("PORT_LEASE_START_TIMEOUT")
 def _active_document(plan: Mapping[str, Any], pid: int, lease_id: str, stamp: str) -> dict[str, object]:
     ports = dict(plan["ports"])
@@ -465,11 +505,13 @@ def _holder(
 ) -> int:
     listeners: list[socket.socket] = []
     diagnostic = _startup_diagnostic_path(startup_file)
-    _write_startup_diagnostic(diagnostic, "HOLDER_ENTERED", os.getpid())
+    record_stage = lambda stage: _write_startup_diagnostic(
+        diagnostic, stage, os.getpid()
+    )
+    record_stage("HOLDER_ENTERED")
     try:
         try:
-            identity = load_environment_identity(repo)
-            _write_startup_diagnostic(diagnostic, "IDENTITY_OK", os.getpid())
+            identity = load_environment_identity(repo, diagnostic=record_stage)
             if identity.package_id != package_id:
                 raise EnvironmentContractError("PACKAGE_OWNERSHIP_INVALID")
             stop_proof = _control_proof(repo, package_id, lease_id)

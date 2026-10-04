@@ -329,6 +329,7 @@ class _NeverReadyProcess:
 
     def terminate(self) -> None:
         self.terminated = True
+        self.exit_code = -15
 
     def wait(self, timeout: float):
         self.wait_timeouts.append(timeout)
@@ -370,12 +371,17 @@ def test_wait_startup_timeout_reports_bounded_stage(
         lifecycle._wait_startup(process, startup)
 
     assert str(captured.value) == "PORT_LEASE_START_TIMEOUT"
-    diagnostic = capsys.readouterr().err.strip()
+    stderr = capsys.readouterr().err
+    diagnostic, cleanup = stderr.strip().splitlines()
     for field in (
-        f"stage={expected_stage}", "processAlive=true", "pid=4242", "elapsedMs="
+        f"stage={expected_stage}", "processAliveBeforeTerminate=true",
+        "pid=4242", "elapsedMs="
     ):
         assert field in diagnostic
     assert diagnostic.startswith("PORT_LEASE_START_DIAGNOSTIC ")
+    assert cleanup == (
+        "PORT_LEASE_CLEANUP_DIAGNOSTIC processAliveAfterTerminate=false"
+    )
     assert process.terminated is True
     assert process.wait_timeouts == [2]
     assert clock["now"] >= 0.15
@@ -421,3 +427,46 @@ def test_wait_startup_ready_removes_diagnostic_temp_file(tmp_path: Path) -> None
     assert payload == {"status": "READY", "pid": 4242}
     assert not diagnostic_path.exists()
     assert process.terminated is False
+
+def test_environment_identity_deep_diagnostic_sequence_preserves_behavior(
+    tmp_path: Path,
+) -> None:
+    worktree, _contract_value = _single(tmp_path, "PKG-DEEP-DIAGNOSTIC")
+    stages: list[str] = []
+
+    instrumented = load_environment_identity(worktree, diagnostic=stages.append)
+    uninstrumented = load_environment_identity(worktree)
+
+    assert instrumented == uninstrumented
+    assert stages == [
+        "IDENTITY_ENTERED",
+        "RESOLVE_REPO_ROOT_START",
+        "RESOLVE_REPO_ROOT_OK",
+        "LOAD_REGISTRY_START",
+        "REGISTRY_COMMON_DIR_START",
+        "REGISTRY_COMMON_DIR_OK",
+        "REGISTRY_FILE_CHECK_START",
+        "REGISTRY_FILE_CHECK_OK",
+        "REGISTRY_FILE_READ_START",
+        "REGISTRY_FILE_READ_OK",
+        "REGISTRY_JSON_PARSE_OK",
+        "LOAD_REGISTRY_OK",
+        "ASSERT_OWNER_START",
+        "OWNERSHIP_READ_START",
+        "OWNERSHIP_READ_OK",
+        "REGISTRY_ENTRY_LOOKUP_START",
+        "REGISTRY_ENTRY_LOOKUP_OK",
+        "OWNERSHIP_TOKEN_CHECK_START",
+        "OWNERSHIP_TOKEN_CHECK_OK",
+        "WORKTREE_PATH_CHECK_START",
+        "WORKTREE_PATH_CHECK_OK",
+        "BRANCH_QUERY_START",
+        "BRANCH_QUERY_OK",
+        "MANIFEST_PARSE_START",
+        "MANIFEST_PARSE_OK",
+        "MANIFEST_FINGERPRINT_START",
+        "MANIFEST_FINGERPRINT_OK",
+        "OWNER_ASSERT_OK",
+        "ASSERT_OWNER_OK",
+        "IDENTITY_OK",
+    ]

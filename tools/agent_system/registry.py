@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 REGISTRY_VERSION = 1
 ACTIVE_STATES = {"active", "blocked-dirty"}
 class AgentRegistryError(RuntimeError):
@@ -36,12 +36,30 @@ def token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 def empty_registry() -> dict[str, Any]:
     return {"registryVersion": REGISTRY_VERSION, "entries": []}
-def load_registry(repo_root: Path) -> dict[str, Any]:
+def load_registry(
+    repo_root: Path,
+    diagnostic: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
+    if diagnostic:
+        diagnostic("REGISTRY_COMMON_DIR_START")
     path = registry_path(repo_root)
-    if not path.exists():
+    if diagnostic:
+        diagnostic("REGISTRY_COMMON_DIR_OK")
+        diagnostic("REGISTRY_FILE_CHECK_START")
+    exists = path.exists()
+    if diagnostic:
+        diagnostic("REGISTRY_FILE_CHECK_OK")
+    if not exists:
         return empty_registry()
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        if diagnostic:
+            diagnostic("REGISTRY_FILE_READ_START")
+        source = path.read_text(encoding="utf-8")
+        if diagnostic:
+            diagnostic("REGISTRY_FILE_READ_OK")
+        payload = json.loads(source)
+        if diagnostic:
+            diagnostic("REGISTRY_JSON_PARSE_OK")
     except Exception as exc:
         raise AgentRegistryError(f"REGISTRY_INVALID path={path}") from exc
     if payload.get("registryVersion") != REGISTRY_VERSION or not isinstance(payload.get("entries"), list):
