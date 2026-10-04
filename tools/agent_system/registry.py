@@ -22,7 +22,7 @@ def _git(repo_root: Path, *args: str) -> str:
 def resolve_repo_root(path: Path | str) -> Path:
     root = _git(Path(path).resolve(), "rev-parse", "--show-toplevel")
     return Path(root).resolve()
-def git_common_dir(repo_root: Path) -> Path:
+def _git_dir_from_metadata(repo_root: Path) -> Path:
     repo = Path(repo_root).resolve()
     dotgit = repo / ".git"
     try:
@@ -43,7 +43,16 @@ def git_common_dir(repo_root: Path) -> Path:
                 raise AgentRegistryError("GIT_METADATA_INVALID")
         else:
             raise AgentRegistryError("GIT_METADATA_INVALID")
+        return git_dir
+    except AgentRegistryError:
+        raise
+    except (OSError, RuntimeError, ValueError):
+        raise AgentRegistryError("GIT_METADATA_INVALID") from None
 
+
+def git_common_dir(repo_root: Path) -> Path:
+    git_dir = _git_dir_from_metadata(repo_root)
+    try:
         commondir = git_dir / "commondir"
         if not commondir.exists():
             return git_dir
@@ -63,6 +72,38 @@ def git_common_dir(repo_root: Path) -> Path:
         raise
     except (OSError, RuntimeError, ValueError):
         raise AgentRegistryError("GIT_METADATA_INVALID") from None
+
+
+def current_branch_from_metadata(repo_root: Path) -> str:
+    """Return the checked-out branch from worktree Git metadata without Git."""
+    git_dir = _git_dir_from_metadata(repo_root)
+    head = git_dir / "HEAD"
+    try:
+        if not head.is_file():
+            raise AgentRegistryError("GIT_METADATA_INVALID")
+        raw = head.read_text(encoding="utf-8").strip()
+        if not raw or "\n" in raw or "\r" in raw:
+            raise AgentRegistryError("GIT_METADATA_INVALID")
+        prefix = "ref: refs/heads/"
+        if raw.startswith(prefix):
+            branch = raw[len(prefix):]
+            if (
+                not branch
+                or branch.startswith("/")
+                or branch.endswith("/")
+                or any(char.isspace() or ord(char) < 32 for char in branch)
+            ):
+                raise AgentRegistryError("GIT_METADATA_INVALID")
+            return branch
+        if len(raw) == 40 and all(char in "0123456789abcdefABCDEF" for char in raw):
+            return ""
+        raise AgentRegistryError("GIT_METADATA_INVALID")
+    except AgentRegistryError:
+        raise
+    except (OSError, RuntimeError, ValueError, UnicodeError):
+        raise AgentRegistryError("GIT_METADATA_INVALID") from None
+
+
 def state_root(repo_root: Path) -> Path:
     return git_common_dir(repo_root) / "izo-agent"
 def registry_path(repo_root: Path) -> Path:

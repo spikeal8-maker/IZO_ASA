@@ -155,17 +155,12 @@ def discover_production_path_contract(repo_root: Path | str) -> ProductionPathCo
         secret_roots,
         (PRODUCTION_PROMOTER.as_posix(),),
     )
-def load_environment_identity(
-    repo_root: Path | str,
+def _load_environment_identity_from_resolved_repo(
+    repo: Path,
     diagnostic: Callable[[str], None] | None = None,
 ) -> EnvironmentIdentity:
-    """Resolve the active package solely through the existing ownership/registry."""
-    if diagnostic:
-        diagnostic("IDENTITY_ENTERED")
-        diagnostic("RESOLVE_REPO_ROOT_START")
-    repo = resolve_repo_root(repo_root)
-    if diagnostic:
-        diagnostic("RESOLVE_REPO_ROOT_OK")
+    """Load package identity from an already canonical worktree without Git resolution."""
+    repo = Path(repo)
     try:
         if diagnostic:
             diagnostic("LOAD_REGISTRY_START")
@@ -194,6 +189,22 @@ def load_environment_identity(
         worktree_path=repo,
         branch=str(entry["branch"]),
     )
+
+
+def load_environment_identity(
+    repo_root: Path | str,
+    diagnostic: Callable[[str], None] | None = None,
+) -> EnvironmentIdentity:
+    """Resolve the repository root, then load the active package identity."""
+    if diagnostic:
+        diagnostic("IDENTITY_ENTERED")
+        diagnostic("RESOLVE_REPO_ROOT_START")
+    repo = resolve_repo_root(repo_root)
+    if diagnostic:
+        diagnostic("RESOLVE_REPO_ROOT_OK")
+    return _load_environment_identity_from_resolved_repo(repo, diagnostic=diagnostic)
+
+
 def derive_environment_paths(identity: EnvironmentIdentity) -> EnvironmentPaths:
     root = identity.worktree_path / ".runtime" / "agent-env" / identity.package_id
     return EnvironmentPaths(

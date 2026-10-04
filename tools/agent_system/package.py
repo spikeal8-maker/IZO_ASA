@@ -14,7 +14,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
-from .registry import AgentRegistryError, active_entries, atomic_write_text, load_registry, registry_lock, registry_path, resolve_repo_root, save_registry, token_hash
+from .registry import AgentRegistryError, active_entries, atomic_write_text, current_branch_from_metadata, load_registry, registry_lock, registry_path, resolve_repo_root, save_registry, token_hash
 ID_RE = re.compile(r"^[A-Z0-9][A-Z0-9-]{2,79}$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 RISK_CLASSES = {"low", "standard", "high-assurance", "release-ops"}
@@ -240,7 +240,7 @@ def _assert_owner(
     if diagnostic:
         diagnostic("WORKTREE_PATH_CHECK_OK")
         diagnostic("BRANCH_QUERY_START")
-    branch = _git(repo, "branch", "--show-current")
+    branch = current_branch_from_metadata(repo)
     if diagnostic:
         diagnostic("BRANCH_QUERY_OK")
     if entry.get("branch") != branch:

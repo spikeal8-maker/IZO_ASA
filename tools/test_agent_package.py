@@ -25,6 +25,7 @@ from tools.agent_system.package import (
 from tools.agent_system.registry import (
     AgentRegistryError,
     atomic_write_bytes,
+    current_branch_from_metadata,
     git_common_dir,
     load_registry,
     registry_path,
@@ -244,6 +245,56 @@ def test_git_common_dir_rejects_empty_commondir_without_git_fallback(
     )
     with pytest.raises(AgentRegistryError, match="^GIT_METADATA_INVALID$"):
         git_common_dir(worktree)
+
+
+def test_current_branch_from_metadata_normal_repo_uses_filesystem_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    dotgit = repo / ".git"
+    dotgit.mkdir(parents=True)
+    (dotgit / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    monkeypatch.setattr(
+        registry_module,
+        "_git",
+        lambda *_args, **_kwargs: pytest.fail("unexpected git subprocess"),
+    )
+    assert current_branch_from_metadata(repo) == "main"
+
+
+def test_current_branch_from_metadata_linked_worktree(tmp_path: Path) -> None:
+    common = tmp_path / "control" / ".git"
+    git_dir = common / "worktrees" / "wt"
+    git_dir.mkdir(parents=True)
+    (git_dir / "HEAD").write_text(
+        "ref: refs/heads/agent/pkg-one\n",
+        encoding="utf-8",
+    )
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    (worktree / ".git").write_text(f"gitdir: {git_dir}\n", encoding="utf-8")
+    assert current_branch_from_metadata(worktree) == "agent/pkg-one"
+
+
+def test_current_branch_from_metadata_detached_head_returns_empty(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    dotgit = repo / ".git"
+    dotgit.mkdir(parents=True)
+    (dotgit / "HEAD").write_text("0" * 40 + "\n", encoding="utf-8")
+    assert current_branch_from_metadata(repo) == ""
+
+
+def test_current_branch_from_metadata_malformed_head_fails_closed(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    dotgit = repo / ".git"
+    dotgit.mkdir(parents=True)
+    (dotgit / "HEAD").write_text(
+        "ref: refs/remotes/origin/main\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(AgentRegistryError, match="^GIT_METADATA_INVALID$"):
+        current_branch_from_metadata(repo)
 
 
 def test_start_creates_canonical_manifest_and_shared_registry(tmp_path: Path) -> None:

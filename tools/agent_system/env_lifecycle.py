@@ -19,6 +19,7 @@ from .env import (
     EnvironmentIdentity,
     EnvironmentPaths,
     ProductionPathContract,
+    _load_environment_identity_from_resolved_repo,
     build_environment_plan,
     derive_environment_paths,
     discover_production_path_contract,
@@ -511,7 +512,9 @@ def _holder(
     record_stage("HOLDER_ENTERED")
     try:
         try:
-            identity = load_environment_identity(repo, diagnostic=record_stage)
+            identity = _load_environment_identity_from_resolved_repo(
+                repo, diagnostic=record_stage
+            )
             if identity.package_id != package_id:
                 raise EnvironmentContractError("PACKAGE_OWNERSHIP_INVALID")
             stop_proof = _control_proof(repo, package_id, lease_id)
@@ -576,7 +579,14 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    repo = resolve_repo_root(args.repo_root)
+    if args.command == "_holder":
+        try:
+            repo = Path(args.repo_root).resolve(strict=True)
+        except (OSError, RuntimeError):
+            print("PACKAGE_OWNERSHIP_INVALID", file=sys.stderr)
+            return 2
+    else:
+        repo = resolve_repo_root(args.repo_root)
     try:
         if args.command == "up":
             print("AGENT_ENV_UP " + json.dumps(env_up(repo), sort_keys=True))

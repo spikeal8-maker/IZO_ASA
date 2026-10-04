@@ -428,6 +428,62 @@ def test_wait_startup_ready_removes_diagnostic_temp_file(tmp_path: Path) -> None
     assert not diagnostic_path.exists()
     assert process.terminated is False
 
+def test_internal_holder_command_uses_filesystem_path_without_repo_git_resolution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "resolved-worktree"
+    repo.mkdir()
+    reached: dict[str, object] = {}
+
+    def unexpected_resolve(*_args, **_kwargs):
+        pytest.fail("resolve_repo_root must not run for internal _holder")
+
+    def fake_holder(
+        holder_repo: Path,
+        package_id: str,
+        lease_id: str,
+        backend: int,
+        frontend: int,
+        startup_file: Path,
+    ) -> int:
+        reached.update(
+            repo=holder_repo,
+            package_id=package_id,
+            lease_id=lease_id,
+            backend=backend,
+            frontend=frontend,
+            startup_file=startup_file,
+        )
+        return 17
+
+    monkeypatch.setattr(lifecycle, "resolve_repo_root", unexpected_resolve)
+    monkeypatch.setattr(lifecycle, "_holder", fake_holder)
+
+    startup = tmp_path / "startup.json"
+    result = lifecycle.main(
+        [
+            "--repo-root",
+            str(repo),
+            "_holder",
+            "--package-id",
+            "PKG-HOLDER-ROUTE",
+            "--lease-id",
+            "lease-1",
+            "--backend-port",
+            "21000",
+            "--frontend-port",
+            "21001",
+            "--startup-file",
+            str(startup),
+        ]
+    )
+
+    assert result == 17
+    assert reached["repo"] == repo.resolve()
+    assert reached["package_id"] == "PKG-HOLDER-ROUTE"
+
+
 def test_environment_identity_deep_diagnostic_sequence_preserves_behavior(
     tmp_path: Path,
 ) -> None:
