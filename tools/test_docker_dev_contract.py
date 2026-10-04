@@ -1,10 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import re
 import subprocess
 from pathlib import Path
 
-from tools.agent_system.env_runtime import EMPTY_CREDENTIAL_KEYS
+from tools.agent_system.env_runtime import EMPTY_CREDENTIAL_KEYS, build_exact_child_environment
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCKERFILE = ROOT / "ops" / "docker" / "dev" / "Dockerfile.backend"
@@ -12,7 +12,7 @@ DOCKERIGNORE = ROOT / ".dockerignore"
 COMPOSE = ROOT / "ops" / "docker" / "dev" / "compose.yml"
 ENV_EXAMPLE = ROOT / "ops" / "docker" / "dev" / ".env.example"
 AGENT_SANDBOX = ROOT / "ops" / "docker" / "agent-sandbox"
-BASE_SHA = "126d276ef1a9fc09935125203288c013627457ed"
+BASE_SHA = "949ffae1914b732af53447fdf63a8419dd0bd151"
 BASE_IMAGE = "python:3.11.9-slim-bookworm"
 BASE_DIGEST = "sha256:8fb099199b9f2d70342674bd9dbccd3ed03a258f26bbd1d556822c6dfc60c317"
 
@@ -25,6 +25,19 @@ def _dockerfile() -> str:
 
 def _compose() -> str:
     return COMPOSE.read_text(encoding="utf-8")
+
+
+def _compose_value(value: str, overrides: dict[str, str] | None = None) -> str:
+    match = re.fullmatch(r"\$\{([A-Z0-9_]+):-([^}]*)\}", value)
+    if not match:
+        return value
+    return (overrides or {}).get(match.group(1), match.group(2))
+
+
+def _compose_network_mode(overrides: dict[str, str] | None = None) -> str:
+    match = re.search(r"(?m)^    network_mode: (.+)$", _compose())
+    assert match is not None
+    return _compose_value(match.group(1).strip(), overrides)
 
 
 def _compose_environment() -> dict[str, str]:
@@ -204,7 +217,7 @@ def test_compose_build_only_backend_contract() -> None:
 
 def test_compose_runtime_c_isolated_contract() -> None:
     text = _compose()
-    assert "    network_mode: none" in text
+    assert _compose_network_mode() == "none"
     assert '    user: "10001:10001"' in text
     assert '    restart: "no"' in text
     assert "    cpus: 2.0" in text
@@ -240,7 +253,7 @@ def test_compose_runtime_c_isolated_contract() -> None:
 
 
 def test_compose_runtime_c_environment_is_sanitized() -> None:
-    env = _compose_environment()
+    env = {key: _compose_value(value) for key, value in _compose_environment().items()}
     expected = {
         "DATABASE_URL": "/home/izo/data/app.sqlite3",
         "MEDIA_DIR": "/home/izo/media",
@@ -350,3 +363,72 @@ def test_slice_d_provenance_guard_blocks_dirty_up_but_not_down() -> None:
     assert "docker container prune" not in text
     assert "docker volume prune" not in text
     assert "docker network prune" not in text
+
+
+
+def test_slice_e_provider_boundary_is_explicit_opt_in_and_fail_closed() -> None:
+    compose_env = _compose_environment()
+    overrides = {
+        "IZO_DOCKER_NETWORK_MODE": "bridge",
+        "IZO_DOCKER_COMFYUI_BASE_URL": "http://host.docker.internal:18188",
+        "IZO_DOCKER_OLLAMA_BASE_URL": "http://host.docker.internal:11434",
+        "IZO_DOCKER_QWEN_ASR_BASE_URL": "http://host.docker.internal:18001",
+        "IZO_DOCKER_LOCAL_LTX_COMFYUI_BASE_URL": "http://host.docker.internal:18190",
+    }
+    assert _compose_network_mode() == "none"
+    assert _compose_network_mode(overrides) == "bridge"
+    for key, expected in {
+        "COMFYUI_BASE_URL": overrides["IZO_DOCKER_COMFYUI_BASE_URL"],
+        "OLLAMA_BASE_URL": overrides["IZO_DOCKER_OLLAMA_BASE_URL"],
+        "QWEN_ASR_BASE_URL": overrides["IZO_DOCKER_QWEN_ASR_BASE_URL"],
+        "LOCAL_LTX_COMFYUI_BASE_URL": overrides["IZO_DOCKER_LOCAL_LTX_COMFYUI_BASE_URL"],
+    }.items():
+        assert _compose_value(compose_env[key], overrides) == expected
+
+    agent = (ROOT / "tools" / "agent.ps1").read_text(encoding="utf-8")
+    assert "[switch]$DockerProvidersEnabled" in agent
+    assert "DOCKER_DEV_PROVIDER_MODE_REQUIRED" in agent
+    assert "DOCKER_DEV_PROVIDER_ENDPOINT_REQUIRED" in agent
+    assert "DOCKER_DEV_PROVIDER_ENDPOINT_INVALID" in agent
+    assert "DOCKER_DEV_PROVIDER_ENDPOINT_PORT_REQUIRED" in agent
+    assert "DOCKER_DEV_PROVIDER_ENDPOINT_LOOPBACK_FORBIDDEN" in agent
+    assert '$hostName -eq "localhost" -or $loopbackIp' in agent
+    assert '$dockerNetworkMode = if ($DockerProvidersEnabled) { "bridge" } else { "none" }' in agent
+    assert agent.index("DOCKER_DEV_PROVIDER_ENDPOINT_LOOPBACK_FORBIDDEN") < agent.index("$dockerCommand = Get-Command docker")
+
+
+def test_slice_e_env_example_documents_safe_explicit_host_boundary() -> None:
+    text = ENV_EXAMPLE.read_text(encoding="utf-8")
+    assert "http://host.docker.internal:<comfyui-port>" in text
+    assert "http://host.docker.internal:<ollama-port>" in text
+    assert "http://host.docker.internal:<qwen-port>" in text
+    assert "http://host.docker.internal:<ltx-comfyui-port>" in text
+    for name in CREDENTIAL_NAMES:
+        assert name not in text
+
+
+def test_slice_e_native_docker_deterministic_parity_matrix() -> None:
+    disabled = "http://127.0.0.1:1"
+    native = build_exact_child_environment(
+        database_path=Path("C:/isolated-dev/db/app.sqlite3"),
+        media_root=Path("C:/isolated-dev/media"),
+        secret_dir=Path("C:/isolated-dev/secrets"),
+        local_provider_endpoints={
+            "COMFYUI_BASE_URL": disabled,
+            "OLLAMA_BASE_URL": disabled,
+            "QWEN_ASR_BASE_URL": disabled,
+        },
+    )
+    docker = {key: _compose_value(value) for key, value in _compose_environment().items()}
+    native_database = native["DATABASE_URL"].replace("\\", "/")
+    native_media = native["MEDIA_DIR"].replace("\\", "/")
+    matrix = {
+        "health_contract": '@app.get("/api/health")' in (ROOT / "backend" / "main.py").read_text(encoding="utf-8"),
+        "storage": native_database.startswith("C:/isolated-dev/") and docker["DATABASE_URL"] == "/home/izo/data/app.sqlite3",
+        "media": native_media.startswith("C:/isolated-dev/") and docker["MEDIA_DIR"] == "/home/izo/media",
+        "provider_config": all(native[key] == docker[key] == disabled for key in ("COMFYUI_BASE_URL", "OLLAMA_BASE_URL", "QWEN_ASR_BASE_URL")),
+        "provider_disabled": docker["LOCAL_LTX_COMFYUI_BASE_URL"] == disabled and _compose_network_mode() == "none",
+        "credentials": all(native[name] == "" and docker[name] == '""' for name in CREDENTIAL_NAMES),
+        "no_production_paths": "IZO_ASA/releases" not in native_database and not docker["DATABASE_URL"].startswith("C:"),
+    }
+    assert matrix == {key: True for key in matrix}

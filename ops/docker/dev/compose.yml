@@ -8,7 +8,7 @@ services:
       args:
         IZO_SOURCE_SHA: ${IZO_SOURCE_SHA:?IZO_SOURCE_SHA is required}
     image: izo-asa-dev-backend:${IZO_SOURCE_SHA:?IZO_SOURCE_SHA is required}
-    network_mode: none
+    network_mode: ${IZO_DOCKER_NETWORK_MODE:-none}
     user: "10001:10001"
     restart: "no"
     cpus: 2.0
@@ -42,10 +42,10 @@ services:
       MAX_POLLING_ENABLED: "false"
       LOCAL_LTX_ENABLED: "false"
       EMAIL_OTP_DEBUG_RETURN_CODE: "false"
-      COMFYUI_BASE_URL: http://127.0.0.1:1
-      OLLAMA_BASE_URL: http://127.0.0.1:1
-      QWEN_ASR_BASE_URL: http://127.0.0.1:1
-      LOCAL_LTX_COMFYUI_BASE_URL: http://127.0.0.1:1
+      COMFYUI_BASE_URL: ${IZO_DOCKER_COMFYUI_BASE_URL:-http://127.0.0.1:1}
+      OLLAMA_BASE_URL: ${IZO_DOCKER_OLLAMA_BASE_URL:-http://127.0.0.1:1}
+      QWEN_ASR_BASE_URL: ${IZO_DOCKER_QWEN_ASR_BASE_URL:-http://127.0.0.1:1}
+      LOCAL_LTX_COMFYUI_BASE_URL: ${IZO_DOCKER_LOCAL_LTX_COMFYUI_BASE_URL:-http://127.0.0.1:1}
       OPENROUTER_BASE_URL: http://127.0.0.1:1
       MAX_API_BASE_URL: http://127.0.0.1:1
       CBR_DAILY_XML_URL: http://127.0.0.1:1
