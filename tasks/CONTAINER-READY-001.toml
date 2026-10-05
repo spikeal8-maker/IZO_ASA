@@ -22,6 +22,7 @@ declaredFiles = [
   "backend/test_phone_audio.py",
   "ops/docker/dev/compose.yml",
   "tools/test_docker_dev_contract.py",
+  "backend/SYMBOL_MAP.md",
 ]
 allowedPatterns = []
 forbiddenPatterns = [
@@ -44,8 +45,8 @@ maxProductionFiles = 1
 maxChangedLines = 460
 acceptance = [
   "docs/NOW.md records DOCKER-DEV-001 as completed, CONTAINER-READY-001 as active and CONTAINER-SHADOW-001 as next at exact base 77fd1ed7ede83b9bc8216008b685b8fd51242879 without changing production release evidence.",
-  "The cumulative branch changes only docs/NOW.md, tasks/CONTAINER-READY-001.toml, backend/app/api/routers/phone_audio.py, backend/test_phone_audio.py, ops/docker/dev/compose.yml and tools/test_docker_dev_contract.py with productionFileCount=1.",
-  "CR-TTS-01 implementation is linked only to the proven PHONE_AUDIO_WINDOWS_TTS_SUBPROCESS blocker; no other portability cleanup is authorized.",
+  "The cumulative branch changes only docs/NOW.md, tasks/CONTAINER-READY-001.toml, backend/app/api/routers/phone_audio.py, backend/test_phone_audio.py, ops/docker/dev/compose.yml, tools/test_docker_dev_contract.py and backend/SYMBOL_MAP.md with productionFileCount=1.",
+  "CR-TTS-01 implementation is linked only to the proven PHONE_AUDIO_WINDOWS_TTS_SUBPROCESS blocker; backend/SYMBOL_MAP.md is a deterministic generated companion required by repository verification after the authorized phone_audio.py route line movement and does not expand product scope.",
   "Every candidate blocker listed by Issue #124 is classified as PROVEN_BLOCKER, ALREADY_ISOLATED or NOT_PROVEN using bounded current-main evidence.",
   "Every PROVEN_BLOCKER identifies file, symbol, current behavior, target Docker behavior and reproduction/evidence.",
   "The first implementation target is the smallest local reproducible PROVEN_BLOCKER, or NONE when no implementation target is proven.",
@@ -62,10 +63,13 @@ requiredEvidence = [
   "Focused phone-audio tests prove Windows default selection and PowerShell/System.Speech command contract, deterministic fake WAV route behavior, non-Windows unconfigured fail-closed behavior and unknown-provider fail-closed behavior.",
   "Docker contract tests prove IZO_PHONE_TTS_PROVIDER=fake while preserving Slice D/E isolation and security invariants.",
   "Exact D2-R2 Linux-container speech-route proof after exact-head CI shows HTTP 200 WAV through the fake provider with no powershell.exe invocation.",
+  "python tools/generate_backend_map.py regenerates backend/SYMBOL_MAP.md from exact source.",
+  "python tools/generate_backend_map.py --check passes on the regenerated map.",
 ]
 targetedTests = [
   "backend/test_phone_audio.py",
   "tools/test_docker_dev_contract.py",
+  "tools/test_generate_backend_map.py",
 ]
 fileGrowthExpectations = [
   "docs/NOW.md remains a compact current-status router and does not accumulate package receipts.",
@@ -83,4 +87,4 @@ forbiddenOperations = [
   "issue-126-implementation",
   "merge-to-main",
 ]
-rollbackBoundary = "Revert CR-TTS-01 only from backend/app/api/routers/phone_audio.py, backend/test_phone_audio.py, ops/docker/dev/compose.yml, tools/test_docker_dev_contract.py and the matching task-manifest scope expansion; preserve the accepted activation commit/docs/NOW.md routing, production release evidence, production data/providers and Windows production topology."
+rollbackBoundary = "Revert CR-TTS-01 only from backend/app/api/routers/phone_audio.py, backend/test_phone_audio.py, ops/docker/dev/compose.yml, tools/test_docker_dev_contract.py, the matching task-manifest scope expansion and the deterministic backend/SYMBOL_MAP.md regeneration; preserve the accepted activation commit/docs/NOW.md routing, production release evidence, production data/providers and Windows production topology."
