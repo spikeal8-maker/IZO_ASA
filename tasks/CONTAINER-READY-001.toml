@@ -2,14 +2,14 @@ manifestVersion = 1
 id = "CONTAINER-READY-001"
 baseSha = "77fd1ed7ede83b9bc8216008b685b8fd51242879"
 goal = "Remove only portability blockers proven by current Docker DEV/TEST evidence without changing product semantics or performing production cutover."
-userOutcome = "The container-readiness package starts from an exact accepted Docker DEV baseline, classifies each candidate portability blocker with bounded evidence, and authorizes implementation only for a reproduced blocker."
-beforeScenario = "DOCKER-DEV-001 is completed and merged, while docs/NOW.md still routes #115 as active and the #124 portability candidates have not been freshly classified against current main."
-afterScenario = "docs/NOW.md routes CONTAINER-READY-001 as active, this manifest defines the initial audit-only scope, every Issue #124 candidate blocker is classified, and the smallest proven implementation target is identified or explicitly reported as none."
+userOutcome = "The active phone speech route uses one explicit provider boundary: native Windows keeps System.Speech semantics, Docker DEV/TEST uses deterministic in-process fake WAV synthesis, and unsupported configurations fail closed without Docker-specific business branches."
+beforeScenario = "CONTAINER-READY-001 activation/audit is independently approved at 84eda619a2ffc41c81d73bac309086e6c5705d0d with one proven blocker: the active phone speech route directly executes Windows PowerShell/System.Speech and therefore cannot execute in the accepted Linux backend container."
+afterScenario = "CONTAINER-READY-001 remains active, CR-TTS-01 removes the proven PHONE_AUDIO_WINDOWS_TTS_SUBPROCESS assumption through one explicit speech-provider boundary, native Windows speech remains equivalent, and Docker DEV/TEST uses deterministic in-process fake speech without production cutover."
 nonGoals = [
-  "change application portability behavior during activation/audit",
+  "change portability behavior outside the proven PHONE_AUDIO_WINDOWS_TTS_SUBPROCESS blocker",
   "change product semantics",
   "change Docker DEV runtime or Compose behavior",
-  "run Docker runtime in this activation task",
+  "run Docker runtime before exact-head CI or outside the bounded D2-R2 CR-TTS-01 proof",
   "perform production cutover, deploy, restart or production-data operations",
   "use real provider endpoints or production secrets",
   "start CONTAINER-SHADOW-001 #125",
@@ -18,13 +18,20 @@ nonGoals = [
 declaredFiles = [
   "tasks/CONTAINER-READY-001.toml",
   "docs/NOW.md",
+  "backend/app/api/routers/phone_audio.py",
+  "backend/test_phone_audio.py",
+  "ops/docker/dev/compose.yml",
+  "tools/test_docker_dev_contract.py",
 ]
 allowedPatterns = []
 forbiddenPatterns = [
-  "backend/**",
+  "backend/main.py",
+  "backend/app/config.py",
+  "backend/app/security/**",
   "frontend/**",
-  "ops/**",
-  "tools/**",
+  "ops/release/**",
+  "ops/windows/**",
+  "tools/agent_system/**",
   "architecture/**",
   ".github/**",
   "docs/generated/**",
@@ -32,36 +39,41 @@ forbiddenPatterns = [
 protectedFilesTouched = []
 domain = "container-portability"
 riskClass = "standard"
-changeClass = "governance"
-maxProductionFiles = 0
-maxChangedLines = 260
+changeClass = "architecture"
+maxProductionFiles = 1
+maxChangedLines = 460
 acceptance = [
   "docs/NOW.md records DOCKER-DEV-001 as completed, CONTAINER-READY-001 as active and CONTAINER-SHADOW-001 as next at exact base 77fd1ed7ede83b9bc8216008b685b8fd51242879 without changing production release evidence.",
-  "The current activation slice changes only docs/NOW.md and tasks/CONTAINER-READY-001.toml with productionFileCount=0.",
-  "No application portability change is authorized until the bounded audit proves a blocker.",
+  "The cumulative branch changes only docs/NOW.md, tasks/CONTAINER-READY-001.toml, backend/app/api/routers/phone_audio.py, backend/test_phone_audio.py, ops/docker/dev/compose.yml and tools/test_docker_dev_contract.py with productionFileCount=1.",
+  "CR-TTS-01 implementation is linked only to the proven PHONE_AUDIO_WINDOWS_TTS_SUBPROCESS blocker; no other portability cleanup is authorized.",
   "Every candidate blocker listed by Issue #124 is classified as PROVEN_BLOCKER, ALREADY_ISOLATED or NOT_PROVEN using bounded current-main evidence.",
   "Every PROVEN_BLOCKER identifies file, symbol, current behavior, target Docker behavior and reproduction/evidence.",
   "The first implementation target is the smallest local reproducible PROVEN_BLOCKER, or NONE when no implementation target is proven.",
   "Issue #124 receives the activation baseline, classification table and first proposed implementation target without changing Issue acceptance.",
-  "No Docker runtime, provider call, production operation, #125 work or #126 work is performed.",
+  "No Docker-specific business branch is introduced; native Windows speech semantics remain equivalent, Docker DEV/TEST uses deterministic in-process fake speech, and no real provider credential or production operation is used.",
 ]
 requiredEvidence = [
   "Fresh GitHub guard proving main 77fd1ed7ede83b9bc8216008b685b8fd51242879, predecessor #115 completed, PR #171 merged, #124/#125/#126 open and post-merge CI #743 successful with zero failed tests.",
   "Targeted reads of AI_START_HERE.md, docs/NOW.md, docs/stabilization-optimization-master-spec.md, Issue #124 and applicable repository policy.",
   "Bounded portability audit covering Windows paths, provider localhost boundary, DPAPI, Windows service control, storage/media, readiness/shutdown, subprocess/process-owner assumptions and runtime identity/environment detection.",
   "git diff --check PASS.",
-  "Manifest parser/package enforcement PASS with productionFileCount=0 and findings=[].",
+  "Manifest parser/package enforcement PASS with productionFileCount=1, productionFiles=[backend/app/api/routers/phone_audio.py] and findings=[].",
   "Issue #124 activation comment containing the audit classification table and first implementation target.",
+  "Focused phone-audio tests prove Windows default selection and PowerShell/System.Speech command contract, deterministic fake WAV route behavior, non-Windows unconfigured fail-closed behavior and unknown-provider fail-closed behavior.",
+  "Docker contract tests prove IZO_PHONE_TTS_PROVIDER=fake while preserving Slice D/E isolation and security invariants.",
+  "Exact D2-R2 Linux-container speech-route proof after exact-head CI shows HTTP 200 WAV through the fake provider with no powershell.exe invocation.",
 ]
-targetedTests = []
+targetedTests = [
+  "backend/test_phone_audio.py",
+  "tools/test_docker_dev_contract.py",
+]
 fileGrowthExpectations = [
   "docs/NOW.md remains a compact current-status router and does not accumulate package receipts.",
-  "tasks/CONTAINER-READY-001.toml remains bounded to activation/audit governance until a proven blocker authorizes scope expansion.",
-  "No production or application source grows in this activation task.",
+  "tasks/CONTAINER-READY-001.toml records only the independently approved CR-TTS-01 scope expansion for PHONE_AUDIO_WINDOWS_TTS_SUBPROCESS.",
+  "Only backend/app/api/routers/phone_audio.py is production source in CR-TTS-01; no second production file is authorized.",
 ]
 forbiddenOperations = [
-  "application-portability-change-before-proven-blocker",
-  "docker-runtime",
+  "portability-change-outside-phone-audio-tts",
   "production-deploy",
   "production-restart",
   "production-data",
@@ -71,4 +83,4 @@ forbiddenOperations = [
   "issue-126-implementation",
   "merge-to-main",
 ]
-rollbackBoundary = "Revert only docs/NOW.md and tasks/CONTAINER-READY-001.toml from this activation slice; leave application code, Docker runtime/configuration, production release evidence, production data/providers and Windows production topology unchanged."
+rollbackBoundary = "Revert CR-TTS-01 only from backend/app/api/routers/phone_audio.py, backend/test_phone_audio.py, ops/docker/dev/compose.yml, tools/test_docker_dev_contract.py and the matching task-manifest scope expansion; preserve the accepted activation commit/docs/NOW.md routing, production release evidence, production data/providers and Windows production topology."
