@@ -1,0 +1,95 @@
+name: ${IZO_COMPOSE_PROJECT:?IZO_COMPOSE_PROJECT is required}
+
+services:
+  backend:
+    build:
+      context: ../../..
+      dockerfile: ops/docker/dev/Dockerfile.backend
+      args:
+        IZO_SOURCE_SHA: ${IZO_SOURCE_SHA:?IZO_SOURCE_SHA is required}
+    image: izo-asa-dev-backend:${IZO_SOURCE_SHA:?IZO_SOURCE_SHA is required}
+    network_mode: ${IZO_DOCKER_NETWORK_MODE:-none}
+    user: "10001:10001"
+    restart: "no"
+    cpus: 2.0
+    mem_limit: 2g
+    pids_limit: 128
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      io.izo.owner: DOCKER-DEV-001
+      io.izo.project: ${IZO_COMPOSE_PROJECT:?IZO_COMPOSE_PROJECT is required}
+    volumes:
+      - type: volume
+        source: sqlite-data
+        target: /home/izo/data
+      - type: volume
+        source: media-data
+        target: /home/izo/media
+    environment:
+      DATABASE_URL: /home/izo/data/app.sqlite3
+      MEDIA_DIR: /home/izo/media
+      IZO_SECRET_DIR: /home/izo/secrets
+      APP_ENV: test
+      ENV: test
+      MODE: test
+      BOT_MODE: disabled
+      BOT_UPDATES_MODE: disabled
+      TELEGRAM_POLLING_ENABLED: "false"
+      MAX_UPDATES_MODE: disabled
+      MAX_POLLING_ENABLED: "false"
+      LOCAL_LTX_ENABLED: "false"
+      EMAIL_OTP_DEBUG_RETURN_CODE: "false"
+      COMFYUI_BASE_URL: ${IZO_DOCKER_COMFYUI_BASE_URL:-http://127.0.0.1:1}
+      OLLAMA_BASE_URL: ${IZO_DOCKER_OLLAMA_BASE_URL:-http://127.0.0.1:1}
+      QWEN_ASR_BASE_URL: ${IZO_DOCKER_QWEN_ASR_BASE_URL:-http://127.0.0.1:1}
+      LOCAL_LTX_COMFYUI_BASE_URL: ${IZO_DOCKER_LOCAL_LTX_COMFYUI_BASE_URL:-http://127.0.0.1:1}
+      OPENROUTER_BASE_URL: http://127.0.0.1:1
+      MAX_API_BASE_URL: http://127.0.0.1:1
+      CBR_DAILY_XML_URL: http://127.0.0.1:1
+      USD_RUB_FALLBACK_URL: http://127.0.0.1:1
+      MAX_WEBHOOK_URL: ""
+      BACKEND_PUBLIC_URL: ""
+      RUNTIME_ALERT_WEBHOOK_URL: ""
+      ADMIN_ONE_TIME_CODE: ""
+      MAX_BOT_TOKEN: ""
+      MAX_WEBHOOK_SECRET: ""
+      OPENROUTER_API_KEY: ""
+      PAYMENT_PROVIDER_TOKEN: ""
+      RUNTIME_SYNTHETIC_KEY: ""
+      SESSION_HMAC_SECRET: ""
+      SMTP_PASSWORD: ""
+      SMTP_TOKEN: ""
+      SMTP_USERNAME: ""
+      TELEGRAM_BOT_TOKEN: ""
+      TELEGRAM_WEBHOOK_SECRET: ""
+      UNISENDER_API_KEY: ""
+      VK_ACCESS_TOKEN: ""
+      VK_API_KEY: ""
+      VK_SECRET: ""
+      VK_SERVICE_TOKEN: ""
+      VK_TOKEN: ""
+      YOOKASSA_SECRET_KEY: ""
+      YOOKASSA_SHOP_ID: ""
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      all_proxy: ""
+      NO_PROXY: localhost,127.0.0.1
+      no_proxy: localhost,127.0.0.1
+
+volumes:
+  sqlite-data:
+    labels:
+      io.izo.owner: DOCKER-DEV-001
+      io.izo.project: ${IZO_COMPOSE_PROJECT:?IZO_COMPOSE_PROJECT is required}
+      io.izo.state: sqlite
+  media-data:
+    labels:
+      io.izo.owner: DOCKER-DEV-001
+      io.izo.project: ${IZO_COMPOSE_PROJECT:?IZO_COMPOSE_PROJECT is required}
+      io.izo.state: media

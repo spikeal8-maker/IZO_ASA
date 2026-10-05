@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0, Mandatory = $true)]
-    [ValidateSet("doctor", "start", "status", "scope-add", "finish", "main-guard", "context", "sandbox", "symbol", "env-up", "env-status", "env-down", "verify", "audit", "eval")]
+    [ValidateSet("doctor", "start", "status", "scope-add", "finish", "main-guard", "context", "sandbox", "symbol", "env-up", "env-status", "env-down", "docker-dev-up", "docker-dev-down", "verify", "audit", "eval")]
     [string]$Command,
     [string]$Manifest = "",
     [string]$Path = "",
@@ -18,7 +18,11 @@ param(
     [string]$RepoRoot = "",
     [string]$ComfyUIEndpoint = "",
     [string]$OllamaEndpoint = "",
-    [string]$QwenEndpoint = ""
+    [string]$QwenEndpoint = "",
+    [string]$LocalLtxComfyUIEndpoint = "",
+    [switch]$DockerProvidersEnabled,
+    [string]$DockerProject = "",
+    [string]$SourceSha = ""
 )
 
 Set-StrictMode -Version Latest
@@ -26,10 +30,139 @@ $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 $OutputEncoding = [Text.UTF8Encoding]::new($false)
 
+function Resolve-DockerProviderEndpoint {
+    param(
+        [string]$Name,
+        [string]$ParameterValue,
+        [string]$EnvironmentName
+    )
+    $raw = $ParameterValue.Trim()
+    if (-not $raw) {
+        $raw = [Environment]::GetEnvironmentVariable($EnvironmentName, "Process")
+    }
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        throw "DOCKER_DEV_PROVIDER_ENDPOINT_REQUIRED name=$Name"
+    }
+    $raw = $raw.Trim()
+    $uri = $null
+    if (-not [Uri]::TryCreate($raw, [UriKind]::Absolute, [ref]$uri)) {
+        throw "DOCKER_DEV_PROVIDER_ENDPOINT_INVALID name=$Name"
+    }
+    if ($uri.Scheme -notin @("http", "https") -or -not $uri.Host -or $uri.UserInfo) {
+        throw "DOCKER_DEV_PROVIDER_ENDPOINT_INVALID name=$Name"
+    }
+    if ($raw -notmatch '^(?i)https?://[^/?#]+:\d{1,5}(?:[/?#]|$)') {
+        throw "DOCKER_DEV_PROVIDER_ENDPOINT_PORT_REQUIRED name=$Name"
+    }
+    $hostName = $uri.DnsSafeHost.TrimEnd(".").ToLowerInvariant()
+    $ipAddress = $null
+    $loopbackIp = [System.Net.IPAddress]::TryParse($hostName, [ref]$ipAddress) -and [System.Net.IPAddress]::IsLoopback($ipAddress)
+    if ($hostName -eq "localhost" -or $loopbackIp) {
+        throw "DOCKER_DEV_PROVIDER_ENDPOINT_LOOPBACK_FORBIDDEN name=$Name"
+    }
+    return $raw.TrimEnd("/")
+}
+
 if (-not $RepoRoot.Trim()) {
     $RepoRoot = Split-Path -Parent $PSScriptRoot
 }
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
+
+if ($Command -in @("docker-dev-up", "docker-dev-down")) {
+    if (-not $DockerProject.Trim()) { throw "-DockerProject is required for Docker DEV lifecycle." }
+    if ($DockerProject -cnotmatch "^[a-z0-9][a-z0-9_-]{2,62}$") {
+        throw "-DockerProject must be a bounded lowercase Docker Compose project identity."
+    }
+    if ($SourceSha -cnotmatch "^[0-9a-f]{40}$") {
+        throw "-SourceSha must be an exact lowercase 40-hex Git SHA."
+    }
+    $currentHead = (& git -C $RepoRoot rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or $currentHead -cne $SourceSha) {
+        throw "Docker DEV exact source mismatch."
+    }
+    if ($Command -eq "docker-dev-up") {
+        $sourceStatus = @(& git -C $RepoRoot status --porcelain)
+        if ($LASTEXITCODE -ne 0) {
+            throw "DOCKER_DEV_SOURCE_STATUS_FAILED"
+        }
+        if ($sourceStatus.Count -ne 0) {
+            throw "DOCKER_DEV_SOURCE_DIRTY"
+        }
+    }
+    $composePath = Join-Path $RepoRoot "ops\docker\dev\compose.yml"
+    if (-not (Test-Path -LiteralPath $composePath -PathType Leaf)) {
+        throw "Docker DEV compose file is missing."
+    }
+    $explicitProviderParameter = @(
+        @(
+            $ComfyUIEndpoint,
+            $OllamaEndpoint,
+            $QwenEndpoint,
+            $LocalLtxComfyUIEndpoint
+        ) | Where-Object { $_.Trim() }
+    )
+    if ($Command -eq "docker-dev-up" -and -not $DockerProvidersEnabled -and $explicitProviderParameter.Count -gt 0) {
+        throw "DOCKER_DEV_PROVIDER_MODE_REQUIRED"
+    }
+
+    $disabledProviderUrl = "http://127.0.0.1:1"
+    $providerValues = @{
+        IZO_DOCKER_COMFYUI_BASE_URL = $disabledProviderUrl
+        IZO_DOCKER_OLLAMA_BASE_URL = $disabledProviderUrl
+        IZO_DOCKER_QWEN_ASR_BASE_URL = $disabledProviderUrl
+        IZO_DOCKER_LOCAL_LTX_COMFYUI_BASE_URL = $disabledProviderUrl
+    }
+    $dockerNetworkMode = if ($DockerProvidersEnabled) { "bridge" } else { "none" }
+    if ($Command -eq "docker-dev-up" -and $DockerProvidersEnabled) {
+        $providerValues.IZO_DOCKER_COMFYUI_BASE_URL = Resolve-DockerProviderEndpoint "comfyui" $ComfyUIEndpoint "COMFYUI_BASE_URL"
+        $providerValues.IZO_DOCKER_OLLAMA_BASE_URL = Resolve-DockerProviderEndpoint "ollama" $OllamaEndpoint "OLLAMA_BASE_URL"
+        $providerValues.IZO_DOCKER_QWEN_ASR_BASE_URL = Resolve-DockerProviderEndpoint "qwen" $QwenEndpoint "QWEN_ASR_BASE_URL"
+        $providerValues.IZO_DOCKER_LOCAL_LTX_COMFYUI_BASE_URL = Resolve-DockerProviderEndpoint "local-ltx-comfyui" $LocalLtxComfyUIEndpoint "LOCAL_LTX_COMFYUI_BASE_URL"
+    }
+
+    $dockerCommand = Get-Command docker -ErrorAction Stop
+    $previousSourceSha = $env:IZO_SOURCE_SHA
+    $previousComposeProject = $env:IZO_COMPOSE_PROJECT
+    $dockerEnvironmentNames = @(
+        "IZO_DOCKER_NETWORK_MODE",
+        "IZO_DOCKER_COMFYUI_BASE_URL",
+        "IZO_DOCKER_OLLAMA_BASE_URL",
+        "IZO_DOCKER_QWEN_ASR_BASE_URL",
+        "IZO_DOCKER_LOCAL_LTX_COMFYUI_BASE_URL"
+    )
+    $previousDockerEnvironment = @{}
+    foreach ($name in $dockerEnvironmentNames) {
+        $previousDockerEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+    }
+    try {
+        $env:IZO_SOURCE_SHA = $SourceSha
+        $env:IZO_COMPOSE_PROJECT = $DockerProject
+        [Environment]::SetEnvironmentVariable("IZO_DOCKER_NETWORK_MODE", $dockerNetworkMode, "Process")
+        foreach ($name in $providerValues.Keys) {
+            [Environment]::SetEnvironmentVariable($name, $providerValues[$name], "Process")
+        }
+        $composeArguments = @(
+            "--context", "desktop-linux",
+            "compose",
+            "--project-name", $DockerProject,
+            "-f", $composePath
+        )
+        if ($Command -eq "docker-dev-up") {
+            $composeArguments += @("up", "-d", "--build", "backend")
+        } else {
+            $composeArguments += @("down")
+        }
+        & $dockerCommand.Source @composeArguments
+        exit $LASTEXITCODE
+    } finally {
+        $env:IZO_SOURCE_SHA = $previousSourceSha
+        $env:IZO_COMPOSE_PROJECT = $previousComposeProject
+        foreach ($name in $dockerEnvironmentNames) {
+            [Environment]::SetEnvironmentVariable($name, $previousDockerEnvironment[$name], "Process")
+        }
+    }
+}
+
 $projectPython = Join-Path $RepoRoot "backend\.venv\Scripts\python.exe"
 if (Test-Path -LiteralPath $projectPython -PathType Leaf) {
     $python = $projectPython
