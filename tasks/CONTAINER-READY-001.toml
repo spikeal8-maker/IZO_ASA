@@ -1,0 +1,74 @@
+manifestVersion = 1
+id = "CONTAINER-READY-001"
+baseSha = "77fd1ed7ede83b9bc8216008b685b8fd51242879"
+goal = "Remove only portability blockers proven by current Docker DEV/TEST evidence without changing product semantics or performing production cutover."
+userOutcome = "The container-readiness package starts from an exact accepted Docker DEV baseline, classifies each candidate portability blocker with bounded evidence, and authorizes implementation only for a reproduced blocker."
+beforeScenario = "DOCKER-DEV-001 is completed and merged, while docs/NOW.md still routes #115 as active and the #124 portability candidates have not been freshly classified against current main."
+afterScenario = "docs/NOW.md routes CONTAINER-READY-001 as active, this manifest defines the initial audit-only scope, every Issue #124 candidate blocker is classified, and the smallest proven implementation target is identified or explicitly reported as none."
+nonGoals = [
+  "change application portability behavior during activation/audit",
+  "change product semantics",
+  "change Docker DEV runtime or Compose behavior",
+  "run Docker runtime in this activation task",
+  "perform production cutover, deploy, restart or production-data operations",
+  "use real provider endpoints or production secrets",
+  "start CONTAINER-SHADOW-001 #125",
+  "start CONTAINER-PRODUCTION-001 #126",
+]
+declaredFiles = [
+  "tasks/CONTAINER-READY-001.toml",
+  "docs/NOW.md",
+]
+allowedPatterns = []
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "tools/**",
+  "architecture/**",
+  ".github/**",
+  "docs/generated/**",
+]
+protectedFilesTouched = []
+domain = "container-portability"
+riskClass = "standard"
+changeClass = "governance"
+maxProductionFiles = 0
+maxChangedLines = 260
+acceptance = [
+  "docs/NOW.md records DOCKER-DEV-001 as completed, CONTAINER-READY-001 as active and CONTAINER-SHADOW-001 as next at exact base 77fd1ed7ede83b9bc8216008b685b8fd51242879 without changing production release evidence.",
+  "The current activation slice changes only docs/NOW.md and tasks/CONTAINER-READY-001.toml with productionFileCount=0.",
+  "No application portability change is authorized until the bounded audit proves a blocker.",
+  "Every candidate blocker listed by Issue #124 is classified as PROVEN_BLOCKER, ALREADY_ISOLATED or NOT_PROVEN using bounded current-main evidence.",
+  "Every PROVEN_BLOCKER identifies file, symbol, current behavior, target Docker behavior and reproduction/evidence.",
+  "The first implementation target is the smallest local reproducible PROVEN_BLOCKER, or NONE when no implementation target is proven.",
+  "Issue #124 receives the activation baseline, classification table and first proposed implementation target without changing Issue acceptance.",
+  "No Docker runtime, provider call, production operation, #125 work or #126 work is performed.",
+]
+requiredEvidence = [
+  "Fresh GitHub guard proving main 77fd1ed7ede83b9bc8216008b685b8fd51242879, predecessor #115 completed, PR #171 merged, #124/#125/#126 open and post-merge CI #743 successful with zero failed tests.",
+  "Targeted reads of AI_START_HERE.md, docs/NOW.md, docs/stabilization-optimization-master-spec.md, Issue #124 and applicable repository policy.",
+  "Bounded portability audit covering Windows paths, provider localhost boundary, DPAPI, Windows service control, storage/media, readiness/shutdown, subprocess/process-owner assumptions and runtime identity/environment detection.",
+  "git diff --check PASS.",
+  "Manifest parser/package enforcement PASS with productionFileCount=0 and findings=[].",
+  "Issue #124 activation comment containing the audit classification table and first implementation target.",
+]
+targetedTests = []
+fileGrowthExpectations = [
+  "docs/NOW.md remains a compact current-status router and does not accumulate package receipts.",
+  "tasks/CONTAINER-READY-001.toml remains bounded to activation/audit governance until a proven blocker authorizes scope expansion.",
+  "No production or application source grows in this activation task.",
+]
+forbiddenOperations = [
+  "application-portability-change-before-proven-blocker",
+  "docker-runtime",
+  "production-deploy",
+  "production-restart",
+  "production-data",
+  "production-secrets",
+  "real-provider-call",
+  "issue-125-implementation",
+  "issue-126-implementation",
+  "merge-to-main",
+]
+rollbackBoundary = "Revert only docs/NOW.md and tasks/CONTAINER-READY-001.toml from this activation slice; leave application code, Docker runtime/configuration, production release evidence, production data/providers and Windows production topology unchanged."
