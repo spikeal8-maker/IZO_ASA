@@ -24,6 +24,7 @@ declaredFiles = [
   "tools/test_docker_dev_contract.py",
   "backend/SYMBOL_MAP.md",
   "docs/generated/architecture-inventory.json",
+  "docs/admin-mutation-audit.md",
 ]
 allowedPatterns = []
 forbiddenPatterns = [
@@ -74,6 +75,7 @@ targetedTests = [
   "tools/test_docker_dev_contract.py",
   "tools/test_generate_backend_map.py",
   "tools/test_generate_architecture_inventory.py",
+  "tools/test_admin_mutation_audit.py",
 ]
 fileGrowthExpectations = [
   "docs/NOW.md remains a compact current-status router and does not accumulate package receipts.",
