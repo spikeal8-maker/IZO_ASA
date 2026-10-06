@@ -2,17 +2,17 @@
 status: canonical
 status_role: current-status-aggregator
 backlog_role: program-router
-updated: 2026-09-29
-source_main_at_status_update: 2fcaa27c2f20f78d59a26de3686bccb676614b51
-last_verified_main: 2fcaa27c2f20f78d59a26de3686bccb676614b51
+updated: 2026-10-05
+source_main_at_status_update: 77fd1ed7ede83b9bc8216008b685b8fd51242879
+last_verified_main: 77fd1ed7ede83b9bc8216008b685b8fd51242879
 production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_verified_at: 2026-09-02T00:08:04+03:00
-completed_package: AI-DEV-ENV-001
-active_package: DOCKER-DEV-001
-active_task_contract: github-issue-115
+completed_package: DOCKER-DEV-001
+active_package: CONTAINER-READY-001
+active_task_contract: github-issue-124
 baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a
 baseline_status: completed-point-A-accepted
-next_candidate: CONTAINER-READY-001
+next_candidate: CONTAINER-SHADOW-001
 ---
 # IZO_ASA — NOW
 
@@ -21,24 +21,25 @@ next_candidate: CONTAINER-READY-001
 ## 1. Перед работой
 
 Сверить repository root, origin, clean status, HEAD/origin-main и worktrees.
-Source main: `2fcaa27c2f20f78d59a26de3686bccb676614b51`.
+Source main: `77fd1ed7ede83b9bc8216008b685b8fd51242879`.
 Production release: `d223c179d5944bc208cace867d5e93bc1341a3aa` (2026-09-02);
 production подтверждается installed runtime evidence.
 
 ## 2. Активный stabilization package
 
-Completed: `AI-DEV-ENV-001` (#113).
-Active: `DOCKER-DEV-001` (#115).
-Next: `CONTAINER-READY-001` (#124).
+Completed: `DOCKER-DEV-001` (#115).
+Active: `CONTAINER-READY-001` (#124).
+Next: `CONTAINER-SHADOW-001` (#125).
 D0 = COMPLETE.
 #112 test-health = COMPLETE.
 Active non-regression: warning baseline 97; cleanup baseline 1; hidden outbound external = 0 required; pytest rerun observability active; process leak gate active.
 Tracked debt: #162, #163, #164, #165.
 #113 AI-DEV-ENV = COMPLETE; implementation + post-merge verification accepted.
 #114 AI-VERIFY = OPEN / PREPARED; not active; not prerequisite for first D1 Docker smoke.
-#115 DOCKER-DEV = ACTIVE; implementation NOT STARTED.
-#124 CONTAINER-READY = NEXT.
-D1 Docker = NOT STARTED.
+#115 DOCKER-DEV = COMPLETE; merge `77fd1ed7ede83b9bc8216008b685b8fd51242879`; post-merge CI #743 = SUCCESS.
+#124 CONTAINER-READY = ACTIVE; ACTIVATION / PORTABILITY AUDIT; implementation NOT STARTED.
+#125 CONTAINER-SHADOW = NEXT.
+D1 Docker DEV/TEST foundation (#115) = COMPLETE.
 Architecture checkpoint after #108-#110: PASS; routes/workers/tables 251/8/65; product-flow count 14.
 
 ## 3. Frozen baseline — completed point A

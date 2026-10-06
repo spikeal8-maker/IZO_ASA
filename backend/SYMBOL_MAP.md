@@ -254,8 +254,8 @@ Auth policy is a conservative static hint. Every `REVIEW` row must be checked in
 | POST | `/api/max/set-webhook` | `max_set_webhook` | 238 | admin |
 | POST | `/api/telegram/webhook` | `telegram_webhook` | 248 | webhook: telegram secret required |
 | POST | `/api/max/webhook` | `max_webhook` | 284 | webhook: MAX secret conditional |
-| GET | `/config` | `audio_config` | 82 | public/optional/review |
-| POST | `/speech` | `generate_speech` | 94 | public/optional/review |
+| GET | `/config` | `audio_config` | 124 | public/optional/review |
+| POST | `/speech` | `generate_speech` | 136 | public/optional/review |
 | GET | `/api/phone/chat/threads` | `phone_chat_threads` | 702 | public/optional/review |
 | POST | `/api/phone/chat/threads` | `phone_chat_thread_create` | 710 | public/optional/review |
 | PATCH | `/api/phone/chat/threads/{thread_id}` | `phone_chat_thread_update` | 724 | public/optional/review |

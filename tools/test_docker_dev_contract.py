@@ -271,6 +271,7 @@ def test_compose_runtime_c_environment_is_sanitized() -> None:
         "MAX_UPDATES_MODE": "disabled",
         "MAX_POLLING_ENABLED": '"false"',
         "LOCAL_LTX_ENABLED": '"false"',
+        "IZO_PHONE_TTS_PROVIDER": "fake",
         "EMAIL_OTP_DEBUG_RETURN_CODE": '"false"',
         "COMFYUI_BASE_URL": "http://127.0.0.1:1",
         "OLLAMA_BASE_URL": "http://127.0.0.1:1",

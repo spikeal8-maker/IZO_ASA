@@ -8,9 +8,10 @@ import os
 import subprocess
 import tempfile
 import time
+import wave
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Literal, Mapping
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -36,6 +37,16 @@ _VOICE_NAMES = {
     "pavel": "Microsoft Pavel",
 }
 _speech_semaphore = asyncio.Semaphore(2)
+
+
+class PhoneSpeechProviderError(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class PhoneSpeechProvider:
+    event_name: str
+    synthesize: Callable[[str, str, int, str], None]
 
 
 def _remove_file(path: str) -> None:
@@ -75,6 +86,37 @@ def _synthesize_windows_speech(text: str, voice: str, rate: int, output_path: st
         raise RuntimeError((completed.stderr or completed.stdout or "speech synthesis failed")[-1000:])
 
 
+def _synthesize_fake_speech(text: str, voice: str, rate: int, output_path: str) -> None:
+    _ = (text, voice, rate)
+    with wave.open(output_path, "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(8000)
+        audio.writeframes(b"\x00\x00" * 800)
+
+
+def resolve_phone_speech_provider(
+    environment: Mapping[str, str] | None = None,
+    *,
+    platform_name: str | None = None,
+) -> PhoneSpeechProvider:
+    source = os.environ if environment is None else environment
+    configured = str(source.get("IZO_PHONE_TTS_PROVIDER", "")).strip().lower()
+    runtime_platform = os.name if platform_name is None else platform_name
+    if not configured:
+        if runtime_platform == "nt":
+            configured = "windows"
+        else:
+            raise PhoneSpeechProviderError("phone speech provider unavailable")
+    if configured == "windows":
+        if runtime_platform != "nt":
+            raise PhoneSpeechProviderError("phone speech provider unavailable")
+        return PhoneSpeechProvider("windows_speech", _synthesize_windows_speech)
+    if configured == "fake":
+        return PhoneSpeechProvider("fake_speech", _synthesize_fake_speech)
+    raise PhoneSpeechProviderError("unsupported phone speech provider")
+
+
 def create_phone_audio_router(dependencies: PhoneAudioDependencies) -> APIRouter:
     router = APIRouter(prefix="/api/phone/audio", tags=["phone-audio"])
 
@@ -104,8 +146,11 @@ def create_phone_audio_router(dependencies: PhoneAudioDependencies) -> APIRouter
         _remove_file(output_path)
         started = time.monotonic()
         try:
+            provider = resolve_phone_speech_provider()
             async with _speech_semaphore:
-                await asyncio.to_thread(_synthesize_windows_speech, text, body.voice, body.rate, output_path)
+                await asyncio.to_thread(provider.synthesize, text, body.voice, body.rate, output_path)
+            if not Path(output_path).is_file():
+                raise RuntimeError("speech synthesis failed")
         except Exception as exc:
             _remove_file(output_path)
             raise HTTPException(503, "Озвучивание временно недоступно. Повторите позже.") from exc
@@ -118,7 +163,7 @@ def create_phone_audio_router(dependencies: PhoneAudioDependencies) -> APIRouter
                 platform="web",
                 request=request,
                 properties={
-                    "provider": "windows_speech",
+                    "provider": provider.event_name,
                     "voice": body.voice,
                     "characters": len(text),
                     "latency_ms": round((time.monotonic() - started) * 1000),
