@@ -1,0 +1,87 @@
+manifestVersion = 1
+id = "POST-MERGE-CI-748-SOURCE-MAP-JS-REPAIR"
+baseSha = "c2ae15373adafcc66b8dbf4042d17ec3cacbd04f"
+goal = "Repair post-merge CI #748 by updating only the transitive source-map-js lock resolution from 1.2.1 to 1.2.2 without changing product code or supply-chain policy."
+userOutcome = "The exact-main remediation candidate removes GHSA-68fv-2mgg-jv7q by resolving source-map-js 1.2.2 through the existing postcss ^1.2.1 range while preserving all unrelated package versions and production behavior."
+beforeScenario = "Post-merge CI #748 on main c2ae15373adafcc66b8dbf4042d17ec3cacbd04f fails the reviewed npm audit baseline because dev-only source-map-js 1.2.1 is an untracked HIGH finding for GHSA-68fv-2mgg-jv7q; production npm audit is clean."
+afterScenario = "frontend/package-lock.json resolves source-map-js 1.2.2 with no other package-version changes, GHSA-68fv-2mgg-jv7q is absent from fresh full audit, production audit remains zero, and the existing supply-chain policy continues to fail closed without a new exception."
+nonGoals = [
+  "change frontend/package.json",
+  "change frontend/src product code",
+  "change backend product code",
+  "change architecture/security-policy.json",
+  "change tools/test_supply_chain_audit.py",
+  "change supply-chain policy or baseline exceptions",
+  "run npm audit fix or npm update",
+  "perform a broad dependency update or major upgrade",
+  "deploy, restart, merge, close Issue #124, or start Issue #125",
+]
+declaredFiles = [
+  "tasks/POST-MERGE-CI-748-SOURCE-MAP-JS-REPAIR.toml",
+  "frontend/package-lock.json",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "frontend/package.json",
+  "frontend/src/**",
+  "backend/**",
+  "ops/**",
+  "architecture/**",
+  ".github/**",
+  "docs/**",
+  "tools/**",
+]
+protectedFilesTouched = [
+]
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+maxProductionFiles = 0
+maxChangedLines = 180
+acceptance = [
+  "Only this task manifest and frontend/package-lock.json change against exact base c2ae15373adafcc66b8dbf4042d17ec3cacbd04f.",
+  "frontend/package.json remains byte-for-byte unchanged.",
+  "The dependency chain remains vite 8.0.16 -> postcss 8.5.15 -> source-map-js ^1.2.1 while the installed lock resolution changes only source-map-js 1.2.1 -> 1.2.2.",
+  "The source-map-js lock entry changes only version, resolved tarball and matching integrity metadata required for 1.2.2; no other package version changes.",
+  "Fresh npm audit --json contains no GHSA-68fv-2mgg-jv7q and no source-map-js HIGH finding.",
+  "Fresh npm audit --omit=dev --json remains zero critical/high/moderate/low.",
+  "Any remaining full-audit HIGH findings are limited to the already reviewed browserslist, nanoid and postcss exceptions.",
+  "python -m pytest -q tools/test_supply_chain_audit.py passes without modifying its tests or policy.",
+  "Package enforcement passes with productionFileCount=0 and findings=[].",
+  "No product/runtime code, production operation, baseline exception or Issue #125 work is included.",
+]
+requiredEvidence = [
+  "Fresh guard for main c2ae15373adafcc66b8dbf4042d17ec3cacbd04f, CI #748 failure and open Issue #124.",
+  "Exact dependency-chain proof from frontend/package-lock.json before remediation.",
+  "Targeted package-lock-only resolver command with no frontend/package.json mutation.",
+  "Semantic lockfile diff proving no unrelated package-version changes.",
+  "Clean npm ci followed by npm audit --json and npm audit --omit=dev --json.",
+  "python -m pytest -q tools/test_supply_chain_audit.py.",
+  "Package enforcement receipt with productionFileCount=0 and findings=[].",
+  "Exact-head GitHub CI on the Draft PR.",
+]
+targetedTests = [
+  "tools/test_supply_chain_audit.py",
+]
+fileGrowthExpectations = [
+  "The task manifest remains bounded to the single CI blocker remediation.",
+  "The lockfile changes only the existing source-map-js transitive resolution.",
+  "No production source file changes.",
+]
+forbiddenOperations = [
+  "npm-audit-fix",
+  "npm-audit-fix-force",
+  "npm-update",
+  "broad-dependency-update",
+  "dependency-major-upgrade",
+  "baseline-exception",
+  "product-code",
+  "production-deploy",
+  "production-restart",
+  "issue-124-close",
+  "issue-125-implementation",
+  "merge",
+  "force-push",
+]
+rollbackBoundary = "Revert only this task manifest and the source-map-js 1.2.2 lock resolution; no product/runtime or policy file is involved."
