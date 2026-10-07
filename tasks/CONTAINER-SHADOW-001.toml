@@ -1,0 +1,104 @@
+manifestVersion = 1
+id = "CONTAINER-SHADOW-001"
+baseSha = "7ab1861b53320b1234f3680f4fa5dd13175f3e27"
+
+goal = "Activate Issue #125 in canonical routing and record a bounded shadow-readiness audit that selects the smallest safe first implementation slice without starting shadow runtime implementation or production work."
+
+userOutcome = "Canonical status shows CONTAINER-READY-001 complete, CONTAINER-SHADOW-001 active and CONTAINER-PRODUCTION-001 next, while the audit identifies how to reuse the accepted DEV Docker topology for a future isolated shadow runtime."
+
+beforeScenario = "Issue #124 is complete and post-merge CI #750 is green, but docs/NOW.md still routes #124 as active and #125 as next, and #125 has no current bounded activation/audit manifest."
+
+afterScenario = "docs/NOW.md routes #124 complete, #125 active and #126 next at exact main 7ab1861b53320b1234f3680f4fa5dd13175f3e27; the activation audit classifies DEV compose reuse as PARTIAL, records zero pre-implementation blockers, and chooses one minimal reuse-first shadow topology slice without implementing it."
+
+nonGoals = [
+  "implement Docker shadow runtime",
+  "create ops/docker/shadow",
+  "modify ops/docker/dev",
+  "modify product or runtime code",
+  "change architecture contracts",
+  "change dependencies",
+  "run production traffic",
+  "read or copy production data or secrets",
+  "change Caddy, FRP or DNS",
+  "start CONTAINER-PRODUCTION-001 #126",
+  "deploy, restart or cut over production",
+]
+
+declaredFiles = [
+  "docs/NOW.md",
+  "tasks/CONTAINER-SHADOW-001.toml",
+]
+
+allowedPatterns = []
+
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+  ".github/**",
+  "tools/**",
+]
+
+protectedFilesTouched = []
+
+domain = "container-shadow"
+riskClass = "low"
+changeClass = "architecture"
+
+maxProductionFiles = 0
+maxChangedLines = 320
+
+acceptance = [
+  "docs/NOW.md records completed_package=CONTAINER-READY-001, active_package=CONTAINER-SHADOW-001, active_task_contract=github-issue-125 and next_candidate=CONTAINER-PRODUCTION-001.",
+  "docs/NOW.md records source_main_at_status_update and last_verified_main as 7ab1861b53320b1234f3680f4fa5dd13175f3e27 while preserving production release evidence and frozen baseline fields.",
+  "Human-readable NOW status agrees that #124 is COMPLETE, #125 is ACTIVE and #126 is NEXT, with #125 implementation not started.",
+  "The audit classifies DEV_COMPOSE_REUSE=PARTIAL because the accepted DEV topology already has exact source identity inputs, unique Compose project naming, project-scoped SQLite/media volumes, empty production credentials and no public routing by default, but has no published loopback shadow ports and no shadow-specific runtime proof.",
+  "Shadow evidence items are classified using only ALREADY_PROVEN, REUSABLE_BUT_NEEDS_SHADOW_PROOF, MISSING_IMPLEMENTATION or MISSING_EVIDENCE.",
+  "PRE_IMPLEMENTATION_BLOCKER_COUNT=0; missing shadow evidence is not treated as a blocker when Issue #125 exists to produce that evidence.",
+  "FIRST_IMPLEMENTATION_SLICE is SHADOW-TOPOLOGY-01: parameterize/reuse ops/docker/dev for a unique shadow Compose project with loopback-only published access, isolated project-owned SQLite/media resources, isolated empty secret/provider inputs, and explicit proof of no Caddy/FRP/DNS exposure; no new third Docker stack unless reuse proves unsafe.",
+  "Issue #125 receives a short activation comment with the exact base, reuse classification, zero blockers, first slice and NO production traffic/data/cutover.",
+  "No Docker/product/runtime/dependency/architecture implementation occurs in this activation package.",
+  "git diff --check and package enforcement pass with productionFileCount=0 and findings=[].",
+]
+
+requiredEvidence = [
+  "Fresh guard proving main 7ab1861b53320b1234f3680f4fa5dd13175f3e27, Issue #124 closed/completed, Issues #125/#126 open and post-merge CI #750 SUCCESS.",
+  "Bounded reads of Issue #125, ops/docker/dev, docs/docker-delivery-acceptance.md, architecture/contract.json and docs/stabilization-optimization-master-spec.md.",
+  "Audit matrix for exact image/source identity, rebuild/recreate twice, health/readiness, graceful shutdown, critical safe product smoke, worker lifecycle/recovery, SQLite/media persistence, resource baseline, production isolation and no Caddy/FRP/DNS exposure.",
+  "Short Issue #125 activation comment.",
+  "git diff --check.",
+  "Package enforcement receipt with productionFileCount=0 and findings=[].",
+  "Exact-head GitHub CI on the Draft PR.",
+]
+
+targetedTests = []
+
+fileGrowthExpectations = [
+  "docs/NOW.md remains a compact current-status router.",
+  "The new task manifest contains only activation/audit scope and no shadow implementation authorization.",
+  "No production source file changes.",
+]
+
+forbiddenOperations = [
+  "docker-shadow-implementation",
+  "new-shadow-stack",
+  "product-change",
+  "runtime-change",
+  "dependency-change",
+  "architecture-change",
+  "production-traffic",
+  "production-data",
+  "production-secrets",
+  "production-deploy",
+  "production-restart",
+  "production-cutover",
+  "caddy-change",
+  "frp-change",
+  "dns-change",
+  "issue-126-implementation",
+  "merge",
+  "force-push",
+]
+
+rollbackBoundary = "Revert only docs/NOW.md and tasks/CONTAINER-SHADOW-001.toml; Docker, product/runtime, production data/secrets/network and Issue #126 remain untouched."
