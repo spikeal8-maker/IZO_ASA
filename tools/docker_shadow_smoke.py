@@ -12,6 +12,21 @@ from urllib.request import urlopen
 from tools.agent_system.env_runtime import EMPTY_CREDENTIAL_KEYS
 
 
+LISTENER_SCRIPT = """
+import socket,sys
+server = socket.socket()
+port = int(sys.argv[1]) if len(sys.argv)>1 else 45678
+host = sys.argv[2] if len(sys.argv)>2 else '0.0.0.0'
+server.bind((host,port))
+server.listen()
+print(server.getsockname()[1],flush=True)
+while True:
+    client,address = server.accept()
+    client.sendall(b'shadow-fixture')
+    client.close()
+"""
+
+
 def now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -163,7 +178,7 @@ def egress_proof(shadow, container: str) -> dict:
     check(not shadow.docker("ps", "-aq", "--filter", "name=^/" + name + "$"),
           "SHADOW_PROBE_NAME_COLLISION")
     peer = None
-    listener = "import socket; s=socket.socket(); s.bind(('0.0.0.0',45678)); s.listen(); exec('while True:\n c,a=s.accept(); c.sendall(b\"shadow-fixture\"); c.close()')"
+
     result = {"gateway": gateway, "controlledGatewayProbe": "GATEWAY_LISTENER_PROOF_BLOCKED",
               "gatewayListenerLimitation": "Docker bridge gateway belongs to the host VM. A real listener there requires forbidden host networking; bridge-peer listener and exact kernel DROP counters are verified instead.",
               "probes": {}}
@@ -173,7 +188,7 @@ def egress_proof(shadow, container: str) -> dict:
                              "--label", "io.izo.project=" + shadow.project,
                              "--user", "10001:10001", "--read-only", "--cap-drop", "ALL",
                              "--security-opt", "no-new-privileges:true", "--memory", "64m",
-                             "--pids-limit", "16", guard["Image"], "python", "-c", listener)
+                             "--pids-limit", "16", guard["Image"], "python", "-c", LISTENER_SCRIPT)
         peer_info = json.loads(shadow.docker("inspect", peer))[0]
         address = peer_info["NetworkSettings"]["Networks"][network]["IPAddress"]
         # A separate, unfiltered test client on the SAME bridge must reach it.

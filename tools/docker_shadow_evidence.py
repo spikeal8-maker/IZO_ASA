@@ -16,9 +16,9 @@ $ErrorActionPreference = 'Stop'
 $env:PSModulePath = Join-Path $PSHOME 'Modules'
 $allProcesses = @(Get-CimInstance Win32_Process)
 $services = @(Get-CimInstance Win32_Service | Where-Object {
-    $_.Name -in @('IZOBackend','IZOCaddy') -or $_.Name -match 'frp'
+    $_.Name -like 'IZO*' -or $_.Name -match 'frp'
 } | Sort-Object Name)
-$ownedIds = @($services.ProcessId)
+$ownedIds = @($services.ProcessId | Where-Object { $_ -gt 0 })
 do {
     $previous = $ownedIds.Count
     $ownedIds = @($ownedIds + @($allProcesses | Where-Object {

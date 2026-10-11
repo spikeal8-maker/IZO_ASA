@@ -226,3 +226,19 @@ def test_production_comparison_does_not_accept_missing_or_changed_baseline():
     after = copy.deepcopy(before)
     after['versions']['release'] = 'changed'
     assert compare(before, after)['status'] == 'FAIL'
+
+
+def test_controlled_listener_really_accepts_a_local_fixture_connection():
+    import socket
+    import subprocess
+    import sys
+    process = subprocess.Popen([sys.executable, '-B', '-u', '-c',
+                                docker_shadow_smoke.LISTENER_SCRIPT, '0', '127.0.0.1'],
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        port = int(process.stdout.readline().strip())
+        with socket.create_connection(('127.0.0.1', port), timeout=2) as client:
+            assert client.recv(64) == b'shadow-fixture'
+    finally:
+        process.terminate()
+        process.communicate(timeout=5)
