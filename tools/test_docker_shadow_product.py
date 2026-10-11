@@ -46,7 +46,8 @@ def test_unattested_target_fails_before_client_creation(monkeypatch, key, value)
 @pytest.fixture
 def http_fixture():
     state = {"users": {}, "jobs": {}, "images": {}, "publications": {}, "requests": [],
-             "duplicateCharge": False, "exposePrivateMedia": False}
+             "duplicateCharge": False, "exposePrivateMedia": False, "signupFault": None,
+             "logoutFails": False}
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_):
@@ -77,6 +78,12 @@ def http_fixture():
                 identifier = f"user{len(state['users']) + 1}"
                 state["users"][identifier] = {"legacy_user_id": identifier, "email": body["email"],
                     "password": body["password"], "spent": 0, "ledger": [], "daily": 0}
+                if state["signupFault"] == "invalid-json":
+                    self.respond(raw=b"private invalid json", cookie=identifier)
+                    return
+                if state["signupFault"] == "unexpected-status":
+                    self.respond(503, cookie=identifier)
+                    return
                 self.respond(body={"ok": True, "requires_email_verification": False,
                                   "legacy_user_id": identifier}, cookie=identifier)
             elif path.endswith("login-v2"):
@@ -84,7 +91,10 @@ def http_fixture():
                     if value["email"] == body["email"] and value["password"] == body["password"]), None)
                 self.respond(200 if found else 401, {"ok": bool(found)}, cookie=found)
             elif path.endswith("logout-v2"):
-                self.respond(body={"ok": True}, cookie="")
+                if state["logoutFails"]:
+                    self.respond(503)
+                else:
+                    self.respond(body={"ok": True}, cookie="")
             elif path == "/api/me-v2":
                 self.respond(200 if user else 401, {"legacy_user_id": cookie,
                     "account": {"token_balance": 50, "daily_tokens_used": user["daily"]}} if user else {})
@@ -176,6 +186,7 @@ def test_full_http_contract_and_repeat_persistence_observation(http_fixture):
         assert flow.verify_persistence()["status"] == "PASS"
         # No Docker recreate occurs in this contract fixture.
         assert len(state["users"]) == 2
+        assert flow.credentials == []
         assert ("POST", "/api/auth/password/login-v2") in state["requests"]
         assert not any("admin" in path for _, path in state["requests"])
     finally:
@@ -258,3 +269,31 @@ def test_session_cleanup_failure_prevents_cli_success(http_fixture, tmp_path, mo
     data = json.loads(receipt.read_text())
     assert data["status"] == "FAIL"
     assert data["cleanup"]["sessionCleanup"] == "FAIL"
+
+
+@pytest.mark.parametrize("fault,code", [("invalid-json", "PRODUCT_RESPONSE_INVALID"),
+    ("unexpected-status", "PRODUCT_HTTP_STATUS_UNEXPECTED")])
+def test_failed_signup_with_issued_cookie_is_revoked_and_all_jars_checked(http_fixture, fault, code):
+    origin, state = http_fixture
+    state["signupFault"] = fault
+    flow = product.ProductFlow(attestation(origin))
+    with pytest.raises(product.ProductError, match=code):
+        flow.register(flow.owner, 1)
+    assert len(list(flow.owner.cookies)) == 1
+    assert flow.credentials == []
+    cleanup = flow.close()
+    assert cleanup["sessionCleanup"] == "PASS"
+    assert cleanup["checkedClients"] == 3 and cleanup["remainingCookieJars"] == 0
+    assert state["requests"].count(("POST", "/api/auth/session/logout-v2")) == 3
+    assert state["requests"].count(("GET", "/api/me-v2")) == 3
+
+
+def test_failed_revocation_clears_local_cookies_but_never_reports_cleanup_pass(http_fixture):
+    origin, state = http_fixture
+    flow = product.ProductFlow(attestation(origin))
+    flow.register(flow.owner, 1)
+    state["logoutFails"] = True
+    cleanup = flow.close()
+    assert cleanup["sessionCleanup"] == "FAIL" and cleanup["failedSessions"] == 3
+    assert cleanup["remainingCookieJars"] == 0 and flow.credentials == []
+    assert state["requests"].count(("GET", "/api/me-v2")) == 4

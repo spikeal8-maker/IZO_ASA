@@ -108,6 +108,8 @@ class ProductFlow:
         self.origin = validate_target(attestation)
         self.source_sha, self.project = attestation["sourceSha"], attestation["project"]
         self.owner, self.other, self.guest = (HttpClient(self.origin) for _ in range(3))
+        # A response can set an auth cookie before its JSON/status is validated.
+        self.clients = (self.owner, self.other, self.guest)
         self.run_id = uuid.uuid4().hex
         self.credentials: list[tuple[HttpClient, str, str]] = []
         self.checks: dict = {}
@@ -119,11 +121,11 @@ class ProductFlow:
                 "accepted_terms": True, "accepted_privacy": True, "accepted_personal_data": True,
                 "platform": "web_desktop"}
         result = client.request("POST", "/api/auth/password/register-v2", body)
-        self.credentials.append((client, email, password))
         require(result.get("ok") is True and result.get("requires_email_verification") is False,
                 "PRODUCT_FIXTURE_SIGNUP_REQUIRES_EXTERNAL_VERIFICATION")
         me = client.request("GET", "/api/me-v2")
         require(me.get("legacy_user_id") == result.get("legacy_user_id"), "PRODUCT_SESSION_IDENTITY_MISMATCH")
+        self.credentials.append((client, email, password))
         return me
 
     def generate(self, payload: dict) -> dict:
@@ -193,6 +195,7 @@ class ProductFlow:
             client.request("GET", "/api/me-v2")
         self.guest.request("POST", "/api/auth/password/login-v2", {
             "email": self.credentials[0][1], "password": "wrong-password", "platform": "web_desktop"}, expected=(401,))
+        self.credentials.clear()
         self.checks["auth"] = "PASS"
         payload = {"mode": "text_to_image", "provider": "comfyui", "prompt": "A blue ceramic cup on a plain table",
                    "width": 704, "height": 704, "steps": 4, "seed": 18731}
@@ -248,14 +251,22 @@ class ProductFlow:
 
     def close(self) -> dict:
         failures = 0
-        for client, _, _ in self.credentials:
+        for client in self.clients:
+            failed = False
             try:
                 client.request("POST", "/api/auth/session/logout-v2", {})
+            except ProductError:
+                failed = True
+            try:
                 client.request("GET", "/api/me-v2", expected=(401,))
             except ProductError:
-                failures += 1
+                failed = True
+            finally:
+                client.cookies.clear()
+            failures += int(failed)
         self.credentials.clear()
         return {"sessionCleanup": "PASS" if not failures else "FAIL", "failedSessions": failures,
+                "checkedClients": len(self.clients), "remainingCookieJars": sum(bool(list(c.cookies)) for c in self.clients),
                 "fixtureData": "RETAINED_IN_ATTESTED_ISOLATED_VOLUMES", "foreignResourcesTouched": False}
 
 
