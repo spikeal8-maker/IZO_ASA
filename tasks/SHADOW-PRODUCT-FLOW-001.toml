@@ -1,0 +1,65 @@
+manifestVersion = 1
+id = "SHADOW-PRODUCT-FLOW-001"
+baseSha = "9acd9df0e8f375b8711e6b4cc63d349aa7b4a70e"
+goal = "Add a bounded real-HTTP safe-fixture acceptance harness for the existing Docker Shadow product flow."
+userOutcome = "The owner can verify genuine auth, generation queue, accounting, gallery, media ownership and publication behavior without direct database fixtures or real providers."
+beforeScenario = "Shadow topology smoke checks HTTP and a dedicated marker database but does not exercise genuine product flows."
+afterScenario = "An opt-in HTTP harness runs only against explicitly attested isolated fake-provider shadow and emits redacted scenario receipts; unit verification is separate from runtime acceptance."
+nonGoals = [
+  "Docker lifecycle",
+  "production access",
+  "real provider calls",
+  "business logic changes",
+  "UI acceptance",
+  "Issue 125 completion",
+]
+declaredFiles = [
+  "tools/docker_shadow_product.py",
+  "tools/test_docker_shadow_product.py",
+  "tasks/SHADOW-PRODUCT-FLOW-001.toml",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  ".github/**",
+  "docs/**",
+  "architecture/**",
+]
+protectedFilesTouched = [
+]
+domain = "container-shadow"
+riskClass = "high-assurance"
+changeClass = "tooling"
+maxProductionFiles = 1
+maxChangedLines = 850
+acceptance = [
+  "Real HTTP auth and product APIs only; no DB insertion, fabricated completed images or test-only server endpoints.",
+  "Fail closed before writes without explicit isolated fake-provider exact-source attestation.",
+  "Positive and negative two-user ownership, queue/job/accounting, gallery, media, reuse and guest feed checks have explicit observations.",
+  "No credentials, session cookies, raw response bodies or sensitive paths enter receipts.",
+  "Runtime absence remains NOT_RUN; unit fixtures never count as Docker runtime acceptance.",
+]
+requiredEvidence = [
+  "focused contract tests",
+  "package enforcement",
+  "git diff --check",
+  "redacted harness receipt schema",
+]
+targetedTests = [
+  "tools/test_docker_shadow_product.py",
+]
+fileGrowthExpectations = [
+  "Each new handwritten Python file remains below 500 lines.",
+]
+forbiddenOperations = [
+  "docker-lifecycle",
+  "production-access",
+  "provider-call",
+  "commit",
+  "push",
+  "merge",
+]
+rollbackBoundary = "Revert only this package's new harness and tests; test users and artifacts belong solely to the explicitly attested isolated fixture run."
