@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import sqlite3
+from contextlib import closing
 from unittest.mock import Mock
 
 import pytest
@@ -61,6 +62,110 @@ def test_failed_image_build_does_not_start_or_replace_containers():
     with pytest.raises(ShadowError, match="SHADOW_COMMAND_FAILED"):
         shadow.up()
     assert not any(call.args[0] == "up" for call in shadow.compose.call_args_list)
+
+
+def ready_shadow():
+    shadow = Shadow(PROJECT, SHA)
+    shadow.source_guard = Mock()
+    shadow.ownership_guard = Mock()
+    shadow.config = Mock(return_value={"services": {
+        name: {"image": f"fixture-{name}:{SHA}"} for name in ("backend", "guard", "web")
+    }})
+    shadow.compose = Mock()
+    return shadow
+
+
+def image_metadata(digit="1", revision=SHA, source="spikeal8-maker/IZO_ASA"):
+    return [{"Id": "sha256:" + digit * 64, "Config": {"Labels": {
+        "org.opencontainers.image.revision": revision,
+        "org.opencontainers.image.source": source,
+    }}}]
+
+
+@pytest.mark.parametrize("service", ["backend", "guard", "web"])
+@pytest.mark.parametrize("change", ["revision", "repository", "missing", "malformed", "invalid-id", "null-labels"])
+def test_invalid_image_fails_before_recreate(service, change):
+    shadow = ready_shadow()
+    def inspect(*args):
+        value = image_metadata()
+        if args[-1].startswith(f"fixture-{service}:"):
+            if change == "missing":
+                raise ShadowError("SHADOW_COMMAND_FAILED")
+            if change == "malformed":
+                return "not json"
+            if change == "revision":
+                value[0]["Config"]["Labels"]["org.opencontainers.image.revision"] = "b" * 40
+            elif change == "repository":
+                value[0]["Config"]["Labels"]["org.opencontainers.image.source"] = "other/project"
+            elif change == "invalid-id":
+                value[0]["Id"] = "latest"
+            elif change == "null-labels":
+                value[0]["Config"]["Labels"] = None
+        return json.dumps(value)
+    shadow.docker = Mock(side_effect=inspect)
+    with pytest.raises(ShadowError):
+        shadow.up(build=False, recreate=True)
+    shadow.compose.assert_not_called()
+
+
+@pytest.mark.parametrize("recreate", [False, True])
+def test_start_pins_checked_ids_even_if_tags_change_after_inspection(recreate):
+    shadow = ready_shadow()
+    expected = {service: "sha256:" + digit * 64
+                for service, digit in zip(("backend", "guard", "web"), "123")}
+    shadow.docker = Mock(side_effect=[json.dumps(image_metadata(digit)) for digit in "123"])
+    overrides = []
+    def launch(*args, **kwargs):
+        assert args[0] == "up" and "--no-build" in args
+        assert args[args.index("--pull") + 1] == "never"
+        assert ("--force-recreate" in args) == recreate
+        path = kwargs["override"]
+        overrides.append(path)
+        value = json.loads(path.read_text(encoding="utf-8"))
+        assert value == {"services": {
+            service: {"image": image_id, "pull_policy": "never"}
+            for service, image_id in expected.items()
+        }}
+        # No mutable reference remains in the invocation, even if another
+        # process retags every original name immediately after inspection.
+        assert "fixture-" not in path.read_text(encoding="utf-8")
+    shadow.compose.side_effect = launch
+    shadow.up(build=False, recreate=recreate)
+    assert shadow.docker.call_count == 3
+    assert shadow.source_guard.call_count == 2
+    assert len(overrides) == 1 and not overrides[0].exists()
+
+
+def test_image_override_removed_after_failed_start():
+    shadow = ready_shadow()
+    shadow.docker = Mock(return_value=json.dumps(image_metadata()))
+    paths = []
+    def fail(*args, **kwargs):
+        paths.append(kwargs["override"])
+        assert paths[-1].is_file()
+        raise ShadowError("SHADOW_COMMAND_FAILED")
+    shadow.compose.side_effect = fail
+    with pytest.raises(ShadowError, match="SHADOW_COMMAND_FAILED"):
+        shadow.up(build=False)
+    assert len(paths) == 1 and not paths[0].exists()
+
+
+def test_changed_checkout_after_inspection_never_starts_containers():
+    shadow = ready_shadow()
+    shadow.docker = Mock(return_value=json.dumps(image_metadata()))
+    shadow.source_guard.side_effect = [None, ShadowError("SHADOW_SOURCE_DIRTY")]
+    with pytest.raises(ShadowError, match="SHADOW_SOURCE_DIRTY"):
+        shadow.up(build=False)
+    shadow.compose.assert_not_called()
+
+
+def test_compose_image_override_is_last_file(tmp_path):
+    shadow = Shadow(PROJECT, SHA)
+    shadow.docker = Mock(return_value="")
+    path = tmp_path / "images.json"
+    shadow.compose("up", override=path)
+    args = shadow.docker.call_args.args
+    assert args[-3:] == ("-f", str(path), "up")
 
 
 def config():
@@ -141,10 +246,11 @@ def test_storage_probe_executes_sql_and_preserves_application_rows(tmp_path, mon
     data, media = tmp_path / "data", tmp_path / "media"
     data.mkdir()
     media.mkdir()
-    with sqlite3.connect(data / "app.sqlite3") as app:
+    with closing(sqlite3.connect(data / "app.sqlite3")) as app:
         for table in ("users", "jobs", "images"):
             app.execute(f"CREATE TABLE {table} (id INTEGER)")
             app.execute(f"INSERT INTO {table} VALUES (1)")
+        app.commit()
     def execute_fixture(shadow, container, script):
         script = script.replace("/home/izo/data", data.as_posix())
         script = script.replace("/home/izo/media", media.as_posix())

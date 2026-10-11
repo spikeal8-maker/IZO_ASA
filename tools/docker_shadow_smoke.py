@@ -134,6 +134,7 @@ def fixture(shadow, container: str, marker: str, *, create: bool) -> dict:
     # application DB writer. The application DB is opened read-only for integrity.
     script = """
 import hashlib,json,sqlite3
+from contextlib import closing
 from pathlib import Path
 marker = __MARKER__
 path = Path('/home/izo/media/_shadow_topology_probe.txt')
@@ -145,7 +146,7 @@ if __CREATE__:
     path.write_text(marker)
 found = probe.execute('SELECT id FROM probe WHERE id=?', (marker,)).fetchone()
 probe.close()
-with sqlite3.connect('file:/home/izo/data/app.sqlite3?mode=ro', uri=True) as app:
+with closing(sqlite3.connect('file:/home/izo/data/app.sqlite3?mode=ro', uri=True)) as app:
     integrity = app.execute('PRAGMA integrity_check').fetchone()[0]
     tables = {row[0] for row in app.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     counts = {t:app.execute('SELECT count(*) FROM '+t).fetchone()[0]

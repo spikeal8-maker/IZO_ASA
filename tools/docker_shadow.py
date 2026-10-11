@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -51,10 +52,12 @@ class Shadow:
     def docker(self, *args: str, **kwargs) -> str:
         return self.run(["docker", "--context", "desktop-linux", *args], **kwargs)
 
-    def compose(self, *args: str, **kwargs) -> str:
+    def compose(self, *args: str, override: Path | None = None, **kwargs) -> str:
         command = ["compose", "--env-file", os.devnull, "--project-name", self.project]
         for path in self.files:
             command.extend(["-f", str(path)])
+        if override is not None:
+            command.extend(["-f", str(override)])
         return self.docker(*command, *args, **kwargs)
 
     def source_guard(self) -> None:
@@ -122,19 +125,54 @@ class Shadow:
                 if labels.get("io.izo.owner") != OWNER or labels.get("com.docker.compose.project") != self.project:
                     raise ShadowError("SHADOW_RESOURCE_NAME_COLLISION")
 
+    def image_guard(self, config: dict) -> dict[str, str]:
+        """Read image identity before lifecycle mutation and return immutable IDs."""
+        images = {}
+        for service, settings in config["services"].items():
+            reference = settings.get("image")
+            if not isinstance(reference, str) or not reference:
+                raise ShadowError("SHADOW_IMAGE_REFERENCE_INVALID")
+            try:
+                entries = json.loads(self.docker("image", "inspect", reference))
+                if not isinstance(entries, list) or len(entries) != 1:
+                    raise ValueError
+                image = entries[0]
+                image_id = image["Id"]
+                labels = image["Config"]["Labels"]
+                if (labels.get("org.opencontainers.image.revision") != self.sha
+                        or labels.get("org.opencontainers.image.source") != "spikeal8-maker/IZO_ASA"):
+                    raise ShadowError("SHADOW_IMAGE_SOURCE_MISMATCH")
+                if not isinstance(image_id, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
+                    raise ValueError
+            except (ValueError, KeyError, TypeError, AttributeError):
+                raise ShadowError("SHADOW_IMAGE_METADATA_INVALID") from None
+            images[service] = image_id
+        return images
+
     def up(self, *, build: bool = True, recreate: bool = False) -> None:
         self.source_guard()
-        self.config()
+        config = self.config()
         self.ownership_guard()
         if build:
             # Keep cold Node/pip builds from competing for Desktop's memory.
             # A failed build must leave the currently running stack untouched.
             for service in ("backend", "guard", "web"):
                 self.compose("build", service, capture=False, timeout=1200)
-        args = ["up", "-d", "--wait", "--wait-timeout", "180", "--no-build"]
+        images = self.image_guard(config)
+        # A long build may overlap local edits. Never start them with an old SHA.
+        self.source_guard()
+        args = ["up", "-d", "--wait", "--wait-timeout", "180", "--no-build", "--pull", "never"]
         if recreate:
             args.append("--force-recreate")
-        self.compose(*args, capture=False, timeout=1200)
+        # Tags are mutable even after inspection. Compose receives only the
+        # verified local IDs, and cannot pull replacements from a registry.
+        with tempfile.TemporaryDirectory(prefix="izo-shadow-images-") as directory:
+            override = Path(directory) / "images.json"
+            override.write_text(json.dumps({"services": {
+                service: {"image": image_id, "pull_policy": "never"}
+                for service, image_id in images.items()
+            }}), encoding="utf-8")
+            self.compose(*args, override=override, capture=False, timeout=1200)
 
 
 def main() -> int:

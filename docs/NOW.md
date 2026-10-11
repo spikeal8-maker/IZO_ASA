@@ -39,7 +39,7 @@ Tracked debt: #162, #163, #164, #165.
 #115 DOCKER-DEV = COMPLETE; merge `77fd1ed7ede83b9bc8216008b685b8fd51242879`; post-merge CI #743 = SUCCESS.
 #124 CONTAINER-READY = COMPLETE.
 #125 CONTAINER-SHADOW = ACTIVE; `SHADOW-TOPOLOGY-01` adds DEV-based loopback web/API.
-Contract: `tasks/SHADOW-TOPOLOGY-01.toml`; [operations/remaining gates](docker-shadow.md).
+Contract: `tasks/SHADOW-EXECUTOR-IDENTITY-001.toml`; [operations/remaining gates](docker-shadow.md).
 Full parity/recovery pending; NOT DEPLOYED TO USERS.
 #126 CONTAINER-PRODUCTION = NEXT.
 D1 Docker DEV/TEST foundation (#115) = COMPLETE.

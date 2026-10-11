@@ -48,6 +48,11 @@ localhost:48126 --------------------^
   identity/ports reach the Docker CLI; containers receive Compose's fixed env.
 - Startup requires a clean exact-SHA checkout of this repository. Existing
   containers, networks or volumes with foreign ownership cause a hard failure.
+- Before starting or recreating containers, the launcher inspects all three
+  local images and requires the exact source revision and repository labels.
+  Compose receives their checked immutable image IDs through a temporary
+  override, with build and pull disabled. Retagging an image after inspection
+  cannot change the selected image. The override is removed on success/failure.
 - Image builds run sequentially, with the frontend Node heap capped at 1 GiB,
   to limit peak Docker Desktop memory use. A failed build does not start or
   replace the running shadow containers.

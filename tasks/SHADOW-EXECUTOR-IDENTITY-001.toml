@@ -1,10 +1,10 @@
 manifestVersion = 1
-id = "SHADOW-TOPOLOGY-01"
+id = "SHADOW-EXECUTOR-IDENTITY-001"
 baseSha = "9acd9df0e8f375b8711e6b4cc63d349aa7b4a70e"
-goal = "Reuse Docker DEV for a loopback-only, internally networked shadow backend and built frontend with isolated persistent state and exact source identity."
-userOutcome = "The owner can open an isolated Docker copy of IZO at a separate localhost port while the native public site remains unchanged."
-beforeScenario = "DEV Docker contains only an unpublished network-disabled backend; main CI 753 passed but no accessible shadow topology exists."
-afterScenario = "An opt-in overlay reuses the DEV backend and volumes, adds a built frontend, publishes only loopback ports and proves readiness, guarded-namespace egress isolation, identity and recreate persistence."
+goal = "Preserve PR178 history and reject mismatched images before mutation; launch checked immutable local image IDs."
+userOutcome = "Shadow up and recreate cannot start an image with an incorrect source revision or resolve a mutable tag after validation."
+beforeScenario = "PR178 checks image revisions only after compose up, allowing a stale or retagged image to be started before rejection."
+afterScenario = "Every service image is inspected before compose up and the owned invocation pins the verified immutable image IDs with pull disabled."
 nonGoals = [
   "complete all Issue 125 parity/recovery acceptance",
   "start Issue 126",
@@ -30,6 +30,7 @@ declaredFiles = [
   "ops/docker/dev/network_guard.py",
   "ops/docker/dev/Dockerfile.guard",
   "ops/docker/dev/Dockerfile.guard.dockerignore",
+  "tasks/SHADOW-TOPOLOGY-01.toml",
 ]
 allowedPatterns = [
   ".gitleaksignore",
@@ -49,7 +50,7 @@ domain = "container-shadow"
 riskClass = "high-assurance"
 changeClass = "runtime"
 maxProductionFiles = 15
-maxChangedLines = 1900
+maxChangedLines = 2000
 acceptance = [
   "Default Docker DEV is unchanged.",
   "Shadow reuses DEV backend and named volumes in a unique Compose project.",
@@ -60,6 +61,9 @@ acceptance = [
   "Only package-owned Docker resources may be stopped; down retains volumes.",
   "Focused checks and package enforcement pass; a clean commit and draft PR make the result reviewable.",
   "Issue 125 remains active with remaining parity/recovery gates explicit; no production acceptance claim.",
+  "Missing, malformed or mismatched service images fail before compose up and preserve current containers.",
+  "An image tag changed after inspection cannot change the IDs passed to compose up.",
+  "Existing PR178 commits are preserved; shared Docker lifecycle is not executed.",
 ]
 requiredEvidence = [
   "GitHub CI 753 SUCCESS for base SHA",
@@ -72,6 +76,8 @@ requiredEvidence = [
   "package scope receipt",
   "exact-head PR CI",
   "Kernel policy readback and DROP-counter probes after up/recreate; controlled bridge listener positive control; actual gateway-listener limitation explicitly reported.",
+  "Independent review of pre-mutation identity rejection and immutable invocation.",
+  "Runtime image identity remains NOT_VERIFIED until the isolated executor is available.",
 ]
 targetedTests = [
   "tools/test_docker_shadow.py",
@@ -97,30 +103,6 @@ forbiddenOperations = [
   "merge",
   "force-push",
   "global-docker-cleanup",
+  "shared-docker-lifecycle",
 ]
-rollbackBoundary = "Stop only the named shadow Compose project without deleting its volumes; revert only package-owned source files. Native services, production data and other Docker projects remain untouched."
-
-[[scopeExpansions]]
-path = "ops/docker/dev/network_guard.py"
-reason = "Docker Desktop omits published ports on internal networks. A project-owned namespace guard removes its default route before non-root app startup, preserving loopback ingress while denying host/provider egress."
-recordedAtUtc = "2026-10-11T09:18:09.879026Z"
-
-[[scopeExpansions]]
-path = "ops/docker/dev/Dockerfile.guard"
-reason = "Build the namespace guard from the existing pinned Python base without host data or extra packages."
-recordedAtUtc = "2026-10-11T09:18:11.102885Z"
-
-[[scopeExpansions]]
-path = "ops/docker/dev/Dockerfile.guard.dockerignore"
-reason = "Whitelist only the guard source in its build context."
-recordedAtUtc = "2026-10-11T09:18:12.248992Z"
-
-[[scopeExpansions]]
-path = ".gitleaksignore"
-reason = "CI 757 flags the non-secret task identifier after API: in historical commit 16e7400 docs/NOW.md:41. Keep scanning enabled and ignore only that exact confirmed false-positive fingerprint; rewrite the live wording."
-recordedAtUtc = "2026-10-11T10:04:58.931506Z"
-
-[[scopeExpansions]]
-path = "tools/docker_shadow_evidence.py"
-reason = "Review P2 requires reproducible redacted read-only production and foreign-resource snapshots around only the owned Shadow lifecycle."
-recordedAtUtc = "2026-10-11T10:58:12.795835Z"
+rollbackBoundary = "Revert this bounded image-validation change; preserve the original PR178 history, runtime receipts and persistent data."
