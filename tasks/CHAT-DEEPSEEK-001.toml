@@ -1,0 +1,97 @@
+manifestVersion = 1
+id = "CHAT-DEEPSEEK-001"
+baseSha = "f63d596f1ccae432378f431a1d4eaab41ab81308"
+goal = "Deliver the first working portable AI-chat vertical with a provider-neutral core and DeepSeek as the first provider."
+userOutcome = "A trusted user can save and verify their own DeepSeek API key, choose a current DeepSeek model, stream a formatted answer, stop or retry it, and generate an image from a chat tool request."
+beforeScenario = "The existing chat surface is coupled to the phone-chat API and non-streaming Ollama/OpenRouter routing; it has no per-user DeepSeek key, portable runtime, stop/retry stream, or complete safe renderer."
+afterScenario = "DeepSeek runs through a portable provider/runtime/renderer boundary, while IZO-specific history and image jobs remain thin shell adapters that can be replaced when the core moves to asa-lab."
+nonGoals = [
+  "connect or modify OpenRouter",
+  "connect Pulse AI",
+  "implement voice",
+  "implement RAG",
+  "implement web search",
+  "build a large admin panel",
+  "migrate legacy pages",
+  "redesign billing",
+  "change the DB schema",
+  "change Docker or deploy",
+]
+declaredFiles = [
+  "tasks/CHAT-DEEPSEEK-001.toml",
+  "docs/chat-deepseek-portability.md",
+  "architecture/contract.json",
+  "backend/app/chat_core/__init__.py",
+  "backend/app/chat_core/contracts.py",
+  "backend/app/chat_core/user_secrets.py",
+  "backend/app/chat_core/providers/__init__.py",
+  "backend/app/chat_core/providers/deepseek.py",
+  "backend/app/api/routers/chat_portable.py",
+  "backend/app/api/routers/phone_chat.py",
+  "backend/test_chat_deepseek.py",
+  "frontend/src/chatCore/types.ts",
+  "frontend/src/chatCore/runtime.ts",
+  "frontend/src/chatCore/httpTransport.ts",
+  "frontend/src/chatCore/deepSeekApi.ts",
+  "frontend/src/chatCore/DeepSeekKeyPanel.tsx",
+  "frontend/src/chatCore/MessageRenderer.tsx",
+  "frontend/src/chatCore/chatCore.css",
+  "frontend/src/desktopChat/DesktopChatWorkspace.tsx",
+  "frontend/chatCore.test.ts",
+  "tools/verify.ps1",
+  "backend/SYMBOL_MAP.md",
+  "docs/generated/architecture-inventory.json",
+  "docs/generated/architecture-inventory.md",
+  "docs/generated/frontend-map.json",
+  "docs/generated/frontend-map.md",
+]
+allowedPatterns = []
+forbiddenPatterns = [
+  ".github/**",
+  "ops/**",
+  "backend/app/integrations/openrouter.py",
+  "frontend/src/LegacyApp.tsx",
+  "frontend/src/newUi.tsx",
+]
+protectedFilesTouched = []
+domain = "chat"
+riskClass = "standard"
+changeClass = "feature"
+maxProductionFiles = 20
+maxChangedLines = 3500
+acceptance = [
+  "Provider-neutral backend and frontend contracts contain no IZO page imports and DeepSeek is the only new text provider.",
+  "DeepSeek key is encrypted outside the repository per trusted user and is never returned by an API.",
+  "DeepSeek connection test and current model selection are available from the chat UI.",
+  "DeepSeek answers stream incrementally through a normalized transport and can be stopped and retried.",
+  "The renderer safely supports text, bold, italic, lists, links, inline code, fenced code with Copy, and images without dangerouslySetInnerHTML.",
+  "generate_image is exposed as the only portable chat tool in this package and IZO image jobs render requested/running/done/error inline.",
+  "OpenRouter, Pulse AI, voice, RAG and web search receive no new implementation.",
+  "Portability documentation defines exactly which files move to asa-lab and which IZO adapters do not.",
+  "Focused backend/frontend tests and exact-head GitHub CI pass.",
+]
+requiredEvidence = [
+  "backend/test_chat_deepseek.py",
+  "frontend/chatCore.test.ts",
+  "docs/chat-deepseek-portability.md",
+  "package enforcement receipt",
+  "exact-head GitHub CI",
+]
+targetedTests = [
+  "python -m pytest -q backend/test_chat_deepseek.py",
+  "node --test frontend/chatCore.test.ts",
+  "npm run build",
+]
+fileGrowthExpectations = [
+  "Every new handwritten source file remains below the normal 500-line source limit.",
+  "DesktopChatWorkspace removes its local renderer before adding DeepSeek shell wiring.",
+]
+forbiddenOperations = [
+  "deploy",
+  "restart",
+  "production-data",
+  "live-provider-call",
+  "dependency-change",
+  "direct-main",
+]
+rollbackBoundary = "Revert CHAT-DEEPSEEK-001. Existing phone chat, OpenRouter/Ollama, DB schema, billing, Docker and generation services remain unchanged."

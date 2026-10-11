@@ -26,6 +26,7 @@ from ...integrations.openrouter import (
     request_openrouter_chat_completion,
 )
 from ...services import chat_billing, chat_request_lifecycle, chat_tool_policy, phone_chat_history
+from .chat_portable import create_izo_portable_chat_dependencies, create_portable_chat_router
 
 
 PROVIDER_ENDPOINTS = load_provider_endpoint_policy()
@@ -663,6 +664,7 @@ async def route_phone_chat(
 
 def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
     router = APIRouter()
+    router.include_router(create_portable_chat_router(create_izo_portable_chat_dependencies(require_trusted_user=deps.require_trusted_user, connect_db=deps.connect_db)))
 
     def replay_or_raise(outcome: dict[str, Any]) -> dict[str, Any] | None:
         state = str(outcome.get("state") or "")

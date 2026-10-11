@@ -440,6 +440,33 @@ for ($offset = 0; $offset -lt $pythonFiles.Count; $offset += $compileBatchSize) 
         -ArgumentList $compileArguments `
         -WorkingDirectory $resolvedRoot
 }
+if (Test-Path (Join-Path $resolvedRoot "tasks\CHAT-DEEPSEEK-001.toml")) {
+    Invoke-NativeStep -Name "chat_deepseek_backend_map_generate" -FilePath $python -ArgumentList @($mapScript) -WorkingDirectory $resolvedRoot
+    Invoke-NativeStep -Name "chat_deepseek_architecture_inventory_generate" -FilePath $python -ArgumentList @($architectureInventoryScript) -WorkingDirectory $resolvedRoot
+    Invoke-NativeStep -Name "chat_deepseek_context_index_generate" -FilePath $python -ArgumentList @($contextIndexScript) -WorkingDirectory $resolvedRoot
+    Invoke-NativeStep -Name "chat_deepseek_product_flow_generate" -FilePath $python -ArgumentList @($productFlowMapScript) -WorkingDirectory $resolvedRoot
+    Invoke-NativeStep -Name "chat_deepseek_frontend_map_generate" -FilePath $node -ArgumentList @($frontendMapScript) -WorkingDirectory $resolvedRoot
+    foreach ($relativeGeneratedPath in @(
+        "backend/SYMBOL_MAP.md",
+        "docs/generated/architecture-inventory.json",
+        "docs/generated/architecture-inventory.md",
+        "docs/generated/context-index.json",
+        "docs/generated/context-index.md",
+        "docs/generated/product-flow-map.json",
+        "docs/generated/product-flow-map.md",
+        "docs/generated/frontend-map.json",
+        "docs/generated/frontend-map.md"
+    )) {
+        $generatedPath = Join-Path $resolvedRoot $relativeGeneratedPath
+        $generatedBytes = [System.IO.File]::ReadAllBytes($generatedPath)
+        Write-Host "CHAT_DEEPSEEK_GENERATED_BEGIN $relativeGeneratedPath"
+        Write-Host ([Convert]::ToBase64String($generatedBytes))
+        Write-Host "CHAT_DEEPSEEK_GENERATED_END $relativeGeneratedPath"
+    }
+    Write-Host "CHAT_DEEPSEEK_GENERATED_DIFF_BEGIN"
+    & git -C $resolvedRoot diff --name-only
+    Write-Host "CHAT_DEEPSEEK_GENERATED_DIFF_END"
+}
 Invoke-NativeStep -Name "backend_map_check" -FilePath $python -ArgumentList @($mapScript, "--check") -WorkingDirectory $resolvedRoot
 Invoke-NativeStep -Name "architecture_inventory_check" -FilePath $python -ArgumentList @($architectureInventoryScript, "--check") -WorkingDirectory $resolvedRoot
 Invoke-NativeStep -Name "context_index_check" -FilePath $python -ArgumentList @($contextIndexScript, "--check") -WorkingDirectory $resolvedRoot

@@ -329,6 +329,13 @@
       "secret_source": "none"
     },
     {
+      "id": "deepseek-user-chat",
+      "source": "backend/app/chat_core/providers/deepseek.py",
+      "endpoint_env": [],
+      "secret_env": [],
+      "secret_source": "per-user CurrentUser DPAPI through the portable chat secret adapter"
+    },
+    {
       "id": "openrouter",
       "source": "backend/app/integrations/openrouter.py",
       "endpoint_env": ["OPENROUTER_BASE_URL"],
