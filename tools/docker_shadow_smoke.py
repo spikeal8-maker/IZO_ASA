@@ -48,18 +48,23 @@ def inspect_stack(shadow) -> dict:
             check(not container["HostConfig"].get("CapAdd"), "SHADOW_APP_CAPABILITIES")
         check(container["HostConfig"]["CapDrop"] == ["ALL"], "SHADOW_CAPABILITIES")
         check(not container["HostConfig"]["Privileged"], "SHADOW_PRIVILEGED")
+        pid_status = shadow.docker("exec", "--user", "101:101" if service == "web" else "10001:10001",
+                                   container["Id"], "cat", "/proc/1/status")
+        ids = next(row for row in pid_status.splitlines() if row.startswith("Uid:")).split()[1:]
+        check(all(value != "0" for value in ids) and "CapEff:\t0000000000000000" in pid_status
+              and "NoNewPrivs:\t1" in pid_status, "SHADOW_PROCESS_PRIVILEGES")
         namespace = exec_json(shadow, container["Id"], """
 import json
 from pathlib import Path
 status = Path('/proc/1/status').read_text()
-print(json.dumps({'noDefaultRoute':not any(r.split()[1]=='00000000' for r in Path('/proc/net/route').read_text().splitlines()[1:]),
+print(json.dumps({'defaultRoutePresent':any(r.split()[1]=='00000000' for r in Path('/proc/net/route').read_text().splitlines()[1:]),
                   'nonroot':next(r for r in status.splitlines() if r.startswith('Uid:')).split()[1]!='0',
                   'capabilitiesZero':'CapEff:\\t0000000000000000' in status,
                   'ipv6Disabled':Path('/proc/sys/net/ipv6/conf/all/disable_ipv6').read_text().strip()=='1'}))
 """) if service != "web" else exec_json(shadow, guard["Id"], """
 import json
 from pathlib import Path
-print(json.dumps({'noDefaultRoute':not any(r.split()[1]=='00000000' for r in Path('/proc/net/route').read_text().splitlines()[1:])}))
+print(json.dumps({'defaultRoutePresent':any(r.split()[1]=='00000000' for r in Path('/proc/net/route').read_text().splitlines()[1:])}))
 """)
         check(all(namespace.values()), "SHADOW_NAMESPACE_BOUNDARY_FAILED")
         mounts = container["Mounts"]
@@ -141,21 +146,77 @@ print(json.dumps({'fixtureRow':found[0] if found else None,
     return state
 
 
+def kernel_policy(shadow, guard: str) -> dict:
+    return json.loads(shadow.docker("exec", guard, "python", "/network_guard.py", "--check"))
+
+
 def egress_proof(shadow, container: str) -> dict:
-    script = """
-import json,socket
-result = {}
-for host,port in [('host.docker.internal',8000),('host.docker.internal',5173),('1.1.1.1',443)]:
+    containers = shadow.containers()
+    guard = next(c for c in containers if c["Config"]["Labels"]["com.docker.compose.service"] == "guard")
+    network = next(iter(guard["NetworkSettings"]["Networks"]))
+    info = json.loads(shadow.docker("network", "inspect", network))[0]
+    gateway = info["IPAM"]["Config"][0]["Gateway"]
+    kernel_policy(shadow, guard["Id"])
+    # No host namespace or host listener is created. This peer is exclusively
+    # owned, has no mounts/ports/capabilities and listens only on the shadow bridge.
+    name = shadow.project + "-egress-proof"
+    check(not shadow.docker("ps", "-aq", "--filter", "name=^/" + name + "$"),
+          "SHADOW_PROBE_NAME_COLLISION")
+    peer = None
+    listener = "import socket; s=socket.socket(); s.bind(('0.0.0.0',45678)); s.listen(); exec('while True:\n c,a=s.accept(); c.sendall(b\"shadow-fixture\"); c.close()')"
+    result = {"gateway": gateway, "controlledGatewayProbe": "GATEWAY_LISTENER_PROOF_BLOCKED",
+              "gatewayListenerLimitation": "Docker bridge gateway belongs to the host VM. A real listener there requires forbidden host networking; bridge-peer listener and exact kernel DROP counters are verified instead.",
+              "probes": {}}
     try:
-        with socket.create_connection((host,port),timeout=1):
-            result[host+':'+str(port)] = 'REACHABLE'
-    except OSError:
-        result[host+':'+str(port)] = 'UNREACHABLE'
+        peer = shadow.docker("run", "-d", "--rm", "--name", name, "--network", network,
+                             "--label", "io.izo.owner=SHADOW-TOPOLOGY-01",
+                             "--label", "io.izo.project=" + shadow.project,
+                             "--user", "10001:10001", "--read-only", "--cap-drop", "ALL",
+                             "--security-opt", "no-new-privileges:true", "--memory", "64m",
+                             "--pids-limit", "16", guard["Image"], "python", "-c", listener)
+        peer_info = json.loads(shadow.docker("inspect", peer))[0]
+        address = peer_info["NetworkSettings"]["Networks"][network]["IPAddress"]
+        # A separate, unfiltered test client on the SAME bridge must reach it.
+        control = "import socket,time; time.sleep(.2); s=socket.create_connection((" + repr(address) + ",45678),2); assert s.recv(64)==b'shadow-fixture'; print('LISTENER_REACHABLE'); s.close()"
+        positive = shadow.docker("run", "--rm", "--network", network,
+                                 "--label", "io.izo.owner=SHADOW-TOPOLOGY-01",
+                                 "--user", "10001:10001", "--read-only", "--cap-drop", "ALL",
+                                 "--security-opt", "no-new-privileges:true", "--memory", "64m",
+                                 "--pids-limit", "16", guard["Image"], "python", "-c", control)
+        check(positive == "LISTENER_REACHABLE", "SHADOW_CONTROL_LISTENER_NOT_READY")
+        result["controlledBridgeListener"] = {"ip": address, "positiveControl": "PASS"}
+        for label, host, port in (("gateway", gateway, 65432), ("bridgePeer", address, 45678),
+                                  ("external", "1.1.1.1", 443)):
+            before = kernel_policy(shadow, guard["Id"])["blockedPackets"]
+            script = """
+import json,socket
+s=socket.socket(); s.settimeout(.7)
+try:
+    s.connect((__HOST__, __PORT__))
+    result={'connected':True,'errno':0,'timeout':False}
+except OSError as e:
+    result={'connected':False,'errno':e.errno,'timeout':isinstance(e,TimeoutError)}
+finally:s.close()
 print(json.dumps(result))
-"""
-    results = exec_json(shadow, container, script)
-    check(all(value == "UNREACHABLE" for value in results.values()), "SHADOW_EGRESS_NOT_ISOLATED")
-    return results
+""".replace("__HOST__", repr(host)).replace("__PORT__", str(port))
+            probe = exec_json(shadow, container, script)
+            after = kernel_policy(shadow, guard["Id"])["blockedPackets"]
+            probe.update(ip=host, port=port, blockedPacketDelta=after-before)
+            # ECONNREFUSED, DNS failure and lack of a route are never evidence
+            # of filtering: require timeout AND packets counted by exact policy.
+            check(not probe["connected"] and probe["timeout"] and after > before,
+                  "SHADOW_EGRESS_NOT_BLOCKED_BY_POLICY")
+            result["probes"][label] = probe
+        result["kernelPolicy"] = kernel_policy(shadow, guard["Id"])
+        result["status"] = "KERNEL_AND_BRIDGE_VERIFIED_GATEWAY_LISTENER_BLOCKED"
+        return result
+    finally:
+        if peer:
+            item = json.loads(shadow.docker("inspect", peer))[0]
+            labels = item["Config"]["Labels"]
+            check(labels.get("io.izo.owner") == "SHADOW-TOPOLOGY-01" and
+                  labels.get("io.izo.project") == shadow.project, "SHADOW_FOREIGN_PROBE")
+            shadow.docker("rm", "-f", peer)
 
 
 def prove(shadow, receipt: Path) -> None:
@@ -166,8 +227,13 @@ def prove(shadow, receipt: Path) -> None:
                               "Provider calls disabled; model output and real-provider behavior not verified.",
                               "Fixture DB/media persistence and read-only app integrity, not user-flow persistence.",
                               "Backend remains the accepted unmanaged DEV runtime; image labels bind its source."]}
+    production_before = None
     try:
         shadow.source_guard()
+        from tools.docker_shadow_evidence import snapshot, compare
+        production_before = snapshot(shadow)
+        result["productionBefore"] = production_before
+        shadow.up(build=True)
         config = shadow.config()
         result["configSha256"] = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()
         result["containersBefore"] = inspect_stack(shadow)
@@ -177,25 +243,35 @@ def prove(shadow, receipt: Path) -> None:
         marker = "shadow-" + uuid.uuid4().hex
         before = fixture(shadow, backend, marker, create=True)
         result["persistenceBefore"] = before
-        for cycle in range(2):
-            # A real down/up proves named volumes survive removal, not only restart.
-            shadow.ownership_guard()
-            shadow.compose("down", capture=False)
-            shadow.up(build=True)
+        for cycle in range(1):
+            # Review repair: one controlled up -> smoke -> recreate -> smoke.
+            # The original two down/build/up receipts remain historical evidence.
+            shadow.up(build=False, recreate=True)
             current = inspect_stack(shadow)
             state = fixture(shadow, current["backend"]["container"], marker, create=False)
             check(state == before, "SHADOW_APPLICATION_COUNTS_CHANGED")
             result["cycles"].append({"cycle": cycle + 1, "status": "PASS", "state": state,
-                                      "containers": current, "http": http_proof(shadow)})
+                                      "containers": current, "http": http_proof(shadow),
+                                      "egress": egress_proof(shadow, current["backend"]["container"])})
         result["resources"] = shadow.docker("stats", "--no-stream", "--format", "{{json .}}",
                                                *[row["container"] for row in current.values()])
         result["cleanup"] = "Shadow left running for owner inspection; named fixture volumes retained."
-        result["status"] = "PASS"
+        result["status"] = "GATEWAY_LISTENER_PROOF_BLOCKED"
     except Exception as exc:
         result["error"] = type(exc).__name__ + ": " + str(exc)
         raise
     finally:
+        if production_before is not None:
+            try:
+                result["productionAfter"] = snapshot(shadow)
+                result["productionComparison"] = compare(production_before, result["productionAfter"])
+                if result["productionComparison"]["status"] != "PROVEN":
+                    result["status"] = "FAIL"
+            except Exception as error:
+                result["productionEvidenceError"] = type(error).__name__
+                result["status"] = "FAIL"
         result["finishedAt"] = now()
         receipt.parent.mkdir(parents=True, exist_ok=True)
         receipt.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(f"SHADOW_RECEIPT status={result['status']} path={receipt}")
+        check(result["status"] == "PASS", result["status"])

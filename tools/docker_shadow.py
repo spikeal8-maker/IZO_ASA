@@ -80,6 +80,14 @@ class Shadow:
                 valid_network = valid_network and service.get("depends_on", {}).get("guard", {}).get("condition") == "service_healthy"
             if not valid_network:
                 raise ShadowError("SHADOW_CONFIG_NETWORK_INVALID")
+            if name == "guard":
+                if service.get("healthcheck", {}).get("test") != ["CMD", "python", "/network_guard.py", "--check"]:
+                    raise ShadowError("SHADOW_CONFIG_POLICY_INVALID")
+            elif (service.get("user") not in {"10001:10001", "101:101"}
+                  or service.get("cap_add")):
+                raise ShadowError("SHADOW_CONFIG_PRIVILEGE_INVALID")
+            if service.get("cap_drop") != ["ALL"] or "no-new-privileges:true" not in service.get("security_opt", []):
+                raise ShadowError("SHADOW_CONFIG_PRIVILEGE_INVALID")
             if service["labels"].get("io.izo.owner") != OWNER:
                 raise ShadowError("SHADOW_CONFIG_OWNER_INVALID")
             if any(port.get("host_ip") != "127.0.0.1" for port in service.get("ports", [])):

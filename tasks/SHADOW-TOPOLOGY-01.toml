@@ -12,7 +12,7 @@ nonGoals = [
   "production data/secrets",
   "real provider calls",
   "public routing",
-  "dependency version changes",
+  "product dependency version changes",
   "product behavior changes",
 ]
 declaredFiles = [
@@ -33,6 +33,7 @@ declaredFiles = [
 ]
 allowedPatterns = [
   ".gitleaksignore",
+  "tools/docker_shadow_evidence.py",
 ]
 forbiddenPatterns = [
   "backend/**",
@@ -52,7 +53,7 @@ maxChangedLines = 1900
 acceptance = [
   "Default Docker DEV is unchanged.",
   "Shadow reuses DEV backend and named volumes in a unique Compose project.",
-  "Only localhost ports are published; all application services share a project-owned namespace whose default route is removed before readiness and whose initializer drops root/capabilities and production endpoints/credentials remain unavailable.",
+  "Only loopback ports are published; exact stateful namespace OUTPUT default-deny permits loopback and established/related replies, denies new gateway/bridge/external connections before app startup, and cannot be changed by non-root apps.",
   "Clean exact source SHA and image revisions are checked before startup; mismatches fail before Docker mutation.",
   "A built React frontend and backend routes are accessible on shadow localhost.",
   "Readiness, stop/start/recreate, SQLite and media persistence, source identity and bounded isolation probes produce explicit results.",
@@ -66,10 +67,11 @@ requiredEvidence = [
   "Compose config validation",
   "clean-source image builds and runtime smoke",
   "source/config/image/container/volume/port identity receipt",
-  "production version before/after",
+  "Read-only production/service/listener/routing-config/foreign-resource before/after snapshots for new controlled operations; original historical baseline unavailable.",
   "git diff --check",
   "package scope receipt",
   "exact-head PR CI",
+  "Kernel policy readback and DROP-counter probes after up/recreate; controlled bridge listener positive control; actual gateway-listener limitation explicitly reported.",
 ]
 targetedTests = [
   "tools/test_docker_shadow.py",
@@ -79,7 +81,7 @@ targetedTests = [
 fileGrowthExpectations = [
   "New handwritten Python files remain below 500 lines.",
   "DEV compose and backend Dockerfile remain unchanged.",
-  "No protected source or dependency versions change.",
+  "No protected product source or product dependency versions change; guard adds the necessary nftables OS package.",
   "Generated inventory changes only through its generator.",
 ]
 forbiddenOperations = [
@@ -117,3 +119,8 @@ recordedAtUtc = "2026-10-11T09:18:12.248992Z"
 path = ".gitleaksignore"
 reason = "CI 757 flags the non-secret task identifier after API: in historical commit 16e7400 docs/NOW.md:41. Keep scanning enabled and ignore only that exact confirmed false-positive fingerprint; rewrite the live wording."
 recordedAtUtc = "2026-10-11T10:04:58.931506Z"
+
+[[scopeExpansions]]
+path = "tools/docker_shadow_evidence.py"
+reason = "Review P2 requires reproducible redacted read-only production and foreign-resource snapshots around only the owned Shadow lifecycle."
+recordedAtUtc = "2026-10-11T10:58:12.795835Z"

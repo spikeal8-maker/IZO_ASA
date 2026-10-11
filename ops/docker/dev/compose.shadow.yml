@@ -31,7 +31,8 @@ services:
       io.izo.owner: SHADOW-TOPOLOGY-01
       io.izo.project: ${IZO_COMPOSE_PROJECT}
     healthcheck:
-      test: [CMD, setpriv, --reuid=10001, --regid=10001, --clear-groups, python, -c, "from pathlib import Path; assert Path('/tmp/shadow-network-ready').read_text() == 'NO_DEFAULT_ROUTE_NONROOT'; assert not any(r.split()[1] == '00000000' for r in Path('/proc/net/route').read_text().splitlines()[1:]); assert 'CapEff:\t0000000000000000' in Path('/proc/1/status').read_text()"]
+      # This guard-only diagnostic reads kernel rules; PID 1 stays non-root.
+      test: [CMD, python, /network_guard.py, --check]
       interval: 2s
       timeout: 2s
       retries: 20
@@ -94,8 +95,8 @@ services:
 
 networks:
   shadow:
-    # No external route is retained by guard. Internal bridges on Docker
-    # Desktop suppress port publishing, so ingress uses a guarded namespace.
+    # Stateful OUTPUT default-deny, including gateway and other bridge nodes.
+    # Routes remain intact for established replies to published ingress.
     internal: false
     labels:
       io.izo.owner: SHADOW-TOPOLOGY-01

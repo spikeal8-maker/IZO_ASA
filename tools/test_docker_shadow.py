@@ -65,9 +65,12 @@ def test_failed_image_build_does_not_start_or_replace_containers():
 
 def config():
     service = {"network_mode": "service:guard", "labels": {"io.izo.owner": OWNER},
+               "user": "10001:10001", "cap_drop": ["ALL"], "security_opt": ["no-new-privileges:true"],
                "depends_on": {"guard": {"condition": "service_healthy"}},
                "volumes": [{"type": "volume"}]}
     guard = {"networks": {"shadow": {}}, "labels": {"io.izo.owner": OWNER},
+             "cap_drop": ["ALL"], "security_opt": ["no-new-privileges:true"],
+             "healthcheck": {"test": ["CMD", "python", "/network_guard.py", "--check"]},
              "dns": ["127.0.0.1"],
              "ports": [{"host_ip": "127.0.0.1"}]}
     return {"services": {"backend": copy.deepcopy(service), "web": copy.deepcopy(service), "guard": guard},
@@ -152,3 +155,74 @@ def test_storage_probe_executes_sql_and_preserves_application_rows(tmp_path, mon
     after = docker_shadow_smoke.fixture(None, "test", "safe-fixture", create=False)
     assert before == after
     assert after["applicationCounts"] == {"users": 1, "jobs": 1, "images": 1}
+
+
+def guard_module():
+    import importlib.util
+    from pathlib import Path
+    path = Path(__file__).resolve().parents[1] / "ops/docker/dev/network_guard.py"
+    spec = importlib.util.spec_from_file_location("shadow_guard_test", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_stateful_policy_allows_only_loopback_and_established_replies():
+    guard = guard_module()
+    guard.validate_policy(guard.RULES)
+    assert 'policy drop;' in guard.RULES
+    assert 'oifname "lo" accept' in guard.RULES
+    assert 'ct state established,related accept' in guard.RULES
+
+
+@pytest.mark.parametrize("change", ["missing", "accept-default", "extra-accept", "no-counter", "wrong-hook"])
+def test_missing_or_damaged_policy_fails_closed(change):
+    guard = guard_module()
+    text = {'missing': '', 'accept-default': guard.RULES.replace('policy drop', 'policy accept'),
+            'extra-accept': guard.RULES.replace('counter drop', 'accept\n counter drop'),
+            'no-counter': guard.RULES.replace('counter drop', 'drop'),
+            'wrong-hook': guard.RULES.replace('hook output', 'hook input')}[change]
+    with pytest.raises(RuntimeError, match='SHADOW_KERNEL_POLICY_MISMATCH'):
+        guard.validate_policy(text)
+
+
+def test_failed_policy_install_never_marks_ready_or_drops_into_service_loop(tmp_path, monkeypatch):
+    guard = guard_module()
+    monkeypatch.setattr(guard, 'READY', tmp_path / 'ready')
+    monkeypatch.setattr(guard, 'nft', Mock(side_effect=RuntimeError('INSTALL_FAILED')))
+    drop = Mock()
+    monkeypatch.setattr(guard.os, 'setgroups', drop, raising=False)
+    with pytest.raises(RuntimeError, match='INSTALL_FAILED'):
+        guard.main()
+    assert not guard.READY.exists()
+    drop.assert_not_called()
+
+
+@pytest.mark.parametrize("change", ['no-policy-check', 'root-app', 'net-admin', 'no-cap-drop', 'new-privileges'])
+def test_policy_readiness_and_app_privileges_are_mandatory(change):
+    value = config()
+    if change == 'no-policy-check':
+        value['services']['guard']['healthcheck']['test'] = ['CMD', 'true']
+    elif change == 'root-app':
+        value['services']['backend']['user'] = '0:0'
+    elif change == 'net-admin':
+        value['services']['backend']['cap_add'] = ['NET_ADMIN']
+    elif change == 'no-cap-drop':
+        value['services']['web']['cap_drop'] = []
+    else:
+        value['services']['web']['security_opt'] = []
+    shadow = Shadow(PROJECT, SHA)
+    shadow.compose = Mock(return_value=json.dumps(value))
+    with pytest.raises(ShadowError, match='SHADOW_CONFIG_'):
+        shadow.config()
+
+
+def test_production_comparison_does_not_accept_missing_or_changed_baseline():
+    from tools.docker_shadow_evidence import compare
+    with pytest.raises(RuntimeError, match='INCOMPLETE'):
+        compare({}, {})
+    before = {'status': 'CAPTURED', 'versions': {'release': 'old'}, 'windows': {}, 'foreignDocker': {}}
+    assert compare(before, copy.deepcopy(before))['status'] == 'PROVEN'
+    after = copy.deepcopy(before)
+    after['versions']['release'] = 'changed'
+    assert compare(before, after)['status'] == 'FAIL'

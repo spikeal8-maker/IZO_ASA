@@ -1,4 +1,4 @@
-# Isolated Docker Shadow — SHADOW-TOPOLOGY-01
+# Isolated Docker Shadow вЂ” SHADOW-TOPOLOGY-01
 
 This is the first implementation slice of Issue #125, not acceptance of the
 whole shadow migration. It reuses `ops/docker/dev/compose.yml` and its backend
@@ -13,7 +13,7 @@ localhost:48125 -> shadow web -> 127.0.0.1:8000 backend
 localhost:48126 --------------------^
                   shared guarded network namespace
                          own SQLite/media volumes
-                         own bridge, no default route, IPv6 disabled
+                         own bridge, stateful OUTPUT deny, IPv6 disabled
 ```
 
 - Docker Desktop Linux context; Compose with `up --wait` is required.
@@ -24,16 +24,18 @@ localhost:48126 --------------------^
   between 20000 and 65535. The default ports avoid native production listeners.
 - Docker Desktop suppresses published ports on `internal: true` bridges (the
   first preserved smoke attempt failed with healthy containers but no ingress).
-  A small project-owned namespace guard therefore removes the default route
-  and disables IPv6 before backend/web startup. Both apps share that namespace;
-  neither has network-administration capabilities or an additional network.
-  The guard initializer alone briefly receives NET_ADMIN/SETUID/SETGID, then
-  drops all root IDs and effective capabilities before readiness. Its health
-  check also runs as UID 10001. No host or Docker-wide routing/firewall changes
-  occur. DNS forwarding is explicitly limited to loopback, preventing the
-  embedded Docker resolver from forwarding queries through the host. Real provider
-  URLs and credentials remain disabled; the existing mock image fallback and
-  fake TTS are enabled. There are no provider endpoint overrides in this slice.
+  A project-owned namespace guard installs an atomic nftables OUTPUT policy
+  before readiness: accept loopback, accept established/related replies, then
+  count and drop everything else. Default deny also covers the numeric gateway
+  IP and other directly connected bridge nodes. Routes stay intact so published
+  ingress replies work. IPv6 is disabled; DNS forwarding is limited to loopback.
+  Guard uses the existing pinned Python base plus the necessary nftables OS
+  package. No Windows/host namespace/firewall or Docker-wide settings change.
+  The initializer has NET_ADMIN/SETUID/SETGID, then drops root IDs and effective
+  capabilities. Backend/web have no added capabilities and cannot alter policy.
+  The guard-only health subprocess reads the exact kernel rules with NET_ADMIN;
+  missing, reordered or extra rules fail readiness. Both apps require a healthy
+  guard before startup. Real providers and credentials stay disabled.
 - The frontend is built using the repository's Node pin and lockfile. Base
   images are digest-pinned. Both application images carry the exact source SHA;
   frontend HTML/JavaScript embeds it too. The backend intentionally retains the
@@ -66,23 +68,40 @@ Open `http://127.0.0.1:48125/`. The API is also available at
 `http://127.0.0.1:48126/api/health`. For additional isolated instances, supply a
 new project and distinct `--web-port`/`--api-port` values on every command.
 
-The smoke command checks image revisions, running/healthy state, loopback-only
-bindings, shared namespace/no-default-route boundary, mounts, empty provider credentials,
-frontend assets, `/`, `/feed`, `/gallery`, health and API access. It probes TCP
-access to native host listeners and an external address and requires failure.
+The repair smoke captures a read-only production baseline, performs an owned
+`up`, checks topology/HTTP/network/storage, then performs `recreate` and repeats
+those checks. It records a comparable production snapshot even after a failure.
+Snapshots contain selected version fields, service/process PID/start identities,
+owned service listeners, service-definition/routing-config hashes and foreign
+Docker resource identities. Config contents, command lines and secrets are never
+included. This proves only the newly controlled window; the missing baseline
+before the original implementation cannot be reconstructed retroactively.
 
-It creates a dedicated fixture SQLite file in the shadow data volume and a
-media marker, then performs **two actual down/build/up cycles** with the same
-named volumes. Marker contents, application table counts and read-only SQLite
-integrity must survive both cycles. It never writes directly to application
-tables or impersonates an application user. The fixture proves storage topology,
-not complete authentication/generation/gallery/billing acceptance.
+Network proof reads the actual gateway from Docker network inspect. Numeric
+connections to gateway, a controlled bridge peer and an external IP must time
+out AND increment the exact kernel DROP counter. ECONNREFUSED, DNS errors and
+missing routes are not accepted. A separate unfiltered client on the same owned
+bridge must reach the controlled listener. Test containers have no host mounts,
+published ports or capabilities and only their verified IDs are removed.
+
+**GATEWAY_LISTENER_PROOF_BLOCKED:** the actual Docker bridge gateway is owned by
+Docker Desktop's host VM. A listener there would require forbidden host networking.
+The numeric-gateway kernel DROP evidence and controlled bridge-peer listener are
+reported separately; they do not claim a listener on the gateway itself. Until
+that criterion has safe independent evidence, the receipt remains BLOCKED, smoke
+exits nonzero and the PR stays Draft. No policy is weakened to pass a probe.
+
+Storage proof uses a dedicated fixture SQLite row and media marker. The app DB
+is opened read-only for integrity/table counts. Markers and counts must survive
+recreate. Original two down/build/up receipts remain historical evidence; the
+repair does not retrospectively give them a production baseline or replace
+full user-flow persistence acceptance.
 
 The JSON receipt under `.runtime/shadow/<project>.json` records source/config
 identity, container/image IDs, ports, volumes, checks, timestamps, resource
 sample, failures and limitations. A failed attempt stays FAIL. A separate
 receipt path (`--receipt`) preserves each attempt instead of overwriting it.
-The successful smoke leaves the shadow running for inspection. Test marker
+The repair smoke leaves the shadow running for inspection, including a BLOCKED result. Test marker
 files and owned volumes remain; these are deliberate safe fixture resources.
 
 ```powershell
