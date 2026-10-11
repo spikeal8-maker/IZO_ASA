@@ -7,12 +7,29 @@ import pytest
 from app.services.generation_recovery import (
     ACTIVE_GENERATION_STATUSES,
     RESUMABLE_VIDEO_PROVIDERS,
+    RESUMABLE_VIDEO_MODES,
     STARTUP_INTERRUPTION_MESSAGE,
     reconcile_stale_generation_jobs,
 )
 
 
 NOW = "2026-07-14T00:45:00+00:00"
+
+
+@pytest.fixture(autouse=True)
+def close_test_connections(monkeypatch):
+    original = sqlite3.connect
+    connections = []
+
+    def connect(*args, **kwargs):
+        conn = original(*args, **kwargs)
+        connections.append(conn)
+        return conn
+
+    monkeypatch.setattr(sqlite3, "connect", connect)
+    yield
+    for conn in connections:
+        conn.close()
 
 
 def connection() -> sqlite3.Connection:
@@ -25,12 +42,14 @@ def connection() -> sqlite3.Connection:
             user_id TEXT,
             status TEXT NOT NULL,
             provider TEXT,
+            mode TEXT,
             progress INTEGER NOT NULL,
             result_image_id TEXT,
             error_message TEXT,
             completed_at TEXT,
             created_at TEXT NOT NULL
         );
+        CREATE TABLE token_ledger (id TEXT);
         CREATE TABLE images (
             id TEXT PRIMARY KEY,
             user_id TEXT,
@@ -48,11 +67,12 @@ def insert_job(
     job_id: str,
     status: str,
     provider: str | None = None,
+    mode: str = "text_to_image",
 ) -> None:
     conn.execute(
-        "INSERT INTO jobs (id, user_id, status, provider, progress, created_at) "
-        "VALUES (?, 'user-1', ?, ?, 24, ?)",
-        (job_id, status, provider, NOW),
+        "INSERT INTO jobs (id, user_id, status, provider, mode, progress, created_at) "
+        "VALUES (?, 'user-1', ?, ?, ?, 24, ?)",
+        (job_id, status, provider, mode, NOW),
     )
 
 
@@ -66,12 +86,14 @@ def test_active_status_contract_is_explicit_and_stable() -> None:
     )
     assert STARTUP_INTERRUPTION_MESSAGE == "Генерация прервана перезапуском сервиса. Токены возвращены."
     assert RESUMABLE_VIDEO_PROVIDERS == ("openrouter", "local_ltx")
+    assert RESUMABLE_VIDEO_MODES == ("text_to_video", "image_to_video", "first_last_frame", "reference_to_video")
 
 
 def test_resumable_video_jobs_survive_startup_reconciliation() -> None:
     conn = connection()
     for provider in RESUMABLE_VIDEO_PROVIDERS:
-        insert_job(conn, f"video-{provider}", "queued", provider)
+        for mode in RESUMABLE_VIDEO_MODES:
+            insert_job(conn, f"video-{provider}-{mode}", "queued", provider, mode)
 
     report = reconcile_stale_generation_jobs(
         conn,
@@ -81,7 +103,7 @@ def test_resumable_video_jobs_survive_startup_reconciliation() -> None:
 
     assert report.checked == 0
     statuses = conn.execute("SELECT status FROM jobs ORDER BY id").fetchall()
-    assert [row["status"] for row in statuses] == ["queued", "queued"]
+    assert [row["status"] for row in statuses] == ["queued"] * (len(RESUMABLE_VIDEO_PROVIDERS) * len(RESUMABLE_VIDEO_MODES))
 
 
 def test_all_orphaned_active_states_fail_and_request_refund() -> None:
@@ -108,6 +130,25 @@ def test_all_orphaned_active_states_fail_and_request_refund() -> None:
         "error_message": STARTUP_INTERRUPTION_MESSAGE,
         "completed_at": NOW,
     } for row in rows)
+
+
+@pytest.mark.parametrize("provider", ["openrouter", "local_ltx", "comfyui"])
+@pytest.mark.parametrize("mode", ["text_to_image", "image_to_image", ""])
+def test_image_or_unknown_mode_never_inherits_video_recovery_exclusion(provider, mode):
+    conn = connection()
+    for status in ACTIVE_GENERATION_STATUSES:
+        insert_job(conn, status, status, provider, mode)
+    refunded = []
+    report = reconcile_stale_generation_jobs(
+        conn, completed_at=NOW,
+        refund_job=lambda _conn, job_id, reason: refunded.append(job_id) or True,
+    )
+    assert report.failed == report.refunds_created == len(ACTIVE_GENERATION_STATUSES)
+    assert sorted(refunded) == sorted(ACTIVE_GENERATION_STATUSES)
+    assert all(row[0] == "failed" for row in conn.execute("SELECT status FROM jobs"))
+    assert reconcile_stale_generation_jobs(
+        conn, completed_at=NOW, refund_job=lambda *_args, **_kw: pytest.fail("no second refund"),
+    ).checked == 0
 
 
 def test_saved_active_image_completes_job_without_refund() -> None:
