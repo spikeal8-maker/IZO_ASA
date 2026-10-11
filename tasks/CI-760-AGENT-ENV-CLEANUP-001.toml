@@ -1,0 +1,71 @@
+manifestVersion = 1
+id = "CI-760-AGENT-ENV-CLEANUP-001"
+baseSha = "9acd9df0e8f375b8711e6b4cc63d349aa7b4a70e"
+goal = "Close test SQLite connections before owned environment cleanup and retain safe startup JSON read diagnostics."
+userOutcome = "Windows focused tests leave no active environment or SQLite payload and startup read failures retain actionable redacted metadata."
+beforeScenario = "Three ready tests retain SQLite handles; cleanup suppresses WinError 32 and leaves active receipts. Startup JSON read failures lose exception metadata."
+afterScenario = "All four test connection sites close on success and exception, cleanup failures fail tests, and invalid startup JSON remains fail-closed with observed diagnostic fields."
+nonGoals = [
+  "prove original CI 760 cause",
+  "change PR 178",
+  "Docker lifecycle",
+  "production",
+  "business logic",
+  "timeout changes",
+  "merge",
+]
+declaredFiles = [
+  "tools/test_agent_env_ready.py",
+  "tools/agent_system/env_lifecycle.py",
+  "tools/test_agent_env_lifecycle.py",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  ".github/**",
+  "architecture/**",
+]
+protectedFilesTouched = [
+]
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+maxProductionFiles = 1
+maxChangedLines = 350
+acceptance = [
+  "SQLite connections close before env_down including exceptions.",
+  "Successful tests require stopped receipts, absent database payloads, exited owned holders and released ports.",
+  "Startup JSON diagnostics contain only observed exception_type, errno, winerror, file_exists, file_size, holder_pid, holder_alive and startup_stage without content or paths.",
+  "ENVIRONMENT_STATE_INVALID and existing wait limits remain unchanged.",
+  "PR 178 and foreign workloads remain unchanged.",
+]
+requiredEvidence = [
+  "Windows Python 3.11 focused cleanup and lifecycle tests",
+  "regression tests for connection closure and redacted invalid JSON diagnostics",
+  "post-test residue audit",
+  "package enforcement",
+  "git diff --check",
+  "redacted secret scan",
+  "one standalone Draft PR",
+  "exact-head CI only if runner workload safety is demonstrated; otherwise explicitly NOT_RUN",
+]
+targetedTests = [
+  "tools/test_agent_env_ready.py",
+  "tools/test_agent_env_lifecycle.py",
+]
+fileGrowthExpectations = [
+  "Minimal scoped diagnostics; no generated inventory structural changes or product code changes.",
+]
+forbiddenOperations = [
+  "docker-lifecycle",
+  "production",
+  "foreign-resource-mutation",
+  "host-settings-change",
+  "merge",
+  "force-push",
+  "unsafe-full-ci",
+]
+rollbackBoundary = "Revert only this package's source and contract; preserve all runtime, host and foreign resources."
