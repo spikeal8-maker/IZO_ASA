@@ -117,8 +117,12 @@ class Shadow:
         self.source_guard()
         self.config()
         self.ownership_guard()
-        args = ["up", "-d", "--wait", "--wait-timeout", "180"]
-        args += ["--build"] if build else ["--no-build"]
+        if build:
+            # Keep cold Node/pip builds from competing for Desktop's memory.
+            # A failed build must leave the currently running stack untouched.
+            for service in ("backend", "guard", "web"):
+                self.compose("build", service, capture=False, timeout=1200)
+        args = ["up", "-d", "--wait", "--wait-timeout", "180", "--no-build"]
         if recreate:
             args.append("--force-recreate")
         self.compose(*args, capture=False, timeout=1200)

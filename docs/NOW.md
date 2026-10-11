@@ -5,8 +5,8 @@ backlog_role: program-router
 updated: 2026-10-11
 source_main_at_status_update: 9acd9df0e8f375b8711e6b4cc63d349aa7b4a70e
 last_verified_main: 9acd9df0e8f375b8711e6b4cc63d349aa7b4a70e
-production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa
-production_release_verified_at: 2026-09-02T00:08:04+03:00
+production_release_sha: 9128f99f825bdd4533dd68c44b5e2f4586719f7f
+production_release_verified_at: 2026-10-11T12:28:16+03:00
 completed_package: CONTAINER-READY-001
 active_package: CONTAINER-SHADOW-001
 active_task_contract: github-issue-125
@@ -22,8 +22,8 @@ next_candidate: CONTAINER-PRODUCTION-001
 
 Сверить repository root, origin, clean status, HEAD/origin-main и worktrees.
 Source main: `9acd9df0e8f375b8711e6b4cc63d349aa7b4a70e` (CI #753 SUCCESS).
-Production release: `d223c179d5944bc208cace867d5e93bc1341a3aa` (2026-09-02);
-production подтверждается installed runtime evidence.
+Production release: `9128f99f825bdd4533dd68c44b5e2f4586719f7f` (build 2026-09-06);
+local/public `/api/version` совпали 2026-10-11. Runtime не обновлялся этим package.
 
 ## 2. Активный stabilization package
 

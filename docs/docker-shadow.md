@@ -45,6 +45,8 @@ localhost:48126 --------------------^
   identity/ports reach the Docker CLI; containers receive Compose's fixed env.
 - Startup requires a clean exact-SHA checkout of this repository. Existing
   containers, networks or volumes with foreign ownership cause a hard failure.
+- Image builds run sequentially to limit peak Docker Desktop memory use. A
+  failed build does not start or replace the running shadow containers.
 - The web and running guard processes are non-root/read-only with temporary
   files in tmpfs. Backend
   resource limits/non-root settings come from DEV. Shutdown has bounded grace.

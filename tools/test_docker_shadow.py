@@ -50,6 +50,17 @@ def test_wrong_repository_fails_before_docker():
     shadow.docker.assert_not_called()
 
 
+def test_failed_image_build_does_not_start_or_replace_containers():
+    shadow = Shadow(PROJECT, SHA)
+    shadow.source_guard = Mock()
+    shadow.config = Mock()
+    shadow.ownership_guard = Mock()
+    shadow.compose = Mock(side_effect=ShadowError("SHADOW_COMMAND_FAILED"))
+    with pytest.raises(ShadowError, match="SHADOW_COMMAND_FAILED"):
+        shadow.up()
+    assert not any(call.args[0] == "up" for call in shadow.compose.call_args_list)
+
+
 def config():
     service = {"network_mode": "service:guard", "labels": {"io.izo.owner": OWNER},
                "depends_on": {"guard": {"condition": "service_healthy"}},
