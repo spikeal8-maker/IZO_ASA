@@ -1,0 +1,72 @@
+# Opt-in overlay. The accepted DEV configuration remains network-disabled.
+# Requires Compose 2.24+ for !reset; use tools/docker_shadow.py for lifecycle.
+services:
+  backend:
+    network_mode: !reset null
+    networks: [shadow]
+    ports:
+      - "127.0.0.1:${IZO_SHADOW_API_PORT:?shadow API port required}:8000"
+    labels:
+      io.izo.owner: SHADOW-TOPOLOGY-01
+    environment:
+      TRUSTED_HOSTS: localhost,127.0.0.1
+      CORS_ALLOWED_ORIGINS: http://127.0.0.1:${IZO_SHADOW_WEB_PORT},http://localhost:${IZO_SHADOW_WEB_PORT}
+      COMFYUI_BASE_URL: http://127.0.0.1:1
+      OLLAMA_BASE_URL: http://127.0.0.1:1
+      QWEN_ASR_BASE_URL: http://127.0.0.1:1
+      LOCAL_LTX_COMFYUI_BASE_URL: http://127.0.0.1:1
+      COMFYUI_MOCK_FALLBACK: "true"
+    healthcheck:
+      test: [CMD, python, -c, "import json,urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3))['ok']"]
+      interval: 5s
+      timeout: 4s
+      retries: 30
+      start_period: 15s
+    stop_grace_period: 30s
+
+  web:
+    build:
+      context: ../../..
+      dockerfile: ops/docker/dev/Dockerfile.web
+      args:
+        IZO_SOURCE_SHA: ${IZO_SOURCE_SHA:?IZO_SOURCE_SHA is required}
+    image: izo-asa-shadow-web:${IZO_SOURCE_SHA}
+    user: "101:101"
+    restart: "no"
+    read_only: true
+    tmpfs: [/tmp]
+    cpus: 0.5
+    mem_limit: 256m
+    pids_limit: 64
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [shadow]
+    ports:
+      - "127.0.0.1:${IZO_SHADOW_WEB_PORT:?shadow web port required}:8080"
+    labels:
+      io.izo.owner: SHADOW-TOPOLOGY-01
+      io.izo.project: ${IZO_COMPOSE_PROJECT}
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -q, --spider, "http://127.0.0.1:8080/"]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+    stop_grace_period: 15s
+
+networks:
+  shadow:
+    internal: true
+    labels:
+      io.izo.owner: SHADOW-TOPOLOGY-01
+      io.izo.project: ${IZO_COMPOSE_PROJECT}
+
+volumes:
+  sqlite-data:
+    labels:
+      io.izo.owner: SHADOW-TOPOLOGY-01
+  media-data:
+    labels:
+      io.izo.owner: SHADOW-TOPOLOGY-01

@@ -1,0 +1,95 @@
+manifestVersion = 1
+id = "SHADOW-TOPOLOGY-01"
+baseSha = "9acd9df0e8f375b8711e6b4cc63d349aa7b4a70e"
+goal = "Reuse Docker DEV for a loopback-only, internally networked shadow backend and built frontend with isolated persistent state and exact source identity."
+userOutcome = "The owner can open an isolated Docker copy of IZO at a separate localhost port while the native public site remains unchanged."
+beforeScenario = "DEV Docker contains only an unpublished network-disabled backend; main CI 753 passed but no accessible shadow topology exists."
+afterScenario = "An opt-in overlay reuses the DEV backend and volumes, adds a built frontend, publishes only loopback ports and proves readiness, internal egress isolation, identity and recreate persistence."
+nonGoals = [
+  "complete all Issue 125 parity/recovery acceptance",
+  "start Issue 126",
+  "production deploy or restart",
+  "production data/secrets",
+  "real provider calls",
+  "public routing",
+  "dependency version changes",
+  "product behavior changes",
+]
+declaredFiles = [
+  "ops/docker/dev/compose.shadow.yml",
+  "ops/docker/dev/Dockerfile.web",
+  "ops/docker/dev/Dockerfile.web.dockerignore",
+  "ops/docker/dev/nginx.shadow.conf",
+  "tools/docker_shadow.py",
+  "tools/docker_shadow_smoke.py",
+  "tools/test_docker_shadow.py",
+  "docs/docker-shadow.md",
+  "docs/NOW.md",
+  "docs/generated/architecture-inventory.md",
+  "docs/generated/architecture-inventory.json",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/release/**",
+  "ops/docker/agent-sandbox/**",
+  ".github/**",
+  "architecture/**",
+]
+protectedFilesTouched = [
+]
+domain = "container-shadow"
+riskClass = "high-assurance"
+changeClass = "runtime"
+maxProductionFiles = 12
+maxChangedLines = 1900
+acceptance = [
+  "Default Docker DEV is unchanged.",
+  "Shadow reuses DEV backend and named volumes in a unique Compose project.",
+  "Only localhost ports are published; all services join only an internal network and production endpoints/credentials remain unavailable.",
+  "Clean exact source SHA and image revisions are checked before startup; mismatches fail before Docker mutation.",
+  "A built React frontend and backend routes are accessible on shadow localhost.",
+  "Readiness, stop/start/recreate, SQLite and media persistence, source identity and bounded isolation probes produce explicit results.",
+  "Only package-owned Docker resources may be stopped; down retains volumes.",
+  "Focused checks and package enforcement pass; a clean commit and draft PR make the result reviewable.",
+  "Issue 125 remains active with remaining parity/recovery gates explicit; no production acceptance claim.",
+]
+requiredEvidence = [
+  "GitHub CI 753 SUCCESS for base SHA",
+  "focused tests",
+  "Compose config validation",
+  "clean-source image builds and runtime smoke",
+  "source/config/image/container/volume/port identity receipt",
+  "production version before/after",
+  "git diff --check",
+  "package scope receipt",
+  "exact-head PR CI",
+]
+targetedTests = [
+  "tools/test_docker_shadow.py",
+  "tools/test_docker_dev_contract.py",
+  "tools/test_generate_architecture_inventory.py",
+]
+fileGrowthExpectations = [
+  "New handwritten Python files remain below 500 lines.",
+  "DEV compose and backend Dockerfile remain unchanged.",
+  "No protected source or dependency versions change.",
+  "Generated inventory changes only through its generator.",
+]
+forbiddenOperations = [
+  "production-deploy",
+  "production-restart",
+  "production-cutover",
+  "production-data",
+  "production-secrets",
+  "caddy-change",
+  "frp-change",
+  "dns-change",
+  "real-provider-call",
+  "merge",
+  "force-push",
+  "global-docker-cleanup",
+]
+rollbackBoundary = "Stop only the named shadow Compose project without deleting its volumes; revert only package-owned source files. Native services, production data and other Docker projects remain untouched."
