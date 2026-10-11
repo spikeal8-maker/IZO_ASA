@@ -1,0 +1,64 @@
+manifestVersion = 1
+id = "SHADOW-ISOLATED-ADAPTER-001"
+baseSha = "9acd9df0e8f375b8711e6b4cc63d349aa7b4a70e"
+goal = "Pin an isolated Linux Docker executor and provide a bounded controlled gateway listener for Shadow verification."
+userOutcome = "Shadow integration can reject a wrong guest or Engine before Docker commands and prove gateway filtering against a real owned listener."
+beforeScenario = "Shadow assumes Windows Desktop and cannot safely prove a gateway listener on a separate Linux test guest."
+afterScenario = "An import-safe adapter validates explicit guest machine identity, local Unix context and exact Engine ID; the owned listener has bounded lifetime and verified cleanup."
+nonGoals = [
+  "change existing Shadow CLI in this component",
+  "claim Docker runtime acceptance from unit tests",
+  "production or shared Docker operations",
+  "host settings",
+  "provider or business logic",
+]
+declaredFiles = [
+  "tools/docker_shadow_executor.py",
+  "tools/test_docker_shadow_executor.py",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  ".github/**",
+  "architecture/**",
+]
+protectedFilesTouched = [
+]
+domain = "container-shadow"
+riskClass = "high-assurance"
+changeClass = "runtime"
+maxProductionFiles = 0
+maxChangedLines = 900
+acceptance = [
+  "Wrong platform, guest, context endpoint or Engine ID fails closed before requested Docker operation.",
+  "Only the verified owned network gateway is a listener target; no host settings or host namespace containers.",
+  "Controlled listener and its thread/socket close on success and exceptions; foreign resources are never deleted.",
+  "Observed snapshots stay separate from production evidence; no production URL requests.",
+]
+requiredEvidence = [
+  "Windows Python3.11 unit tests with native loopback socket fixture only",
+  "negative identity and endpoint tests",
+  "listener lifecycle and exception cleanup regression",
+  "package enforcement and git diff --check",
+  "redacted secret scan",
+  "independent review",
+  "Draft PR; actual guest Docker evidence remains NOT_VERIFIED",
+]
+targetedTests = [
+  "tools/test_docker_shadow_executor.py",
+]
+fileGrowthExpectations = [
+  "New handwritten module/test each below500 lines. No existing product code changes.",
+]
+forbiddenOperations = [
+  "production",
+  "shared-docker-lifecycle",
+  "host-settings-change",
+  "real-provider-call",
+  "force-push",
+  "merge",
+]
+rollbackBoundary = "Revert only this adapter component; preserve all runtime data and unrelated resources."
