@@ -32,6 +32,7 @@ declaredFiles = [
   "ops/docker/dev/Dockerfile.guard.dockerignore",
 ]
 allowedPatterns = [
+  ".gitleaksignore",
 ]
 forbiddenPatterns = [
   "backend/**",
@@ -111,3 +112,8 @@ recordedAtUtc = "2026-10-11T09:18:11.102885Z"
 path = "ops/docker/dev/Dockerfile.guard.dockerignore"
 reason = "Whitelist only the guard source in its build context."
 recordedAtUtc = "2026-10-11T09:18:12.248992Z"
+
+[[scopeExpansions]]
+path = ".gitleaksignore"
+reason = "CI 757 flags the non-secret task identifier after API: in historical commit 16e7400 docs/NOW.md:41. Keep scanning enabled and ignore only that exact confirmed false-positive fingerprint; rewrite the live wording."
+recordedAtUtc = "2026-10-11T10:04:58.931506Z"
