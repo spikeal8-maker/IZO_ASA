@@ -68,12 +68,13 @@ def config():
                "depends_on": {"guard": {"condition": "service_healthy"}},
                "volumes": [{"type": "volume"}]}
     guard = {"networks": {"shadow": {}}, "labels": {"io.izo.owner": OWNER},
+             "dns": ["127.0.0.1"],
              "ports": [{"host_ip": "127.0.0.1"}]}
     return {"services": {"backend": copy.deepcopy(service), "web": copy.deepcopy(service), "guard": guard},
             "networks": {"shadow": {}}}
 
 
-@pytest.mark.parametrize("change", ["extra-network", "host-network", "public-port", "bind-mount", "foreign-owner", "early-app"])
+@pytest.mark.parametrize("change", ["extra-network", "host-network", "public-port", "bind-mount", "foreign-owner", "early-app", "host-dns"])
 def test_unsafe_effective_compose_is_rejected(change):
     value = config()
     backend = value["services"]["backend"]
@@ -87,8 +88,10 @@ def test_unsafe_effective_compose_is_rejected(change):
         backend["volumes"][0]["type"] = "bind"
     elif change == "foreign-owner":
         backend["labels"]["io.izo.owner"] = "other"
-    else:
+    elif change == "early-app":
         backend["depends_on"]["guard"]["condition"] = "service_started"
+    else:
+        value["services"]["guard"].pop("dns")
     shadow = Shadow(PROJECT, SHA)
     shadow.compose = Mock(return_value=json.dumps(value))
     with pytest.raises(ShadowError, match="SHADOW_CONFIG_"):

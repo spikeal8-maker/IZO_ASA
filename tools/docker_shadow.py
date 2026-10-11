@@ -74,6 +74,7 @@ class Shadow:
         for name, service in services.items():
             if name == "guard":
                 valid_network = set(service.get("networks", {})) == {"shadow"} and not service.get("network_mode")
+                valid_network = valid_network and service.get("dns") == ["127.0.0.1"]
             else:
                 valid_network = service.get("network_mode") == "service:guard" and not service.get("networks")
                 valid_network = valid_network and service.get("depends_on", {}).get("guard", {}).get("condition") == "service_healthy"

@@ -30,7 +30,8 @@ localhost:48126 --------------------^
   The guard initializer alone briefly receives NET_ADMIN/SETUID/SETGID, then
   drops all root IDs and effective capabilities before readiness. Its health
   check also runs as UID 10001. No host or Docker-wide routing/firewall changes
-  occur. Real provider
+  occur. DNS forwarding is explicitly limited to loopback, preventing the
+  embedded Docker resolver from forwarding queries through the host. Real provider
   URLs and credentials remain disabled; the existing mock image fallback and
   fake TTS are enabled. There are no provider endpoint overrides in this slice.
 - The frontend is built using the repository's Node pin and lockfile. Base

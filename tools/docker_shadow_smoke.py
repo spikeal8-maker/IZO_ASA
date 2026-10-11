@@ -38,6 +38,7 @@ def inspect_stack(shadow) -> dict:
         bindings = container["HostConfig"]["PortBindings"]
         if service == "guard":
             check(list(networks) == [f"{shadow.project}_shadow"], "SHADOW_EXTRA_NETWORK")
+            check(container["HostConfig"].get("Dns") == ["127.0.0.1"], "SHADOW_EXTERNAL_DNS")
             check(len(bindings) == 2 and all(p["HostIp"] == "127.0.0.1"
                   for ports in bindings.values() for p in ports), "SHADOW_PUBLIC_BINDING")
         else:
@@ -76,6 +77,7 @@ print(json.dumps({'noDefaultRoute':not any(r.split()[1]=='00000000' for r in Pat
                   "SHADOW_VOLUME_BOUNDARY")
         rows[service] = {"container": container["Id"], "image": container["Image"],
                          "sourceSha": shadow.sha, "ports": bindings,
+                         "dnsForwarders": container["HostConfig"].get("Dns") or [],
                          "volumes": [{"name": m["Name"], "target": m["Destination"]}
                                      for m in mounts if m["Type"] == "volume"]}
     return rows
