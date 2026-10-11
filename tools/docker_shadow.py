@@ -69,10 +69,15 @@ class Shadow:
     def config(self) -> dict:
         config = json.loads(self.compose("config", "--format", "json"))
         services = config["services"]
-        if set(services) != {"backend", "web"} or not config["networks"]["shadow"]["internal"]:
+        if set(services) != {"backend", "web", "guard"} or set(config["networks"]) != {"shadow"}:
             raise ShadowError("SHADOW_CONFIG_NETWORK_INVALID")
-        for service in services.values():
-            if set(service.get("networks", {})) != {"shadow"} or service.get("network_mode"):
+        for name, service in services.items():
+            if name == "guard":
+                valid_network = set(service.get("networks", {})) == {"shadow"} and not service.get("network_mode")
+            else:
+                valid_network = service.get("network_mode") == "service:guard" and not service.get("networks")
+                valid_network = valid_network and service.get("depends_on", {}).get("guard", {}).get("condition") == "service_healthy"
+            if not valid_network:
                 raise ShadowError("SHADOW_CONFIG_NETWORK_INVALID")
             if service["labels"].get("io.izo.owner") != OWNER:
                 raise ShadowError("SHADOW_CONFIG_OWNER_INVALID")
@@ -89,7 +94,7 @@ class Shadow:
     def ownership_guard(self) -> None:
         for container in self.containers():
             labels = container["Config"].get("Labels", {})
-            if labels.get("io.izo.owner") != OWNER or labels.get("com.docker.compose.service") not in {"backend", "web"}:
+            if labels.get("io.izo.owner") != OWNER or labels.get("com.docker.compose.service") not in {"backend", "web", "guard"}:
                 raise ShadowError("SHADOW_FOREIGN_CONTAINER")
         for kind in ("volume", "network"):
             ids = self.docker(kind, "ls", "-q", "--filter", f"label=com.docker.compose.project={self.project}").split()

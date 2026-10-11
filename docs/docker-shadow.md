@@ -9,19 +9,28 @@ not replace the accepted, unpublished, network-disabled DEV default.
 ## Topology and boundaries
 
 ```text
-localhost:48125 -> shadow web -> shadow backend:8000
+localhost:48125 -> shadow web -> 127.0.0.1:8000 backend
 localhost:48126 --------------------^
+                  shared guarded network namespace
                          own SQLite/media volumes
-                         internal Compose network only
+                         own bridge, no default route, IPv6 disabled
 ```
 
-- Docker Desktop Linux context; Compose 2.24+ (`!reset`) is required.
+- Docker Desktop Linux context; Compose with `up --wait` is required.
 - The project name must start with `izo-asa-shadow-`. Each project owns its
   network and two named volumes. No bind mounts, Docker socket, GPU access,
   production directories, host network or public routing are used.
 - Both published ports bind to `127.0.0.1`; accepted ports are distinct and
   between 20000 and 65535. The default ports avoid native production listeners.
-- All services join only the project-owned internal network. Real provider
+- Docker Desktop suppresses published ports on `internal: true` bridges (the
+  first preserved smoke attempt failed with healthy containers but no ingress).
+  A small project-owned namespace guard therefore removes the default route
+  and disables IPv6 before backend/web startup. Both apps share that namespace;
+  neither has network-administration capabilities or an additional network.
+  The guard initializer alone briefly receives NET_ADMIN/SETUID/SETGID, then
+  drops all root IDs and effective capabilities before readiness. Its health
+  check also runs as UID 10001. No host or Docker-wide routing/firewall changes
+  occur. Real provider
   URLs and credentials remain disabled; the existing mock image fallback and
   fake TTS are enabled. There are no provider endpoint overrides in this slice.
 - The frontend is built using the repository's Node pin and lockfile. Base
@@ -36,7 +45,8 @@ localhost:48126 --------------------^
   identity/ports reach the Docker CLI; containers receive Compose's fixed env.
 - Startup requires a clean exact-SHA checkout of this repository. Existing
   containers, networks or volumes with foreign ownership cause a hard failure.
-- The web process is non-root/read-only with temporary files in tmpfs. Backend
+- The web and running guard processes are non-root/read-only with temporary
+  files in tmpfs. Backend
   resource limits/non-root settings come from DEV. Shutdown has bounded grace.
 
 ## Run from a clean feature checkout
@@ -53,7 +63,7 @@ Open `http://127.0.0.1:48125/`. The API is also available at
 new project and distinct `--web-port`/`--api-port` values on every command.
 
 The smoke command checks image revisions, running/healthy state, loopback-only
-bindings, internal network membership, mounts, empty provider credentials,
+bindings, shared namespace/no-default-route boundary, mounts, empty provider credentials,
 frontend assets, `/`, `/feed`, `/gallery`, health and API access. It probes TCP
 access to native host listeners and an external address and requires failure.
 

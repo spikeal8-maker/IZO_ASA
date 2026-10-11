@@ -1,11 +1,44 @@
 # Opt-in overlay. The accepted DEV configuration remains network-disabled.
-# Requires Compose 2.24+ for !reset; use tools/docker_shadow.py for lifecycle.
+# Use tools/docker_shadow.py for ownership-checked lifecycle.
 services:
-  backend:
-    network_mode: !reset null
+  guard:
+    build:
+      context: ../../..
+      dockerfile: ops/docker/dev/Dockerfile.guard
+      args:
+        IZO_SOURCE_SHA: ${IZO_SOURCE_SHA:?IZO_SOURCE_SHA is required}
+    image: izo-asa-shadow-guard:${IZO_SOURCE_SHA}
+    user: "0:0" # Initializer drops to UID 10001 before readiness; apps cannot start earlier.
+    restart: "no"
+    read_only: true
+    tmpfs: [/tmp]
+    cpus: 0.1
+    mem_limit: 64m
+    pids_limit: 16
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, SETUID, SETGID]
+    security_opt: [no-new-privileges:true]
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: "1"
     networks: [shadow]
     ports:
       - "127.0.0.1:${IZO_SHADOW_API_PORT:?shadow API port required}:8000"
+      - "127.0.0.1:${IZO_SHADOW_WEB_PORT:?shadow web port required}:8080"
+    labels:
+      io.izo.owner: SHADOW-TOPOLOGY-01
+      io.izo.project: ${IZO_COMPOSE_PROJECT}
+    healthcheck:
+      test: [CMD, setpriv, --reuid=10001, --regid=10001, --clear-groups, python, -c, "from pathlib import Path; assert Path('/tmp/shadow-network-ready').read_text() == 'NO_DEFAULT_ROUTE_NONROOT'; assert not any(r.split()[1] == '00000000' for r in Path('/proc/net/route').read_text().splitlines()[1:]); assert 'CapEff:\t0000000000000000' in Path('/proc/1/status').read_text()"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+    stop_grace_period: 2s
+
+  backend:
+    network_mode: service:guard
+    depends_on:
+      guard:
+        condition: service_healthy
     labels:
       io.izo.owner: SHADOW-TOPOLOGY-01
     environment:
@@ -40,13 +73,13 @@ services:
     pids_limit: 64
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    networks: [shadow]
-    ports:
-      - "127.0.0.1:${IZO_SHADOW_WEB_PORT:?shadow web port required}:8080"
+    network_mode: service:guard
     labels:
       io.izo.owner: SHADOW-TOPOLOGY-01
       io.izo.project: ${IZO_COMPOSE_PROJECT}
     depends_on:
+      guard:
+        condition: service_healthy
       backend:
         condition: service_healthy
     healthcheck:
@@ -58,7 +91,9 @@ services:
 
 networks:
   shadow:
-    internal: true
+    # No external route is retained by guard. Internal bridges on Docker
+    # Desktop suppress port publishing, so ingress uses a guarded namespace.
+    internal: false
     labels:
       io.izo.owner: SHADOW-TOPOLOGY-01
       io.izo.project: ${IZO_COMPOSE_PROJECT}

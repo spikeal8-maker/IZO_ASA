@@ -51,26 +51,31 @@ def test_wrong_repository_fails_before_docker():
 
 
 def config():
-    service = {"networks": {"shadow": {}}, "labels": {"io.izo.owner": OWNER},
-               "ports": [{"host_ip": "127.0.0.1"}], "volumes": [{"type": "volume"}]}
-    return {"services": {"backend": copy.deepcopy(service), "web": copy.deepcopy(service)},
-            "networks": {"shadow": {"internal": True}}}
+    service = {"network_mode": "service:guard", "labels": {"io.izo.owner": OWNER},
+               "depends_on": {"guard": {"condition": "service_healthy"}},
+               "volumes": [{"type": "volume"}]}
+    guard = {"networks": {"shadow": {}}, "labels": {"io.izo.owner": OWNER},
+             "ports": [{"host_ip": "127.0.0.1"}]}
+    return {"services": {"backend": copy.deepcopy(service), "web": copy.deepcopy(service), "guard": guard},
+            "networks": {"shadow": {}}}
 
 
-@pytest.mark.parametrize("change", ["external-network", "host-network", "public-port", "bind-mount", "foreign-owner"])
+@pytest.mark.parametrize("change", ["extra-network", "host-network", "public-port", "bind-mount", "foreign-owner", "early-app"])
 def test_unsafe_effective_compose_is_rejected(change):
     value = config()
     backend = value["services"]["backend"]
-    if change == "external-network":
-        value["networks"]["shadow"]["internal"] = False
+    if change == "extra-network":
+        value["networks"]["public"] = {}
     elif change == "host-network":
         backend["network_mode"] = "host"
     elif change == "public-port":
-        backend["ports"][0]["host_ip"] = "0.0.0.0"
+        value["services"]["guard"]["ports"][0]["host_ip"] = "0.0.0.0"
     elif change == "bind-mount":
         backend["volumes"][0]["type"] = "bind"
-    else:
+    elif change == "foreign-owner":
         backend["labels"]["io.izo.owner"] = "other"
+    else:
+        backend["depends_on"]["guard"]["condition"] = "service_started"
     shadow = Shadow(PROJECT, SHA)
     shadow.compose = Mock(return_value=json.dumps(value))
     with pytest.raises(ShadowError, match="SHADOW_CONFIG_"):

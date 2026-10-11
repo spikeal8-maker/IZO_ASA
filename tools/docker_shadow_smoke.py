@@ -24,7 +24,8 @@ def check(condition: bool, code: str) -> None:
 def inspect_stack(shadow) -> dict:
     shadow.ownership_guard()
     containers = shadow.containers()
-    check(len(containers) == 2, "SHADOW_CONTAINER_COUNT")
+    check(len(containers) == 3, "SHADOW_CONTAINER_COUNT")
+    guard = next(c for c in containers if c["Config"]["Labels"]["com.docker.compose.service"] == "guard")
     rows = {}
     for container in containers:
         service = container["Config"]["Labels"]["com.docker.compose.service"]
@@ -34,15 +35,32 @@ def inspect_stack(shadow) -> dict:
         check(image["Config"]["Labels"]["org.opencontainers.image.revision"] == shadow.sha,
               "SHADOW_IMAGE_SOURCE_MISMATCH")
         networks = container["NetworkSettings"]["Networks"]
-        check(list(networks) == [f"{shadow.project}_shadow"], "SHADOW_EXTRA_NETWORK")
-        network = json.loads(shadow.docker("network", "inspect", next(iter(networks))))[0]
-        check(network["Internal"], "SHADOW_NETWORK_NOT_INTERNAL")
         bindings = container["HostConfig"]["PortBindings"]
-        check(len(bindings) == 1 and all(p["HostIp"] == "127.0.0.1"
-              for ports in bindings.values() for p in ports), "SHADOW_PUBLIC_BINDING")
-        check(container["Config"]["User"] not in ("", "root", "0", "0:0"), "SHADOW_ROOT_USER")
+        if service == "guard":
+            check(list(networks) == [f"{shadow.project}_shadow"], "SHADOW_EXTRA_NETWORK")
+            check(len(bindings) == 2 and all(p["HostIp"] == "127.0.0.1"
+                  for ports in bindings.values() for p in ports), "SHADOW_PUBLIC_BINDING")
+        else:
+            check(container["HostConfig"]["NetworkMode"] == "container:" + guard["Id"]
+                  and not networks and not bindings, "SHADOW_NAMESPACE_NOT_GUARDED")
+            check(container["Config"]["User"] not in ("", "root", "0", "0:0"), "SHADOW_ROOT_USER")
+            check(not container["HostConfig"].get("CapAdd"), "SHADOW_APP_CAPABILITIES")
         check(container["HostConfig"]["CapDrop"] == ["ALL"], "SHADOW_CAPABILITIES")
         check(not container["HostConfig"]["Privileged"], "SHADOW_PRIVILEGED")
+        namespace = exec_json(shadow, container["Id"], """
+import json
+from pathlib import Path
+status = Path('/proc/1/status').read_text()
+print(json.dumps({'noDefaultRoute':not any(r.split()[1]=='00000000' for r in Path('/proc/net/route').read_text().splitlines()[1:]),
+                  'nonroot':next(r for r in status.splitlines() if r.startswith('Uid:')).split()[1]!='0',
+                  'capabilitiesZero':'CapEff:\\t0000000000000000' in status,
+                  'ipv6Disabled':Path('/proc/sys/net/ipv6/conf/all/disable_ipv6').read_text().strip()=='1'}))
+""") if service != "web" else exec_json(shadow, guard["Id"], """
+import json
+from pathlib import Path
+print(json.dumps({'noDefaultRoute':not any(r.split()[1]=='00000000' for r in Path('/proc/net/route').read_text().splitlines()[1:])}))
+""")
+        check(all(namespace.values()), "SHADOW_NAMESPACE_BOUNDARY_FAILED")
         mounts = container["Mounts"]
         check(all(m["Type"] in {"volume", "tmpfs"} for m in mounts), "SHADOW_HOST_MOUNT")
         if service == "backend":
