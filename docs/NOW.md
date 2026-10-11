@@ -38,10 +38,9 @@ Tracked debt: #162, #163, #164, #165.
 #114 AI-VERIFY = OPEN / PREPARED; not active; not prerequisite for first D1 Docker smoke.
 #115 DOCKER-DEV = COMPLETE; merge `77fd1ed7ede83b9bc8216008b685b8fd51242879`; post-merge CI #743 = SUCCESS.
 #124 CONTAINER-READY = COMPLETE.
-#125 CONTAINER-SHADOW = ACTIVE; first implementation slice `SHADOW-TOPOLOGY-01`:
-isolated loopback web/API topology, reusing DEV. Contract: `tasks/SHADOW-TOPOLOGY-01.toml`;
-operation and remaining acceptance: [Docker Shadow](docker-shadow.md).
-Full #125 parity/data/worker acceptance remains pending; NOT DEPLOYED TO USERS.
+#125 CONTAINER-SHADOW = ACTIVE; DEV-based loopback web/API: `SHADOW-TOPOLOGY-01`.
+Contract: `tasks/SHADOW-TOPOLOGY-01.toml`; [operations/remaining gates](docker-shadow.md).
+Full parity/recovery pending; NOT DEPLOYED TO USERS.
 #126 CONTAINER-PRODUCTION = NEXT.
 D1 Docker DEV/TEST foundation (#115) = COMPLETE.
 Architecture checkpoint after #108-#110: PASS; routes/workers/tables 251/8/65; product-flow count 14.
