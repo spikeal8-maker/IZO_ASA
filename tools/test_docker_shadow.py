@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import copy
 import json
+import sqlite3
 from unittest.mock import Mock
 
 import pytest
 
 from tools.docker_shadow import OWNER, Shadow, ShadowError, child_environment
+from tools import docker_shadow_smoke
 
 SHA = "a" * 40
 PROJECT = "izo-asa-shadow-unit"
@@ -127,3 +129,23 @@ def test_compose_ignores_ambient_dotenv_and_only_addresses_named_project():
     assert args[args.index("--project-name") + 1] == PROJECT
     assert args[-1] == "down"
     assert "--volumes" not in args and "--remove-orphans" not in args
+
+
+def test_storage_probe_executes_sql_and_preserves_application_rows(tmp_path, monkeypatch, capsys):
+    data, media = tmp_path / "data", tmp_path / "media"
+    data.mkdir()
+    media.mkdir()
+    with sqlite3.connect(data / "app.sqlite3") as app:
+        for table in ("users", "jobs", "images"):
+            app.execute(f"CREATE TABLE {table} (id INTEGER)")
+            app.execute(f"INSERT INTO {table} VALUES (1)")
+    def execute_fixture(shadow, container, script):
+        script = script.replace("/home/izo/data", data.as_posix())
+        script = script.replace("/home/izo/media", media.as_posix())
+        exec(script, {})
+        return json.loads(capsys.readouterr().out)
+    monkeypatch.setattr(docker_shadow_smoke, "exec_json", execute_fixture)
+    before = docker_shadow_smoke.fixture(None, "test", "safe-fixture", create=True)
+    after = docker_shadow_smoke.fixture(None, "test", "safe-fixture", create=False)
+    assert before == after
+    assert after["applicationCounts"] == {"users": 1, "jobs": 1, "images": 1}

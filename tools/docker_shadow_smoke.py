@@ -113,10 +113,10 @@ def fixture(shadow, container: str, marker: str, *, create: bool) -> dict:
     script = """
 import hashlib,json,sqlite3
 from pathlib import Path
-marker = MARKER
+marker = __MARKER__
 path = Path('/home/izo/media/_shadow_topology_probe.txt')
 probe = sqlite3.connect('/home/izo/data/shadow-topology-probe.sqlite3')
-if CREATE:
+if __CREATE__:
     probe.execute('CREATE TABLE IF NOT EXISTS probe (id TEXT PRIMARY KEY)')
     probe.execute('INSERT INTO probe VALUES (?)', (marker,))
     probe.commit()
@@ -131,7 +131,7 @@ with sqlite3.connect('file:/home/izo/data/app.sqlite3?mode=ro', uri=True) as app
 print(json.dumps({'fixtureRow':found[0] if found else None,
                   'mediaHash':hashlib.sha256(path.read_bytes()).hexdigest(),
                   'applicationIntegrity':integrity,'applicationCounts':counts}))
-""".replace("MARKER", repr(marker)).replace("CREATE", repr(create))
+""".replace("__MARKER__", repr(marker)).replace("__CREATE__", repr(create))
     state = exec_json(shadow, container, script)
     check(state["fixtureRow"] == marker and state["mediaHash"] == hashlib.sha256(marker.encode()).hexdigest(),
           "SHADOW_PERSISTENCE_FAILED")
