@@ -53,8 +53,14 @@ declaredFiles = [
   "tools/test_docker_shadow_provider.py",
   "tools/test_docker_shadow_storage.py",
   "tools/test_phone_speech_host.py",
+  "docs/generated/context-index.json",
+  "docs/generated/context-index.md",
 ]
 allowedPatterns = [
+  "docs/generated/context-index.json",
+  "docs/generated/context-index.md",
+  "tools/agent_system/package.py",
+  "tools/test_agent_package.py",
 ]
 forbiddenPatterns = [
   "ops/release/**",
@@ -121,3 +127,33 @@ forbiddenOperations = [
   "merge-main-before-required-runtime-acceptance",
 ]
 rollbackBoundary = "Discard or revert only this source integration candidate; installed Windows services, production data and existing Docker resources are unchanged."
+
+[[scopeExpansions]]
+path = "docs/generated/context-index.json"
+reason = "Combined audio context updates make the generated context index stale; regenerate through its canonical generator before exact-head CI."
+recordedAtUtc = "2026-10-15T19:39:08.001901Z"
+
+[[scopeExpansions]]
+path = "docs/generated/context-index.md"
+reason = "Companion human-readable context index must be regenerated together with JSON from the combined reviewed source."
+recordedAtUtc = "2026-10-15T19:39:11.303700Z"
+
+[[scopeExpansions]]
+path = "tools/agent_system/package.py"
+reason = "Canonical scope-add cannot explicitly declare newly discovered generated files, while enforcement correctly requires explicit declarations; add an owner-checked exact-file declaration option without weakening enforcement."
+recordedAtUtc = "2026-10-15T19:43:45.939665Z"
+
+[[scopeExpansions]]
+path = "tools/test_agent_package.py"
+reason = "Regression coverage must prove explicit declaration of generated paths preserves owner checks, collision rejection and atomic manifest/registry consistency."
+recordedAtUtc = "2026-10-15T19:43:49.084022Z"
+
+[[scopeExpansions]]
+path = "docs/generated/context-index.json"
+reason = "Generated files require explicit declaration; promote the already owned exact path through the owner-checked declaration option."
+recordedAtUtc = "2026-10-15T19:45:02.568329Z"
+
+[[scopeExpansions]]
+path = "docs/generated/context-index.md"
+reason = "Explicitly declare the companion generated index while retaining atomic scope history and enforcement."
+recordedAtUtc = "2026-10-15T19:45:06.004193Z"
