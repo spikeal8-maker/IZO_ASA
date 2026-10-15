@@ -5,8 +5,10 @@ import io
 import json
 from pathlib import Path
 import socket
+import struct
 import threading
 import time
+import zlib
 from types import SimpleNamespace
 
 import httpx
@@ -80,6 +82,28 @@ def submit(provider, job='private-job-canary', timeout=1):
                        job_id=job, timeout_seconds=timeout))
 
 
+def test_fixture_png_checksums_and_strict_decode():
+    content = fixture.PNG
+    assert content.startswith(b'\x89PNG\r\n\x1a\n')
+    offset, chunks = 8, []
+    while offset < len(content):
+        size, = struct.unpack_from('>I', content, offset)
+        end = offset + 8 + size
+        assert end + 4 <= len(content)
+        kind, body = content[offset + 4:offset + 8], content[offset + 8:end]
+        expected_crc, = struct.unpack_from('>I', content, end)
+        assert zlib.crc32(kind + body) & 0xffffffff == expected_crc
+        chunks.append(kind)
+        offset = end + 4
+    assert offset == len(content) and chunks == [b'IHDR', b'IDAT', b'IEND']
+    with Image.open(io.BytesIO(content)) as png:
+        png.verify()  # load() alone tolerates a damaged IDAT checksum.
+    with Image.open(io.BytesIO(content)) as png:
+        png.load()
+        assert png.size == (1, 1) and png.format == 'PNG'
+        assert png.convert('RGBA').getpixel((0, 0)) == (255, 255, 255, 255)
+
+
 def test_actual_client_discovery_workflow_hold_release_and_png(provider, tmp_path):
     async def exercise():
         base = {'base_url': provider.base_url}
@@ -107,6 +131,8 @@ def test_actual_client_discovery_workflow_hold_release_and_png(provider, tmp_pat
             history = await polling.fetch(prompt_id)
         images = results.extract_images_from_history(history[prompt_id])
         content = await client.fetch_comfyui_image_bytes(**base, image=images[0])
+        with Image.open(io.BytesIO(content)) as png:
+            png.verify()
         with Image.open(io.BytesIO(content)) as png:
             png.load()
             assert png.size == (1, 1) and png.format == 'PNG'

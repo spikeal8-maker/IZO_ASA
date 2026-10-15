@@ -20,7 +20,7 @@ import time
 from urllib.parse import parse_qs, urlsplit
 import uuid
 
-PNG = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jGxkAAAAASUVORK5CYII=')
+PNG = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=')
 MAX_BODY, MAX_HEADERS, MAX_JOBS = 1024 * 1024, 16384, 64
 READ_DEADLINE, MAX_HOLD, MAX_SILENCE = 3.0, 60.0, 2.0
 MODELS = {'diffusion_models': ['flux-2-klein-4b-fp8.safetensors', 'flux-2-klein-9b-fp8.safetensors'],
