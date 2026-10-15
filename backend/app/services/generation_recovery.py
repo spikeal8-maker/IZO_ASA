@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from .generation_accounting import ensure_write_transaction
+
 
 ACTIVE_GENERATION_STATUSES = (
     "queued",
@@ -14,10 +16,13 @@ ACTIVE_GENERATION_STATUSES = (
     "sent_to_openrouter",
 )
 RESUMABLE_VIDEO_PROVIDERS = ("openrouter", "local_ltx")
+RESUMABLE_VIDEO_MODES = ("text_to_video", "image_to_video", "first_last_frame", "reference_to_video")
 STARTUP_INTERRUPTION_MESSAGE = "Генерация прервана перезапуском сервиса. Токены возвращены."
 
 
 class RecoveryConnection(Protocol):
+    in_transaction: bool
+
     def execute(self, sql: str, parameters: tuple[Any, ...] = ()) -> Any: ...
 
 
@@ -61,16 +66,18 @@ def reconcile_stale_generation_jobs(
     The caller owns the transaction; exceptions intentionally roll it back.
     """
 
+    ensure_write_transaction(conn)
     placeholders = ",".join("?" for _ in ACTIVE_GENERATION_STATUSES)
     rows = conn.execute(
         f"""
         SELECT id, user_id
         FROM jobs
         WHERE status IN ({placeholders})
-          AND COALESCE(provider, '') NOT IN (?, ?)
+          AND NOT (COALESCE(provider, '') IN (?, ?)
+                   AND COALESCE(mode, '') IN (?, ?, ?, ?))
         ORDER BY created_at, id
         """,
-        (*ACTIVE_GENERATION_STATUSES, *RESUMABLE_VIDEO_PROVIDERS),
+        (*ACTIVE_GENERATION_STATUSES, *RESUMABLE_VIDEO_PROVIDERS, *RESUMABLE_VIDEO_MODES),
     ).fetchall()
     completed_from_images = 0
     failed = 0

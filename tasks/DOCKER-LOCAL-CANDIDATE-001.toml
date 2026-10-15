@@ -1,0 +1,123 @@
+manifestVersion = 1
+id = "DOCKER-LOCAL-CANDIDATE-001"
+baseSha = "9acd9df0e8f375b8711e6b4cc63d349aa7b4a70e"
+goal = "Consolidate independently reviewed Docker preparation changes into one exact-source candidate for this Windows computer."
+userOutcome = "One reviewable branch and exact-head CI candidate contains the prepared Docker delivery and compatibility repairs without changing the installed application."
+beforeScenario = "Eight Draft PRs contain separately reviewed source changes, while the installed application still runs as Windows services."
+afterScenario = "One candidate preserves all eight component histories, regenerates combined evidence, passes scoped checks and records exact installed-source comparison and exact-head CI honestly."
+nonGoals = [
+  "Docker build or lifecycle",
+  "Production deployment or data changes",
+  "Remote computers or VMs",
+  "Complete Issue125 runtime acceptance",
+  "Issue126 production switching",
+  "New product features or idempotency redesign",
+]
+declaredFiles = [
+  ".gitleaksignore",
+  "backend/SYMBOL_MAP.md",
+  "backend/app/api/routers/phone_audio.py",
+  "backend/app/integrations/phone_speech_http.py",
+  "backend/app/services/generation_accounting.py",
+  "backend/app/services/generation_recovery.py",
+  "backend/main.py",
+  "backend/test_phone_audio.py",
+  "backend/test_services_generation_accounting_module.py",
+  "backend/test_services_generation_recovery_module.py",
+  "docs/NOW.md",
+  "docs/context/audio.md",
+  "docs/docker-shadow.md",
+  "docs/generated/architecture-inventory.json",
+  "docs/generated/architecture-inventory.md",
+  "ops/docker/dev/Dockerfile.guard",
+  "ops/docker/dev/Dockerfile.guard.dockerignore",
+  "ops/docker/dev/Dockerfile.web",
+  "ops/docker/dev/Dockerfile.web.dockerignore",
+  "ops/docker/dev/compose.shadow.yml",
+  "ops/docker/dev/network_guard.py",
+  "ops/docker/dev/nginx.shadow.conf",
+  "tools/agent_system/env_lifecycle.py",
+  "tools/docker_shadow.py",
+  "tools/docker_shadow_evidence.py",
+  "tools/docker_shadow_executor.py",
+  "tools/docker_shadow_product.py",
+  "tools/docker_shadow_provider.py",
+  "tools/docker_shadow_smoke.py",
+  "tools/docker_shadow_storage.py",
+  "tools/phone_speech_host.py",
+  "tools/test_agent_env_lifecycle.py",
+  "tools/test_agent_env_ready.py",
+  "tools/test_docker_shadow.py",
+  "tools/test_docker_shadow_executor.py",
+  "tools/test_docker_shadow_product.py",
+  "tools/test_docker_shadow_provider.py",
+  "tools/test_docker_shadow_storage.py",
+  "tools/test_phone_speech_host.py",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "ops/release/**",
+  ".github/**",
+  "architecture/**",
+  "frontend/**",
+]
+protectedFilesTouched = [
+  "backend/main.py",
+]
+domain = "container-shadow"
+riskClass = "high-assurance"
+changeClass = "integration"
+maxProductionFiles = 20
+maxChangedLines = 6500
+acceptance = [
+  "All accepted handwritten component files retain their reviewed contents unless an explicit integration defect is repaired.",
+  "All eight source PR heads remain ancestors of the final candidate.",
+  "Only one new current task manifest appears in the final diff from main.",
+  "Combined generated evidence is regenerated through its generators.",
+  "Installed version and source ancestry comparison is read-only; installed source is not assumed to equal main.",
+  "Focused tests use fresh owned temporary data and prove cleanup.",
+  "A single exact-head CI runs on this computer only after resource admission is proven.",
+  "No Docker lifecycle, production mutation, model operation or host settings change occurs.",
+]
+requiredEvidence = [
+  "Component source hashes and ancestry",
+  "Independent integration review",
+  "Focused tests and residue audit",
+  "Generated evidence checks",
+  "Package enforcement and secret scan",
+  "Installed exact-release comparison",
+  "Exact-head CI result or specific safe-execution blocker",
+]
+targetedTests = [
+  "tools/test_agent_env_ready.py",
+  "tools/test_agent_env_lifecycle.py",
+  "tools/test_docker_shadow.py",
+  "tools/test_docker_shadow_executor.py",
+  "tools/test_docker_shadow_provider.py",
+  "tools/test_docker_shadow_product_flow.py",
+  "tools/test_docker_shadow_storage.py",
+  "tools/test_phone_speech_host.py",
+  "backend/test_phone_audio.py",
+  "backend/test_services_generation_accounting_module.py",
+  "backend/test_services_generation_recovery_module.py",
+  "backend/test_openrouter_token_reconciliation.py",
+  "backend/test_generation_recovery_wiring.py",
+  "backend/test_generation_protection.py",
+  "backend/test_video_generation_api.py",
+]
+fileGrowthExpectations = [
+  "Frozen backend/main.py retains the reviewed accounting extraction and shrinks.",
+  "New handwritten modules stay within existing architecture contracts.",
+  "Integration budget accounts for the existing eight component diffs; no protected size threshold increases.",
+]
+forbiddenOperations = [
+  "docker-lifecycle",
+  "production-mutation",
+  "real-provider-call",
+  "host-settings-change",
+  "remote-executor",
+  "force-push",
+  "merge-main-before-required-runtime-acceptance",
+]
+rollbackBoundary = "Discard or revert only this source integration candidate; installed Windows services, production data and existing Docker resources are unchanged."

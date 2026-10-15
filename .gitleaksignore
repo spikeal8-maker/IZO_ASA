@@ -1,0 +1,3 @@
+# CI 757 false positive: API: precedes the public task ID SHADOW-TOPOLOGY-01.
+# The live wording is fixed. Ignore only this historical finding, not a rule/path.
+16e740054c7b53176b7bbd0487340333d7b39cf1:docs/NOW.md:generic-api-key:41
