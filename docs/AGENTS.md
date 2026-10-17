@@ -13,6 +13,10 @@ rules for `docs/**`; it does not own the reading order itself.
 - `docs/agent-control-plane.md` is program documentation, not daily context.
 - Historical roadmaps and completed package documents are evidence, not active
   backlog. `README.md` describes product/basic operations and is not a backlog.
+- Historical reports kept under `archive/docs/` are excluded from ordinary task
+  discovery. Open a specific archived file only for a referenced evidence question.
+- A two-month age cutoff is an archival review trigger, not permission to discard
+  active contracts, runbooks, recovery/security guidance or linked evidence.
 
 ## Generated and historical evidence
 
