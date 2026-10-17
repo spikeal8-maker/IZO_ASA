@@ -1,0 +1,74 @@
+manifestVersion = 1
+id = "CONTAINER-TTS-HOST-ADAPTER-001"
+baseSha = "9acd9df0e8f375b8711e6b4cc63d349aa7b4a70e"
+goal = "Preserve the existing Windows speech feature for a Linux application through an explicit authenticated host speech adapter."
+userOutcome = "The existing speech UI/API can use the same native Windows voices after container cutover; fake synthesis never substitutes for production speech."
+beforeScenario = "The accepted provider seam supports native Windows and deterministic fake WAV only. The Linux application has no real provider preserving Windows voices."
+afterScenario = "An opt-in bounded HTTP provider calls an independently owned authenticated Windows helper that reuses existing System.Speech synthesis. Defaults, auth and public API semantics stay unchanged."
+nonGoals = [
+  "production deploy or listener start",
+  "real speech synthesis in this package",
+  "GPU or model changes",
+  "new speech business logic",
+  "production secrets",
+  "Issue 125/126 completion",
+]
+declaredFiles = [
+  "backend/app/api/routers/phone_audio.py",
+  "backend/app/integrations/phone_speech_http.py",
+  "backend/test_phone_audio.py",
+  "tools/phone_speech_host.py",
+  "tools/test_phone_speech_host.py",
+  "docs/context/audio.md",
+  "docs/generated/architecture-inventory.json",
+  "docs/generated/architecture-inventory.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/main.py",
+  "frontend/**",
+  ".github/**",
+  "ops/release/**",
+]
+protectedFilesTouched = [
+]
+domain = "audio"
+riskClass = "high-assurance"
+changeClass = "portability"
+maxProductionFiles = 3
+maxChangedLines = 1000
+acceptance = [
+  "Native Windows and existing fake providers retain their behavior.",
+  "HTTP provider has explicit private endpoint, secret-file authentication, bounded input/output/time and no redirects or ambient proxy.",
+  "Host helper reuses existing Windows speech synthesis; rejects unauthenticated, oversized, invalid and concurrent requests safely.",
+  "Receipts and public errors contain no request content, tokens, secret paths or provider diagnostics.",
+  "Focused fake-only protocol tests and characterization pass; real Windows/container voice parity stays NOT_VERIFIED until safe runtime evidence.",
+]
+requiredEvidence = [
+  "focused regression tests",
+  "redacted secret scan",
+  "generated inventory check",
+  "package scope receipt",
+  "independent source review",
+  "exact-head CI before merge",
+]
+targetedTests = [
+  "backend/test_phone_audio.py",
+  "tools/test_phone_speech_host.py",
+]
+fileGrowthExpectations = [
+  "Each new handwritten source stays below 500 lines.",
+  "Keep existing router and provider defaults; no main.py growth.",
+]
+forbiddenOperations = [
+  "production-deploy",
+  "production-restart",
+  "production-data",
+  "production-secrets",
+  "real-provider-call",
+  "docker-lifecycle",
+  "host-network-settings",
+  "paid-resources",
+]
+rollbackBoundary = "Unset the opt-in HTTP provider and revert this package; native Windows defaults and the existing fake-provider path remain available."

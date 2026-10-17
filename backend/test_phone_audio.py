@@ -65,6 +65,33 @@ def test_fake_speech_provider_is_deterministic_bounded_wave(tmp_path):
     assert 44 < first.stat().st_size <= 2048
 
 
+def test_explicit_http_provider_uses_secret_file_and_preserves_public_wave_contract(monkeypatch, tmp_path):
+    token = tmp_path / "speech-token"
+    token.write_text("unit-only-speech-secret-" + "a" * 40)
+    monkeypatch.setenv("IZO_PHONE_TTS_PROVIDER", "http")
+    monkeypatch.setenv("IZO_PHONE_TTS_HTTP_URL", "http://127.0.0.1:49231")
+    monkeypatch.setenv("IZO_PHONE_TTS_HTTP_TOKEN_FILE", str(token))
+    seen = []
+    def fake_http(settings, text, voice, rate, output):
+        seen.append((settings.origin, text, voice, rate))
+        phone_audio._synthesize_fake_speech(text, voice, rate, output)
+    monkeypatch.setattr(phone_audio, "synthesize_http", fake_http)
+    response = TestClient(_phone_app()).post("/api/phone/audio/speech",
+        json={"text": "Привет", "voice": "pavel", "rate": 2})
+    assert response.status_code == 200 and response.content[:4] == b"RIFF"
+    assert seen == [("http://127.0.0.1:49231", "Привет", "pavel", 2)]
+
+
+def test_http_provider_missing_secret_fails_closed_without_fake_fallback(monkeypatch):
+    monkeypatch.setenv("IZO_PHONE_TTS_PROVIDER", "http")
+    monkeypatch.setenv("IZO_PHONE_TTS_HTTP_URL", "http://127.0.0.1:49231")
+    monkeypatch.delenv("IZO_PHONE_TTS_HTTP_TOKEN_FILE", raising=False)
+    monkeypatch.setattr(phone_audio, "_synthesize_fake_speech", lambda *_: pytest.fail("fake fallback"))
+    response = TestClient(_phone_app()).post("/api/phone/audio/speech", json={"text": "hello"})
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Озвучивание временно недоступно. Повторите позже."}
+
+
 def test_windows_default_provider_preserves_system_speech_command(monkeypatch, tmp_path):
     seen = {}
 
