@@ -37,7 +37,7 @@ git worktree list
 | Студия, профиль, `/`, `/paint` | [frontend-studio](docs/context/frontend-studio.md) |
 | Видео, лента, галерея | [video-gallery-feed](docs/context/video-gallery-feed.md) |
 | Auth, Telegram/MAX | [backend-auth-bots](docs/context/backend-auth-bots.md) |
-| `/chat`, `/phone/chat`, models/tools/history | [chat](docs/context/chat.md) |
+| `/chat`, `/phone/chat`, chat models/tools/history | [chat](docs/context/chat.md) |
 | Админка, CRM, модели | [admin-control-center](docs/context/admin-control-center.md) |
 | Docker | [приёмка](docs/docker-delivery-acceptance.md), [профили](docs/docker-environments.md) |
 | Проверяющий код/документы/тесты | [стандарт документации](docs/documentation-standards.md), [тесты](docs/testing-file-standards.md) |

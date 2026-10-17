@@ -11,8 +11,7 @@ production_change_authorized: false
 
 Пакет объединяет существующие PR #186 и #191 относительно main
 `d1ee3a0ac5114ec08f4a8daee9cf6e41e97d6a7a`. Их исходные коммиты остаются
-предками интеграционной ветки. Это инструкция кандидата; наличие файлов
-не подтверждает прохождение приёмки. Критерии: `docs/docker-delivery-acceptance.md`.
+предками интеграционной ветки. Критерии: `docs/docker-delivery-acceptance.md`.
 
 ## Исполнитель и запуск
 
@@ -28,11 +27,11 @@ GitHub-hosted Ubuntu 24.04 VM с правами `contents: read` и точным
 прогоны повторно используют уже проверенные immutable image IDs.
 Вторая VM заново строит образы и повторяет сценарии независимо.
 
-Повторение: откройте Actions → Docker clean installation acceptance →
-Run workflow → `agent/docker-clean-install-001`. Проверяйте `head_sha` нового
-run перед использованием результата; текущая ветка может продвинуться.
-Для точного опубликованного SHA используйте соответствующий run/attempt.
-Workflow получает исходники, зависимости и Chromium сам; данные не переносятся.
+Повтор того же SHA: Actions → завершённый run → Re-run all jobs.
+SHA/ref сохраняются, attempt меняется. Новый SHA запускается через push.
+Run workflow доступен после появления workflow в default branch:
+[GitHub Actions](https://docs.github.com/actions/managing-workflow-runs/manually-running-a-workflow).
+Исходники, зависимости и Chromium загружаются самим workflow.
 
 Драйвер `python -m tools.docker_clean_install` требует точные `--source-sha`,
 `--base-sha`, номер `--replica 1|2` и новый каталог `--evidence-dir` внутри

@@ -54,7 +54,11 @@ def _cleanup(worktree: Path, contract) -> None:
     assert not (paths.environment_root / "db").exists()
     assert not paths.media_root.exists()
     assert not paths.secret_root.exists()
-    assert not lifecycle._pid_alive(state["portLease"]["pid"])
+    if state["state"] == "stopped":
+        assert state["ports"]["reserved"] is False
+        assert "portLease" not in state
+    else:
+        assert not lifecycle._pid_alive(state["portLease"]["pid"])
     for name in ("backend", "frontend"):
         assert not lifecycle._port_open(state["ports"][name])
 

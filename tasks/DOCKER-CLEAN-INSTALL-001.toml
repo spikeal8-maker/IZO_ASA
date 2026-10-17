@@ -104,6 +104,9 @@ declaredFiles = [
   "tools/test_agent_scope_declaration.py",
   "tools/docker_clean_features.py",
   "tools/test_docker_clean_features.py",
+  "tools/test_docker_dev_contract.py",
+  "tools/test_agent_env_runtime.py",
+  "docs/admin-mutation-audit.md",
 ]
 allowedPatterns = [
   "tools/docker_clean_browser.mjs",
@@ -235,3 +238,18 @@ recordedAtUtc = "2026-10-17T20:26:48.065113Z"
 path = "tools/test_docker_clean_features.py"
 reason = "Preserve honest per-feature evidence and cleanup on unsupported provider or permission failures"
 recordedAtUtc = "2026-10-17T20:26:48.911484Z"
+
+[[scopeExpansions]]
+path = "tools/test_docker_dev_contract.py"
+reason = "Reconcile exact backend and two fixture module COPY allowlist with observed full CI failure"
+recordedAtUtc = "2026-10-17T21:02:13.125458Z"
+
+[[scopeExpansions]]
+path = "tools/test_agent_env_runtime.py"
+reason = "Fix observed Windows resource lifecycle regressions without suppressing cleanup assertions"
+recordedAtUtc = "2026-10-17T21:07:12.563113Z"
+
+[[scopeExpansions]]
+path = "docs/admin-mutation-audit.md"
+reason = "Revalidate two stale evidence fingerprints after unchanged 19 audited handlers and 8 test artifacts were independently verified"
+recordedAtUtc = "2026-10-17T21:13:02.283613Z"
