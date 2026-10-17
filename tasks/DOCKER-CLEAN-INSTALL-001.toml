@@ -96,6 +96,12 @@ declaredFiles = [
   "tools/test_source_alignment.py",
   "tools/docker_clean_storage.py",
   "tools/test_docker_clean_storage.py",
+  "tools/docker_clean_recovery.py",
+  "tools/test_docker_clean_recovery.py",
+  "tools/test_ci_workflow.py",
+  "tools/test_agent_startup_diagnostics.py",
+  "tools/test_agent_env_cleanup.py",
+  "tools/test_agent_scope_declaration.py",
 ]
 allowedPatterns = [
   "tools/docker_clean_browser.mjs",
@@ -187,3 +193,33 @@ recordedAtUtc = "2026-10-17T19:56:38.541997Z"
 path = "tools/test_docker_clean_storage.py"
 reason = "Verify restore ownership, corrupt-backup refusal and truthful D2 evidence without weakening canonical boundaries"
 recordedAtUtc = "2026-10-17T19:56:39.439969Z"
+
+[[scopeExpansions]]
+path = "tools/docker_clean_recovery.py"
+reason = "Complete isolated recovery and hosted full CI while preserving mandatory test coverage within repository file limits"
+recordedAtUtc = "2026-10-17T20:10:59.365401Z"
+
+[[scopeExpansions]]
+path = "tools/test_docker_clean_recovery.py"
+reason = "Complete isolated recovery and hosted full CI while preserving mandatory test coverage within repository file limits"
+recordedAtUtc = "2026-10-17T20:11:00.332638Z"
+
+[[scopeExpansions]]
+path = "tools/test_ci_workflow.py"
+reason = "Complete isolated recovery and hosted full CI while preserving mandatory test coverage within repository file limits"
+recordedAtUtc = "2026-10-17T20:11:01.265002Z"
+
+[[scopeExpansions]]
+path = "tools/test_agent_startup_diagnostics.py"
+reason = "Complete isolated recovery and hosted full CI while preserving mandatory test coverage within repository file limits"
+recordedAtUtc = "2026-10-17T20:11:02.171195Z"
+
+[[scopeExpansions]]
+path = "tools/test_agent_env_cleanup.py"
+reason = "Complete isolated recovery and hosted full CI while preserving mandatory test coverage within repository file limits"
+recordedAtUtc = "2026-10-17T20:11:03.099875Z"
+
+[[scopeExpansions]]
+path = "tools/test_agent_scope_declaration.py"
+reason = "Complete isolated recovery and hosted full CI while preserving mandatory test coverage within repository file limits"
+recordedAtUtc = "2026-10-17T20:11:04.011585Z"
