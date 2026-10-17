@@ -332,8 +332,8 @@ def status(repo: Path) -> int:
         rows.append({"packageId": entry["packageId"], "state": entry["state"], "branch": entry["branch"], "worktreePath": entry["worktreePath"], "health": health})
     print("AGENT_STATUS " + json.dumps(rows, ensure_ascii=False, sort_keys=True))
     return 0
-def scope_add(repo: Path, requested: str, reason: str) -> int:
-    requested = normalize_scope(requested, allow_subtree=True)
+def scope_add(repo: Path, requested: str, reason: str, *, declare: bool = False) -> int:
+    requested = normalize_scope(requested, allow_subtree=not declare)
     reason = reason.strip()
     if not reason:
         raise AgentPackageError("SCOPE_REASON_REQUIRED")
@@ -342,14 +342,18 @@ def scope_add(repo: Path, requested: str, reason: str) -> int:
         ownership, entry, manifest, manifest_path = _assert_owner(repo, payload)
         if any(scopes_overlap(pattern, requested) for pattern in manifest.forbidden_patterns):
             raise AgentPackageError(f"FORBIDDEN_SCOPE path={requested}")
-        if any(_matches(pattern, requested) for pattern in scope_items(manifest)):
+        owned = any(_matches(pattern, requested) for pattern in scope_items(manifest))
+        if owned and (not declare or requested in manifest.declared_files):
             print(f"AGENT_SCOPE_ALREADY_OWNED id={manifest.id} path={requested}")
             return 0
         collision = _overlap(payload, (requested,), exclude_id=manifest.id)
         if collision:
             raise AgentPackageError(f"SCOPE_OVERLAP owner={collision[0]} requested={requested} existing={collision[2]}")
         stamp = _now()
-        updated = replace(manifest, allowed_patterns=(*manifest.allowed_patterns, requested), scope_expansions=(*manifest.scope_expansions, ScopeExpansion(requested, reason, stamp)))
+        updated = replace(manifest,
+                          declared_files=(*manifest.declared_files, requested) if declare else manifest.declared_files,
+                          allowed_patterns=manifest.allowed_patterns if declare else (*manifest.allowed_patterns, requested),
+                          scope_expansions=(*manifest.scope_expansions, ScopeExpansion(requested, reason, stamp)))
         old_bytes = manifest_path.read_bytes()
         atomic_write_text(manifest_path, render_manifest(updated))
         try:
@@ -394,6 +398,7 @@ def _parser() -> argparse.ArgumentParser:
     scope_p = sub.add_parser("scope-add")
     scope_p.add_argument("--path", required=True)
     scope_p.add_argument("--reason", required=True)
+    scope_p.add_argument("--declare", action="store_true", help="Declare an exact file, including an already owned generated path.")
     sub.add_parser("finish")
     for name in ("context", "symbol", "env-up", "verify", "audit", "eval"):
         sub.add_parser(name)
@@ -409,7 +414,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "status":
             return status(repo)
         if args.command == "scope-add":
-            return scope_add(repo, args.path, args.reason)
+            return scope_add(repo, args.path, args.reason, declare=args.declare)
         if args.command == "finish":
             return finish(repo)
         print(f"NOT_IMPLEMENTED command={args.command}", file=sys.stderr)

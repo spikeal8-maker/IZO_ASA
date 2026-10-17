@@ -6,30 +6,39 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
-FULL_SHA_ACTION = re.compile(r"uses: actions/[a-z-]+@[0-9a-f]{40} # v\d+\.\d+\.\d+")
+FULL_SHA_ACTION = re.compile(r"uses: actions/[a-z-]+@[0-9a-f]{40}(?=\s|$)")
 
 
 def workflow_source() -> str:
     return WORKFLOW.read_text(encoding="utf-8")
 
 
-def test_ci_workflow_uses_pinned_self_hosted_windows_toolchain_and_lockfiles() -> None:
+def test_ci_workflow_uses_pinned_hosted_windows_toolchain_and_lockfiles() -> None:
     source = workflow_source()
 
-    assert "runs-on: [self-hosted, windows, x64, izo-ci]" in source
+    assert "runs-on: windows-2022" in source
+    assert "self-hosted" not in source
+    assert "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97" in source
+    assert "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020" in source
+    assert "python-version-file: .python-version" in source
+    assert "node-version-file: .node-version" in source
+    assert source.count("architecture: x64") == 2
+    assert source.index("Check out repository") < source.index("Configure pinned Python")
+    assert source.index("Configure pinned Node") < source.index("Assert pinned local toolchain")
     assert "timeout-minutes: 45" in source
     assert "$expectedPython = (Get-Content .python-version -Raw).Trim()" in source
     assert "$expectedNode = (Get-Content .node-version -Raw).Trim()" in source
     assert "Python version mismatch" in source
     assert "Node version mismatch" in source
-    assert "cache:" not in source
+    assert not re.search(r"^\s+cache:", source, re.MULTILINE)
+    assert "package-manager-cache: false" in source
     assert "python -m pip install --requirement backend/requirements.txt" in source
     assert "working-directory: frontend" in source
     assert "run: npm ci" in source
     assert "run: npx playwright install chromium" in source
     assert (ROOT / ".python-version").read_text(encoding="utf-8").strip() == "3.11.9"
     assert (ROOT / ".node-version").read_text(encoding="utf-8").strip() == "24.14.1"
-    assert len(FULL_SHA_ACTION.findall(source)) == 3
+    assert len(FULL_SHA_ACTION.findall(source)) == 5
     assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2" in source
     assert "persist-credentials: false" in source
     assert "Enforce package scope" in source
@@ -39,6 +48,22 @@ def test_ci_workflow_uses_pinned_self_hosted_windows_toolchain_and_lockfiles() -
     assert "fetch-depth: 0" in source
     assert source.count("shell: powershell") == 7
     assert "shell: pwsh" not in source
+
+
+def test_ci_runner_admission_uses_github_hosted_context_before_checkout() -> None:
+    source = workflow_source()
+    admission = source.split("- name: Assert GitHub-hosted Windows runner", 1)[1].split(
+        "- name: Check out repository", 1
+    )[0]
+
+    assert "IZO_RUNNER_ENVIRONMENT: ${{ runner.environment }}" in admission
+    assert "IZO_RUNNER_OS: ${{ runner.os }}" in admission
+    assert "IZO_RUNNER_ARCH: ${{ runner.arch }}" in admission
+    assert '$env:GITHUB_ACTIONS -ne "true" -or' in admission
+    assert '$env:IZO_RUNNER_ENVIRONMENT -ne "github-hosted" -or' in admission
+    assert '$env:IZO_RUNNER_OS -ne "Windows" -or' in admission
+    assert '$env:IZO_RUNNER_ARCH -ne "X64"' in admission
+    assert 'throw "CI requires a GitHub-hosted Windows X64 runner."' in admission
 
 
 def test_ci_workflow_enforces_both_npm_audits_and_uploads_exact_head_evidence() -> None:
@@ -91,7 +116,7 @@ def test_ci_workflow_is_read_only_and_has_no_secret_or_provider_access() -> None
     assert "permissions:\n  contents: read" in source
     assert "pull_request_target" not in source
     assert "secrets." not in source
-    assert "IZO_CI_RUNNER_TRUSTED" in source
+    assert "IZO_CI_RUNNER_TRUSTED" not in source
     assert 'github.actor == \'spikeal8-maker\'' in source
     assert "github.event.pull_request.head.repo.full_name == github.repository" in source
     assert "git push" not in source

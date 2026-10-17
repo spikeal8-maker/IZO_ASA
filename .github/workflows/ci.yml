@@ -15,26 +15,39 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  quality:
+    name: Portable source checks
+    uses: ./.github/workflows/file-hygiene.yml
   verify:
+    needs: quality
     name: Backend, tooling and frontend gates
     if: >-
-      github.event_name != 'pull_request' ||
+      needs.quality.outputs.application_required == 'true' &&
       (
-        github.event.pull_request.head.repo.full_name == github.repository &&
-        github.actor == 'spikeal8-maker'
+        github.event_name != 'pull_request' ||
+        (
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.actor == 'spikeal8-maker'
+        )
       )
-    runs-on: [self-hosted, windows, x64, izo-ci]
+    runs-on: windows-2022
     timeout-minutes: 45
+    env:
+      PYTHONUTF8: "1"
 
     steps:
-      - name: Assert trusted isolated runner
+      - name: Assert GitHub-hosted Windows runner
         shell: powershell
+        env:
+          IZO_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          IZO_RUNNER_OS: ${{ runner.os }}
+          IZO_RUNNER_ARCH: ${{ runner.arch }}
         run: |
-          if ($env:IZO_CI_RUNNER_TRUSTED -ne "1") {
-            throw "The izo-ci runner is missing its trusted isolation marker."
-          }
-          if ($env:RUNNER_NAME -notlike "izo-ci-*") {
-            throw "Unexpected runner identity: $env:RUNNER_NAME"
+          if ($env:GITHUB_ACTIONS -ne "true" -or
+              $env:IZO_RUNNER_ENVIRONMENT -ne "github-hosted" -or
+              $env:IZO_RUNNER_OS -ne "Windows" -or
+              $env:IZO_RUNNER_ARCH -ne "X64") {
+            throw "CI requires a GitHub-hosted Windows X64 runner."
           }
 
       - name: Check out repository
@@ -44,6 +57,19 @@ jobs:
           clean: true
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Configure pinned Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # existing reviewed pin
+        with:
+          python-version-file: .python-version
+          architecture: x64
+
+      - name: Configure pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # existing reviewed pin
+        with:
+          node-version-file: .node-version
+          architecture: x64
+          package-manager-cache: false
 
       - name: Resolve supply-chain event range
         id: supply_chain_range
@@ -152,6 +178,10 @@ jobs:
           IZO_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           python -m tools.agent_system.enforce --repo-root . ci --target-base $env:IZO_PR_BASE_SHA
+      - name: Install file hygiene tooling
+        run: |
+          python -m pip install --only-binary=:all: --require-hashes -r tools/file_hygiene_requirements.txt
+
       - name: Install backend dependencies
         run: python -m pip install --requirement backend/requirements.txt
 
