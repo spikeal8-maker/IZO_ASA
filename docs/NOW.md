@@ -2,11 +2,11 @@
 status: canonical
 status_role: current-status-aggregator
 backlog_role: program-router
-updated: 2026-10-07
-source_main_at_status_update: 7ab1861b53320b1234f3680f4fa5dd13175f3e27
-last_verified_main: 7ab1861b53320b1234f3680f4fa5dd13175f3e27
-production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa
-production_release_verified_at: 2026-09-02T00:08:04+03:00
+updated: 2026-10-11
+source_main_at_status_update: 9acd9df0e8f375b8711e6b4cc63d349aa7b4a70e
+last_verified_main: 9acd9df0e8f375b8711e6b4cc63d349aa7b4a70e
+production_release_sha: 9128f99f825bdd4533dd68c44b5e2f4586719f7f
+production_release_verified_at: 2026-10-11T12:28:16+03:00
 completed_package: CONTAINER-READY-001
 active_package: CONTAINER-SHADOW-001
 active_task_contract: github-issue-125
@@ -21,9 +21,9 @@ next_candidate: CONTAINER-PRODUCTION-001
 ## 1. Перед работой
 
 Сверить repository root, origin, clean status, HEAD/origin-main и worktrees.
-Source main: `7ab1861b53320b1234f3680f4fa5dd13175f3e27`.
-Production release: `d223c179d5944bc208cace867d5e93bc1341a3aa` (2026-09-02);
-production подтверждается installed runtime evidence.
+Source main: `9acd9df0e8f375b8711e6b4cc63d349aa7b4a70e` (CI #753 SUCCESS).
+Production release: `9128f99f825bdd4533dd68c44b5e2f4586719f7f` (build 2026-09-06);
+local/public `/api/version` совпали 2026-10-11. Runtime не обновлялся этим package.
 
 ## 2. Активный stabilization package
 
@@ -38,7 +38,9 @@ Tracked debt: #162, #163, #164, #165.
 #114 AI-VERIFY = OPEN / PREPARED; not active; not prerequisite for first D1 Docker smoke.
 #115 DOCKER-DEV = COMPLETE; merge `77fd1ed7ede83b9bc8216008b685b8fd51242879`; post-merge CI #743 = SUCCESS.
 #124 CONTAINER-READY = COMPLETE.
-#125 CONTAINER-SHADOW = ACTIVE; ACTIVATION / SHADOW AUDIT; implementation NOT STARTED.
+#125 CONTAINER-SHADOW = ACTIVE; `SHADOW-TOPOLOGY-01` adds DEV-based loopback web/API.
+Contract: `tasks/SHADOW-EXECUTOR-IDENTITY-001.toml`; [operations/remaining gates](docker-shadow.md).
+Full parity/recovery pending; NOT DEPLOYED TO USERS.
 #126 CONTAINER-PRODUCTION = NEXT.
 D1 Docker DEV/TEST foundation (#115) = COMPLETE.
 Architecture checkpoint after #108-#110: PASS; routes/workers/tables 251/8/65; product-flow count 14.

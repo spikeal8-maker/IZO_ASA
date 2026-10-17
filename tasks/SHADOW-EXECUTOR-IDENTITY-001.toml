@@ -1,0 +1,108 @@
+manifestVersion = 1
+id = "SHADOW-EXECUTOR-IDENTITY-001"
+baseSha = "9acd9df0e8f375b8711e6b4cc63d349aa7b4a70e"
+goal = "Preserve PR178 history and reject mismatched images before mutation; launch checked immutable local image IDs."
+userOutcome = "Shadow up and recreate cannot start an image with an incorrect source revision or resolve a mutable tag after validation."
+beforeScenario = "PR178 checks image revisions only after compose up, allowing a stale or retagged image to be started before rejection."
+afterScenario = "Every service image is inspected before compose up and the owned invocation pins the verified immutable image IDs with pull disabled."
+nonGoals = [
+  "complete all Issue 125 parity/recovery acceptance",
+  "start Issue 126",
+  "production deploy or restart",
+  "production data/secrets",
+  "real provider calls",
+  "public routing",
+  "product dependency version changes",
+  "product behavior changes",
+]
+declaredFiles = [
+  "ops/docker/dev/compose.shadow.yml",
+  "ops/docker/dev/Dockerfile.web",
+  "ops/docker/dev/Dockerfile.web.dockerignore",
+  "ops/docker/dev/nginx.shadow.conf",
+  "tools/docker_shadow.py",
+  "tools/docker_shadow_smoke.py",
+  "tools/test_docker_shadow.py",
+  "docs/docker-shadow.md",
+  "docs/NOW.md",
+  "docs/generated/architecture-inventory.md",
+  "docs/generated/architecture-inventory.json",
+  "ops/docker/dev/network_guard.py",
+  "ops/docker/dev/Dockerfile.guard",
+  "ops/docker/dev/Dockerfile.guard.dockerignore",
+  "tasks/SHADOW-TOPOLOGY-01.toml",
+]
+allowedPatterns = [
+  ".gitleaksignore",
+  "tools/docker_shadow_evidence.py",
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/release/**",
+  "ops/docker/agent-sandbox/**",
+  ".github/**",
+  "architecture/**",
+]
+protectedFilesTouched = [
+]
+domain = "container-shadow"
+riskClass = "high-assurance"
+changeClass = "runtime"
+maxProductionFiles = 15
+maxChangedLines = 2000
+acceptance = [
+  "Default Docker DEV is unchanged.",
+  "Shadow reuses DEV backend and named volumes in a unique Compose project.",
+  "Only loopback ports are published; exact stateful namespace OUTPUT default-deny permits loopback and established/related replies, denies new gateway/bridge/external connections before app startup, and cannot be changed by non-root apps.",
+  "Clean exact source SHA and image revisions are checked before startup; mismatches fail before Docker mutation.",
+  "A built React frontend and backend routes are accessible on shadow localhost.",
+  "Readiness, stop/start/recreate, SQLite and media persistence, source identity and bounded isolation probes produce explicit results.",
+  "Only package-owned Docker resources may be stopped; down retains volumes.",
+  "Focused checks and package enforcement pass; a clean commit and draft PR make the result reviewable.",
+  "Issue 125 remains active with remaining parity/recovery gates explicit; no production acceptance claim.",
+  "Missing, malformed or mismatched service images fail before compose up and preserve current containers.",
+  "An image tag changed after inspection cannot change the IDs passed to compose up.",
+  "Existing PR178 commits are preserved; shared Docker lifecycle is not executed.",
+]
+requiredEvidence = [
+  "GitHub CI 753 SUCCESS for base SHA",
+  "focused tests",
+  "Compose config validation",
+  "clean-source image builds and runtime smoke",
+  "source/config/image/container/volume/port identity receipt",
+  "Read-only production/service/listener/routing-config/foreign-resource before/after snapshots for new controlled operations; original historical baseline unavailable.",
+  "git diff --check",
+  "package scope receipt",
+  "exact-head PR CI",
+  "Kernel policy readback and DROP-counter probes after up/recreate; controlled bridge listener positive control; actual gateway-listener limitation explicitly reported.",
+  "Independent review of pre-mutation identity rejection and immutable invocation.",
+  "Runtime image identity remains NOT_VERIFIED until the isolated executor is available.",
+]
+targetedTests = [
+  "tools/test_docker_shadow.py",
+  "tools/test_docker_dev_contract.py",
+  "tools/test_generate_architecture_inventory.py",
+]
+fileGrowthExpectations = [
+  "New handwritten Python files remain below 500 lines.",
+  "DEV compose and backend Dockerfile remain unchanged.",
+  "No protected product source or product dependency versions change; guard adds the necessary nftables OS package.",
+  "Generated inventory changes only through its generator.",
+]
+forbiddenOperations = [
+  "production-deploy",
+  "production-restart",
+  "production-cutover",
+  "production-data",
+  "production-secrets",
+  "caddy-change",
+  "frp-change",
+  "dns-change",
+  "real-provider-call",
+  "merge",
+  "force-push",
+  "global-docker-cleanup",
+  "shared-docker-lifecycle",
+]
+rollbackBoundary = "Revert this bounded image-validation change; preserve the original PR178 history, runtime receipts and persistent data."
