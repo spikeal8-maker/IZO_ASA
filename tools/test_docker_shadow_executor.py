@@ -125,6 +125,10 @@ def assert_listener_closed(listener):
     with pytest.raises(OSError):
         socket.create_connection((listener.address, listener.port), timeout=.3)
     with socket.socket() as probe:
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        else:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         probe.bind((listener.address, listener.port))
 
 
@@ -154,6 +158,19 @@ def test_listener_expires_without_waiting_for_caller():
     with GatewayListener(value, PROJECT, seconds=.1) as listener:
         listener.thread.join(timeout=1)
         assert not listener.thread.is_alive()
+    assert_listener_closed(listener)
+
+
+def test_live_listener_cannot_be_displaced_by_reuse_socket():
+    value = Mock()
+    value.gateway.return_value = "127.0.0.1"
+    with GatewayListener(value, PROJECT) as listener:
+        with socket.socket() as contender:
+            contender.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            with pytest.raises(OSError):
+                contender.bind((listener.address, listener.port))
+        with socket.create_connection((listener.address, listener.port), timeout=.3) as client:
+            assert client.recv(64) == b"shadow-fixture"
     assert_listener_closed(listener)
 
 

@@ -241,6 +241,11 @@ class GatewayListener:
         gateway = self.executor.gateway(self.project)
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
+            if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+                server.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            else:
+                # Reclaim closed POSIX connections in TIME_WAIT; no SO_REUSEPORT.
+                server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server.settimeout(.2)
             server.bind((gateway, 0))
             server.listen(4)

@@ -32,6 +32,8 @@ jobs:
       )
     runs-on: windows-2022
     timeout-minutes: 45
+    env:
+      PYTHONUTF8: "1"
 
     steps:
       - name: Assert GitHub-hosted Windows runner

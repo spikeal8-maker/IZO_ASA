@@ -71,9 +71,11 @@ class ControlledProvider:
             for port in self._ports:
                 listener = socket.socket()
                 self._listeners.append(listener)
-                # No SO_REUSEADDR: an existing listener must never be displaced.
+                # Windows needs exclusive ownership; POSIX must also handle TIME_WAIT.
                 if hasattr(socket, 'SO_EXCLUSIVEADDRUSE'):
                     listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+                else:
+                    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 listener.bind((self._bind, port))
                 listener.listen(4)
                 listener.settimeout(.1)

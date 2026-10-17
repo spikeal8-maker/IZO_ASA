@@ -62,6 +62,8 @@ def provider():
         with socket.socket() as reusable:
             if hasattr(socket, 'SO_EXCLUSIVEADDRUSE'):
                 reusable.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            else:
+                reusable.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             reusable.bind(('127.0.0.1', port))
     assert not owned._connections
     assert all(not thread.is_alive() for thread in owned._threads)
@@ -74,6 +76,16 @@ def control(provider, route, payload):
                              headers={'Authorization': 'Bearer ' + provider.control_token})
     response.raise_for_status()
     return response.json()
+
+
+def test_live_provider_ports_cannot_be_displaced(provider):
+    for port in provider._ports:
+        with socket.socket() as contender:
+            contender.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            with pytest.raises(OSError):
+                contender.bind(('127.0.0.1', port))
+    with httpx.Client(trust_env=False) as http:
+        assert http.get(provider.base_url + '/object_info').status_code == 200
 
 
 def submit(provider, job='private-job-canary', timeout=1):
@@ -352,7 +364,9 @@ def test_dispatch_failure_closes_unassigned_connection_and_releases_permit(provi
     except (ConnectionResetError, ConnectionAbortedError):
         pass
     until = time.monotonic() + 1
-    while provider._connections and time.monotonic() < until:
+    # Connection removal precedes semaphore release and the receipt update.
+    while (provider._connections or provider._slots._value != 4
+           or provider.receipt()['counts'].get('dispatch_failed') != 1) and time.monotonic() < until:
         time.sleep(.005)
     assert not provider._connections
     assert provider._slots._value == 4
