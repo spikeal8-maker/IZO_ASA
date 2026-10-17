@@ -1,0 +1,189 @@
+manifestVersion = 1
+id = "DOCKER-CLEAN-INSTALL-001"
+baseSha = "d1ee3a0ac5114ec08f4a8daee9cf6e41e97d6a7a"
+goal = "Integrate the existing Docker candidate and portable source prerequisite, repair concrete acceptance blockers, and reproduce the real container application on independent GitHub-hosted Linux machines."
+userOutcome = "A clean GitHub checkout builds and opens IZO_ASA, authenticates two fixture users, generates through the real guarded provider wire path, preserves data after recreate, and provides reviewable exact-source evidence."
+beforeScenario = "Drafts 186 and 191 are unmerged; the Docker CLI is Windows-only, the Linux adapter and controlled provider are disconnected from acceptance, and portable CI skips canonical scope and secret gates."
+afterScenario = "One candidate retains both source histories, preserves mandatory portable gates, supports explicitly pinned isolated Linux execution, and records honest D1 and available D2-D3 results with an independent clean installation."
+nonGoals = [
+  "Production switching or deployment",
+  "Production data, media, secrets, provider or network changes",
+  "Paid resources or real money, mail or bot operations",
+  "Rewrite the product or move GPU services",
+  "Change other agents' branches or shared-host Docker settings",
+]
+declaredFiles = [
+  ".github/workflows/ci.yml",
+  ".github/workflows/docker-clean-install.yml",
+  ".github/workflows/file-hygiene.yml",
+  ".gitleaksignore",
+  "AI_START_HERE.md",
+  "backend/SYMBOL_MAP.md",
+  "backend/app/api/routers/phone_audio.py",
+  "backend/app/integrations/phone_speech_http.py",
+  "backend/app/services/generation_accounting.py",
+  "backend/app/services/generation_recovery.py",
+  "backend/main.py",
+  "backend/test_phone_audio.py",
+  "backend/test_services_generation_accounting_module.py",
+  "backend/test_services_generation_recovery_module.py",
+  "docs/NOW.md",
+  "docs/context/audio.md",
+  "docs/docker-clean-install.md",
+  "docs/docker-delivery-acceptance.md",
+  "docs/docker-environments.md",
+  "docs/docker-shadow.md",
+  "docs/documentation-standards.md",
+  "docs/generated/architecture-inventory.json",
+  "docs/generated/architecture-inventory.md",
+  "docs/generated/context-index.json",
+  "docs/generated/context-index.md",
+  "docs/payments-public-pages-20260715.md",
+  "docs/system-overview.md",
+  "docs/task-contract-guide.md",
+  "docs/testing-file-standards.md",
+  "ops/docker/dev/Dockerfile.backend",
+  "ops/docker/dev/Dockerfile.backend.dockerignore",
+  "ops/docker/dev/Dockerfile.guard",
+  "ops/docker/dev/Dockerfile.guard.dockerignore",
+  "ops/docker/dev/Dockerfile.web",
+  "ops/docker/dev/Dockerfile.web.dockerignore",
+  "ops/docker/dev/compose.acceptance.yml",
+  "ops/docker/dev/compose.shadow.yml",
+  "ops/docker/dev/network_guard.py",
+  "ops/docker/dev/nginx.shadow.conf",
+  "tasks/DOCKER-CLEAN-INSTALL-001.toml",
+  "tasks/DOCKER-LOCAL-CANDIDATE-001.toml",
+  "tasks/SOURCE-DOCS-ALIGN-001.toml",
+  "tools/agent_system/env_lifecycle.py",
+  "tools/agent_system/package.py",
+  "tools/ci_scope.py",
+  "tools/docker_clean_browser.py",
+  "tools/docker_clean_install.py",
+  "tools/docker_shadow.py",
+  "tools/docker_shadow_evidence.py",
+  "tools/docker_shadow_executor.py",
+  "tools/docker_shadow_fixture.py",
+  "tools/docker_shadow_product.py",
+  "tools/docker_shadow_provider.py",
+  "tools/docker_shadow_smoke.py",
+  "tools/docker_shadow_storage.py",
+  "tools/file_hygiene.py",
+  "tools/file_hygiene_git.py",
+  "tools/file_hygiene_markdown.py",
+  "tools/file_hygiene_requirements.txt",
+  "tools/file_hygiene_reviews.py",
+  "tools/phone_speech_host.py",
+  "tools/portable_ci_gates.py",
+  "tools/test_agent_env_lifecycle.py",
+  "tools/test_agent_env_ready.py",
+  "tools/test_agent_package.py",
+  "tools/test_ci_scope.py",
+  "tools/test_docker_clean_install.py",
+  "tools/test_docker_shadow.py",
+  "tools/test_docker_shadow_executor.py",
+  "tools/test_docker_shadow_fixture.py",
+  "tools/test_docker_shadow_linux.py",
+  "tools/test_docker_shadow_product.py",
+  "tools/test_docker_shadow_provider.py",
+  "tools/test_docker_shadow_storage.py",
+  "tools/test_file_hygiene.py",
+  "tools/test_file_hygiene_markdown.py",
+  "tools/test_file_hygiene_policy.py",
+  "tools/test_file_hygiene_regressions.py",
+  "tools/test_phone_speech_host.py",
+  "tools/test_portable_ci_gates.py",
+  "tools/test_source_alignment.py",
+  "tools/docker_clean_storage.py",
+  "tools/test_docker_clean_storage.py",
+]
+allowedPatterns = [
+  "tools/docker_clean_browser.mjs",
+]
+forbiddenPatterns = [
+  "frontend/**",
+  "ops/release/**",
+  "architecture/**",
+]
+protectedFilesTouched = [
+  "backend/main.py",
+]
+domain = "container-shadow"
+riskClass = "high-assurance"
+changeClass = "integration"
+maxProductionFiles = 45
+maxChangedLines = 12500
+acceptance = [
+  "Both reviewed source heads 8772a1100a40e6fed22578e9571250aefda5597f and 71ac607fb497506c2056df6b806d104d695f29f5 remain ancestors; their superseded Task Contracts remain available in those Git commits while the candidate has one current manifest.",
+  "Canonical package scope and a pinned redacted changed-range secret check run in portable Linux CI; missing manifests and forbidden changes cannot pass that path.",
+  "Existing default DEV and Windows paths remain explicit; isolated Linux uses the existing engine, machine and local Unix socket pinning without weakening guarded egress.",
+  "Only a bounded controlled provider substitutes for the model; real auth, queue, worker, media, gallery, feed and token accounting execute.",
+  "D1-01 through D1-08 are measured with real Docker and browser evidence across three independent fixture runs and a second clean GitHub-hosted environment.",
+  "Recreate preserves both users, sessions per contract, balances, ledger, generated media checksums, favorites and publications.",
+  "Run reports preserve initial failures, exact source and checkout, image IDs, resources and owned cleanup; unavailable live integrations remain NOT_VERIFIED.",
+  "No main merge occurs before required exact-source tests and independent review; no shared Windows CI starts without resource admission.",
+]
+requiredEvidence = [
+  "Fresh main/PR ownership and overlap audit",
+  "Canonical agent lifecycle, scope and integration lock receipts",
+  "Targeted source and negative gate tests",
+  "Exact-source GitHub-hosted Docker build and browser artifacts",
+  "Preserved FAIL attempts and independent repeat installation",
+  "Data and foreign-resource comparisons",
+  "Independent review and clean diff",
+]
+targetedTests = [
+  "tools/test_ci_scope.py",
+  "tools/test_file_hygiene.py",
+  "tools/test_file_hygiene_markdown.py",
+  "tools/test_file_hygiene_policy.py",
+  "tools/test_file_hygiene_regressions.py",
+  "tools/test_source_alignment.py",
+  "tools/test_portable_ci_gates.py",
+  "tools/test_docker_shadow.py",
+  "tools/test_docker_shadow_executor.py",
+  "tools/test_docker_shadow_linux.py",
+  "tools/test_docker_shadow_provider.py",
+  "tools/test_docker_shadow_product.py",
+  "tools/test_docker_shadow_storage.py",
+  "tools/test_docker_shadow_fixture.py",
+  "tools/test_docker_clean_install.py",
+  "backend/test_services_generation_accounting_module.py",
+  "backend/test_services_generation_recovery_module.py",
+  "backend/test_phone_audio.py",
+]
+fileGrowthExpectations = [
+  "Existing component diffs are integrated once; generated evidence remains generator-owned.",
+  "New handwritten modules and tests follow the existing source and file-hygiene limits.",
+  "The budget includes the existing 68-path combined candidate plus bounded runtime and CI wiring; protected source limits do not increase.",
+]
+forbiddenOperations = [
+  "direct-main-write",
+  "force-push",
+  "production-mutation",
+  "production-data",
+  "production-secrets",
+  "real-provider-call",
+  "paid-resource",
+  "host-network-settings-change",
+  "foreign-resource-delete",
+  "global-prune",
+  "shared-docker-restart",
+  "merge-before-gates",
+]
+rollbackBoundary = "Revert only this feature candidate and remove only evidence-identified temporary CI resources; production and other projects remain unchanged."
+
+[[scopeExpansions]]
+path = "tools/docker_clean_browser.mjs"
+reason = "Use the existing pinned frontend Playwright dependency for real browser acceptance instead of adding a second Python browser dependency"
+recordedAtUtc = "2026-10-17T19:22:05.475703Z"
+
+[[scopeExpansions]]
+path = "tools/docker_clean_storage.py"
+reason = "Implement authorized D2-04/D2-05/D2-06 rehearsal using existing SQLite backup primitives and separately owned Docker volumes"
+recordedAtUtc = "2026-10-17T19:56:38.541997Z"
+
+[[scopeExpansions]]
+path = "tools/test_docker_clean_storage.py"
+reason = "Verify restore ownership, corrupt-backup refusal and truthful D2 evidence without weakening canonical boundaries"
+recordedAtUtc = "2026-10-17T19:56:39.439969Z"

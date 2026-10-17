@@ -1,0 +1,113 @@
+name: Docker clean installation acceptance
+
+on:
+  push:
+    branches: [agent/docker-clean-install-001]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-clean-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  ACCEPTANCE_BASE: d1ee3a0ac5114ec08f4a8daee9cf6e41e97d6a7a
+
+jobs:
+  source:
+    name: Exact-source admission and regressions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out the exact candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Configure pinned Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version-file: .python-version
+      - name: Install existing exact test dependencies
+        run: |
+          python -m pip install --require-hashes -r tools/file_hygiene_requirements.txt
+          python -m pip install -r backend/requirements.txt
+      - name: Enforce canonical scope and changed-range secret floor
+        run: |
+          python -m tools.portable_ci_gates --base-sha "$ACCEPTANCE_BASE" --head-sha "$GITHUB_SHA" --report "$RUNNER_TEMP/source-evidence/gates.json"
+      - name: Run bounded portable and Docker regression suites
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/source-evidence"
+          python -m pytest -q tools/test_file_hygiene.py tools/test_file_hygiene_regressions.py tools/test_file_hygiene_markdown.py tools/test_file_hygiene_policy.py tools/test_ci_scope.py tools/test_source_alignment.py tools/test_portable_ci_gates.py tools/test_docker_shadow.py tools/test_docker_shadow_executor.py tools/test_docker_shadow_linux.py tools/test_docker_shadow_provider.py tools/test_docker_shadow_product.py tools/test_docker_shadow_storage.py tools/test_docker_shadow_fixture.py tools/test_docker_clean_install.py --junitxml="$RUNNER_TEMP/source-evidence/portable.xml" 2>&1 | tee "$RUNNER_TEMP/source-evidence/portable.log"
+          python -m tools.file_hygiene --base "$ACCEPTANCE_BASE" --head "$GITHUB_SHA" --comparison direct | tee "$RUNNER_TEMP/source-evidence/file-hygiene.json"
+      - name: Test inherited application extractions on Linux
+        env:
+          APP_ENV: test
+          ENV: test
+          MODE: test
+          BOT_MODE: disabled
+          MAX_UPDATES_MODE: disabled
+        run: |
+          set -euo pipefail
+          python -m pytest -q backend/test_services_generation_accounting_module.py backend/test_services_generation_recovery_module.py backend/test_phone_audio.py --junitxml="$RUNNER_TEMP/source-evidence/backend.xml" 2>&1 | tee "$RUNNER_TEMP/source-evidence/backend.log"
+      - name: Preserve exact-source admission evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: clean-source-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source-evidence/
+          if-no-files-found: error
+          retention-days: 14
+
+  install:
+    name: Independent Linux installation ${{ matrix.replica }}
+    needs: source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        replica: [1, 2]
+    steps:
+      - name: Check out the exact candidate on a new VM
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Configure pinned Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version-file: .python-version
+      - name: Configure the existing pinned frontend Node version
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.14.1
+      - name: Install the existing lockfile and its real browser
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npx --no-install playwright install --with-deps chromium
+      - name: Build, open, exercise and recreate three fresh fixture installations
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          REPLICA: ${{ matrix.replica }}
+        run: |
+          python -m tools.docker_clean_install --source-sha "$GITHUB_SHA" --base-sha "$ACCEPTANCE_BASE" --replica "$REPLICA" --evidence-dir "$RUNNER_TEMP/docker-evidence"
+      - name: Preserve each original attempt including failures and screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: clean-linux-${{ matrix.replica }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/docker-evidence/
+          if-no-files-found: error
+          retention-days: 14

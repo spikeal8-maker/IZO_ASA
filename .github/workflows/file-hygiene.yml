@@ -67,6 +67,11 @@ jobs:
       - name: Install hash-pinned Markdown parser in this temporary runner
         run: |
           python -m pip install --only-binary=:all: --require-hashes -r tools/file_hygiene_requirements.txt
+      - name: Enforce canonical package scope and redacted secret floor
+        env:
+          BASE: ${{ steps.range.outputs.base }}
+          HEAD: ${{ steps.range.outputs.head }}
+        run: python -m tools.portable_ci_gates --base-sha "$BASE" --head-sha "$HEAD" --report .runtime/file-hygiene/portable-gates.json
       - name: Classify changed scope
         id: scope
         env:
@@ -77,7 +82,7 @@ jobs:
       - name: Run portable regression and existing instruction contracts
         run: |
           set -euo pipefail
-          python -m unittest -v tools.test_file_hygiene tools.test_file_hygiene_regressions tools.test_file_hygiene_markdown tools.test_file_hygiene_policy tools.test_ci_scope tools.test_source_alignment 2>&1 | tee .runtime/file-hygiene/tests.log
+          python -m unittest -v tools.test_file_hygiene tools.test_file_hygiene_regressions tools.test_file_hygiene_markdown tools.test_file_hygiene_policy tools.test_ci_scope tools.test_source_alignment tools.test_portable_ci_gates 2>&1 | tee .runtime/file-hygiene/tests.log
       - name: Validate changed documents and tests
         env:
           BASE: ${{ steps.range.outputs.base }}

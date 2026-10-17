@@ -15,7 +15,7 @@ baseline_status: completed-point-A-accepted
 next_candidate: CONTAINER-PRODUCTION-001
 candidate_pr: 186
 candidate_source_sha: 8772a1100a40e6fed22578e9571250aefda5597f
-candidate_state: draft-source-consolidated
+candidate_state: clean-install-in-progress
 candidate_exact_head_ci: NOT_RUN
 candidate_docker_acceptance: NOT_VERIFIED
 ---
@@ -34,17 +34,17 @@ Active: `CONTAINER-SHADOW-001` (#125).
 Next: `CONTAINER-PRODUCTION-001` (#126).
 
 D0 и Docker DEV/TEST foundation (#115) приняты ранее; #124 завершён.
-Shadow уже реализуется: PR #186 объединяет исходники #178–185, но остаётся
-Draft. До новой приёмки синхронизировать кандидата с актуальным main,
-сохранив принятую чистку документов. Его старый base: `9acd9df0e8f375b8711e6b4cc63d349aa7b4a70e`.
+PR #186 объединяет исходники #178–185 и остаётся Draft. Ветка
+`agent/docker-clean-install-001` интегрирует #186/#191 с актуальным main.
 CI #762 отменён на ПРЕДЫДУЩЕМ SHA; это не провал assertion и не успешная проверка
 текущего кандидата. Не закрыты exact-head CI, независимая приёмка cleanup,
 запуск контейнеров и продуктовые испытания. #126 не начат; production не переключать.
 
 Профили DEV, Shadow и будущей поставки: [docker-environments.md](docker-environments.md).
 Критерии: [docker-delivery-acceptance.md](docker-delivery-acceptance.md).
-Текущая чистка проверяющего кода — отдельный owner-directed maintenance package;
-она не переопределяет активный Docker-пакет и не закрывает его испытания.
+Текущий Task: `DOCKER-CLEAN-INSTALL-001`; запуск и evidence —
+[docker-clean-install.md](docker-clean-install.md). Кандидат ещё не принят.
+История прежних Task Contracts сохранена в исходных коммитах.
 
 ## 2. Принятые инварианты
 

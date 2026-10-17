@@ -1,0 +1,9 @@
+# Explicit CPU acceptance fixture. Loaded only by the launcher's --fixture option.
+# Reuses the three-service Shadow topology and its guarded network namespace.
+services:
+  backend:
+    command: [python, /opt/izo/fixtures/docker_shadow_fixture.py]
+    environment:
+      IZO_SHADOW_FIXTURE: controlled-comfyui-v1
+      COMFYUI_BASE_URL: http://127.0.0.1:48991
+      COMFYUI_MOCK_FALLBACK: "false"
