@@ -1,6 +1,12 @@
 # Auth Cookie Guide: Local vs Production
 
-Дата: 2026-07-08
+Первоначальная дата: 2026-07-08. Проверка документации: 2026-10-17.
+
+Эта запись описывает инцидент локального входа и безопасные требования к
+cookie. Текущее доверие устанавливается серверной сессией; прежние тексты
+Identity Core с утверждениями об отсутствии auth защищены только Git-историей.
+Политику cookie проверять в `backend/app/config.py` и её применении в
+`backend/main.py`, а не переносить июльские значения env в контейнер.
 
 ## Что сломалось
 
@@ -71,6 +77,8 @@ npm run e2e:profile-auth
 
 - `backend/main.py`
 - `frontend/src/authV2.tsx`
-- `docs/identity-core-plan.md`
-- `docs/identity-core-risks.md`
+- `backend/app/config.py`
+- `backend/app/security/permissions.py`
+- `docs/context/backend-auth-bots.md`
+- `backend/test_auth_sessions.py`, `backend/test_cookie_session.py`
 - `TEST_PLAN.md`

@@ -1,6 +1,12 @@
 # Gallery Current Product Plan
 
-Date: 2026-07-15.
+Original product snapshot: 2026-07-15. Documentation review: 2026-10-17.
+
+The stable storage and ownership contracts below are retained, but visual
+behavior, tariff limits and implementation statuses must be checked against
+the exact running source, `backend/static/gallery/**`, current API and
+`docs/context/video-gallery-feed.md`. This historical snapshot is not a new
+active backlog, Docker parity receipt or permission to purge gallery media.
 
 ## Canonical Gallery Screen
 

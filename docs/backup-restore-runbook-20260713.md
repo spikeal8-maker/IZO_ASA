@@ -1,6 +1,15 @@
 # IZO ASA — backup и restore runbook для текущего Windows production
 
-Дата проверки: 2026-07-14
+Дата исходного испытания: 2026-07-14; документационный аудит: 2026-10-17.
+
+**Важная граница:** исторические размеры snapshot и успешный rehearsal ниже
+относятся только к июльской проверке. Они не подтверждают наличие свежей
+восстановимой копии сегодня. Перед Docker cutover нужны отдельные
+`CONTAINER-SHADOW-001` / `CONTAINER-PRODUCTION-001` acceptance, фактические
+RPO/RTO и полностью изолированная репетиция SQLite + media. Нельзя запускать
+старый и новый runtime одновременно на одной writable SQLite. Инструкции
+здесь относятся к действующему Windows backup; пути Docker volumes задаются
+в Compose и должны проверяться отдельно. См. `docs/docker-delivery-acceptance.md`.
 
 ## Что защищает этот backup
 

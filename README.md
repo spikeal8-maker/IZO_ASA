@@ -111,7 +111,7 @@ promotion, maintenance flag, rollback и local/public smoke. Не использ
 
 - `docs/backup-restore-runbook-20260713.md`
 - `docs/yandex-disk-backup-runbook-20260716.md`
-- `docs/current-machine-handoff-20260722.md`
+- `docs/docker-delivery-acceptance.md` — проверяемая поставка Docker и восстановление
 
 Никогда не копируйте открытую SQLite обычным file copy и не синхронизируйте
 живые `.git`, WAL/SHM, media working state или secrets через облачный диск.
@@ -132,8 +132,11 @@ Windows CurrentUser DPAPI store. DPAPI привязан к аккаунту и �
 - Telegram и MAX — Mini App, login/linking и bot delivery.
 - YooKassa и mail providers — финансовые и коммуникационные интеграции.
 
-Подробные endpoints, listeners, workers, persistence и recovery описаны в
-`docs/system-overview.md`, architecture inventory и соответствующих runbooks.
+Краткая карта действующего исходного кода: `docs/system-overview.md`.
+Точные endpoints, listeners, workers и persistence проверяются по
+`docs/generated/architecture-inventory.md`, `docs/generated/frontend-map.md`,
+`docs/generated/product-flow-map.md` и соответствующим runbooks.
+Июльский перенос компьютера является историей, а не инструкцией для текущей машины.
 
 ## Реализованные пользовательские области
 

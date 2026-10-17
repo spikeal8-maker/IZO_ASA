@@ -1,6 +1,13 @@
 # Tariff and token contract
 
-Status: canonical contract for the production tariff flow as of 2026-07-17.
+Status: contract retained for the two-balance tariff flow; original baseline 2026-07-17.
+
+Documentation review 2026-10-17: actual accounting state, refunds and legacy
+compatibility paths must be cross-checked with current `backend/app/billing/**`,
+`backend/app/services/generation_accounting.py` when merged, the token ledger
+and high-assurance race/idempotency tests. Draft PR #186 is **not** production
+proof. This document does not permit balance migration or historical ledger
+repair without separate owner-authorized scope.
 
 ## Two balances only
 

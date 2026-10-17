@@ -1,4 +1,10 @@
-# OpenRouter image capability contract — 2026-07-11
+# OpenRouter image capability contract — initial 2026-07-11
+
+Documentation review 2026-10-17: the capability rules remain a design/API
+reference, but the dynamic catalog, prices and external provider support must
+be re-read at runtime and exercised only in separately authorized tests. A
+2026-07-11 live-audit count is not current Docker/prod evidence. The current
+source map is `docs/context/image-generation.md` and the exact backend tests.
 
 The admin model lists prefer capability data from `GET /api/v1/images/models`
 instead of inferring support from model names. Capability metadata is cached for six hours.

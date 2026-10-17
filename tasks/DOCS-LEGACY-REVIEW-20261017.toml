@@ -1,0 +1,147 @@
+manifestVersion = 1
+id = "DOCS-LEGACY-REVIEW-20261017"
+baseSha = "fd53f17fe167e70ca7a66323c81447536889952a"
+goal = "Review each remaining over-two-month-old document against current source and docs; replace misleading historical architecture, archive obsolete evidence, delete unsafe/unneeded old drafts, preserve operational contracts."
+userOutcome = "Agents read concise current source maps instead of July monolith narratives, old work queues and outdated auth/payment checklists; usable runbooks remain with accurate evidence boundaries."
+beforeScenario = "38 unchanged July/August Markdown files and two misleading later-modified old execution plans coexist with canonical Docker-first docs; README and working feed/auth documents contain obsolete references."
+afterScenario = "A reversible doc-only cleanup classifies all 38 + two older plans, rewrites source overviews, preserves 13 exact source blobs and six mock assets in a clearly historical archive, deletes five obsolete docs, and updates legitimate runbooks with current limits."
+nonGoals = [
+  "Run or modify Docker/VM/host/production, migrations, backups, tokens or actual providers",
+  "Change any application code, tests, CI workflows, architecture policies or generated maps",
+  "Alter docs/NOW.md routing or PR #186",
+  "Rewrite repository history or purge historical personal data from the Git object database",
+  "Invent current provider, regulatory or site-operational status from July text",
+]
+declaredFiles = [
+  "README.md",
+  "docs/system-overview.md",
+  "docs/feed-current-product-plan.md",
+  "docs/feed-media-architecture.md",
+  "docs/IZO_ACA_Design_System_2.0-full.md",
+  "docs/izo-asa-design-system-20260716.md",
+  "docs/admin-bots-openrouter-operations-20260716.md",
+  "docs/auth-cookie-local-production-guide-20260708.md",
+  "docs/backup-restore-runbook-20260713.md",
+  "docs/yandex-disk-backup-runbook-20260716.md",
+  "docs/comfyui-runtime-contract-20260727.md",
+  "docs/comfyui-image-vram-watchdog-20260723.md",
+  "docs/gallery-current-product-plan.md",
+  "docs/generation-quality-gates.md",
+  "docs/local-ltx23-transfer-kit.md",
+  "docs/local-ltx23-video-provider.md",
+  "docs/mail-unisender-operations.md",
+  "docs/openrouter-video-admin-catalog-20260715.md",
+  "docs/qwen-asr-deployment.md",
+  "docs/payments-public-pages-20260715.md",
+  "docs/openrouter-image-capability-contract-20260711.md",
+  "docs/paint-preview-guide-20260708.md",
+  "docs/tariff-two-balance-contract-20260717.md",
+  "docs/agent-compliance-audit-20260719.md",
+  "archive/docs/2026-10-17/agent-compliance-audit-20260719.md",
+  "docs/auth-bot-login-reliability-20260723.md",
+  "archive/docs/2026-10-17/auth-bot-login-reliability-20260723.md",
+  "docs/current-machine-handoff-20260722.md",
+  "archive/docs/2026-10-17/current-machine-handoff-20260722.md",
+  "docs/engineering-transformation-master-plan-20260717.md",
+  "archive/docs/2026-10-17/engineering-transformation-master-plan-20260717.md",
+  "docs/identity-core-plan.md",
+  "archive/docs/2026-10-17/identity-core-plan.md",
+  "docs/identity-core-risks.md",
+  "archive/docs/2026-10-17/identity-core-risks.md",
+  "docs/phase20E0A-crm-business-visual-blueprint.md",
+  "archive/docs/2026-10-17/phase20E0A-crm-business-visual-blueprint.md",
+  "docs/video-generation-studio-20260715.md",
+  "archive/docs/2026-10-17/video-generation-studio-20260715.md",
+  "docs/yandex-quarantine-manifest-20260726.md",
+  "archive/docs/2026-10-17/yandex-quarantine-manifest-20260726.md",
+  "docs/engineering-optimization-master-plan-20260719.md",
+  "archive/docs/2026-10-17/engineering-optimization-master-plan-20260719.md",
+  "docs/optimization-and-decomposition-plan-20260720.md",
+  "archive/docs/2026-10-17/optimization-and-decomposition-plan-20260720.md",
+  "archive/docs/2026-10-17/system-overview-20260722.md",
+  "archive/docs/2026-10-17/feed-media-architecture-20260708.md",
+  "docs/auth-legacy-route-matrix-20260720.md",
+  "docs/billing-readiness-20260716.md",
+  "docs/self-employed-fiscalization-20260716.md",
+  "docs/text-to-image-openrouter-contract-20260711.md",
+  "docs/yookassa-buyer-account-review-20260716.md",
+  "docs/phase20E0A-artifacts/blueprint-client-card.png",
+  "archive/docs/2026-10-17/phase20E0A-artifacts/blueprint-client-card.png",
+  "docs/phase20E0A-artifacts/blueprint-confirm.png",
+  "archive/docs/2026-10-17/phase20E0A-artifacts/blueprint-confirm.png",
+  "docs/phase20E0A-artifacts/blueprint-full.png",
+  "archive/docs/2026-10-17/phase20E0A-artifacts/blueprint-full.png",
+  "docs/phase20E0A-artifacts/blueprint-settings.png",
+  "archive/docs/2026-10-17/phase20E0A-artifacts/blueprint-settings.png",
+  "docs/phase20E0A-artifacts/blueprint-users-table.png",
+  "archive/docs/2026-10-17/phase20E0A-artifacts/blueprint-users-table.png",
+  "docs/phase20E0A-crm-business-blueprint-mock.html",
+  "archive/docs/2026-10-17/phase20E0A-crm-business-blueprint-mock.html",
+  "archive/docs/2026-10-17/REVIEW-LEGACY-DOCS-20261017.md",
+  "archive/docs/2026-10-17/README.md",
+  "tasks/DOCS-LEGACY-REVIEW-20261017.toml",
+]
+allowedPatterns = [
+
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+  "tools/**",
+  ".github/**",
+  "docs/NOW.md",
+  "docs/current-status.md",
+  "docs/context/**",
+  "docs/generated/**",
+]
+protectedFilesTouched = [
+
+]
+domain = "documentation-retention"
+riskClass = "low"
+changeClass = "docs-hygiene"
+maxProductionFiles = 0
+maxChangedLines = 14000
+acceptance = [
+  "All 38 August-unchanged docs classified in an immutable audit; two later-edited obsolete master plans identified explicitly.",
+  "Current docs contain no old Windows transfer path as an active deployment instruction, no July execution plan claims to control backlog, and no old Identity Core no-auth claim as current source.",
+  "Moved historical Markdown and HTML/PNG assets retain exact pre-PR blob identities, and five unnecessary documents are absent from active docs/ without new duplicate copies.",
+  "Current README, auth-cookie, Feed docs and OpenRouter video link to valid current source/context or archived evidence.",
+  "Latest generated maps, docs/NOW.md, root and scoped AGENTS, Docker acceptance/master spec, application code, toolchain and CI remain unchanged.",
+  "Operational/backup/GPU/commerce documentation clearly distinguishes original evidence from current verified runtime and requires explicit operator permission for dangerous operations.",
+  "Scoped manifest paths match full diff; no unapproved generated or production files; independent review and permitted exact-head verification/exception recorded before merge.",
+]
+requiredEvidence = [
+  "Base/head/tree and exact Git blob inventory for 38 aged documents and two outdated plans.",
+  "Syntactic and link validation for the new concise docs/README, working references and archive.",
+  "GitHub diff rename/preservation proof plus no changes under backend/frontend/ops/architecture/.github/tools.",
+  "Task manifest scope/changed-lines audit and reviewed risk-class exceptional CI handling, if needed.",
+  "Independent post-merge verification of main, PR #186 remains Draft/unmodified, no forced shared Docker/CI lifecycle.",
+]
+targetedTests = [
+  "tools/test_agent_instructions.py",
+  "tools/test_context_docs.py",
+  "tools/test_agent_package.py",
+  "tools/test_agent_enforce.py",
+]
+fileGrowthExpectations = [
+  "docs/system-overview.md and docs/feed-media-architecture.md shrink significantly; full original blobs are preserved in archive.",
+  "No protected product source, architecture budget or generated evidence changes.",
+  "Existing runbooks only add short checked applicability notes; no unsafe imperative rewrite.",
+]
+forbiddenOperations = [
+  "direct-main",
+  "force-push",
+  "deploy",
+  "restart",
+  "docker-lifecycle",
+  "network-change",
+  "production-data",
+  "paid-provider-call",
+  "external-payment",
+  "dependency-change",
+  "secret-read",
+]
+rollbackBoundary = "Revert only the doc manifest, shortened source maps, annotated documentation, archival moves and five deletions. Original SHA fd53f17fe167e70ca7a66323c81447536889952a and all preserved blob identities remain available; no installed app or user data were touched."

@@ -4,6 +4,14 @@ Date: **2026-07-27**
 
 Status: **transfer package; not a deployment receipt**
 
+Documentation review 2026-10-17: this file remains the pinned **host-native**
+ComfyUI setup reference for the initial Docker migration. The image/backend
+container needs an explicit approved endpoint and independently verified host
+connectivity; `127.0.0.1` inside a container is not the Windows ComfyUI host.
+No new model revision, actual GPU success or deployed state is asserted here.
+The current acceptance boundary is `docs/docker-delivery-acceptance.md` and
+Issue #125; production cutover remains separate Issue #126.
+
 ## Why this package exists
 
 The backend fetches production API-format workflows from the installed

@@ -1,5 +1,11 @@
 # Local LTX 2.3 video provider
 
+Documentation review 2026-10-17: contracts below are retained as an integration
+reference, but do not establish that the model is presently installed,
+available or has passed real-provider validation. The first Docker delivery
+keeps host-native GPU services external; verify endpoint/network compatibility
+separately under Issue #125 before declaring parity.
+
 ## Scope
 
 The local provider extends the existing `/api/video/*` contract. It does not

@@ -1,5 +1,13 @@
 # Generation quality gates
 
+Documentation review: 2026-10-17. This is a **functional verification contract**,
+not a report that the present Docker candidate or production models passed.
+Older relative-path commands below are examples tied to their original working
+directories; the active test runner and exact-SHA Task Contract determine the
+commands actually executed. Any paid provider smoke needs explicit operator
+authorization and safe independent evidence; no automatic paid calls in CI.
+
+
 The generator uses layered checks. No single test is treated as proof that the
 whole product works.
 
