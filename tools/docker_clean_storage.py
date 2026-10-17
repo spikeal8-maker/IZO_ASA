@@ -278,6 +278,7 @@ def media_fault(shadow, flow):
 
 def rehearse_storage(source, restored, flow, evidence_dir):
     from tools.docker_shadow_executor import compare_isolated
+    from tools.docker_clean_storage_quiesce import QuiescedSource
     from tools.docker_shadow_smoke import inspect_stack, http_proof, kernel_policy
     evidence_dir = Path(evidence_dir)
     require(not evidence_dir.exists() and bool(flow.saved), "STORAGE_EVIDENCE_OR_BASELINE_INVALID")
@@ -302,8 +303,10 @@ def rehearse_storage(source, restored, flow, evidence_dir):
               "restoredProject": restored.project, "checks": {}, "stage": "backup",
               "startedAt": datetime.now(timezone.utc).isoformat(), "origin": f"http://127.0.0.1:{restored.web_port}"}
     started_at = time.monotonic()
+    source_reader = QuiescedSource(source)
     try:
-        exported = container_call(source, backend_id(source), script("backup_export",
+        source_reader.open()
+        exported = source_reader.call(script("backup_export",
                     {"contract_source": contract_source}, module_source))
         archive = base64.b64decode(exported.pop("archive"), validate=True)
         require(0 < len(archive) <= MAX_ARCHIVE and hashlib.sha256(archive).hexdigest() == exported["sha256"],
@@ -366,33 +369,42 @@ def rehearse_storage(source, restored, flow, evidence_dir):
         if code == "STORAGE_FAULT_NOT_ESTABLISHED" and report["stage"] == "storage-fault":
             report["checks"]["D2-06"] = {"status": "NOT_RUN", "reasonCode": code}
     finally:
-        if restored_flow is not None:
-            report["sessionCleanup"] = restored_flow.close()
-            if report["sessionCleanup"]["sessionCleanup"] != "PASS":
-                report["status"] = "FAIL"
         try:
-            restored.ownership_guard()
-            for row in restored.containers():
-                if row["Name"].lstrip("/") == restored.project + "-storage-helper":
-                    mount_guard(restored, row["Id"], helper=True, running=False)
-                    restored.docker("rm", "-f", row["Id"])
-            restored.compose("down", "--volumes", timeout=120)
-            remaining = {kind: restored.docker(kind, "ls", "-q", "--filter",
-                f"label=com.docker.compose.project={restored.project}").split() for kind in ("volume", "network")}
-            require(not restored.containers() and not any(remaining.values()), "STORAGE_CLEANUP_INCOMPLETE")
-            report["cleanup"] = {"status": "PASS", "remaining": remaining}
-            report["foreignComparison"] = compare_isolated(foreign, source.executor.foreign_snapshot(source.project))
-            require(report["foreignComparison"]["status"] == "PASS", "STORAGE_FOREIGN_RESOURCES_CHANGED")
-            if "backup" in report:
-                observed = container_call(source, backend_id(source), script("storage_probe",
-                    {"contract_source": contract_source}, module_source))
-                report["sourceAfterD2"] = observed
-                require(observed == report["backup"]["receipt"]["sourceState"], "STORAGE_SOURCE_CHANGED_DURING_D2")
-                report["sourceUnchanged"] = "PASS"
-        except Exception as error:
-            code = str(error)
-            report["cleanup"], report["status"] = {"status": "FAIL", "errorCode": code
-                if re.fullmatch(r"[A-Z][A-Z0-9_]{2,120}", code) else "STORAGE_CLEANUP_FAILED"}, "FAIL"
+            try:
+                if restored_flow is not None:
+                    report["sessionCleanup"] = restored_flow.close()
+                    if report["sessionCleanup"]["sessionCleanup"] != "PASS":
+                        report["status"] = "FAIL"
+            except Exception:
+                report["sessionCleanup"], report["status"] = {"sessionCleanup": "FAIL",
+                    "errorCode": "STORAGE_SESSION_CLEANUP_FAILED"}, "FAIL"
+            try:
+                restored.ownership_guard()
+                for row in restored.containers():
+                    if row["Name"].lstrip("/") == restored.project + "-storage-helper":
+                        mount_guard(restored, row["Id"], helper=True, running=False)
+                        restored.docker("rm", "-f", row["Id"])
+                restored.compose("down", "--volumes", timeout=120)
+                remaining = {kind: restored.docker(kind, "ls", "-q", "--filter",
+                    f"label=com.docker.compose.project={restored.project}").split() for kind in ("volume", "network")}
+                require(not restored.containers() and not any(remaining.values()), "STORAGE_CLEANUP_INCOMPLETE")
+                report["cleanup"] = {"status": "PASS", "remaining": remaining}
+                report["foreignComparison"] = compare_isolated(foreign, source.executor.foreign_snapshot(source.project))
+                require(report["foreignComparison"]["status"] == "PASS", "STORAGE_FOREIGN_RESOURCES_CHANGED")
+                if "backup" in report:
+                    observed = source_reader.call(script("storage_probe",
+                        {"contract_source": contract_source}, module_source))
+                    report["sourceAfterD2"] = observed
+                    require(observed == report["backup"]["receipt"]["sourceState"], "STORAGE_SOURCE_CHANGED_DURING_D2")
+                    report["sourceUnchanged"] = "PASS"
+            except Exception as error:
+                code = str(error)
+                report["cleanup"], report["status"] = {"status": "FAIL", "errorCode": code
+                    if re.fullmatch(r"[A-Z][A-Z0-9_]{2,120}", code) else "STORAGE_CLEANUP_FAILED"}, "FAIL"
+        finally:
+            report["sourceQuiescence"] = source_reader.close()
+            if report["sourceQuiescence"]["status"] != "PASS":
+                report["status"] = "FAIL"
         attempted = {"D2-04": True, "D2-05": report["stage"] in {"transfer-restore", "restored-application", "storage-fault"},
                      "D2-06": report["stage"] == "storage-fault"}
         for name in ("D2-04", "D2-05", "D2-06"):

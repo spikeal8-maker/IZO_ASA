@@ -143,6 +143,11 @@ declaredFiles = [
   "backend/test_billing_replay_guards.py",
   "backend/app/services/video_presentation.py",
   "backend/test_video_config_availability.py",
+  "tools/docker_clean_storage_quiesce.py",
+  "tools/test_docker_clean_storage_quiesce.py",
+  "tools/docker_clean_models.py",
+  "tools/test_docker_clean_models.py",
+  "tools/test_helpers/docker_storage_quiesce_fixture.py",
 ]
 allowedPatterns = [
   "tools/docker_clean_browser.mjs",
@@ -303,3 +308,28 @@ recordedAtUtc = "2026-10-17T22:48:59.431013Z"
 path = "backend/test_video_config_availability.py"
 reason = "Repair actual Docker video configuration 500 with bounded unavailable-provider handling"
 recordedAtUtc = "2026-10-17T22:49:00.355486Z"
+
+[[scopeExpansions]]
+path = "tools/docker_clean_storage_quiesce.py"
+reason = "Quiesce only the admitted disposable backend and read its pinned source volumes read-only while preserving complete backup consistency checks"
+recordedAtUtc = "2026-10-17T23:27:03.399675Z"
+
+[[scopeExpansions]]
+path = "tools/test_docker_clean_storage_quiesce.py"
+reason = "Verify quiesced-source ownership, WAL reads and independent rollback cleanup without relaxing Docker acceptance"
+recordedAtUtc = "2026-10-17T23:27:04.328123Z"
+
+[[scopeExpansions]]
+path = "tools/docker_clean_models.py"
+reason = "Complete available normal-admin model configuration reads and reversible economy persistence in the separately owned fresh fixture"
+recordedAtUtc = "2026-10-17T23:27:05.270345Z"
+
+[[scopeExpansions]]
+path = "tools/test_docker_clean_models.py"
+reason = "Test unavailable-catalog evidence and exact economy baseline restoration and negative access in the owned admin probe"
+recordedAtUtc = "2026-10-17T23:27:06.147453Z"
+
+[[scopeExpansions]]
+path = "tools/test_helpers/docker_storage_quiesce_fixture.py"
+reason = "Extract the owned quiesce test fixture so rollback regressions retain all assertions within the existing per-file size limit"
+recordedAtUtc = "2026-10-17T23:36:34.141669Z"

@@ -16,7 +16,7 @@ import types
 import unittest
 from pathlib import Path
 from contextlib import ExitStack
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from tools import docker_clean_storage as storage
 
@@ -382,8 +382,12 @@ class OrchestrationTests(unittest.TestCase):
                                     ("container_call", call), ("copied_flow", lambda *a: clone),
                                     ("media_fault", fault)):
                     stack.enter_context(patch.object(storage, name, value))
+                reader = types.SimpleNamespace(open=lambda: None,
+                    call=lambda code: call(source, CID, code), close=Mock(return_value={"status": "PASS"}))
+                stack.enter_context(patch("tools.docker_clean_storage_quiesce.QuiescedSource", return_value=reader))
                 evidence = Path(directory) / "new-evidence"
                 result = storage.rehearse_storage(source, restored, types.SimpleNamespace(saved={"present": True}), evidence)
+                reader.close.assert_called_once()
                 self.assertEqual(result["status"], "FAIL" if source_changed or unavailable else "PASS")
                 self.assertEqual(result["checks"]["D2-06"]["status"], "NOT_RUN" if unavailable else "PASS")
                 self.assertLess(events.index("remove-helper"), events.index("application-up"))

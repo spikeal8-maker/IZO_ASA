@@ -39,6 +39,49 @@ def health(flow, row):
     require(row["ok"] and row["ready"], "FEATURE_DATABASE_NOT_READY")
 
 
+def public_fields(value):
+    if isinstance(value, dict):
+        return not {"request", "settings_json", "_workerClaim", "_generationAdmission"}.intersection(value) \
+            and all(public_fields(item) for item in value.values())
+    return not isinstance(value, list) or all(public_fields(item) for item in value)
+
+
+def phone_jobs(flow, row):
+    path = "/api/phone/v1/jobs"
+    generated = flow.checks.get("generation", [])
+    expected = {path_id(item["jobId"]): item for item in generated}
+    require(len(expected) == len(generated) and len(expected) >= 2, "FEATURE_PHONE_D1_JOBS_REQUIRED")
+
+    def listed(client, active):
+        value = client.request("GET", path + "?active=" + active + "&limit=60")
+        require(value.get("ok") is True and isinstance(value.get("items"), list)
+                and public_fields(value), "FEATURE_PHONE_LIST_INVALID")
+        items = {path_id(item["id"]): item for item in value["items"]}
+        require(len(items) == len(value["items"]), "FEATURE_PHONE_DUPLICATE_JOB")
+        return items
+
+    owned = listed(flow.owner, "false")
+    require(expected.keys() <= owned.keys() and not expected.keys() & listed(flow.owner, "true").keys()
+            and not expected.keys() & listed(flow.other, "false").keys(), "FEATURE_PHONE_LIST_OWNERSHIP_INVALID")
+    flow.guest.request("GET", path, expected=(401,))
+    for job_id, baseline in expected.items():
+        detail = flow.owner.request("GET", path + "/" + job_id)
+        require(detail.get("ok") is True and isinstance(detail.get("job"), dict)
+                and public_fields(detail), "FEATURE_PHONE_DETAIL_INVALID")
+        for value in (owned[job_id], detail["job"]):
+            result, billing = value.get("result", {}), value.get("billing", {})
+            require(value.get("id") == job_id and value.get("modality") == "image"
+                    and value.get("status") == "completed" and value.get("terminal") is True
+                    and result.get("id") == baseline["imageId"]
+                    and result.get("url") == flow.saved["images"][baseline["imageId"]]["record"]["url"]
+                    and type(billing.get("chargedTokens")) is int and billing["chargedTokens"] == baseline["tokenCost"],
+                    "FEATURE_PHONE_D1_RESULT_MISMATCH")
+        flow.other.request("GET", path + "/" + job_id, expected=(404,))
+        flow.guest.request("GET", path + "/" + job_id, expected=(401,))
+    row.update(ownedCompletedJobs=len(expected), listAndDetail="PASS", activeFilter="PASS",
+               otherUser=404, guest=401, privateMetadata="ABSENT", newJobsCreated=0)
+
+
 def chat_history(flow, row):
     title, thread_id, complete = "Docker D3 " + uuid.uuid4().hex, None, False
     before = flow.owner.request("GET", THREADS)
@@ -168,7 +211,7 @@ def prove_features(flow: ProductFlow, receipt: Path) -> dict:
     receipt.parent.mkdir(parents=True, exist_ok=True)
     with receipt.open("x", encoding="utf-8") as output:
         receipt.chmod(0o600)
-        for name, action in (("health", health), ("chatHistory", chat_history), ("fakeSpeech", fake_speech),
+        for name, action in (("health", health), ("phoneJobs", phone_jobs), ("chatHistory", chat_history), ("fakeSpeech", fake_speech),
                              ("commerceDisabled", commerce), ("adminBoundary", admin_boundary),
                              ("botWebhookDisabled", bot_webhooks), ("videoConfig", video_config)):
             row = report["checks"][name] = {"status": "FAIL"}

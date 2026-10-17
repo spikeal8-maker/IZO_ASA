@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 import uuid
 
 from tools.docker_shadow_product import HttpClient, ProductError, ProductFlow, path_id, validate_target
+from tools.docker_clean_models import prove_models
 
 PROFILE = "local-billing-simulator-v1"
 CHECKOUT = "/api/billing/checkout-v2"
@@ -67,6 +68,7 @@ def assert_grant(before, after, tokens):
 
 class AdminProbe:
     def __init__(self, attestation):
+        self.fresh_fixture = attestation.get("freshData") is True and attestation.get("adminFixture") == PROFILE
         self.flow = ProductFlow(attestation)
         self.admin = HttpClient(self.flow.origin)
         self.flow.clients = (*self.flow.clients, self.admin)
@@ -315,6 +317,7 @@ class AdminProbe:
         self.step("bootstrap", lambda row: self.bootstrap(row, code))
         self.step("simulatorSafety", self.safety, ("bootstrap",))
         self.step("adminRights", self.rights, ("simulatorSafety",))
+        self.step("modelEconomics", lambda row: prove_models(self, row), ("adminRights",))
         self.step("legalSetup", self.setup, ("adminRights",))
         self.step("checkout", self.checkout, ("legalSetup",))
         for name, action in (("checkoutReplay", self.checkout_replay), ("paymentAccess", self.payment_access),

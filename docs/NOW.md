@@ -13,8 +13,8 @@ active_task_contract: github-issue-125
 baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a
 baseline_status: completed-point-A-accepted
 next_candidate: CONTAINER-PRODUCTION-001
-candidate_pr: 192
-candidate_source_sha: fa517315993ae04fb22e56f5f8f0c04823d717cf
+candidate_branch: agent/docker-acceptance-repair-001
+candidate_source_sha: 9609adeecae78e6f538bcbab7eb8aa5d4b876cc4
 candidate_state: acceptance-repair-in-progress
 candidate_exact_head_ci: NOT_RUN
 candidate_docker_acceptance: D1_PASS_EXTENDED_FAIL
@@ -35,10 +35,10 @@ Next: `CONTAINER-PRODUCTION-001` (#126).
 
 D0 и Docker DEV/TEST foundation (#115) приняты ранее; #124 завершён.
 PR #186/#191 интегрированы с main; Draft #192 хранит checkpoint `d6ecb7f`.
-Д1 `fa517315`: шесть установок на двух VM PASS; Д2/Д3 FAIL.
-Исправления повторной обработки, оплаты и video config проверяются:
-`agent/docker-acceptance-repair-001`; новый Full CI ещё не выполнен.
-Ownership checkpoint завершён; кандидат ещё не принят.
+На `9609ade`: Д1 6×8 PASS; исправления generation/payment/video подтверждены.
+Д2/Д3 не приняты: source drift телеметрии, отдельная роль и live gaps.
+Следующий кандидат: quiesced backup и доступные admin/factory API.
+Full CI и независимая приёмка review HEAD обязательны.
 #126 не начат; production не переключать.
 
 Профили DEV, Shadow и будущей поставки: [docker-environments.md](docker-environments.md).

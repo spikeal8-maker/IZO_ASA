@@ -1,5 +1,6 @@
 """Failure bookkeeping tests; only the separate live API run can prove D3 results."""
 from contextlib import ExitStack
+from copy import deepcopy
 from email.message import Message
 import io
 import json
@@ -27,13 +28,58 @@ class FeatureBookkeepingTests(unittest.TestCase):
         value = flow()
         configure(value)
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
-            for name in ("health", "chat_history", "fake_speech", "commerce", "admin_boundary", "bot_webhooks", "video_config"):
+            for name in ("health", "phone_jobs", "chat_history", "fake_speech", "commerce", "admin_boundary", "bot_webhooks", "video_config"):
                 if name != active:
                     stack.enter_context(patch.object(features, name, return_value=None))
             receipt = Path(directory) / "features.json"
             result = features.prove_features(value, receipt)
             self.assertEqual(json.loads(receipt.read_text()), result)
             return result
+
+    def phone_fixture(self, value, fault=None):
+        value.checks["generation"] = [{"jobId": f"job-{i}", "imageId": f"image-{i}", "tokenCost": i}
+                                      for i in (1, 2)]
+        value.saved = {"images": {f"image-{i}": {"record": {"url": f"/api/media/{i}.png"}} for i in (1, 2)}}
+        jobs = [{"id": f"job-{i}", "modality": "image", "status": "completed", "terminal": True,
+                 "result": {"id": f"image-{i}", "url": f"/api/media/{i}.png"}, "billing": {"chargedTokens": i}}
+                for i in (1, 2)]
+        def respond(client, method, path, *, expected=(200,)):
+            self.assertEqual(method, "GET")
+            if client is value.guest:
+                self.assertEqual(expected, (401,))
+                return {"httpStatus": 401}
+            listing = "?active=" in path
+            if client is value.other:
+                if listing:
+                    return {"ok": True, "items": deepcopy(jobs if fault == "foreign" else [])}
+                self.assertEqual(expected, (404,))
+                return {"httpStatus": 404}
+            if listing:
+                return {"ok": True, "items": deepcopy(jobs if "active=false" in path or fault == "active" else [])}
+            job = deepcopy(jobs[int(path.rsplit("-", 1)[1]) - 1])
+            if fault == "link":
+                job["result"]["id"] = "wrong-image"
+            if fault == "private":
+                job["billing"]["_workerClaim"] = {"token": "private-claim"}
+            if fault == "charge":
+                job["billing"]["chargedTokens"] = True
+            return {"ok": True, "job": job}
+        for client in value.clients:
+            client.request.side_effect = lambda *args, current=client, **kwargs: respond(current, *args, **kwargs)
+
+    def test_phone_factory_jobs_match_real_d1_links_without_new_jobs(self):
+        result = self.execute("phone_jobs", self.phone_fixture)
+        row = result["checks"]["phoneJobs"]
+        self.assertEqual((row["status"], row["ownedCompletedJobs"], row["newJobsCreated"]), ("PASS", 2, 0))
+        self.assertEqual((row["otherUser"], row["guest"]), (404, 401))
+        self.assertEqual(result["status"], "PARTIAL")
+
+    def test_phone_factory_rejects_wrong_link_private_metadata_and_list_leaks(self):
+        for fault in ("link", "private", "foreign", "active", "charge"):
+            with self.subTest(fault=fault):
+                result = self.execute("phone_jobs", lambda value: self.phone_fixture(value, fault))
+                self.assertEqual((result["checks"]["phoneJobs"]["status"], result["status"]), ("FAIL", "FAIL"))
+                self.assertNotIn("private-claim", json.dumps(result))
 
     def test_unconditional_ok_does_not_override_failed_readiness(self):
         result = self.execute("health", lambda f: setattr(f.guest.request, "return_value", {"ok": True, "ready": False}))

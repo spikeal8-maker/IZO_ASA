@@ -197,7 +197,7 @@ class AdminAcceptanceTests(unittest.TestCase):
         api = Api(**flags)
         with tempfile.TemporaryDirectory() as directory:
             receipt = Path(directory) / "admin.json"
-            with patch.object(HttpClient, "request", autospec=True, side_effect=api.request):
+            with patch.object(HttpClient, "request", autospec=True, side_effect=api.request), patch("tools.docker_clean_admin.prove_models"):
                 report = prove_admin(ATTESTATION, receipt, bootstrap_code=CODE)
             self.assertEqual(json.loads(receipt.read_text()), report)
             self.assertNotIn(PRIVATE, receipt.read_text())
@@ -211,7 +211,7 @@ class AdminAcceptanceTests(unittest.TestCase):
     def test_normal_protocol_has_one_grant_and_preserves_refunded_state(self):
         api, report = self.run_protocol()
         self.assertEqual(report["status"], "PASS")
-        self.assertEqual(len(report["checks"]), 16)
+        self.assertEqual(len(report["checks"]), 17)
         self.assertTrue(all(row["status"] == "PASS" for row in report["checks"].values()))
         self.assertEqual(report["checks"]["paymentSuccess"]["grantsAdded"], 1)
         self.assertRegex(report["checks"]["paymentSuccess"]["ledgerId"], r"^[0-9a-f]{10}…$")
