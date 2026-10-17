@@ -14,10 +14,10 @@ baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a
 baseline_status: completed-point-A-accepted
 next_candidate: CONTAINER-PRODUCTION-001
 candidate_pr: 192
-candidate_source_sha: d6ecb7f83efda06bc64f59fbd79d86e3771c6890
+candidate_source_sha: fa517315993ae04fb22e56f5f8f0c04823d717cf
 candidate_state: acceptance-repair-in-progress
-candidate_exact_head_ci: FAIL
-candidate_docker_acceptance: STARTUP_FAIL
+candidate_exact_head_ci: NOT_RUN
+candidate_docker_acceptance: D1_PASS_EXTENDED_FAIL
 ---
 # IZO_ASA — NOW
 
@@ -35,9 +35,9 @@ Next: `CONTAINER-PRODUCTION-001` (#126).
 
 D0 и Docker DEV/TEST foundation (#115) приняты ранее; #124 завершён.
 PR #186/#191 интегрированы с main; Draft #192 хранит checkpoint `d6ecb7f`.
-Д1 `03a9d850` пройден на двух VM. `d6ecb7f`: startup/Full CI FAIL.
-`55561492` стартует; замер gallery FAIL. Исправление и Д2/Д3:
-`agent/docker-acceptance-repair-001`.
+Д1 `fa517315`: шесть установок на двух VM PASS; Д2/Д3 FAIL.
+Исправления повторной обработки, оплаты и video config проверяются:
+`agent/docker-acceptance-repair-001`; новый Full CI ещё не выполнен.
 Ownership checkpoint завершён; кандидат ещё не принят.
 #126 не начат; production не переключать.
 

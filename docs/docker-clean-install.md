@@ -115,15 +115,19 @@ SQLite, cookies, пароли и backup payload не публикуются в A
 
 ## Сохранённые попытки
 
-- `03a9d850`: [run 39066472621](https://github.com/spikeal8-maker/IZO_ASA/actions/runs/39066472621) — Д1 PASS, три установки на каждой из двух VM.
-- `d6ecb7f`: [run 39070402395](https://github.com/spikeal8-maker/IZO_ASA/actions/runs/39070402395) — startup FAIL на обеих VM; исправлен вызов lifecycle FastAPI.
-- `55561492`: [run 39072974092](https://github.com/spikeal8-maker/IZO_ASA/actions/runs/39072974092) — topology PASS, затем замер галереи FAIL: API возвращает список, измеритель ожидал объект. Д2 не выполнялся.
+| SHA | Run | Исходный результат |
+|---|---|---|
+| `55561492` | [39072974092](https://github.com/spikeal8-maker/IZO_ASA/actions/runs/39072974092) | Topology PASS; измеритель gallery ожидал объект вместо списка |
+| `fa517315` | [39074872766](https://github.com/spikeal8-maker/IZO_ASA/actions/runs/39074872766) | Д1: 6×8 PASS; Д2/Д3 FAIL |
 
-Оба исходных архива `55561492` скачаны и проверены SHA256:
-`12116250658`: `bcb2b8b4491277328b26d90d7900776280e1f3b587ced90d796436bfac64e5ec`;
-`12116405533`: `ad3b35ea575512f7a632a2059ffa3e239a4ec7750f402b67b3cad90e2eca68f0`.
-Исправление измерителя прошло red/green через настоящий HTTP-клиент.
-Очередь/admin: source review PASS, runtime не принят.
+В `fa517315`: duplicate charge/submit, чужой checkout, повтор grant после
+refund и video config 500; source storage drift ещё не локализован.
+
+Исходные ZIP `fa517315` скачаны; SHA256 совпали:
+`12117310564`: `d7102ceb71afffbfde3eb2103abae653c166fc3d2862a463a02bf08571023c37`;
+`12116657787`: `265f5e40a36e9152af549bb22449a758b856b57b838f483b51dd370157b73be8`.
+История `03a9d850`/`d6ecb7f`, архивы `55561492` и Full CI —
+[Draft #192](https://github.com/spikeal8-maker/IZO_ASA/pull/192).
 
 Admin overlay изменяет только одноразовый код, флаг simulator и собственный
 loopback origin. Код живёт в памяти; полный config сравнивается до запуска.

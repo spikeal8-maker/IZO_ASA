@@ -386,6 +386,7 @@ def rehearse_storage(source, restored, flow, evidence_dir):
             if "backup" in report:
                 observed = container_call(source, backend_id(source), script("storage_probe",
                     {"contract_source": contract_source}, module_source))
+                report["sourceAfterD2"] = observed
                 require(observed == report["backup"]["receipt"]["sourceState"], "STORAGE_SOURCE_CHANGED_DURING_D2")
                 report["sourceUnchanged"] = "PASS"
         except Exception as error:

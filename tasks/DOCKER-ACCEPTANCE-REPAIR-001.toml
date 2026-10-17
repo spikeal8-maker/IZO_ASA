@@ -136,6 +136,13 @@ declaredFiles = [
   "tools/docker_clean_admin_runtime.py",
   "tools/test_docker_clean_admin_runtime.py",
   "backend/test_generation_admission.py",
+  "backend/app/services/generation_claims.py",
+  "backend/app/services/generation_worker_persistence.py",
+  "backend/test_generation_claims.py",
+  "backend/test_generation_worker_claims.py",
+  "backend/test_billing_replay_guards.py",
+  "backend/app/services/video_presentation.py",
+  "backend/test_video_config_availability.py",
 ]
 allowedPatterns = [
   "tools/docker_clean_browser.mjs",
@@ -261,3 +268,38 @@ recordedAtUtc = "2026-10-17T22:00:50.511040Z"
 path = "backend/test_generation_admission.py"
 reason = "Exercise generation idempotency against real isolated SQLite with owner isolation, durable replay and transaction rollback without a schema-version change"
 recordedAtUtc = "2026-10-17T22:00:51.443542Z"
+
+[[scopeExpansions]]
+path = "backend/app/services/generation_claims.py"
+reason = "Fence existing job primary-key claims and terminal SQLite writes without changing schema or cross-process topology"
+recordedAtUtc = "2026-10-17T22:26:13.696084Z"
+
+[[scopeExpansions]]
+path = "backend/app/services/generation_worker_persistence.py"
+reason = "Extract worker persistence and authorized cancellation into bounded transactional callbacks"
+recordedAtUtc = "2026-10-17T22:26:14.635284Z"
+
+[[scopeExpansions]]
+path = "backend/test_generation_claims.py"
+reason = "Exercise real SQLite claim races, rollback and durable terminal fences"
+recordedAtUtc = "2026-10-17T22:26:15.665663Z"
+
+[[scopeExpansions]]
+path = "backend/test_generation_worker_claims.py"
+reason = "Verify duplicate wake, cancellation and late result behavior with existing worker runtime"
+recordedAtUtc = "2026-10-17T22:26:16.602083Z"
+
+[[scopeExpansions]]
+path = "backend/test_billing_replay_guards.py"
+reason = "Exercise authenticated simulator replay and refunded-state regression through normal APIs"
+recordedAtUtc = "2026-10-17T22:40:34.914850Z"
+
+[[scopeExpansions]]
+path = "backend/app/services/video_presentation.py"
+reason = "Repair actual Docker video configuration 500 with bounded unavailable-provider handling"
+recordedAtUtc = "2026-10-17T22:48:59.431013Z"
+
+[[scopeExpansions]]
+path = "backend/test_video_config_availability.py"
+reason = "Repair actual Docker video configuration 500 with bounded unavailable-provider handling"
+recordedAtUtc = "2026-10-17T22:49:00.355486Z"

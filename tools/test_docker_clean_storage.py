@@ -304,7 +304,11 @@ class StorageFaultTests(unittest.TestCase):
 
 class OrchestrationTests(unittest.TestCase):
     def test_helper_transport_lifecycle_and_source_change_receipt(self):
-        baseline = {"database": {"migrationLedger": {"rows": 1}, "imageReferences": 2}, "media": {"digest": "fixture"}}
+        baseline = {"database": {"migrationLedger": {"rows": 1}, "imageReferences": 2,
+            "tables": {"power_samples": {"rows": 1, "digest": "a" * 64, "schemaDigest": "c" * 64}}},
+            "media": {"digest": "fixture"}}
+        changed = copy.deepcopy(baseline)
+        changed["database"]["tables"]["power_samples"].update(rows=2, digest="b" * 64)
         image = "sha256:" + "a" * 64
         executor = types.SimpleNamespace(verify=lambda: {"isolated": True}, foreign_snapshot=lambda project: {})
         executor_module = types.ModuleType("tools.docker_shadow_executor")
@@ -361,7 +365,7 @@ class OrchestrationTests(unittest.TestCase):
                         return {"restoredState": baseline, "negativeCases": {"database": "rejected",
                             "media": "rejected", "incomplete": "rejected"}}
                     if "getattr(m,'storage_probe')" in code:
-                        return {"changed": True} if shadow is source and source_changed else baseline
+                        return changed if shadow is source and source_changed else baseline
                     return {"written": True}
 
                 def fault(*args):
@@ -390,6 +394,12 @@ class OrchestrationTests(unittest.TestCase):
                 else:
                     self.assertEqual(result["sourceUnchanged"], "PASS")
                 receipt = (evidence / "storage.json").read_text()
+                published = json.loads(receipt)
+                self.assertEqual(published["sourceAfterD2"], changed if source_changed else baseline)
+                self.assertEqual(published["backup"]["receipt"]["sourceState"], baseline)
+                if source_changed:
+                    self.assertEqual(published["status"], "FAIL")
+                    self.assertNotIn("sourceUnchanged", published)
                 self.assertNotIn(base64.b64encode(b"archive-fixture").decode(), receipt)
                 self.assertNotIn('"archive":', receipt)
 

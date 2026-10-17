@@ -1,10 +1,55 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from typing import Any, Callable
 
 import httpx
 
 from ..integrations.openrouter import OpenRouterVideoRequestError, openrouter_video_public_error
+
+
+CONFIG_REFRESH_TIMEOUT_SECONDS = 2.0
+CATALOG_UNAVAILABLE_REASON = "Каталог облачных видеомоделей временно недоступен."
+
+
+async def config_inputs(fetch_catalog, fetch_exchange, exchange_snapshot):
+    """Bound read-only config refreshes; execution endpoints keep their policy."""
+    exchange = exchange_snapshot()
+    try:
+        async with asyncio.timeout(CONFIG_REFRESH_TIMEOUT_SECONDS):
+            catalog = await fetch_catalog()
+    except (TimeoutError, httpx.HTTPError, OpenRouterVideoRequestError, json.JSONDecodeError):
+        return [], exchange, {"status": "unavailable", "reasonCode": "VIDEO_CATALOG_UNAVAILABLE"}
+    if catalog:
+        try:
+            async with asyncio.timeout(CONFIG_REFRESH_TIMEOUT_SECONDS):
+                exchange = await fetch_exchange()
+        except (TimeoutError, httpx.HTTPError, json.JSONDecodeError):
+            pass  # Retain the already-labelled cached exchange snapshot.
+    return catalog, exchange, {"status": "available", "reasonCode": None}
+
+
+def config_mode_availability(mode, *, config, visible_count, local_count, plan,
+                             authenticated, is_admin, catalog_status):
+    enabled = (config.get("enabled") or {}).get(mode) or []
+    access = (((config.get("access") or {}).get(mode) or {}).get(plan)) or []
+    reason = (
+        CATALOG_UNAVAILABLE_REASON
+        if catalog_status == "unavailable" and not local_count
+        else "В админке не включены модели для этого режима."
+        if not enabled and not local_count
+        else ""
+        if not authenticated and visible_count
+        else f"Для тарифа {plan.title()} не назначены модели этого режима."
+        if not is_admin and not access and not local_count
+        else ""
+    )
+    return {
+        "enabled": len(enabled) + local_count,
+        "tariff": visible_count if not authenticated else len(access) + local_count,
+        "reason": reason,
+    }
 
 
 def config_viewer_context(

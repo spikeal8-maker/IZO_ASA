@@ -26,11 +26,11 @@ class GenerationQueueRuntime:
 async def consume_generation_queue(runtime: GenerationQueueRuntime) -> None:
     while True:
         job_id = await runtime.queue.get()
-        job = runtime.jobs[job_id]
-        request = runtime.parse_request(job["request"])
-        started_at = runtime.perf_counter()
-        worker_runtime = runtime.build_worker_runtime()
         try:
+            job = runtime.jobs[job_id]
+            request = runtime.parse_request(job["request"])
+            started_at = runtime.perf_counter()
+            worker_runtime = runtime.build_worker_runtime()
             await runtime.process_job(
                 job_id,
                 job,

@@ -57,7 +57,12 @@ jobs:
           MAX_UPDATES_MODE: disabled
         run: |
           set -euo pipefail
-          python -m pytest -q backend/test_services_generation_accounting_module.py backend/test_services_generation_recovery_module.py backend/test_phone_audio.py --junitxml="$RUNNER_TEMP/source-evidence/backend.xml" 2>&1 | tee "$RUNNER_TEMP/source-evidence/backend.log"
+          python -m pytest -q \
+            backend/test_services_generation_accounting_module.py backend/test_services_generation_recovery_module.py backend/test_phone_audio.py \
+            backend/test_generation_claims.py backend/test_generation_worker_claims.py backend/test_generation_admission.py \
+            backend/test_services_generation_worker_module.py backend/test_services_generation_queue_module.py backend/test_services_generation_jobs_module.py \
+            backend/test_billing_replay_guards.py backend/test_video_config_availability.py \
+            --junitxml="$RUNNER_TEMP/source-evidence/backend.xml" 2>&1 | tee "$RUNNER_TEMP/source-evidence/backend.log"
       - name: Preserve exact-source admission evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
