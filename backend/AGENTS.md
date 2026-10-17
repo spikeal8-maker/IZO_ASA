@@ -54,6 +54,8 @@ rules for `backend/**`; it does not own reading order, current status or backlog
 
 ## Backend verification
 
+- Новые `test_*.py`: обычный предел из архитектурного контракта — 500 строк и дополнительный лимит 24 КиБ; до 750 строк/36 КиБ требуется `sizeReviews` текущего Task Contract. Старые превышения не увеличивать. Подробности: `docs/testing-file-standards.md`.
+
 - Extend the nearest backend test module rather than broad unrelated suites.
 - Auth, billing, migrations, durable workers and concurrent storage use
   high-assurance characterization plus focused race/idempotency repetition.

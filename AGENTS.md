@@ -53,6 +53,8 @@ current-status/program router. Follow both before opening source.
   measured budget in the same package.
 - New handwritten source follows the reviewed architecture size contract; do
   not replace one monolith with another.
+- For document and test file layout/size, use `docs/documentation-standards.md`
+  and `docs/testing-file-standards.md`; CI checks live in `tools/file_hygiene.py`.
 - Architecture, product behavior and production operations stay in separate
   packages unless the Task Contract explicitly requires their combination.
 

@@ -1,0 +1,93 @@
+manifestVersion = 1
+id = "FILE-HYGIENE-001"
+baseSha = "767b1282437201006dc97228105968731408641c"
+goal = "Provide one lightweight exact-SHA GitHub-hosted gate for documentation and test file size, non-growth of old oversized tests, and Markdown link regressions without starting the shared Windows CI or Docker."
+userOutcome = "A new test or doc cannot silently become a monolith; oversized legacy files may only shrink; moved documents do not strand active links. Agents follow one code-size authority and one scoped documentation standard."
+beforeScenario = "architecture/contract.json protects newly added source by lines, but Markdown limits are textual guidance only and existing oversized test files can still grow; no safe lightweight automated file-size gate exists."
+afterScenario = "Pure Python changed-file checks and 15 isolated regression tests run on a scoped GitHub-hosted Linux workflow, combining source-size 500/750 policy with 24/36-KiB test budgets and 200/12-KiB doc policy, with explicit grandfathered non-growth."
+nonGoals = [
+  "Change Docker or production, host networking, providers, data, secrets, dependencies or application behavior",
+  "Modify the existing self-hosted Windows CI workflow, release/build pipelines or repository-wide architecture source-size limits",
+  "Retroactively fail the existing oversized unmodified test/document corpus or automatically split any historical file",
+  "Modify current docs/NOW.md, generated maps, context cards or any work owned by Docker PR #186",
+  "Run complete pytest, Playwright, Docker, actual providers or production on a shared computer",
+]
+declaredFiles = [
+  "tools/file_hygiene.py",
+  "tools/test_file_hygiene.py",
+  "docs/testing-file-standards.md",
+  "docs/documentation-standards.md",
+  "docs/AGENTS.md",
+  "AGENTS.md",
+  "backend/AGENTS.md",
+  "frontend/AGENTS.md",
+  ".github/workflows/file-hygiene.yml",
+  "tasks/FILE-HYGIENE-001.toml",
+]
+allowedPatterns = [
+
+]
+forbiddenPatterns = [
+  "backend/main.py",
+  "backend/app/**",
+  "backend/static/**",
+  "frontend/src/**",
+  "frontend/public/**",
+  "ops/**",
+  "architecture/**",
+  "docs/NOW.md",
+  "docs/context/**",
+  "docs/generated/**",
+  ".github/workflows/ci.yml",
+  "tools/agent_system/**",
+  "tools/verify.ps1",
+]
+protectedFilesTouched = [
+
+]
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "tooling"
+maxProductionFiles = 0
+maxChangedLines = 1600
+acceptance = [
+  "New Markdown under docs/ must respect 200 lines/12 KiB; navigators 120 lines/8 KiB; docs/NOW.md retains its pre-existing 140-line contract.",
+  "New Python/TS/JS tests use architecture source-size_policy normal 500 lines plus 24 KiB; reviewed tests remain <=750 lines/36 KiB only with a specific Task Contract sizeReviews entry.",
+  "Existing oversized documents/tests are grandfathered only if neither bytes nor physical lines increase, including renamed tests.",
+  "New relative Markdown links resolve; deleting/renaming a linked Markdown file is rejected until active links are fixed; unchanged historical link debt is grandfathered.",
+  "History/archive, docs/generated and docs/context use existing independent policies and are not blindly truncated.",
+  "One Linux GitHub Actions check pins action SHAs, exact checkout, and Python 3.11, does not access secrets/Docker/GPU/providers, and does not start Windows self-hosted CI.",
+  "15 no-network stdlib unit tests pass, including simulated Git add/mod/rename/delete, link, policy, exception, workflow security and inventory.",
+  "No production files, architecture contracts, backend/frontend product sources, docs/NOW.md, other PRs or original CI workflow are changed.",
+  "Candidate diff contains precisely declared paths and is reviewed against current main. GitHub Actions execution and local tests are distinct evidence classes.",
+]
+requiredEvidence = [
+  "Original architecture source_size_policy and safe GitHub main/PR overlap audit",
+  "Git blob SHA matching locally tested Python and Linux workflow sources",
+  "15 isolated Python unittest PASS; Python syntax check; static YAML workflow parse",
+  "Candidate Git diff changed paths and package enforcement with zero undeclared/production paths",
+  "Exact source SHA and lightweight workflow run when available; if not available, explicitly record NOT_RUN without claiming CI PASS",
+  "Docs standards and backend/frontend scoped policies reflect the same tested limits",
+]
+targetedTests = [
+  "python -m unittest -v tools.test_file_hygiene",
+  "python -m py_compile tools/file_hygiene.py tools/test_file_hygiene.py",
+]
+fileGrowthExpectations = [
+  "Two new handwritten Python modules stay within 500 lines and 24 KiB each.",
+  "New documentation stays below 200 lines/12 KiB; existing scoped AGENTS remain concise.",
+  "Current architecture source-size budgets, generated snapshots, main entry instructions and Docker code remain unchanged.",
+]
+forbiddenOperations = [
+  "direct-main",
+  "force-push",
+  "docker-lifecycle",
+  "production-mutation",
+  "real-provider-call",
+  "host-settings-change",
+  "global-network-change",
+  "dependency-install",
+  "change-existing-ci",
+  "rewrite-other-pr",
+]
+rollbackBoundary = "Revert this scoped file-quality tooling/doc/workflow package only. The previous CI and source-size enforcement remain; product code, Docker state, services and data are untouched."
