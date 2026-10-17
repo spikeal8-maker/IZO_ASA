@@ -27,6 +27,8 @@ rules for `frontend/**`; it does not own reading order, current status or backlo
 
 ## Frontend verification
 
+- Новые `.test.*`, `.spec.*`, `e2e-*`, `smoke-*` и `visual-*` тесты: 500 строк/24 КиБ обычно; до 750/36 КиБ — только с `sizeReviews` Task Contract. Старые большие тесты сокращать, не наращивать; см. `docs/testing-file-standards.md`.
+
 - Run targeted component/unit checks after small edits, then type/lint/build as
   applicable; use focused Playwright for changed browser behavior.
 - UI acceptance requires the relevant desktop/mobile behavior evidence, not

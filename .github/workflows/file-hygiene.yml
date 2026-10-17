@@ -1,0 +1,66 @@
+name: Documentation and Test File Hygiene
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'archive/docs/**'
+      - 'tasks/**'
+      - 'tools/**'
+      - 'backend/**'
+      - 'frontend/**'
+      - 'tests/**'
+      - 'architecture/contract.json'
+      - '.github/workflows/file-hygiene.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'archive/docs/**'
+      - 'tasks/**'
+      - 'tools/**'
+      - 'backend/**'
+      - 'frontend/**'
+      - 'tests/**'
+      - 'architecture/contract.json'
+      - '.github/workflows/file-hygiene.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: file-hygiene-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Bounded documentation and test file checks
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Check out exact source revision
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Configure pinned Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+      - name: Validate changed documentation and tests without external services
+        shell: bash
+        env:
+          IZO_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          IZO_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$IZO_HEAD_SHA"
+          if ! git cat-file -e "${IZO_BASE_SHA}^{commit}" 2>/dev/null; then
+            IZO_BASE_SHA="$(git rev-parse HEAD^)"
+          fi
+          python -m unittest -v tools.test_file_hygiene
+          python -m tools.file_hygiene --base "$IZO_BASE_SHA" --head "$IZO_HEAD_SHA"

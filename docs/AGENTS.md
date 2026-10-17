@@ -31,7 +31,7 @@ rules for `docs/**`; it does not own the reading order itself.
 
 - Для новых рукописных тематических Markdown: не более **200 строк и 12 КиБ UTF-8**; для короткого указателя — не более **120 строк и 8 КиБ**. Действующие `docs/context/*.md` используют собственный контракт до 250 строк, `docs/generated/**` — только генератор.
 - Старые большие документы — долг: сначала разделить по темам и сохранить исходный Git blob в архиве, затем проверить ссылки и только после этого менять смысл. Не удалять нормативные требования ради лимита.
-- Подробное правило: [`docs/documentation-standards.md`](documentation-standards.md). Для размеров кода использовать уже действующий `architecture/contract.json`, не устанавливать параллельный норматив.
+- Подробное правило: [`docs/documentation-standards.md`](documentation-standards.md). Организация и лимиты тестов — [`docs/testing-file-standards.md`](testing-file-standards.md). Размеры исходного кода определяет существующий `architecture/contract.json`, без параллельного норматива.
 
 ## Status and package documentation
 
