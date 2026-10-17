@@ -1,227 +1,25 @@
-# Feed Current Product Plan
+# Публичная лента IZO_ASA — границы текущего продукта
 
-Date: 2026-07-17.
+**Актуализация по исходникам:** 17 октября 2026, `main` `fd53f17fe167e70ca7a66323c81447536889952a`. Этот текст заменяет накопленный июльский план и не устанавливает очередь задач. Состояние production требует отдельного installed/runtime evidence.
 
-## Canonical Feed Screen
+## Видимый интерфейс
 
-The current production-facing feed is the page served at `/feed` from:
+Публичная страница `/feed` имеет отдельную статическую оболочку `backend/static/feed/index.html`. В React SPA нет основания добавлять вторую независимую версию ленты. Точную маршрутизацию подтверждают `frontend/src/App.tsx`, [generated/frontend-map.md](generated/frontend-map.md) и [контекст видео/ленты/галереи](context/video-gallery-feed.md).
 
-- `backend/static/feed/index.html`
+Дизайн мобильного и десктопного экрана сверяется с текущей собранной оболочкой, тестами и принятой [дизайн-системой](izo-asa-design-system-20260716.md), а не с архивными макетами июля.
 
-This is the screen users currently see on the site, and it remains the canonical
-feed UI for the next optimization passes.
+## Продуктовые границы
 
-The older React feed surface was removed from `frontend/src/newUi.tsx`.
-`/feed` must not have a second working UI implementation in the SPA.
+- Приватный оригинал в пользовательской галерее и разрешённая публичная производная — разные объекты и разные уровни доступа.
+- Создание/модерация/публикация проходят backend-права владельца и устойчивое состояние SQLite. Запрещено открывать оригинал другого пользователя из публикации.
+- Media-URL, thumbnails, авторство и реакции проверяются на стороне API и тестами. Не использовать fixture/demo для рабочей миграции.
+- При сбоях очереди публикации требуется наблюдаемое и повторяемое восстановление без повторной выдачи прав.
+- Нет разрешения самостоятельно чистить реальные медиа, отключать модерацию или создавать дублирующий frontend.
 
-The SPA must not claim `/feed`. Vite dev/preview proxy `/feed` to the backend,
-and the frontend has a fallback guard so stale builds or broken proxy fallback
-show a loading guard instead of reviving a duplicate feed surface.
+## Ориентиры для разработки
 
-The current responsive layout contract is documented in
-`docs/feed-layout-redesign-20260716.md`. The canonical feed uses an unframed
-desktop navigation rail, a four-column maximum, a two-column phone canvas,
-fixed mobile feed tabs, and an on-demand mobile search drawer. The removed
-promotional mode cards are not a fallback feed shell.
+Код: `backend/app/services/feed_policy.py`, `feed_presentation.py`, `backend/static/feed/`, `backend/app/services/gallery_policy.py` и нужные маршруты API. Проверки: `backend/test_feed_v2.py`, `backend/test_feed_presentation_characterization.py`, `backend/test_feed_media_continuity.py`, `backend/test_ownership_protection.py`.
 
-The normative Feed V3 product, media, video, analytics, and release contract is
-`docs/feed-v3-implementation-20260717.md`. When an older audit or checkpoint
-conflicts with it, the Feed V3 contract wins.
+Для схемы данных, публикаций и файлов смотрите [feed-media-architecture.md](feed-media-architecture.md); для реальных связей используйте [архитектурный инвентарь](generated/architecture-inventory.md). Конкретная задача определяется только [docs/NOW.md](NOW.md)/Task Contract.
 
-## Current Goal
-
-Turn the visible `/feed` page into the documented public feed product while
-preserving the existing feed-media backend contract:
-
-- public read access for guests;
-- trusted-session-only publish and reactions;
-- no public fallback to private gallery originals;
-- feed cards use optimized public thumbnails;
-- detail views use optimized public large WebP files;
-- automatic gallery quota eviction preserves linked feed publications and their
-  independent public media;
-- explicit gallery deletion retires linked feed publications;
-- versioned editorial starter publications restore from `backend/seed/feed`;
-  internal seed markers are never rendered as demo labels to users.
-
-## Implementation Order
-
-1. Keep `/feed` canonical and document that rule.
-2. Fix backend behavior gaps with narrow, tested changes.
-3. Reconcile API fields with the current static feed page.
-4. Improve the visible `/feed` UI in `backend/static/feed/index.html`.
-5. Delete retired duplicate feed code, routes, CSS, docs, and tests after each
-   replacement is proven by tests.
-6. Update tests and release checks after each backend/frontend contract change.
-
-Cleanup tracking lives in `docs/feed-cleanup-optimization-plan-20260708.md`.
-The current product, content, database, and UX audit lives in
-`docs/feed-product-ux-audit-20260712.md`.
-
-## Immediate Backend Gaps
-
-- Keep ranking explainable and add first-viewport author diversity without
-  breaking cursor stability.
-- Add production telemetry for first stable cards, cached tab switching, save
-  rate, successful remix rate, follow-after-profile-open, and hide rate.
-- Generalize the challenge destination when more than one challenge is active.
-- Future schema changes must be additive-only and backed by audits/migrations.
-
-Moderation is intentionally outside the 2026-07-15 optimization package. Its
-current behavior is neither expanded nor used as a prerequisite for the feed
-pagination, analytics, subscription, database, or layout improvements below.
-
-## Visual Notes For Step 6/9
-
-- Continue visual QA on desktop/mobile cards after each CSS pass.
-- The interaction and motion audit for feed sections is documented in
-  `docs/feed-tabs-motion-research-20260711.md`. Its pager architecture and P0
-  transition fixes now replace the old touchend-only swipe implementation with
-  cached, cancellable, direct-manipulation transitions and stable loading space.
-
-## Completed In This Pass
-
-- `GET /api/feed` now uses opaque keyset cursors and returns `nextCursor` and
-  `hasMore`. Every public publication remains reachable without an offset scan;
-  appended pages are deduplicated by publication ID in the browser.
-- Search by title, description, author, source, category, and tags is performed
-  on the server. `Лайкнутые`, `Избранное`, and remixable-only filters are also
-  server-side and therefore cover the whole feed, not only the first page.
-- The browser loads 30 works initially, prefetches adjacent sections, and uses
-  an intersection observer plus an explicit `Показать ещё` fallback. Existing
-  cards remain visible while the next page loads.
-- Views are accepted once per trusted user or anonymous installation in a
-  six-hour window. Viewer identifiers are SHA-256-derived, raw installation
-  values are not stored, and event rows have a 90-day bounded retention policy.
-- `feed_publications.metric_origin` separates organic counters from editorial
-  starter data. Demo migration marks seeded works as `editorial_seed`, and the
-  detail view labels those figures as `Демо-витрина`.
-- Author profiles, reaction totals, viewer reactions, follow state, and images
-  are loaded in batches for each page instead of repeating those queries for
-  every publication.
-- `Подписки` now reports unread publication count, displays it on the tab, and
-  records the user's last read time when the section opens. The count describes
-  new works from followed authors, not a decorative or fabricated number.
-- Feed database readiness now audits the view/read tables and the reaction,
-  view-recency, and retention indexes needed by these paths.
-- Mobile direct actions retain compact icons but use at least 40 px hit areas;
-  primary modal and tab controls use 42-44 px targets. This improves touch
-  reliability without making the icons visually dominant.
-- The hard-coded online-user total was removed. The feed does not display a
-  concurrency number until it is backed by a real presence metric; this also
-  prevents the desktop search area from clipping the `Подписки` tab.
-- On phone widths, the duplicate generator-mode row in the global top bar is
-  hidden while the visual quick-start rail remains available. The feed no
-  longer spends two header rows on the same destinations.
-
-- Public downloads now use
-  `GET /api/feed/publications/{publication_id}/download?format=jpeg|png`.
-  The backend renders a compact ИЗО АСА emblem, product name, and
-  `izo.alikinas.ru` in the lower-right corner. Preview media remains clean, private
-  gallery originals are never exposed, JPEG is the default interoperable
-  download, and PNG is available when transparency or lossless output matters.
-- Publication management and creative reuse are separate actions. Owners use
-  `Изменить публикацию` to change publication metadata. `Редактировать` opens
-  explicit destinations for image-to-image, editor base, face reference, face
-  target, or prompt-only reuse. The trusted `use-as` endpoint selects the public
-  feed media server-side; the client cannot submit an arbitrary source URL.
-- Every secondary publication action has a local Lucide-style icon while
-  retaining a readable text label and accessible button semantics.
-- New publications require verified completed-generation provenance. Mask/
-  inpaint and background-removal results are rejected by the backend. Modes
-  that can preserve large parts of an uploaded reference (`image_to_image`,
-  edit, outpaint, face/try-on/texture operations) enter `pending_review` and do
-  not appear in public reads or public media routes until approved.
-- Admin feed moderation has a trusted queue, protected review-media endpoint,
-  approve/reject mutation, audit trail, and rejection cleanup. Existing
-  publications are additively grandfathered as approved; the private gallery
-  source remains untouched by moderation.
-- Feed author payloads now expose real `followersCount` and `followingCount`
-  values from `feed_author_follows`. The publication author card and public
-  profile display both counts and update the follower count immediately after
-  a follow or unfollow action.
-- `Избранное` is defined as the signed-in user's private saved-publication
-  collection. The star action saves or removes a publication, and saved works
-  are available through the `Избранное` feed filter.
-- The publication detail view keeps four primary controls visible: remix, like,
-  favorite, and `Другие действия`. Follow remains permanently visible in the
-  author card because it acts on the author, not the publication. Personal hide,
-  download, report, owner/admin management, prompt, parameters, and history are
-  grouped in the expandable secondary area.
-- The public author profile keeps the complete feed summary: publications,
-  views, likes, remixes, favorites, followers, and following.
-- The five primary feed sections are rendered as an accessible tab list with a
-  persistent active indicator. On mobile, a horizontal swipe across feed
-  content moves to the adjacent section while vertical scrolling and controls
-  remain unaffected; keyboard arrow, Home, and End navigation is supported.
-- Gallery quota eviction no longer retires a linked feed publication or deletes
-  its independent public WebP variants. Explicit gallery deletion still retires
-  the linked publication according to the current product contract.
-- The 12 publications previously retired by quota eviction were recovered from
-  uniquely matched ComfyUI outputs. `backend/feed_hidden_recover.py` provides a
-  dry-run/apply workflow and creates a SQLite backup before recovery.
-- Personal `hide` now removes a publication from authenticated feed lists after
-  reload while keeping the publication visible to guests and other users.
-- `backend/test_feed_v2.py` covers the personal hide behavior for following and
-  fresh feed reads.
-- The visible `/feed` modal now exposes the existing backend `save` action:
-  users can save/unsave a publication without leaving the current static feed UI.
-- The static feed shell test now checks that the save control and endpoint wiring
-  remain present in `backend/static/feed/index.html`.
-- Personal `hide` filtering now happens inside feed SQL before `LIMIT`, so
-  hidden publications do not consume result slots in fresh, top, remix,
-  challenge, following, or author-publication lists.
-- `type=top` now ranks by positive signals only (`like`, `save`, `recreate`);
-  negative moderation/personal signals (`dislike`, `hide`, `report`) no longer
-  boost a publication.
-- Gallery page feed status now matches public feed availability: a publication
-  is shown as published in `/api/gallery/page` only when its public feed media is
-  ready, and missing feed media no longer creates feed-copy cards or consumes the
-  visible feed-used counter.
-- Database readiness now includes feed query indexes for category/challenge
-  reads and gallery-owned publication reads:
-  `idx_feed_publications_category_ready_created` and
-  `idx_feed_publications_legacy_ready_created`.
-- The visible `/feed` page now treats feed media URLs as strict: cards require
-  `thumbnail_url`, detail/download require `image_url`, and incomplete media
-  items are not rendered instead of falling back to a heavier variant.
-- Admins can remove a publication from the public feed via
-  `POST /api/admin/feed/publications/{publication_id}/delete-v2`. The action
-  hides the publication, removes public feed variants, writes audit/security
-  records, and leaves the user's private gallery source intact.
-- Desktop feed card overlays no longer use dark backplates behind the author
-  name, remix, or heart controls. They remain readable via text/drop shadows,
-  while the controls stay real buttons for click and keyboard focus.
-- The old React feed route was removed from current SPA routing. `/feed` is a
-  backend static page, `/lenta` is no longer a product route, and unknown SPA
-  routes no longer fall through to `LegacyApp`.
-- The visible `/feed` top bar is part of the feed plan: it must visually match
-  the main `TopBarV3` shell on desktop and mobile. The static feed no longer
-  carries the old global/`n2` topbar rules, and feed-to-generator links use the
-  main root route (`/#text-to-image`, `/#image-to-image`, etc.) instead of the
-  older `/new#...` entrypoint.
-- The old React feed JSX was removed from `frontend/src/newUi.tsx`; remaining
-  feed-related code there is only for publishing from gallery/history and for
-  using public feed thumbnails as empty-history suggestions.
-- The retired feed CSS namespace was cleaned from current frontend code:
-  `frontend/src/newUi.css` no longer carries the old `nf-*` feed stylesheet,
-  publish-modal classes now use `n2-*`, and `.iv3-feed` was removed.
-- The visible `/feed` mobile layout no longer has a duplicated fixed bottom
-  navigation. The top site bar is sticky at the viewport top, while feed filters
-  stay directly below it.
-
-## Do Not Do Without A Separate Decision
-
-- Do not replace the visible `/feed` page with the React feed tab.
-- Do not keep disabled duplicate feed pages as "fallbacks"; remove them after a
-  tested canonical replacement exists.
-- Do not return to serving `images.url` originals from public feed endpoints.
-- Do not restore direct client downloads of `feed_large.webp`; branded download
-  responses must remain server-rendered JPEG/PNG files.
-- Do not trust a client-provided mode or source URL when publishing or reusing a
-  feed image. Provenance and media selection remain server-owned.
-- Do not remove seed/demo originals or feed publications during visual work.
-- Do not let `/feed` drift from the main top bar treatment; update this page
-  when `TopBarV3` changes.
-- Do not change `feed_publications`, `/api/feed`, `/api/feed/media`, or
-  `/api/feed/publications` without updating tests and this plan.
+Предыдущие планы `feed-layout-redesign-20260716.md`, `feed-v3-implementation-20260717.md` и UX-аудиты перенесены в [исторический архив](../archive/docs/2026-10-17/README.md); они не являются действующим описанием.

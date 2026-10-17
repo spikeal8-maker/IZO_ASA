@@ -1,5 +1,12 @@
 # LTX 2.3 transfer kit for a new Windows host
 
+Documentation review 2026-10-17: this is a **host-native GPU/runtime installation
+contract**, not evidence of a running LTX 2.3 model. Its pinned files and
+checksums remain the only recorded reference; no new hashes are asserted.
+During the initial Docker application cutover, the GPU provider remains outside
+the containers and is accessed via an explicit configured endpoint. Do not
+install, update models or change GPU services without operator authorization.
+
 This package makes the local-video runtime reproducible without enabling it.
 It does not include model weights, secrets or a fabricated ComfyUI API graph.
 

@@ -2,7 +2,14 @@
 
 Date: **2026-07-23**
 
-Status: **CODE COMPLETE in an isolated branch; not deployed**
+Status at incident time: **CODE COMPLETE in an isolated branch; not deployed**
+
+**2026-10-17 documentation review:** do not treat that July statement as the
+current deployed or verified state. Check the exact installed runtime and
+`ops/windows/comfyui-image-watchdog.ps1` plus current tests before attempting
+any watchdog or model-related operation. This is an incident/operational
+reference, not authorization to restart host-native ComfyUI or change GPU
+settings during the Docker migration.
 
 ## Incident
 
