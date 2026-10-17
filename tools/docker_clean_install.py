@@ -35,7 +35,14 @@ for p in sorted(root.rglob('*')):
         if p.is_symlink() or len(files)>=500 or p.stat().st_size>20000000:
             raise RuntimeError('STORAGE_FIXTURE_LIMIT')
         files[p.relative_to(root).as_posix()]=hashlib.sha256(p.read_bytes()).hexdigest()
-print(json.dumps({'integrity':integrity,'tables':tables,'media':files}))
+usage={}
+for name,directory in [('sqlite','/home/izo/data'),('media','/home/izo/media')]:
+    paths=[p for p in Path(directory).rglob('*') if p.is_file()]
+    if len(paths)>500 or any(p.is_symlink() or p.stat().st_size>64000000 for p in paths):
+        raise RuntimeError('STORAGE_FIXTURE_LIMIT')
+    usage[name]={'files':len(paths),'logicalBytes':sum(p.stat().st_size for p in paths),
+                 'allocatedBytes':sum(p.stat().st_blocks*512 for p in paths)}
+print(json.dumps({'integrity':integrity,'tables':tables,'media':files,'volumeUsage':usage}))
 '''
 
 
@@ -83,6 +90,8 @@ def host_admission(source: str, base: str, evidence: Path) -> dict:
             "python": platform.python_version(), "runnerEnvironment": "github-hosted",
             "runId": os.environ["GITHUB_RUN_ID"], "attempt": os.environ["GITHUB_RUN_ATTEMPT"],
             "workflow": os.environ.get("GITHUB_WORKFLOW"), "machineIdentitySha256": guest_identity(),
+            "bootIdentitySha256": hashlib.sha256(Path("/proc/sys/kernel/random/boot_id").read_bytes()).hexdigest(),
+            "runnerName": os.environ.get("RUNNER_NAME"),
             "availableMemoryKiB": int(memory["MemAvailable"].split()[0]),
             "availableDiskBytes": shutil.disk_usage(ROOT).free}
 
@@ -178,6 +187,42 @@ def telemetry(shadow: Shadow) -> dict:
             "sample": [json.loads(line) for line in stats.splitlines() if line]}
 
 
+def api_samples(flow: ProductFlow) -> list[dict]:
+    samples = []
+    for _ in range(3):
+        for client, route in ((flow.guest, "/api/health"), (flow.owner, "/api/me-v2"),
+                              (flow.owner, "/api/gallery"), (flow.guest, "/api/feed")):
+            started = time.monotonic()
+            payload = client.request("GET", route)
+            row = {"method": "GET", "route": route, "httpStatus": 200,
+                   "milliseconds": round(1000 * (time.monotonic() - started), 3)}
+            if route == "/api/health":
+                row.update(ok=payload.get("ok"), ready=payload.get("ready"))
+                require(row["ok"] is True and row["ready"] is True, "ACCEPTANCE_API_NOT_READY")
+            samples.append(row)
+    return samples
+
+
+def measured_start(shadow: Shadow, report: dict, **options) -> None:
+    compose = shadow.compose
+    def measured(*args, **kwargs):
+        started, outcome = time.monotonic(), "FAIL"
+        try:
+            result = compose(*args, **kwargs)
+            outcome = "PASS"
+            return result
+        finally:
+            if args and args[0] in {"build", "up"}:
+                report["timings"].setdefault("composeOperations", []).append({
+                    "operation": args[0], "service": args[1] if args[0] == "build" else "stack",
+                    "status": outcome, "seconds": round(time.monotonic() - started, 3)})
+    shadow.compose = measured
+    try:
+        shadow.up(**options)
+    finally:
+        shadow.compose = compose
+
+
 def redact_logs(raw: str) -> str:
     text = raw[-60000:]
     sensitive = re.compile(r"(?i)(authorization|cookie|password|secret|api[_-]?key|token)[\"'\s:=]")
@@ -214,7 +259,33 @@ def browser(shadow: Shadow, directory: Path, attestation: dict) -> dict:
         require(cleanup.get("sessionCleanup") == "PASS", "ACCEPTANCE_BROWSER_SIGNUP_CLEANUP_FAILED")
 
 
-def execute_run(shadow: Shadow, directory: Path, *, build: bool, base: str, host: dict) -> dict:
+def extended_probes(shadow: Shadow, flow: ProductFlow, attestation: dict, directory: Path) -> dict:
+    from tools.docker_clean_storage import rehearse_storage
+    from tools.docker_clean_recovery import prove_recovery
+    from tools.docker_clean_features import prove_features
+    directory.mkdir(parents=True, exist_ok=False)
+    web, api = ports()
+    restored = Shadow(shadow.project + "-restore", shadow.sha, web, api, fixture=True,
+        executor_context=shadow.executor.context, engine_id=shadow.executor.engine_id,
+        machine_sha256=shadow.executor.machine_sha256)
+    results = {}
+    probes = {
+        "storage": lambda: rehearse_storage(shadow, restored, flow, directory / "storage"),
+        "recovery": lambda: prove_recovery(shadow, attestation, directory / "recovery.json"),
+        "features": lambda: prove_features(flow, directory / "features.json"),
+    }
+    for name, probe in probes.items():
+        try:
+            results[name] = probe()
+        except Exception as error:
+            results[name] = {"status": "FAIL", "errorCode": error_code(error)}
+            save(directory / (name + "-invocation-failure.json"), results[name])
+    return {"status": "PASS" if all(row.get("status") == "PASS" for row in results.values()) else "FAIL",
+            "results": results}
+
+
+def execute_run(shadow: Shadow, directory: Path, *, build: bool, base: str, host: dict,
+                extended: bool = False) -> dict:
     directory.mkdir(parents=True, exist_ok=False)
     report = {"status": "FAIL", "repository": REPOSITORY, "sourceSha": shadow.sha,
               "baseSha": base, "checkoutSha": shadow.sha, "project": shadow.project,
@@ -234,7 +305,7 @@ def execute_run(shadow: Shadow, directory: Path, *, build: bool, base: str, host
         foreign = shadow.executor.foreign_snapshot(shadow.project)
         save(directory / "foreign-before.json", foreign)
         stage, started = "build-start", time.monotonic()
-        shadow.up(build=build)
+        measured_start(shadow, report, build=build)
         report["timings"]["buildAndFirstReadySeconds"] = round(time.monotonic() - started, 3)
         report["checks"]["D1-01"] = {"status": "PASS", "cleanCheckout": True,
                 "buildPerformed": build, "imageSource": shadow.sha}
@@ -250,6 +321,7 @@ def execute_run(shadow: Shadow, directory: Path, *, build: bool, base: str, host
         stage, started = "product-api", time.monotonic()
         flow = ProductFlow(attestation)
         report["product"] = flow.run()
+        report["apiLatencySamples"] = api_samples(flow)
         report["timings"]["apiProductSeconds"] = round(time.monotonic() - started, 3)
         report["checks"]["D1-03"] = {"status": "PASS", "evidence": "product.auth"}
         report["checks"]["D1-05"] = {"status": "PASS", "evidence": "product.ownershipGalleryReuse"}
@@ -263,8 +335,10 @@ def execute_run(shadow: Shadow, directory: Path, *, build: bool, base: str, host
         stage = "persistence-baseline"
         before = storage(shadow)
         report["resourcesBeforeRecreate"] = telemetry(shadow)
+        (directory / "containers-before-recreate.redacted.log").write_text(redact_logs(
+            shadow.compose("logs", "--no-color", "--tail", "150", timeout=20)), encoding="utf-8")
         stage, started = "recreate", time.monotonic()
-        shadow.up(build=False, recreate=True)
+        measured_start(shadow, report, build=False, recreate=True)
         report["timings"]["recreateReadySeconds"] = round(time.monotonic() - started, 3)
         report["persistence"] = flow.verify_persistence()
         after = storage(shadow)
@@ -277,13 +351,25 @@ def execute_run(shadow: Shadow, directory: Path, *, build: bool, base: str, host
         report["checks"]["D1-07"] = {"status": "PASS", "evidence": "persistence; storage; providerAfterRecreate",
                 "sessionSecret": "DETERMINISTIC_APP_ENV_TEST_ONLY"}
         report["status"] = "PASS"
+        if extended:
+            stage = "D2-D3"
+            report["extended"] = extended_probes(shadow, flow, attestation, directory / "extended")
+            report["limitations"]["D2"] = "MEASURED_IN_EXTENDED_REPORT"
+            if report["extended"]["status"] != "PASS":
+                report["status"], report["failedStage"] = "FAIL", stage
     except Exception as error:
+        report["status"] = "FAIL"
         report["errorCode"], report["failedStage"] = error_code(error), stage
     finally:
         if flow is not None:
             report["product"] = flow.checks
-            report["sessionCleanup"] = flow.close()
-            if report["sessionCleanup"]["sessionCleanup"] != "PASS":
+            try:
+                report["sessionCleanup"] = flow.close()
+                require(isinstance(report["sessionCleanup"], dict)
+                        and report["sessionCleanup"].get("sessionCleanup") == "PASS",
+                        "ACCEPTANCE_SESSION_CLEANUP_FAILED")
+            except Exception as error:
+                report["sessionCleanup"] = {"sessionCleanup": "FAIL", "errorCode": error_code(error)}
                 report["status"] = "FAIL"
         if admitted:
             try:
@@ -306,10 +392,20 @@ def execute_run(shadow: Shadow, directory: Path, *, build: bool, base: str, host
             report["checks"].setdefault(f"D1-{number:02}", {"status": "NOT_RUN"})
         if any(report["checks"][f"D1-{number:02}"]["status"] != "PASS" for number in range(1, 9)):
             report["status"] = "FAIL"
+        report["D1Status"] = "PASS" if all(
+            report["checks"][f"D1-{number:02}"]["status"] == "PASS" for number in range(1, 9)
+        ) and report.get("sessionCleanup", {}).get("sessionCleanup") == "PASS" \
+            and report.get("cleanup", {}).get("status") == "PASS" else "FAIL"
         if report["status"] != "PASS" and stage not in {"admission", "build-start"}:
             report["checks"].setdefault("failure", {"status": "FAIL", "stage": stage})
         report["finishedAt"] = now()
         save(directory / "receipt.json", report)
+        (directory / "conclusion.ru.txt").write_text(
+            f"Исходная версия: {shadow.sha}\nД1: {report['D1Status']}; общий результат: {report['status']}\n"
+            f"Пересоздание и данные: {report['checks']['D1-07']['status']}; "
+            f"очистка: {report.get('cleanup', {}).get('status', 'NOT_RUN')}\n"
+            "Модель заменена контролируемой CPU-фикстурой; production и живые интеграции не проверены.\n",
+            encoding="utf-8")
         print(json.dumps({"project": shadow.project, "status": report["status"],
                           "failedStage": report.get("failedStage"), "errorCode": report.get("errorCode")}))
     return report
@@ -321,6 +417,8 @@ def main() -> int:
     parser.add_argument("--base-sha", required=True)
     parser.add_argument("--evidence-dir", type=Path, required=True)
     parser.add_argument("--replica", type=int, choices=(1, 2), required=True)
+    parser.add_argument("--extended", action="store_true",
+                        help="Run D2-D3 after the third fixture's D1 persistence checks")
     args = parser.parse_args()
     try:
         host = host_admission(args.source_sha, args.base_sha, args.evidence_dir)
@@ -330,6 +428,7 @@ def main() -> int:
         host.update(engineId=info["ID"], docker=info["ServerVersion"], cpuCount=info["NCPU"],
                     dockerMemoryBytes=info["MemTotal"])
         host["compose"] = seed.run(["docker", "--context", "default", "compose", "version", "--short"])
+        host["node"] = seed.run(["node", "--version"])
         reports = []
         for number in range(1, 4):
             project = f"izo-asa-shadow-ci-{host['runId']}-{host['attempt']}-{args.replica}-{number}"
@@ -338,7 +437,8 @@ def main() -> int:
                 executor_context="default", engine_id=host["engineId"],
                 machine_sha256=host["machineIdentitySha256"])
             report = execute_run(shadow, args.evidence_dir / f"run-{number}",
-                                 build=number == 1, base=args.base_sha, host=host)
+                                 build=number == 1, base=args.base_sha, host=host,
+                                 extended=args.extended and number == 3)
             reports.append(report)
             # Never retry a failed fixture behind a later success in the same run.
             if report["status"] != "PASS":
@@ -347,6 +447,8 @@ def main() -> int:
         save(args.evidence_dir / "summary.json", {"status": "PASS" if passed else "FAIL",
             "repository": REPOSITORY, "sourceSha": args.source_sha, "baseSha": args.base_sha,
             "replica": args.replica, "host": host, "completedFixtureRuns": len(reports),
+            "D1Status": "PASS" if len(reports) == 3 and all(r["D1Status"] == "PASS" for r in reports) else "FAIL",
+            "extended": reports[-1].get("extended", {"status": "NOT_RUN"}) if reports else {"status": "NOT_RUN"},
             "runs": [{"project": report["project"], "status": report["status"],
                       "checks": report["checks"]} for report in reports]})
         return 0 if passed else 1

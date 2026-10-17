@@ -133,6 +133,7 @@ class ProductFlow:
                 and payload.get("mode") in {"text_to_image", "image_to_image"},
                 "PRODUCT_PROVIDER_OR_MODE_FORBIDDEN")
         history_before = self.owner.request("GET", "/api/account/token-history-v2")
+        submitted_at = time.monotonic()
         started = self.owner.request("POST", "/api/generate", payload)
         job_id = path_id(started.get("id"))
         require(started.get("status") == "queued" and isinstance(started.get("queuePosition"), int)
@@ -150,6 +151,7 @@ class ProductFlow:
                 break
             require(time.monotonic() < deadline, "PRODUCT_JOB_TIMEOUT")
             time.sleep(.2)
+        completed_seconds = round(time.monotonic() - submitted_at, 3)
         image_id = path_id(job.get("resultImageId"))
         image = self.owner.request("GET", f"/api/gallery/{image_id}")
         require(image.get("id") == image_id and image.get("url") == job.get("resultUrl"),
@@ -170,7 +172,8 @@ class ProductFlow:
                 and me["account"]["daily_tokens_used"] == started["dailyTokensUsed"],
                 "PRODUCT_ACCOUNT_BALANCE_MISMATCH")
         self.checks.setdefault("generation", []).append({"jobId": job_id, "imageId": image_id,
-                "observedStates": sorted(states), "tokenCost": started["tokenCost"], "accounting": "PASS"})
+                "observedStates": sorted(states), "tokenCost": started["tokenCost"], "accounting": "PASS",
+                "submitToObservedCompletionSeconds": completed_seconds, "modelExecution": False})
         return image
 
     def media_hash(self, client: HttpClient, path: str) -> str:

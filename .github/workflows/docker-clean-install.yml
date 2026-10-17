@@ -46,7 +46,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/source-evidence"
-          python -m pytest -q tools/test_file_hygiene.py tools/test_file_hygiene_regressions.py tools/test_file_hygiene_markdown.py tools/test_file_hygiene_policy.py tools/test_ci_scope.py tools/test_source_alignment.py tools/test_portable_ci_gates.py tools/test_docker_shadow.py tools/test_docker_shadow_executor.py tools/test_docker_shadow_linux.py tools/test_docker_shadow_provider.py tools/test_docker_shadow_product.py tools/test_docker_shadow_storage.py tools/test_docker_shadow_fixture.py tools/test_docker_clean_install.py --junitxml="$RUNNER_TEMP/source-evidence/portable.xml" 2>&1 | tee "$RUNNER_TEMP/source-evidence/portable.log"
+          python -m pytest -q tools/test_file_hygiene.py tools/test_file_hygiene_regressions.py tools/test_file_hygiene_markdown.py tools/test_file_hygiene_policy.py tools/test_ci_scope.py tools/test_source_alignment.py tools/test_portable_ci_gates.py tools/test_docker_shadow.py tools/test_docker_shadow_executor.py tools/test_docker_shadow_linux.py tools/test_docker_shadow_provider.py tools/test_docker_shadow_product.py tools/test_docker_shadow_storage.py tools/test_docker_shadow_fixture.py tools/test_docker_clean_install.py tools/test_docker_clean_storage.py tools/test_docker_clean_recovery.py tools/test_docker_clean_features.py --junitxml="$RUNNER_TEMP/source-evidence/portable.xml" 2>&1 | tee "$RUNNER_TEMP/source-evidence/portable.log"
           python -m tools.file_hygiene --base "$ACCEPTANCE_BASE" --head "$GITHUB_SHA" --comparison direct | tee "$RUNNER_TEMP/source-evidence/file-hygiene.json"
       - name: Test inherited application extractions on Linux
         env:
@@ -102,7 +102,7 @@ jobs:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
           REPLICA: ${{ matrix.replica }}
         run: |
-          python -m tools.docker_clean_install --source-sha "$GITHUB_SHA" --base-sha "$ACCEPTANCE_BASE" --replica "$REPLICA" --evidence-dir "$RUNNER_TEMP/docker-evidence"
+          python -m tools.docker_clean_install --source-sha "$GITHUB_SHA" --base-sha "$ACCEPTANCE_BASE" --replica "$REPLICA" --evidence-dir "$RUNNER_TEMP/docker-evidence" --extended
       - name: Preserve each original attempt including failures and screenshots
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

@@ -28,12 +28,30 @@ GitHub-hosted Ubuntu 24.04 VM с правами `contents: read` и точным
 прогоны повторно используют уже проверенные immutable image IDs.
 Вторая VM заново строит образы и повторяет сценарии независимо.
 
+Повторение: откройте Actions → Docker clean installation acceptance →
+Run workflow → `agent/docker-clean-install-001`. Проверяйте `head_sha` нового
+run перед использованием результата; текущая ветка может продвинуться.
+Для точного опубликованного SHA используйте соответствующий run/attempt.
+Workflow получает исходники, зависимости и Chromium сам; данные не переносятся.
+
 Драйвер `python -m tools.docker_clean_install` требует точные `--source-sha`,
 `--base-sha`, номер `--replica 1|2` и новый каталог `--evidence-dir` внутри
 `RUNNER_TEMP`. Он отказывается работать на общем или неподтверждённом host.
 Docker context `default`, локальный Unix socket, engine ID и хеш machine ID
 фиксируются и проверяются при действиях. Настройки Docker и сети хоста
 не изменяются. При занятом порте запуск заканчивается ошибкой.
+
+Команда внутри подтверждённой временной VM:
+
+```bash
+python -m tools.docker_clean_install --source-sha "$GITHUB_SHA" \
+  --base-sha "$ACCEPTANCE_BASE" --replica 1 \
+  --evidence-dir "$RUNNER_TEMP/docker-evidence" --extended
+```
+
+Это приёмочная установка с последующей очисткой. Адреса `origin` и `apiOrigin`
+записываются в `run-N/receipt.json`. Для постоянного DEV/Shadow применяется
+существующий `tools.docker_shadow`, а не обход проверки одноразовой VM.
 
 ## Что выполняется
 
@@ -82,12 +100,40 @@ Artifact name включает source SHA, workflow run ID и attempt; срок 
 в границах одноразовой VM и её штатного завершения; global prune отсутствует.
 Обычная команда Shadow `down` по-прежнему сохраняет volumes.
 
+## Аварии, копия и дополнительные функции
+
+`--extended` запускает дополнительные пробы после Д1 третьей установки.
+`D1Status` сохраняется отдельно; общий `FAIL`/ненулевой exit code остаётся,
+если дополнительный сценарий не доказан. Успешный Д1 не переименовывает его в PASS.
+
+| Проверка | Действие и граница |
+|---|---|
+| Д2-01 | Удержание настоящего задания у провайдера, SIGKILL своего backend, два recreate; refund, ledger и отсутствие повторного submit |
+| Д2-02 | Два одинаковых Idempotency-Key, число jobs/charges и повторная отмена |
+| Д2-03 | Два реальных consumers одного процесса и duplicate wake; второй OS process отдельно не проверен |
+| Д2-04 | SQLite Backup API и согласованные media hashes; восстановление в два новых volumes отдельного проекта; API persistence |
+| Д2-05 | Повреждённая SQLite, изменённый media и отсутствующий completion marker отклоняются до записи в целевые volumes |
+| Д2-06 | Запрет записи media в восстановленной копии, реальная генерация, отсутствие результата/двойного списания; права восстанавливаются |
+| Д3 | Health/readiness, chat history CRUD и чужие объекты, fixture TTS WAV, отключённая коммерция/webhooks, admin boundary, video config |
+
+Архив резервной копии передаётся в пределах VM через память и временные файлы;
+SQLite, cookies, пароли и backup payload не публикуются в Actions artifacts.
+Расширенные JSON находятся в `run-3/extended/`. Общий статус Д3 остаётся
+`PARTIAL` при непроверенном model inference, даже если все доступные API прошли.
+
+Квитанции дополнительно содержат продолжительность build по сервисам и up,
+повторную готовность, 12 GET latency samples, размеры образов, CPU/RAM snapshots,
+объём файлов SQLite/media и время до наблюдаемого завершения fixture jobs.
+Это ограниченные измерения CPU-фикстуры, не GPU benchmark и не нагрузочный SLA.
+
 ## Границы результата
 
 Начальная топология содержит один прикладной процесс и встроенный обработчик.
-Д2 recovery, конкуренция, backup/restore и отказ хранилища требуют отдельных
-исполняемых результатов; Д1 не заменяет их. CPU/RAM/диск/время в квитанциях —
-измерения конкретной фикстуры, без выдуманных production-нормативов.
+Д2 recovery, конкуренция, backup/restore и отказ хранилища имеют отдельные
+исполняемые результаты; Д1 не заменяет их. Cross-process role и factory entry
+не подтверждаются одним backend процессом. Chat inference в этой конфигурации
+заблокирован недоступным Ollama; TTS возвращает контролируемый PCM, не живой голос.
+Администраторские разрешённые действия и 3D остаются `NOT_VERIFIED`.
 
 Живые ComfyUI/Ollama/Qwen, платные API, SMTP, Telegram/MAX, реальные платежи
 и production не проверяются этим workflow. Статус таких подключений —
