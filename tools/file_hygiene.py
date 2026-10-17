@@ -75,6 +75,8 @@ def category(path: str) -> str | None:
         return "document"
     if path == "README.md":
         return "navigator"
+    if path == "TEST_PLAN.md":
+        return "document"
     if not path.startswith(("backend/", "frontend/", "tools/", "tests/")):
         return None
     suffix = Path(filename).suffix.lower()

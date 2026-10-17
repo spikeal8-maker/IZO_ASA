@@ -70,6 +70,7 @@ class FileHygieneContractTests(unittest.TestCase):
         self.assertEqual(category("frontend/foo.spec.ts"), "test")
         self.assertEqual(category("frontend/phoneImage.test.ts"), "test")
         self.assertEqual(category("tools/test_quality.py"), "test")
+        self.assertEqual(category("TEST_PLAN.md"), "document")
         self.assertIsNone(category("frontend/src/VideoStudio.tsx"))
 
     def test_review_requires_scoped_task_manifest_rationale(self) -> None:
