@@ -36,7 +36,7 @@ class CiScopeTests(RepositoryCase, unittest.TestCase):
         self.put(path, 'jobs:\n  verify:\n    steps:\n      - run: original\n')
         self.base = self.commit()
         self.put(path, 'jobs:\n  quality: reusable\n  verify:\n    steps:\n      - run: original\n')
-        self.assertFalse(self.result()['applicationRequired'])
+        self.assertTrue(self.result()['applicationRequired'])
         self.put(path, 'jobs:\n  verify:\n    steps:\n      - run: different\n')
         self.assertTrue(self.result()['applicationRequired'])
 
@@ -47,10 +47,19 @@ class CiScopeTests(RepositoryCase, unittest.TestCase):
         self.base = self.commit()
         added = old.replace('      - run: original', TOOLING_INSTALL_STEP + '      - run: original')
         self.put(path, added)
-        self.assertFalse(self.result()['applicationRequired'])
+        self.assertTrue(self.result()['applicationRequired'])
         self.put(path, added.replace('--require-hashes', '--no-deps'))
         self.assertTrue(self.result()['applicationRequired'])
         self.assertIsNone(application_body(TOOLING_INSTALL_STEP * 2 + old))
+
+    def test_windows_verify_condition_change_cannot_skip_application_job(self):
+        path = '.github/workflows/ci.yml'
+        initial = "jobs:\\n  verify:\\n    if: needs.quality.outputs.application_required == 'true'\\n    steps:\\n      - run: original\\n"
+        self.put(path, initial)
+        self.base = self.commit()
+        modified = initial.replace("if: needs.quality", "if: false && needs.quality")
+        self.put(path, modified)
+        self.assertTrue(self.result()['applicationRequired'])
 
     def test_deleting_or_creating_ci_is_not_exempt(self):
         path = '.github/workflows/ci.yml'

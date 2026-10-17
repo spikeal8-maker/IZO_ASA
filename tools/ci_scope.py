@@ -21,6 +21,14 @@ PORTABLE_EXACT = {
 }
 
 
+# Only this reviewed initial CI migration may skip the Windows job. Subsequent
+# changes to ci.yml are high-impact even when the step bodies happen to match.
+APPROVED_CI_TRANSITION_BLOBS = (
+    "31fbfdad91efe716b3edbb1ff2cf9d26e74126e5",
+    "827e78180a8cd9bacdd3a60ef5ca8992b1874ab3",
+)
+
+
 TOOLING_INSTALL_STEP = '      - name: Install file hygiene tooling\n        run: |\n          python -m pip install --only-binary=:all: --require-hashes -r tools/file_hygiene_requirements.txt\n\n'
 
 
@@ -47,10 +55,9 @@ def route(repo: Path, base: str, head: str, comparison: str = "merge-base") -> d
         if portable(path):
             continue
         if path == ".github/workflows/ci.yml" and path in before.files and path in after.files:
-            # Preserve every existing application step; tooling installation is shared.
-            old = application_body(before.read(path).decode("utf-8"))
-            new = application_body(after.read(path).decode("utf-8"))
-            if old is not None and old == new:
+            # Body equality alone is unsafe: job permissions/if/needs/runs-on are
+            # before "steps" and can silently disable required verification.
+            if (before.files[path][1], after.files[path][1]) == APPROVED_CI_TRANSITION_BLOBS:
                 continue
         required.append(path)
     return {"requestedBase": base, "base": actual_base, "head": head,
