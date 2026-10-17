@@ -133,6 +133,9 @@ declaredFiles = [
   "backend/test_billing_simulator_checkout_v2.py",
   "backend/test_billing_v2.py",
   "tools/test_docker_clean_admin.py",
+  "tools/docker_clean_admin_runtime.py",
+  "tools/test_docker_clean_admin_runtime.py",
+  "backend/test_generation_admission.py",
 ]
 allowedPatterns = [
   "tools/docker_clean_browser.mjs",
@@ -243,3 +246,18 @@ forbiddenOperations = [
   "merge-before-gates",
 ]
 rollbackBoundary = "Revert only the successor feature changes or return review to the preserved d6ecb7f checkpoint; remove only evidence-identified owned temporary resources. Do not alter production, other branches, predecessor CI evidence or foreign Docker resources."
+
+[[scopeExpansions]]
+path = "tools/docker_clean_admin_runtime.py"
+reason = "Rehearse authorized admin and local payment simulator in a separate fresh guarded Docker project with complete owned cleanup"
+recordedAtUtc = "2026-10-17T22:00:49.585756Z"
+
+[[scopeExpansions]]
+path = "tools/test_docker_clean_admin_runtime.py"
+reason = "Verify fail-closed admin profile admission, private code redaction and cleanup failure propagation"
+recordedAtUtc = "2026-10-17T22:00:50.511040Z"
+
+[[scopeExpansions]]
+path = "backend/test_generation_admission.py"
+reason = "Exercise generation idempotency against real isolated SQLite with owner isolation, durable replay and transaction rollback without a schema-version change"
+recordedAtUtc = "2026-10-17T22:00:51.443542Z"

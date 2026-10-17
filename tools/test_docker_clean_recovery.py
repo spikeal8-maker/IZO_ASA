@@ -30,7 +30,7 @@ def snapshot(ids=(), *, refunded=False, status="sent_to_comfyui"):
             ledger.append({"id": "refund-" + job_id, "user_id": "owner", "jobId": job_id,
                 "reason": "daily_generation_refund", "delta": 0, "refund_tokens": 10,
                 "daily_part": 10, "cause": "startup_reconciliation"})
-    return {"users": accounts, "jobs": jobs, "images": [], "ledger": ledger}
+    return {"users": accounts, "jobs": jobs, "images": [], "ledger": ledger, "activeJobs": sum(row["status"] in recovery.ACTIVE for row in jobs)}
 
 
 def provider(*, accepted=0, instance="a" * 32, sequence=0, action=None, active=False):
@@ -75,11 +75,12 @@ class RecoveryEvidenceTests(unittest.TestCase):
         restored = snapshot(["job-a"], refunded=True)
         recovery.accounting(paid, ["job-a"], refunded=False)
         recovery.accounting(restored, ["job-a"], refunded=True)
-        invalid = [deepcopy(restored) for _ in range(4)]
+        invalid = [deepcopy(restored) for _ in range(5)]
         invalid[0]["ledger"].append(deepcopy(invalid[0]["ledger"][-1]))
         invalid[1]["ledger"][-1]["refund_tokens"] = 9
         invalid[2]["ledger"][-1]["delta"] = 1
         invalid[3]["ledger"].pop(0)
+        invalid[4]["ledger"][0]["user_id"] = "other"
         for value in invalid:
             with self.subTest(value=value), self.assertRaises(recovery.RecoveryError):
                 recovery.accounting(value, ["job-a"], refunded=True)
@@ -129,6 +130,7 @@ class RecoveryEvidenceTests(unittest.TestCase):
                     exec(compile(recovery.DATABASE_READ, "database-read-probe", "exec"), {})
                 value = json.loads(output.getvalue())
                 self.assertEqual(set(value["users"]), {"owner"})
+                self.assertEqual(value["activeJobs"], 1)
                 self.assertNotIn("never-serialize", output.getvalue())
                 self.assertNotIn("foreign", output.getvalue())
                 self.assertEqual(len(value["ledger"]), int(ids == ["job-a"]))
@@ -255,9 +257,63 @@ class RecoveryActionTests(unittest.TestCase):
             self.assertEqual(case["providerSubmissionsForSameJob"], count)
             self.assertEqual(case["probeScope"], "SAME_PROCESS_DUPLICATE_QUEUE_DELIVERY")
 
+    def test_two_users_measure_inflight_and_cancel_each_with_own_auth(self):
+        for wrong_owner in (False, True):
+            run, case, calls = self.run_object(), {}, []
+            run.user_ids = ["owner", "other"]
+            charged = snapshot(["job-a", "job-b"])
+            restored = snapshot(["job-a", "job-b"], refunded=True, status="cancelled")
+            for value in (charged, restored):
+                value["jobs"][1]["user_id"] = "other"
+                for row in value["ledger"]:
+                    if row["jobId"] == "job-b":
+                        row["user_id"] = "other"
+            for account in charged["users"].values():
+                account.update(daily_tokens_used=10, tokens_used=10, generation_count=1)
+            charged["jobs"][1]["status"] = "queued"
+            if wrong_owner:
+                charged["ledger"][-1]["user_id"] = "owner"
+            run.snapshot = Mock(side_effect=[snapshot(), charged, restored])
+            run.provider = Mock(return_value=provider(accepted=1))
+            run.recreate = Mock(return_value={"afterContainer": "fresh-owned-backend"})
+            run.flow.other.opener.addheaders = []
+
+            def held(value):
+                value.update(submitted={"id": "job-a"}, acceptedBeforeAction={"provider": provider(accepted=1)})
+                return "job-a"
+
+            def response(who, method, path, *args, **kwargs):
+                calls.append((who, method, path, kwargs))
+                if path == "/api/generate":
+                    return {"id": "job-b", "status": "queued", "queuePosition": 1, "tokenCost": 10}
+                return {"id": "job-b" if who == "other" else "job-a", "status": "cancelled" if method == "POST"
+                        else charged["jobs"][int(who == "other")]["status"]}
+
+            run.held_job = held
+            for who, client in (("owner", run.flow.owner), ("other", run.flow.other)):
+                client.request.side_effect = lambda *a, who=who, **kw: response(who, *a, **kw)
+            run.images = run.shadow.image_guard.return_value = {name: "image-" + name for name in ("backend", "web", "guard")}
+            run.shadow.containers.return_value = [{"Id": name, "Image": image, "State": {"Running": True},
+                "Config": {"Labels": {"com.docker.compose.service": name}}} for name, image in run.images.items()]
+
+            def stats(*args, **kwargs):
+                self.assertFalse(any(path.endswith("/cancel") for _, _, path, _ in calls))
+                self.assertEqual(set(args[5:]), set(run.images))
+                return "\n".join(json.dumps({"ID": name, "CPUPerc": "0.2%", "MemUsage": "12MiB / 64MiB"}) for name in run.images)
+
+            run.shadow.docker.side_effect = stats
+            run.two_users(case)
+            self.assertEqual(case["status"], "FAIL" if wrong_owner else "PASS")
+            if wrong_owner:
+                self.assertEqual(case["errorCode"], "RECOVERY_LEDGER_OWNER_MISMATCH")
+            self.assertEqual([(who, path) for who, method, path, _ in calls if method == "POST" and path.endswith("/cancel")],
+                             [("other", "/api/jobs/job-b/cancel"), ("owner", "/api/jobs/job-a/cancel")])
+            self.assertEqual(case["measurement"]["queuedCount"], 1)
+            self.assertTrue(recovery.same_accounts(case["baseline"], case["afterCancel"]))
+
 
 class RecoveryOrchestrationTests(unittest.TestCase):
-    def execute(self, *, actions=None, restart=None, close=None):
+    def execute(self, *, actions=None, restart=None, close=None, measurement=None):
         flow = Mock()
         flow.register.side_effect = [{"legacy_user_id": "owner"}, {"legacy_user_id": "other"}]
         flow.close.return_value = {"sessionCleanup": "PASS"}
@@ -270,6 +326,8 @@ class RecoveryOrchestrationTests(unittest.TestCase):
             stack.enter_context(patch.object(recovery.RecoveryRun, "provider", return_value=provider()))
             for name, action in zip(("crash", "repeated", "concurrent"), actions):
                 stack.enter_context(patch.object(recovery.RecoveryRun, name, side_effect=action))
+            stack.enter_context(patch.object(recovery.RecoveryRun, "two_users",
+                side_effect=measurement or (lambda case: case.update(status="PASS"))))
             stack.enter_context(patch.object(recovery.RecoveryRun, "recreate", side_effect=restart,
                                             return_value={"sameVolumes": True}))
             stack.enter_context(patch.object(recovery, "ProductFlow", return_value=flow))
@@ -311,6 +369,13 @@ class RecoveryOrchestrationTests(unittest.TestCase):
         self.assertEqual(report["status"], "FAIL")
         self.assertEqual(report["sessionCleanupError"], "RECOVERY_OPERATION_FAILED")
         self.assertNotIn("secret/raw", json.dumps(report))
+
+    def test_measurement_failure_survives_three_passing_d2_cases(self):
+        report = self.execute(measurement=lambda case: case.update(status="FAIL", errorCode="RECOVERY_MEASUREMENT_FAILED"))
+        self.assertEqual(len(report["checks"]), 3)
+        self.assertTrue(all(case["status"] == "PASS" for case in report["checks"].values()))
+        self.assertEqual(report["measurements"]["D3-queue"]["errorCode"], "RECOVERY_MEASUREMENT_FAILED")
+        self.assertEqual(report["status"], "FAIL")
 
 
 if __name__ == "__main__":

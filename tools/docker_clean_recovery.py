@@ -57,9 +57,10 @@ for row in rows:
         'startup_reconciliation','user_cancelled','generation_failed',
         'cancelled_before_start','cancelled_during_generation'} else None
     ledger.append(item)
+active=conn.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running','uploading','sent_to_comfyui','sent_to_openrouter')").fetchone()[0]
 conn.rollback()
 conn.close()
-print(json.dumps({'users':accounts,'jobs':jobs,'images':images,'ledger':ledger}))
+print(json.dumps({'users':accounts,'jobs':jobs,'images':images,'ledger':ledger,'activeJobs':active}))
 '''
 
 
@@ -106,8 +107,11 @@ def keyed_post(client, path, payload, key):
 
 def accounting(snapshot, ids, *, refunded):
     """Verify per-job rows, including a daily refund whose cash delta is zero."""
+    owners = {row["id"]: row["user_id"] for row in snapshot["jobs"]}
     for job_id in ids:
         rows = [row for row in snapshot["ledger"] if row["jobId"] == job_id]
+        require(job_id in owners and all(row["user_id"] == owners[job_id] for row in rows),
+                "RECOVERY_LEDGER_OWNER_MISMATCH")
         charges = [row for row in rows if row["reason"] in CHARGES]
         returns = [row for row in rows if row["reason"] in REFUNDS]
         require(len(charges) == 1 and int(charges[0]["token_cost"] or 0) > 0,
@@ -331,10 +335,71 @@ class RecoveryRun:
                              else "RECOVERY_CROSS_PROCESS_ROLE_NOT_EXERCISED")
         case["probeScope"] = "SAME_PROCESS_DUPLICATE_QUEUE_DELIVERY"
 
+    def two_users(self, case):
+        case["freshFixture"] = self.recreate()
+        baseline, ids, clients = self.snapshot(), [], (self.flow.owner, self.flow.other)
+        require(baseline["activeJobs"] == 0, "RECOVERY_QUEUE_NOT_EMPTY")
+        case["baseline"] = baseline
+        try:
+            ids.append(self.held_job(case))
+            result = keyed_post(clients[1], "/api/generate", {**PAYLOAD, "seed": PAYLOAD["seed"] + 1}, uuid.uuid4().hex)
+            ids.append(path_id(result.get("id")))
+            self.job_ids.append(ids[1])
+            case["submittedOther"] = {key: result.get(key) for key in ("id", "status", "queuePosition")}
+            require(ids[0] != ids[1] and result.get("status") == "queued" and type(result.get("queuePosition")) is int
+                    and result["queuePosition"] == 1, "RECOVERY_SECOND_USER_QUEUE_INVALID")
+            states = [client.request("GET", f"/api/jobs/{job}")["status"] for job, client in zip(ids, clients)]
+            for job, client in zip(ids, reversed(clients)):
+                client.request("GET", f"/api/jobs/{job}", expected=(404,))
+            self.guard()
+            rows = self.shadow.containers()
+            require(len(rows) == 3 and all(row["State"]["Running"] for row in rows) and {
+                row["Config"]["Labels"]["com.docker.compose.service"]: row["Image"] for row in rows
+            } == self.images, "RECOVERY_STATS_CONTAINER_MISMATCH")
+            samples = [json.loads(line) for line in self.shadow.docker("stats", "--no-stream", "--no-trunc",
+                "--format", "{{json .}}", *[row["Id"] for row in rows], timeout=15).splitlines() if line]
+            require(len(samples) == 3 and {row["ID"] for row in samples} == {row["Id"] for row in rows}
+                    and all(row.get("CPUPerc") and row.get("MemUsage") for row in samples), "RECOVERY_STATS_SAMPLE_MISMATCH")
+            database, wire = self.snapshot(), self.provider()
+            held = sum(job["state"] == "held" for job in wire["provider"]["jobs"])
+            case["measurement"] = {"scope": "OWN_TWO_JOBS", "queuePosition": result["queuePosition"],
+                "activeCount": sum(state in ACTIVE - {"queued"} for state in states), "queuedCount": states.count("queued"),
+                "providerHeldCount": held, "database": database, "provider": wire, "resources": samples}
+            self.checkpoint()
+            require(states[0] in ACTIVE - {"queued"} and states[1] == "queued" and {
+                row["id"]: (row["user_id"], row["status"]) for row in database["jobs"] if row["id"] in ids
+            } == dict(zip(ids, zip(self.user_ids, states))), "RECOVERY_TWO_USER_STATE_INVALID")
+            require(held == wire["provider"]["counts"]["accepted"] == 1 and wire["instanceId"]
+                    == case["acceptedBeforeAction"]["provider"]["instanceId"], "RECOVERY_SECOND_USER_NOT_QUEUED")
+            accounting(database, ids, refunded=False)
+            case["status"] = "PASS"
+        except Exception as error:
+            case.update(status="FAIL", errorCode=error_code(error))
+        finally:
+            if not ids and "submitted" in case:
+                ids.append(case["submitted"]["id"])
+            case["cancelResponses"] = []
+            for job, client in reversed(list(zip(ids, clients))):
+                try:
+                    response = client.request("POST", f"/api/jobs/{job}/cancel", {})
+                    case["cancelResponses"].append({"id": response.get("id"), "status": response.get("status")})
+                    require(response.get("id") == job and response.get("status") in TERMINAL, "RECOVERY_CANCEL_RESPONSE_INVALID")
+                except Exception as error:
+                    case["status"] = "FAIL"
+                    case.setdefault("cleanupErrors", []).append({"id": job, "errorCode": error_code(error)})
+            try:
+                case["afterCancel"] = after = wait_for(lambda: (value if value["activeJobs"] == 0 else None) if (value := self.snapshot()) else None)
+                accounting(after, ids, refunded=True)
+                require(same_accounts(baseline, after) and all(row["status"] in {"failed", "cancelled"}
+                    for row in after["jobs"] if row["id"] in ids), "RECOVERY_TWO_USER_ACCOUNTS_NOT_RESTORED")
+            except Exception as error:
+                case.update(status="FAIL", cleanupError=error_code(error))
+
 
 def prove_recovery(shadow: Shadow, attestation: dict, receipt: Path) -> dict:
     require(not receipt.exists(), "RECOVERY_RECEIPT_ALREADY_EXISTS")
-    report = {"status": "FAIL", "sourceSha": shadow.sha, "project": shadow.project, "checks": {}}
+    report = {"status": "FAIL", "sourceSha": shadow.sha, "project": shadow.project, "checks": {},
+              "measurements": {"D3-queue": {"status": "NOT_RUN"}}}
     flow = run = foreign = None
     admitted = False
     try:
@@ -351,8 +416,10 @@ def prove_recovery(shadow: Shadow, attestation: dict, receipt: Path) -> dict:
                         for number, client in enumerate((flow.owner, flow.other), 41)]
         require(len(set(run.user_ids)) == 2, "RECOVERY_TWO_USERS_REQUIRED")
         flow.credentials.clear()
-        for name, action in (("D2-01", run.crash), ("D2-02", run.repeated), ("D2-03", run.concurrent)):
-            case = report["checks"][name] = {"status": "FAIL"}
+        for name, action in (("D2-01", run.crash), ("D2-02", run.repeated), ("D2-03", run.concurrent),
+                             ("D3-queue", run.two_users)):
+            cases = report["checks"] if name.startswith("D2-") else report["measurements"]
+            case = cases[name] = {"status": "FAIL"}
             try:
                 action(case)
             except Exception as error:
@@ -364,7 +431,8 @@ def prove_recovery(shadow: Shadow, attestation: dict, receipt: Path) -> dict:
             except Exception as error:
                 case.update(status="FAIL", cleanupError=error_code(error))
                 break
-        if len(report["checks"]) == 3 and all(case["status"] == "PASS" for case in report["checks"].values()):
+        if (len(report["checks"]) == 3 and all(case["status"] == "PASS" for case in report["checks"].values())
+                and report["measurements"]["D3-queue"]["status"] == "PASS"):
             report["status"] = "PASS"
     except Exception as error:
         report["errorCode"] = error_code(error)

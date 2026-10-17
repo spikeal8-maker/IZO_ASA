@@ -1,5 +1,6 @@
 """Safety and truthful-evidence regression tests for the disposable runner driver."""
 from contextlib import ExitStack
+import io
 import json
 import os
 import sys
@@ -9,6 +10,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from tools import docker_clean_install as clean
+from tools.docker_shadow_product import HttpClient, ProductError
 
 
 class AdmissionAndCleanupTests(unittest.TestCase):
@@ -105,12 +107,56 @@ class EvidenceTests(unittest.TestCase):
         self.assertIn("ERROR database unavailable", safe)
 
 
+class ApiLatencyTests(unittest.TestCase):
+    def flow(self, gallery_body, *, healthy=True):
+        client = HttpClient("http://127.0.0.1:48001")
+        def respond(request, **_options):
+            route = request.full_url.removeprefix(client.origin)
+            body = gallery_body if route == "/api/gallery" else json.dumps({
+                "ok": True, "ready": healthy, "route": route}).encode()
+            response = io.BytesIO(body)
+            response.status = 200
+            return response
+        client.opener = Mock()
+        client.opener.open.side_effect = respond
+        return Mock(owner=client, guest=client), client
+
+    def test_real_http_client_accepts_gallery_array_and_records_twelve_samples(self):
+        flow, client = self.flow(b'[{"id":"fixture-image"}]')
+        samples = clean.api_samples(flow)
+        self.assertEqual(len(samples), 12)
+        self.assertEqual(client.opener.open.call_count, 12)
+        for route in ("/api/health", "/api/me-v2", "/api/gallery", "/api/feed"):
+            self.assertEqual(sum(row["route"] == route for row in samples), 3)
+        self.assertTrue(all(row["items"] == 1 for row in samples if row["route"] == "/api/gallery"))
+        self.assertNotIn("fixture-image", json.dumps(samples))
+        self.assertTrue(all(row["milliseconds"] >= 0 and row["httpStatus"] == 200 for row in samples))
+
+    def test_invalid_gallery_shapes_fail_without_exposing_response(self):
+        for body in (b'{"private":"sensitive"}', b'not-json-sensitive', b'null',
+                     b'"sensitive"', b'["sensitive"]', b'\xff'):
+            with self.subTest(body=body):
+                flow, _client = self.flow(body)
+                with self.assertRaises(clean.AcceptanceError) as raised:
+                    clean.api_samples(flow)
+                self.assertEqual(str(raised.exception), "ACCEPTANCE_GALLERY_SAMPLE_INVALID")
+
+    def test_default_product_json_contract_and_health_readiness_remain_strict(self):
+        flow, client = self.flow(b'[]')
+        with self.assertRaisesRegex(ProductError, "PRODUCT_RESPONSE_INVALID"):
+            client.request("GET", "/api/gallery")
+        flow, _client = self.flow(b'[]', healthy=False)
+        with self.assertRaisesRegex(clean.AcceptanceError, "ACCEPTANCE_API_NOT_READY"):
+            clean.api_samples(flow)
+
+
 class ExtendedEvidenceTests(unittest.TestCase):
     def boundaries(self, stack):
         flow = Mock(checks={"auth": {"status": "PASS"}})
         flow.run.return_value = flow.checks
         flow.verify_persistence.return_value = {"status": "PASS"}
         flow.guest.request.return_value = {"ok": True, "ready": True}
+        flow.owner.request.side_effect = lambda _method, route, **_options: b'[]' if route == "/api/gallery" else {}
         flow.close.return_value = {"sessionCleanup": "PASS"}
 
         def factory(project, sha, web_port=48125, api_port=48126, **_options):

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import re
 import uuid
@@ -34,9 +35,38 @@ def check(condition: bool, code: str) -> None:
         raise RuntimeError(code)
 
 
-def inspect_stack(shadow) -> dict:
+def check_backend_credentials(shadow, container, env, *, expected_ephemeral_admin_code=None) -> None:
     from tools.agent_system.env_runtime import EMPTY_CREDENTIAL_KEYS
 
+    if expected_ephemeral_admin_code is None:
+        check(all(env.get(k) == "" for k in EMPTY_CREDENTIAL_KEYS), "SHADOW_CREDENTIAL_PRESENT")
+        return
+    from tools.docker_shadow_executor import IsolatedExecutor
+
+    check(isinstance(expected_ephemeral_admin_code, str)
+          and re.fullmatch(r"[A-Za-z0-9_-]{32,128}", expected_ephemeral_admin_code) is not None,
+          "SHADOW_ADMIN_CODE_INVALID")
+    check(getattr(shadow, "fixture", False) is True
+          and isinstance(getattr(shadow, "executor", None), IsolatedExecutor)
+          and container["Config"].get("Cmd") == ["python", "/opt/izo/fixtures/docker_shadow_fixture.py"]
+          and container["Config"].get("Entrypoint") in (None, [])
+          and all(env.get(key) == "test" for key in ("APP_ENV", "ENV", "MODE"))
+          and env.get("IZO_SHADOW_FIXTURE") == "controlled-comfyui-v1"
+          and env.get("COMFYUI_BASE_URL") == "http://127.0.0.1:48991"
+          and env.get("COMFYUI_MOCK_FALLBACK") == "false"
+          and env.get("BILLING_SIMULATOR_ENABLED") == "true"
+          and type(shadow.web_port) is int and 20000 <= shadow.web_port <= 65535
+          and env.get("PUBLIC_SITE_URL") == f"http://127.0.0.1:{shadow.web_port}",
+          "SHADOW_ADMIN_PROFILE_REQUIRED")
+    actual_code = env.get("ADMIN_ONE_TIME_CODE")
+    check(isinstance(actual_code, str) and actual_code.isascii()
+          and hmac.compare_digest(actual_code, expected_ephemeral_admin_code),
+          "SHADOW_ADMIN_CODE_MISMATCH")
+    check(all(env.get(key) == "" for key in EMPTY_CREDENTIAL_KEYS if key != "ADMIN_ONE_TIME_CODE"),
+          "SHADOW_CREDENTIAL_PRESENT")
+
+
+def inspect_stack(shadow, *, expected_ephemeral_admin_code=None) -> dict:
     shadow.ownership_guard()
     containers = shadow.containers()
     check(len(containers) == 3, "SHADOW_CONTAINER_COUNT")
@@ -86,7 +116,8 @@ print(json.dumps({'defaultRoutePresent':any(r.split()[1]=='00000000' for r in Pa
         check(all(m["Type"] in {"volume", "tmpfs"} for m in mounts), "SHADOW_HOST_MOUNT")
         if service == "backend":
             env = dict(item.split("=", 1) for item in container["Config"]["Env"])
-            check(all(env.get(k) == "" for k in EMPTY_CREDENTIAL_KEYS), "SHADOW_CREDENTIAL_PRESENT")
+            check_backend_credentials(shadow, container, env,
+                                      expected_ephemeral_admin_code=expected_ephemeral_admin_code)
             check(env["DATABASE_URL"] == "/home/izo/data/app.sqlite3"
                   and env["MEDIA_DIR"] == "/home/izo/media", "SHADOW_STORAGE_PATH")
             check(env["BOT_MODE"] == env["MAX_UPDATES_MODE"] == "disabled", "SHADOW_BOT_ENABLED")
@@ -265,7 +296,7 @@ print(json.dumps(result))
             shadow.docker("rm", "-f", peer)
 
 
-def prove(shadow, receipt: Path, *, build: bool = True) -> None:
+def prove(shadow, receipt: Path, *, build: bool = True, expected_ephemeral_admin_code=None) -> None:
     result = {"contract": "SHADOW-TOPOLOGY-01", "repository": "spikeal8-maker/IZO_ASA",
               "sourceSha": shadow.sha, "project": shadow.project, "startedAt": now(),
               "status": "FAIL", "cycles": [],
@@ -277,6 +308,8 @@ def prove(shadow, receipt: Path, *, build: bool = True) -> None:
     boundary_before = None
     boundary = "executor" if executor is not None else "production"
     expected_comparison = "PASS" if executor is not None else "PROVEN"
+    inspection = {} if expected_ephemeral_admin_code is None else {
+        "expected_ephemeral_admin_code": expected_ephemeral_admin_code}
     try:
         shadow.source_guard()
         if executor is not None:
@@ -292,7 +325,7 @@ def prove(shadow, receipt: Path, *, build: bool = True) -> None:
         shadow.up(build=build)
         config = shadow.config()
         result["configSha256"] = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()
-        result["containersBefore"] = inspect_stack(shadow)
+        result["containersBefore"] = inspect_stack(shadow, **inspection)
         result["http"] = http_proof(shadow)
         backend = result["containersBefore"]["backend"]["container"]
         result["egress"] = egress_proof(shadow, backend)
@@ -303,7 +336,7 @@ def prove(shadow, receipt: Path, *, build: bool = True) -> None:
             # Review repair: one controlled up -> smoke -> recreate -> smoke.
             # The original two down/build/up receipts remain historical evidence.
             shadow.up(build=False, recreate=True)
-            current = inspect_stack(shadow)
+            current = inspect_stack(shadow, **inspection)
             state = fixture(shadow, current["backend"]["container"], marker, create=False)
             check(state == before, "SHADOW_APPLICATION_COUNTS_CHANGED")
             result["cycles"].append({"cycle": cycle + 1, "status": "PASS", "state": state,
@@ -314,7 +347,14 @@ def prove(shadow, receipt: Path, *, build: bool = True) -> None:
         result["cleanup"] = "Shadow left running for owner inspection; named fixture volumes retained."
         result["status"] = "PASS" if executor is not None else "GATEWAY_LISTENER_PROOF_BLOCKED"
     except Exception as exc:
-        result["error"] = type(exc).__name__ + ": " + str(exc)
+        if expected_ephemeral_admin_code is None:
+            result["error"] = type(exc).__name__ + ": " + str(exc)
+        else:
+            message = str(exc)
+            result["error"] = message if message in {
+                "SHADOW_ADMIN_CODE_INVALID", "SHADOW_ADMIN_PROFILE_REQUIRED", "SHADOW_ADMIN_CODE_MISMATCH",
+                "SHADOW_CREDENTIAL_PRESENT"} else "SHADOW_ADMIN_PROOF_FAILED"
+            raise RuntimeError(result["error"]) from None
         raise
     finally:
         if boundary_before is not None:

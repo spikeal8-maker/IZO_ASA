@@ -193,9 +193,17 @@ def api_samples(flow: ProductFlow) -> list[dict]:
         for client, route in ((flow.guest, "/api/health"), (flow.owner, "/api/me-v2"),
                               (flow.owner, "/api/gallery"), (flow.guest, "/api/feed")):
             started = time.monotonic()
-            payload = client.request("GET", route)
+            payload = client.request("GET", route, binary=route == "/api/gallery")
             row = {"method": "GET", "route": route, "httpStatus": 200,
                    "milliseconds": round(1000 * (time.monotonic() - started), 3)}
+            if route == "/api/gallery":
+                try:
+                    payload = json.loads(payload)
+                except (ValueError, UnicodeError, TypeError):
+                    raise AcceptanceError("ACCEPTANCE_GALLERY_SAMPLE_INVALID") from None
+                require(isinstance(payload, list) and all(isinstance(item, dict) for item in payload),
+                        "ACCEPTANCE_GALLERY_SAMPLE_INVALID")
+                row["items"] = len(payload)
             if route == "/api/health":
                 row.update(ok=payload.get("ok"), ready=payload.get("ready"))
                 require(row["ok"] is True and row["ready"] is True, "ACCEPTANCE_API_NOT_READY")
@@ -263,6 +271,7 @@ def extended_probes(shadow: Shadow, flow: ProductFlow, attestation: dict, direct
     from tools.docker_clean_storage import rehearse_storage
     from tools.docker_clean_recovery import prove_recovery
     from tools.docker_clean_features import prove_features
+    from tools.docker_clean_admin_runtime import rehearse_admin
     directory.mkdir(parents=True, exist_ok=False)
     web, api = ports()
     restored = Shadow(shadow.project + "-restore", shadow.sha, web, api, fixture=True,
@@ -273,6 +282,7 @@ def extended_probes(shadow: Shadow, flow: ProductFlow, attestation: dict, direct
         "storage": lambda: rehearse_storage(shadow, restored, flow, directory / "storage"),
         "recovery": lambda: prove_recovery(shadow, attestation, directory / "recovery.json"),
         "features": lambda: prove_features(flow, directory / "features.json"),
+        "admin": lambda: rehearse_admin(shadow, directory / "admin"),
     }
     for name, probe in probes.items():
         try:
@@ -321,6 +331,7 @@ def execute_run(shadow: Shadow, directory: Path, *, build: bool, base: str, host
         stage, started = "product-api", time.monotonic()
         flow = ProductFlow(attestation)
         report["product"] = flow.run()
+        stage = "api-latency"
         report["apiLatencySamples"] = api_samples(flow)
         report["timings"]["apiProductSeconds"] = round(time.monotonic() - started, 3)
         report["checks"]["D1-03"] = {"status": "PASS", "evidence": "product.auth"}

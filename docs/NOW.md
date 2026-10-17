@@ -35,10 +35,10 @@ Next: `CONTAINER-PRODUCTION-001` (#126).
 
 D0 и Docker DEV/TEST foundation (#115) приняты ранее; #124 завершён.
 PR #186/#191 интегрированы с main; Draft #192 хранит checkpoint `d6ecb7f`.
-Д1 на `03a9d850` пройден на двух VM. Docker `d6ecb7f` — startup FAIL;
-полный CI этого SHA — FAIL: один тест Windows. Продолжение:
+Д1 `03a9d850` пройден на двух VM. `d6ecb7f`: startup/Full CI FAIL.
+`55561492` стартует; замер gallery FAIL. Исправление и Д2/Д3:
 `agent/docker-acceptance-repair-001`.
-Предшественник закрыт только как ownership checkpoint. Д2/Д3 ещё не приняты.
+Ownership checkpoint завершён; кандидат ещё не принят.
 #126 не начат; production не переключать.
 
 Профили DEV, Shadow и будущей поставки: [docker-environments.md](docker-environments.md).
