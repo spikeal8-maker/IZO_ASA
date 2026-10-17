@@ -1,0 +1,95 @@
+manifestVersion = 1
+id = "DOCS-MODULAR-001"
+baseSha = "4360bcc593aaa051d7e7f6f57e74fcc262cb0986"
+goal = "Split one oversized active 1474-line normative Design System document into a compact index and topic-local chapters while preserving all source chapters exactly, and document bounded authored Markdown rules."
+userOutcome = "Coding agents read an 8-KiB index and only one relevant chapter instead of an 83-KiB full Design System; scoped documentation guidance prevents accidental duplicate long documents."
+beforeScenario = "docs/IZO_ACA_Design_System_2.0-full.md is an 83429-byte, 1474-line complete specification, exceeding safe one-read context and encouraging repetitive whole-file scans."
+afterScenario = "The same path is a <=120-line/8-KiB entry index; ten topic-specific <=200-line/12-KiB documents contain all 31 numbered original chapters verbatim, with original blob preserved in archive and compact daily spec linked correctly."
+nonGoals = [
+  "Split any other large legacy document or grow the active execution backlog",
+  "Change Design System normative content, tokens, UI components, code or product behavior",
+  "Change Docker migration, runtime, data, providers, CI pipelines or operational runbooks",
+  "Introduce a second global agent entry hierarchy or bypass scoped policies",
+  "Raise existing architecture code-size limits or claim new runtime/CI verification",
+]
+declaredFiles = [
+  "docs/AGENTS.md",
+  "docs/documentation-standards.md",
+  "docs/IZO_ACA_Design_System_2.0-full.md",
+  "docs/izo-asa-design-system-20260716.md",
+  "archive/docs/2026-10-17/IZO_ACA_Design_System_2.0-full-20261017.md",
+  "archive/docs/2026-10-17/README.md",
+  "docs/design-system/01-04-introduction-principles.md",
+  "docs/design-system/05-07-navigation-workspace.md",
+  "docs/design-system/08-09-color-type.md",
+  "docs/design-system/10-11-spacing-surfaces.md",
+  "docs/design-system/12-15-controls-media.md",
+  "docs/design-system/16-18-billing-states-motion.md",
+  "docs/design-system/19-22-product-pages.md",
+  "docs/design-system/23-26-responsive-accessibility.md",
+  "docs/design-system/27-28-css-quality.md",
+  "docs/design-system/29-31-governance-sources.md",
+]
+allowedPatterns = [
+
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+  "tools/**",
+  ".github/**",
+  "docs/NOW.md",
+  "docs/context/**",
+  "docs/generated/**",
+]
+protectedFilesTouched = [
+
+]
+domain = "documentation-maintenance"
+riskClass = "low"
+changeClass = "docs-structure"
+maxProductionFiles = 0
+maxChangedLines = 4000
+acceptance = [
+  "The original full document Git blob SHA 06b273d294d8229207e26feb2ed23618d058ce41 is copied byte-identically to the historical archive.",
+  "Exactly 31 numbered # headings occur once and in order across 10 modular files; all original lines 124-1474 are preserved verbatim.",
+  "The old path now serves an index <=120 lines <=8192 UTF-8 bytes, whose 10 links resolve to chapter files.",
+  "Each new chapter <=200 physical lines and <=12288 UTF-8 bytes; no chapter has broken local links, unbalanced fences or truncated HTML blocks.",
+  "The existing compact design system points to the index and retains normative precedence without creating a second source of truth.",
+  "Scoped docs/AGENTS.md defines sizes for new handwritten Markdown without overriding the existing context/generated and source-size budgets.",
+  "All modified paths are declared in this manifest; no product, CI, Docker, generated docs, master spec or current status files change.",
+  "Independent review and source-only structural checks are recorded; exact-head full CI is not fabricated and deployment is not claimed.",
+]
+requiredEvidence = [
+  "Fresh base and candidate exact SHA plus list of conflicting PR paths",
+  "All 31 original headings and source-byte-equivalent chapter extraction proof",
+  "Index and chapter byte/line-size receipts and relative link checks",
+  "Archived original exact blob verification and reversible rollback",
+  "GitHub compare changed paths, scope/size receipt, and targeted instruction/config tests if safely available",
+  "Safety note: shared-host heavy Windows CI not started solely for a docs change; any waiver requires explicit recorded rationale",
+]
+targetedTests = [
+  "tools/test_agent_instructions.py",
+  "tools/test_context_docs.py",
+  "tools/test_agent_package.py",
+  "tools/test_agent_enforce.py",
+]
+fileGrowthExpectations = [
+  "Original oversized active normative doc shrinks from 1474 to <=120 lines; all chapters are <=200 lines and <=12KiB.",
+  "No production or generated source size increases; existing code size policy remains unchanged.",
+]
+forbiddenOperations = [
+  "direct-main",
+  "force-push",
+  "docker-lifecycle",
+  "production-mutation",
+  "real-provider-call",
+  "network-change",
+  "host-settings-change",
+  "dependency-change",
+  "generated-evidence-change",
+  "cross-project-change",
+]
+rollbackBoundary = "Revert this one documentation merge: restore original full Git blob 06b273d294d8229207e26feb2ed23618d058ce41, remove only the ten added chapters/new standard, and restore two short documentation pointers. All working services, other PRs and user data remain untouched."

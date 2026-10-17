@@ -27,6 +27,12 @@ rules for `docs/**`; it does not own the reading order itself.
 - Do not claim runtime/deployment state from documentation alone; deployment
   requires installed exact-SHA evidence.
 
+## Читаемость и разбиение больших документов
+
+- Для новых рукописных тематических Markdown: не более **200 строк и 12 КиБ UTF-8**; для короткого указателя — не более **120 строк и 8 КиБ**. Действующие `docs/context/*.md` используют собственный контракт до 250 строк, `docs/generated/**` — только генератор.
+- Старые большие документы — долг: сначала разделить по темам и сохранить исходный Git blob в архиве, затем проверить ссылки и только после этого менять смысл. Не удалять нормативные требования ради лимита.
+- Подробное правило: [`docs/documentation-standards.md`](documentation-standards.md). Для размеров кода использовать уже действующий `architecture/contract.json`, не устанавливать параллельный норматив.
+
 ## Status and package documentation
 
 - Update `docs/NOW.md` only when completed/active/next package, blocker,
