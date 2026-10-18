@@ -212,12 +212,13 @@ try {
   const model = config.modes?.text_to_video?.find((m) => m.id === 'local/ltx-2.3-fast-q3')
   ensure(model?.available !== false && model?.provider === 'local_ltx' && config.feedPublicationEnabled === true,
     'D3_LTX_NOT_CONFIGURED')
+  const admissionError = 'D3_LTX_ADMISSION_INVALID'
   const payload = { mode: 'text_to_video', model: model.id, prompt: 'Controlled moving test pattern',
     duration: 2, resolution: '480p', aspectRatio: '16:9', generateAudio: false }
   const quote = await api(owner, 'POST', '/api/video/estimate', payload), videoBefore = await accounting()
   ensure(quote.pricingSource === 'local_profile' && quote.chargedTokens === 1, 'D3_LTX_QUOTE_INVALID')
   const start = await api(owner, 'POST', '/api/video/generate', payload), videoId = id(start.id)
-  ensure(start.status === 'queued' && start.tokenCost === quote.chargedTokens, 'D3_LTX_ADMISSION_INVALID')
+  ensure(start.status === 'queued' && start.tokenCost === quote.chargedTokens, admissionError)
   const video = await poll(() => api(owner, 'GET', `/api/video/jobs/${videoId}`), (v) => v.status === 'completed',
     (v) => ['queued', 'pending', 'in_progress', 'finalizing'].includes(v.status))
   const phoneVideo = await api(owner, 'GET', `/api/phone/v1/jobs/${videoId}`)

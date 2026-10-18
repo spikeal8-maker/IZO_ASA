@@ -185,9 +185,9 @@ def image_inventory(shadow):
     for line in rows:
         row = json.loads(line)
         require(re.fullmatch(r"sha256:[a-f0-9]{64}", str(row.get("ID"))), "D3_HANDOFF_INVENTORY_INVALID")
-        key = row["Repository"] + ":" + row["Tag"] if row["Repository"] != "<none>" else row["ID"]
-        require(key not in result, "D3_HANDOFF_INVENTORY_DUPLICATE")
-        result[key] = row["ID"]
+        image_ref = row["Repository"] + ":" + row["Tag"] if row["Repository"] != "<none>" else row["ID"]
+        require(image_ref not in result, "D3_HANDOFF_INVENTORY_DUPLICATE")
+        result[image_ref] = row["ID"]
     return result
 
 

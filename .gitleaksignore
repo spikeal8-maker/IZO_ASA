@@ -1,3 +1,7 @@
 # CI 757 false positive: API: precedes the public task ID SHADOW-TOPOLOGY-01.
 # The live wording is fixed. Ignore only this historical finding, not a rule/path.
 16e740054c7b53176b7bbd0487340333d7b39cf1:docs/NOW.md:generic-api-key:41
+# Public D3 LTX admission diagnostic; numeric token accounting comparison.
+b7d708d080445acd9dc99c529183bce8dbc02ba3:tools/docker_d3_chat_video.mjs:generic-api-key:220
+# Public D3 inventory duplicate diagnostic; local image reference identifier.
+b7d708d080445acd9dc99c529183bce8dbc02ba3:tools/docker_d3_images.py:generic-api-key:189
