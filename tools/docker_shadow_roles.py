@@ -92,6 +92,47 @@ def runtime_guard(shadow, container, service):
                 "SHADOW_ROLE_RUNTIME_WORKER_INVALID")
 
 
+def retained_runtime(shadow, containers, images):
+    """Prove the unchanged guard/web boundary around a fixture-only API recycle."""
+    require(shadow.fixture is True and len(containers) == 5, "SHADOW_RETAINED_STACK_INVALID")
+    rows = {row["Config"]["Labels"].get("com.docker.compose.service"): row for row in containers}
+    require(set(rows) == services(shadow) and len({row["Id"] for row in containers}) == 5,
+            "SHADOW_RETAINED_STACK_INVALID")
+    guard, result = rows["guard"], {}
+    for name, row in rows.items():
+        labels, host = row["Config"]["Labels"], row["HostConfig"]
+        networks, bindings = row["NetworkSettings"]["Networks"], host.get("PortBindings") or {}
+        require(labels.get("io.izo.owner") == "SHADOW-TOPOLOGY-01"
+                and labels.get("com.docker.compose.project") == shadow.project
+                and labels.get("com.docker.compose.oneoff", "").lower() == "false"
+                and row["Image"] == images[name], "SHADOW_RETAINED_IDENTITY_INVALID")
+        require(host.get("CapDrop") == ["ALL"] and not host.get("Privileged")
+                and "no-new-privileges:true" in host.get("SecurityOpt", []), "SHADOW_RETAINED_PRIVILEGE_INVALID")
+        require(all(mount.get("Type") in {"volume", "tmpfs"} for mount in row["Mounts"]),
+                "SHADOW_RETAINED_HOST_MOUNT")
+        if name == "guard":
+            require(set(networks) == {shadow.project + "_shadow"} and host.get("Dns") == ["127.0.0.1"]
+                    and set(host.get("CapAdd") or []) == {"NET_ADMIN", "SETUID", "SETGID"}
+                    and len(bindings) == 2 and all(port.get("HostIp") == "127.0.0.1"
+                        for ports in bindings.values() for port in ports)
+                    and row["State"].get("Health", {}).get("Status") == "healthy", "SHADOW_RETAINED_GUARD_INVALID")
+        else:
+            require(host.get("NetworkMode") == "container:" + guard["Id"] and not networks and not bindings
+                    and not host.get("CapAdd"), "SHADOW_RETAINED_NAMESPACE_INVALID")
+        runtime_guard(shadow, row, name)
+        if name in {"guard", "web"}:
+            state = row["State"]
+            require(row["Config"].get("User") == ("0:0" if name == "guard" else "101:101")
+                    and host.get("ReadonlyRootfs") is True and not any(mount["Type"] == "volume" for mount in row["Mounts"]),
+                    "SHADOW_RETAINED_CONFIG_INVALID")
+            require(state["Running"] and type(state["Pid"]) is int and state["Pid"] > 0,
+                    "SHADOW_RETAINED_PROCESS_STOPPED")
+            result[name] = {"containerId": row["Id"], "imageId": row["Image"], "hostPid": state["Pid"],
+                "startedAt": state["StartedAt"], "restartCount": row["RestartCount"], "ports": bindings,
+                "networkMode": host["NetworkMode"], "networkIds": {key: value["NetworkID"] for key, value in networks.items()}}
+    return result
+
+
 IPC_PROBE = r'''
 import json,os,stat
 from pathlib import Path

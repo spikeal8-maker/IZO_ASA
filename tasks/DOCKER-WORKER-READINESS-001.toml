@@ -181,6 +181,7 @@ declaredFiles = [
   "tools/test_generate_architecture_inventory.py",
   "backend/test_generation_process_ownership.py",
   "backend/test_generation_worker_status_support.py",
+  "tools/test_docker_shadow_lifecycle.py",
 ]
 allowedPatterns = [
   "tools/docker_clean_browser.mjs",
@@ -343,3 +344,8 @@ recordedAtUtc = "2026-10-18T13:17:50.879356Z"
 path = "backend/test_generation_worker_status_support.py"
 reason = "Isolate proven Windows concurrent status reader rename conflict in test-only sidecar locking, preserving actual original atomic writer, health parser, process IDs, provider and lifecycle assertions"
 recordedAtUtc = "2026-10-18T14:12:36.328018Z"
+
+[[scopeExpansions]]
+path = "tools/test_docker_shadow_lifecycle.py"
+reason = "Preserve ownership, retained guard/web isolation, exact image and full D1 lifecycle invariants while removing repeated Docker metadata reads and recovery-only recreates after the measured 45-minute timeout"
+recordedAtUtc = "2026-10-18T15:51:50.736886Z"

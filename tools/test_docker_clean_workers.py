@@ -52,6 +52,7 @@ def rows():
 def run_object():
     shadow = Mock(fixture=True, project=PROJECT)
     shadow.containers.return_value = rows()
+    shadow.ownership_guard.side_effect = lambda: shadow.containers()
     shadow.docker.side_effect = lambda _exec, cid, *_args, **_kwargs: json.dumps(status(1 if cid == '2' * 64 else 2))
     return SimpleNamespace(shadow=shadow, images={name: IMAGE for name in workers.roles.services(shadow)},
         user_ids=['owner', 'other'], guard=Mock(), checkpoint=Mock(), inside=Mock(), flow=Mock(),

@@ -133,35 +133,45 @@ class Shadow:
         ids = self.docker("ps", "-aq", "--filter", f"label=com.docker.compose.project={self.project}").split()
         return json.loads(self.docker("inspect", *ids)) if ids else []
 
-    def ownership_guard(self) -> None:
-        for container in self.containers():
+    def ownership_guard(self) -> list[dict]:
+        containers = self.containers()
+        for container in containers:
             labels = container["Config"].get("Labels", {})
             if labels.get("io.izo.owner") != OWNER or labels.get("com.docker.compose.service") not in roles.services(self):
                 raise ShadowError("SHADOW_FOREIGN_CONTAINER")
-        for kind in ("volume", "network"):
+        expected = {"volume": {f"{self.project}_{name}" for name in roles.backend_targets(self).values()},
+                    "network": {f"{self.project}_shadow"}}
+        for kind, wanted in expected.items():
             ids = self.docker(kind, "ls", "-q", "--filter", f"label=com.docker.compose.project={self.project}").split()
-            if ids:
-                for resource in json.loads(self.docker(kind, "inspect", *ids)):
-                    if resource.get("Labels", {}).get("io.izo.owner") != OWNER:
-                        raise ShadowError(f"SHADOW_FOREIGN_{kind.upper()}")
-        # Reject an unlabeled resource squatting on a Compose-generated name too.
-        expected = [("volume", f"{self.project}_{name}") for name in roles.backend_targets(self).values()]
-        expected.append(("network", f"{self.project}_shadow"))
-        for kind, name in expected:
-            names = self.docker(kind, "ls", "--format", "{{.Name}}").splitlines()
-            if name in names:
-                item = json.loads(self.docker(kind, "inspect", name))[0]
+            observed = json.loads(self.docker(kind, "inspect", *ids)) if ids else []
+            for resource in observed:
+                if (resource.get("Labels") or {}).get("io.izo.owner") != OWNER:
+                    raise ShadowError(f"SHADOW_FOREIGN_{kind.upper()}")
+            # One inventory per kind still detects unlabeled name squatters.
+            names = set(self.docker(kind, "ls", "--format", "{{.Name}}").splitlines())
+            checked = [item for item in observed if item.get("Name") in wanted]
+            missing = sorted((wanted & names) - {item.get("Name") for item in checked})
+            if missing:
+                inspected = json.loads(self.docker(kind, "inspect", *missing))
+                if len(inspected) != len(missing) or {item.get("Name") for item in inspected} != set(missing):
+                    raise ShadowError("SHADOW_RESOURCE_NAME_COLLISION")
+                checked.extend(inspected)
+            for item in checked:
                 labels = item.get("Labels") or {}
                 if labels.get("io.izo.owner") != OWNER or labels.get("com.docker.compose.project") != self.project:
                     raise ShadowError("SHADOW_RESOURCE_NAME_COLLISION")
+        return containers
 
     def image_guard(self, config: dict) -> dict[str, str]:
         """Read image identity before lifecycle mutation and return immutable IDs."""
-        images = {}
+        images, inspected = {}, {}
         for service, settings in config["services"].items():
             reference = settings.get("image")
             if not isinstance(reference, str) or not reference:
                 raise ShadowError("SHADOW_IMAGE_REFERENCE_INVALID")
+            if reference in inspected:
+                images[service] = inspected[reference]
+                continue
             try:
                 entries = json.loads(self.docker("image", "inspect", reference))
                 if not isinstance(entries, list) or len(entries) != 1:
@@ -177,14 +187,17 @@ class Shadow:
             except (ValueError, KeyError, TypeError, AttributeError):
                 raise ShadowError("SHADOW_IMAGE_METADATA_INVALID") from None
             images[service] = image_id
+            inspected[reference] = image_id
         if self.fixture and any(images[name] != images["backend"] for name in roles.WORKERS):
             raise ShadowError("SHADOW_ROLE_WORKER_IMAGE_CHANGED")
         return images
 
-    def up(self, *, build: bool = True, recreate: bool = False) -> None:
+    def up(self, *, build: bool = True, recreate: bool = False, application_only: bool = False):
+        if type(application_only) is not bool or application_only and (not self.fixture or build or not recreate):
+            raise ShadowError("SHADOW_APPLICATION_RECREATE_INVALID")
         self.source_guard()
         config = self.config()
-        self.ownership_guard()
+        owned = self.ownership_guard()
         if build:
             # Keep cold Node/pip builds from competing for Desktop's memory.
             # A failed build must leave the currently running stack untouched.
@@ -193,9 +206,12 @@ class Shadow:
         images = self.image_guard(config)
         # A long build may overlap local edits. Never start them with an old SHA.
         self.source_guard()
+        retained = roles.retained_runtime(self, owned, images) if application_only else None
         args = ["up", "-d", "--wait", "--wait-timeout", "180", "--no-build", "--pull", "never"]
         if recreate:
             args.append("--force-recreate")
+        if application_only:
+            args.extend(["--no-deps", "backend", *roles.WORKERS])
         # Tags are mutable even after inspection. Compose receives only the
         # verified local IDs, and cannot pull replacements from a registry.
         with tempfile.TemporaryDirectory(prefix="izo-shadow-images-") as directory:
@@ -205,6 +221,11 @@ class Shadow:
                 for service, image_id in images.items()
             }}), encoding="utf-8")
             self.compose(*args, override=override, capture=False, timeout=1200)
+        if application_only:
+            after = roles.retained_runtime(self, self.ownership_guard(), images)
+            if after != retained:
+                raise ShadowError("SHADOW_RETAINED_RUNTIME_CHANGED")
+            return {"before": retained, "after": after}
 
 
 def main() -> int:

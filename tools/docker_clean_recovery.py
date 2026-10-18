@@ -148,8 +148,7 @@ class RecoveryRun:
         shadow.ownership_guard()
 
     def backend(self, *, running=True):
-        self.shadow.ownership_guard()
-        rows = [row for row in self.shadow.containers()
+        rows = [row for row in self.shadow.ownership_guard()
                 if row["Config"]["Labels"].get("com.docker.compose.service") == "backend"]
         require(len(rows) == 1 and (not running or rows[0]["State"]["Running"]), "RECOVERY_BACKEND_UNAVAILABLE")
         require(rows[0]["Image"] == self.images["backend"], "RECOVERY_BACKEND_IMAGE_CHANGED")
@@ -231,7 +230,7 @@ class RecoveryRun:
         volumes = sorted(mount["Name"] for mount in before["Mounts"] if mount["Type"] == "volume")
         require(volumes == sorted(self.shadow.project + "_" + name for name in roles.backend_targets(self.shadow).values()),
                 "RECOVERY_VOLUMES_INVALID")
-        self.shadow.up(build=False, recreate=True)
+        retained = self.shadow.up(build=False, recreate=True, application_only=True)
         after = self.backend()
         require(after["Id"] != before["Id"] and volumes == sorted(
             mount["Name"] for mount in after["Mounts"] if mount["Type"] == "volume"), "RECOVERY_VOLUMES_CHANGED")
@@ -239,7 +238,7 @@ class RecoveryRun:
         provider = self.provider()
         require(provider["provider"]["counts"].get("accepted", 0) == 0, "RECOVERY_JOB_REPLAYED")
         return {"beforeContainer": before["Id"], "afterContainer": after["Id"],
-                "image": after["Image"], "volumes": volumes, "provider": provider}
+                "image": after["Image"], "volumes": volumes, "provider": provider, "retainedRuntime": retained}
 
     def cancel(self, ids, key):
         observations = []
