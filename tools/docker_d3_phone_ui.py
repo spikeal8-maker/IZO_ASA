@@ -14,7 +14,7 @@ import time
 import uuid
 
 
-EXPECTED_HELPER_SHA = "37c32cf6a6ba66b0e45ad8b79c3e860f6ee49eea3b1415ac787066c268f6589a"
+EXPECTED_HELPER_SHA = "516d427f17346d064f911a76b5628a5303bd3d26c6865425b7852f8b95868cad"
 LIMIT = 16384
 SHA = re.compile(r"[0-9a-f]{40}")
 CASE_NAMES = tuple(name for width in (390, 430) for name in (
@@ -101,7 +101,7 @@ def validate_browser(value, expected):
     for key in ("schema", "sourceSha", "jobIdentity", "runId", "helperSha256", "buildIndexSha256", "runnerSha256"):
         require(value.get(key) == expected[key], "D3_PHONE_UI_IDENTITY_MISMATCH")
     require(value.get("status") == "PASS" and value.get("browserCleanup") == "PASS"
-            and value.get("serverCleanup") == "PASS" and "errorCode" not in value,
+            and value.get("serverCleanup") == "PASS" and "errorCode" not in value and "failure" not in value,
             "D3_PHONE_UI_EXECUTION_FAILED")
     proof = value.get("proof", {})
     require(isinstance(proof, dict) and proof.get("status") == "PASS"

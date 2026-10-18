@@ -133,6 +133,11 @@ try {
   try { await within(work(), 125000) }
   catch (error) { timedOut = true; throw error }
 } catch (error) {
+  const failure = error?.phoneUiFailure
+  if (expectedCases.includes(failure?.case) && ['TIMEOUT', 'ASSERTION', 'ERROR'].includes(failure.kind)
+    && Number.isInteger(failure.sourceLine) && failure.sourceLine >= 0 && failure.sourceLine <= 500) {
+    report.failure = { case: failure.case, kind: failure.kind, sourceLine: failure.sourceLine }
+  }
   report.status = 'FAIL'
   report.errorCode = /^D3_PHONE_UI_[A-Z_]+$/.test(error?.message || '') ? error.message : 'D3_PHONE_UI_CHECK_FAILED'
 } finally {

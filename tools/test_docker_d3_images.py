@@ -64,7 +64,7 @@ class ArchiveTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        self.root = Path(self.directory.name)
+        self.root = Path(self.directory.name).resolve()
         self.path = self.root / "images.tar"
         self.files, self.tags = members()
 

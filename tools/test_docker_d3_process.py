@@ -42,6 +42,15 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(result["cleanup"]["killSignals"], 0)
 
     @unittest.skipUnless(sys.platform == "linux", "D3 installed browser executor requires Linux")
+    def test_already_waitable_adopted_grandchild_needs_no_signal(self):
+        result = self.execute("import os;from pathlib import Path;child=os.fork(); "
+            "os._exit(0) if child==0 else Path('descendant.pid').write_text(str(child)); "
+            "os.waitid(os.P_PID,child,os.WEXITED|os.WNOWAIT)")
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual([result["cleanup"][key] for key in ("rawChildrenBeforeReap", "reapedBeforeSignal",
+            "childrenAtShutdown", "termSignals", "killSignals", "remainingChildren")], [1, 1, 0, 0, 0, 0])
+
+    @unittest.skipUnless(sys.platform == "linux", "D3 installed browser executor requires Linux")
     def test_detached_grandchild_is_reaped_and_never_counts_as_clean_success(self):
         code = ("import os,subprocess,sys,time; "
             "p=subprocess.Popen([sys.executable,'-c',\"import os,time;open('descendant.pid','w').write(str(os.getpid()));time.sleep(60)\"],start_new_session=True); "
@@ -211,6 +220,26 @@ class FakeSupervisorTests(unittest.TestCase):
             self.assertEqual(result["cleanup"]["reaped"], 257)
             self.assertEqual(result["cleanup"]["remainingChildren"], 0)
             self.assertEqual({call.args[0] for call in env.kill.call_args_list}, set(range(10000, 10257)))
+
+    def test_pre_signal_reap_preserves_live_child_and_overflow_denials(self):
+        for exited, live, expected in ((2, 0, "PASS"), (1, 1, "FAIL"), (257, 0, "FAIL")):
+            with self.subTest(exited=exited, live=live), self.environment() as env:
+                owned, dead = set(range(202, 202 + exited + live)), list(range(202, 202 + exited))
+                def wait(_pid, _options):
+                    if not dead:
+                        return 0, 0
+                    pid = dead.pop()
+                    owned.remove(pid)
+                    return pid, 0
+                env.read.side_effect = lambda: (sorted(owned), len(owned) > 256, False)
+                env.wait.side_effect = wait
+                env.kill.side_effect = lambda pid, _sig: dead.append(pid) if pid not in dead else None
+                result = self.run_supervisor()
+                self.assertEqual(result["status"], expected)
+                cleanup = result["cleanup"]
+                self.assertEqual((cleanup["rawChildrenBeforeReap"], cleanup["reapedBeforeSignal"]), (exited + live, exited))
+                self.assertEqual((cleanup["childrenAtShutdown"], cleanup["remainingChildren"]), (live, 0))
+                self.assertEqual([call.args[0] for call in env.kill.call_args_list], list(range(202 + exited, 202 + exited + live)))
 
     def test_reaped_pid_reused_by_a_new_owned_child_is_signalled_again(self):
         state, signals = {"generation": 1, "dead": False}, []

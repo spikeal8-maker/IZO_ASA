@@ -103,6 +103,8 @@ def test_copy_boundary_is_backend_and_explicit_fixtures_only() -> None:
         "COPY --chown=10001:10001 backend/ /opt/izo/backend/",
         "COPY --chown=10001:10001 tools/docker_shadow_provider.py "
         "tools/docker_shadow_fixture.py /opt/izo/fixtures/",
+        "COPY --chown=10001:10001 tools/docker_d3_chat_video_provider.py "
+        "tools/docker_d3_audio_provider.py tools/docker_d3_audio_fixture.py /opt/izo/fixtures/",
     ]
     assert "ops/docker/agent-sandbox" not in text
 

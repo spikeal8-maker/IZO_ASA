@@ -88,6 +88,12 @@ class ReceiptTests(unittest.TestCase):
             with self.assertRaisesRegex(ui.UiFailure, "EXECUTION_FAILED"):
                 ui.validate_browser(receipt, expected())
 
+    def test_failure_detail_cannot_be_promoted_to_pass(self):
+        receipt = browser_receipt()
+        receipt["failure"] = {"case": ui.CASE_NAMES[0], "sourceLine": 140, "kind": "TIMEOUT"}
+        with self.assertRaisesRegex(ui.UiFailure, "EXECUTION_FAILED"):
+            ui.validate_browser(receipt, expected())
+
     def test_no_child_cleanup_counterexample_can_pass(self):
         ui.validate_process(process_receipt())
         for key, value in {"status": "FAIL", "childrenAtShutdown": 1, "remainingChildren": 1,

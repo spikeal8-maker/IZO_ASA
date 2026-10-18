@@ -85,8 +85,8 @@ SHA. Это не `DEPLOYED` и не `OPERATIONALLY VERIFIED`.
   "source_fingerprint_algorithm": "sha256-decorated-source-v1",
   "evidence_artifact_algorithm": "sha256-normalized-text-v1",
   "evidence_artifacts": [
-    {"path": "backend/main.py", "fingerprint": "sha256:8a7b745accd3a10d070bdfeb7eb05da633fcccb415bc9af169c1e591054edd44"},
-    {"path": "backend/SYMBOL_MAP.md", "fingerprint": "sha256:25f3e7ea80696a8efead3797f7f67c91d36ceb9ac458f4d3cb951510e2bc2de3"},
+    {"path": "backend/main.py", "fingerprint": "sha256:2fa5862f44c8ded5392c732ae4afb539e0551d05c7a23af66f1c237a76250a6f"},
+    {"path": "backend/SYMBOL_MAP.md", "fingerprint": "sha256:4cf0a6970abbc82ba6b11154df2127d092c3d9bc15651afdbc084e92d3645a7f"},
     {"path": "backend/test_admin_v2.py", "fingerprint": "sha256:95662d4a3f7ffc28b93bf215b0b53bde276fee4d635decb5b18fd366e88481b2"},
     {"path": "backend/test_admin_password_reset.py", "fingerprint": "sha256:42625c68b02dc766e87f50b5d063ce51c5d41afac781268e8e566c225e9f8145"},
     {"path": "backend/test_admin_actions.py", "fingerprint": "sha256:6379e9bd7ed0c5788e830b56c1d2ba1d2707361e934ba74a62cedd48dd2f5912"},

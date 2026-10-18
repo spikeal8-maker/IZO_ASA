@@ -1,4 +1,3 @@
-"""Linux watcher boundaries; no installed Docker or UI proof."""
 from copy import deepcopy
 import hashlib
 import io
@@ -345,6 +344,7 @@ class AdmissionTests(unittest.TestCase):
                 subject.held_job(observed, checkpoint(), HASHES, INSTANCE)
 
 
+    @patch("tools.docker_d3_images.read_file", lambda p, _: p.read_bytes().replace(b"\r\n", b"\n"))
     def test_failed_hold_prevents_browser_and_still_closes_watcher(self):
         att = {"sourceSha": SHA, "project": PROJECT, "origin": "http://127.0.0.1:28123", **dict.fromkeys(
             ("isolatedData", "fakeProviderOnly", "networkEgressDenied", "externalEffectsDisabled"), True)}
@@ -353,10 +353,10 @@ class AdmissionTests(unittest.TestCase):
         watch = Mock(owner=OWNER)
         watch.start.side_effect = ProductError("D3_PHONE_CONTROL_REJECTED")
         watch.close.return_value = {"status": "FAIL", "cleanup": "PASS", "threadAlive": False}
-        with tempfile.TemporaryDirectory() as temporary, patch.object(runner, "browser_run") as browser:
-            result = runner.prove_chat_video(flow, att, Path(temporary) / "browser",
+        with tempfile.TemporaryDirectory() as tmp, patch.object(runner, "browser_run") as browser:
+            result = runner.prove_chat_video(flow, att, Path(tmp) / "browser",
                 provider_receipt=lambda: state()["receipt"], phone_watch=lambda directory, run_id: watch)
-        browser.assert_not_called(); watch.close.assert_called_once()
+        browser.assert_not_called(); watch.start.assert_called_once(); watch.close.assert_called_once()
         self.assertEqual(result["errorCode"], "D3_PHONE_CONTROL_REJECTED")
         self.assertNotIn(PRIVATE, json.dumps(result))
 

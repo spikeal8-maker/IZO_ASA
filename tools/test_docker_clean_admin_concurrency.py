@@ -175,7 +175,11 @@ class ConcurrencyEvidenceTests(unittest.TestCase):
             return {"httpStatus": PRIVATE}
         for index in range(2):
             clients.append(SimpleNamespace(request=lambda *args, i=index, **kw: request(i, *args, **kw)))
-        result = subject._requests(clients, [{"user": "A"}, {"user": "B"}], ["trial A", "trial B"])
+        # The request barrier orders starts before finishes even within one OS clock tick.
+        clock = SimpleNamespace(monotonic_ns=iter((1, 2, 3, 4)).__next__)
+        with patch.object(subject, "time", clock):
+            result = subject._requests(clients, [{"user": "A"}, {"user": "B"}], ["trial A", "trial B"])
+        self.assertFalse(rendezvous.broken)
         self.assertEqual(len({item[1] for item in calls}), 2)
         self.assertEqual({item[3] for item in calls}, {"/api/admin/users/A/role-v2", "/api/admin/users/B/role-v2"})
         self.assertTrue(all(item["httpStatus"] == 0 for item in result))

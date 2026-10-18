@@ -79,6 +79,7 @@ def drain(process):
     deadline = started + 5
     report = {"status": "FAIL", "childrenAtShutdown": None, "termSignals": 0,
               "killSignals": 0, "reaped": 0, "remainingChildren": None,
+              "rawChildrenBeforeReap": None, "reapedBeforeSignal": 0,
               "remainingUnknown": False, "overflow": False, "errors": []}
     known, signalled = set(), {}
     first = True
@@ -93,7 +94,17 @@ def drain(process):
             report["overflow"] |= overflow
             report["remainingUnknown"] |= truncated
             if first:
-                report["childrenAtShutdown"] = len(pending)
+                report["rawChildrenBeforeReap"] = len(pending)
+                try:
+                    report["reapedBeforeSignal"] = reap(process, known, signalled, deadline)
+                    report["reaped"] += report["reapedBeforeSignal"]
+                except Exception:
+                    error("D3_PROCESS_CHILD_REAP_FAILED")
+                pending, overflow, truncated = children()
+                known.update(pending)
+                report["overflow"] |= overflow
+                report["remainingUnknown"] |= truncated
+                report["childrenAtShutdown"] = len(known)
             report["remainingChildren"] = len(pending)
             if not pending and not known:
                 break

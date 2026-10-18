@@ -259,15 +259,26 @@ async function retryImageRecovery(browser, origin, width) {
   } finally { await run.close() }
 }
 
+async function observedCase(caseName, action) {
+  try { return await action() }
+  catch (error) {
+    const line = Number(String(error?.stack || '').slice(0, 8192).match(/phoneJobRecovery\.ui\.mjs:(\d+):\d+/)?.[1] || 0)
+    const kind = error?.name === 'TimeoutError' ? 'TIMEOUT' : error?.code === 'ERR_ASSERTION' ? 'ASSERTION' : 'ERROR'
+    throw Object.assign(new Error('D3_PHONE_UI_CHECK_FAILED'), { phoneUiFailure: {
+      case: caseName, kind, sourceLine: Number.isInteger(line) && line > 0 && line <= 500 ? line : 0,
+    } })
+  }
+}
+
 export async function provePhoneJobRecoveryUI(browser, { origin }) {
   const url = new URL(origin)
   assert.ok(url.origin === origin && url.protocol === 'http:' && url.hostname === '127.0.0.1' && Number(url.port) > 1024)
   const cases = []
   for (const width of [390, 430]) {
-    cases.push(await recoverImage(browser, origin, width, 'completed'))
-    cases.push(await recoverImage(browser, origin, width, 'cancelled'))
-    for (const modality of ['image', 'video']) cases.push(await abortUnmount(browser, origin, width, modality))
-    cases.push(await retryImageRecovery(browser, origin, width))
+    cases.push(await observedCase(`image-${width}-completed`, () => recoverImage(browser, origin, width, 'completed')))
+    cases.push(await observedCase(`image-${width}-cancelled`, () => recoverImage(browser, origin, width, 'cancelled')))
+    for (const modality of ['image', 'video']) cases.push(await observedCase(`${modality}-${width}-spa-unmount`, () => abortUnmount(browser, origin, width, modality)))
+    cases.push(await observedCase(`image-${width}-recovery-retry`, () => retryImageRecovery(browser, origin, width)))
   }
   return { status: 'PASS', evidenceClass: 'mocked-api-real-phone-ui', modelExecution: false,
     acceleratorExecution: false, uiCancellation: 'NOT_SUPPORTED', installedAcceptance: 'NOT_VERIFIED', cases }
