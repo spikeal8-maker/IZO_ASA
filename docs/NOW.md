@@ -13,7 +13,7 @@ active_task_contract: github-issue-125
 baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a
 baseline_status: completed-point-A-accepted
 next_candidate: CONTAINER-PRODUCTION-001
-candidate_branch: agent/docker-acceptance-repair-001
+candidate_pr: 193
 candidate_source_sha: 9609adeecae78e6f538bcbab7eb8aa5d4b876cc4
 candidate_state: acceptance-repair-in-progress
 candidate_exact_head_ci: NOT_RUN
