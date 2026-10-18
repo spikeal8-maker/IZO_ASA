@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import json
 from typing import Any, Protocol
+import uuid
 
 
 VIDEO_JOB_MODES = (
@@ -31,6 +35,98 @@ def finalization_is_fresh(settings: dict[str, Any], *, stale_seconds: int) -> bo
     if started.tzinfo is None:
         started = started.replace(tzinfo=timezone.utc)
     return (datetime.now(timezone.utc) - started).total_seconds() < stale_seconds
+
+
+class VideoRefreshSuperseded(Exception):
+    """A newer durable transition owns this job; return its current snapshot."""
+    def __init__(self, row):
+        super().__init__("VIDEO_REFRESH_SUPERSEDED")
+        self.row = row
+
+
+_download_claim = ContextVar("video_finalization_download", default=None)
+
+
+def _current_video(conn, job_id, error_factory):
+    row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+    if row is None or row["mode"] not in VIDEO_JOB_MODES:
+        raise error_factory(404, "Видео-задание не найдено.")
+    return row
+
+
+def _same_refresh(current, expected):
+    return current["status"] in VIDEO_RESERVED_STATUSES and all(
+        current[key] == expected[key]
+        for key in ("id", "user_id", "mode", "provider", "status", "settings_json")
+    )
+
+
+def claim_finalization(connect, job_id, *, stale_seconds, error_factory, expected=None):
+    """Claim only the active video snapshot observed before provider I/O."""
+    with connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        current = _current_video(conn, job_id, error_factory)
+        if current["status"] not in VIDEO_RESERVED_STATUSES or (
+            expected is not None and not _same_refresh(current, expected)
+        ):
+            return False, current
+        settings = json.loads(current["settings_json"] or "{}")
+        if current["status"] == "finalizing" and finalization_is_fresh(settings, stale_seconds=stale_seconds):
+            return False, current
+        settings.update(finalizingAt=datetime.now(timezone.utc).isoformat(), finalizingToken=uuid.uuid4().hex)
+        settings.pop("finalizingError", None)
+        conn.execute("UPDATE jobs SET status='finalizing',progress=90,settings_json=? WHERE id=?",
+                     (json.dumps(settings, ensure_ascii=False), job_id))
+        return True, _current_video(conn, job_id, error_factory)
+
+
+@contextmanager
+def refresh_transaction(connect, expected, *, error_factory):
+    """Fence refund, gallery mutation and final state together; no await inside."""
+    with connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        current = _current_video(conn, expected["id"], error_factory)
+        if not _same_refresh(current, expected):
+            raise VideoRefreshSuperseded(current)
+        yield conn
+
+
+def release_finalization(connect, job_id, error, *, expected, error_factory, public_error=None):
+    """Release this exact claim; an old error cannot reset a newer terminal job."""
+    try:
+        with refresh_transaction(connect, expected, error_factory=error_factory) as conn:
+            if expected["id"] != job_id or expected["status"] != "finalizing":
+                raise ValueError("VIDEO_FINALIZATION_CLAIM_INVALID")
+            settings = json.loads(expected["settings_json"] or "{}")
+            settings.pop("finalizingAt", None)
+            settings.pop("finalizingToken", None)
+            settings["finalizingError"] = str(error)[:500]
+            conn.execute("UPDATE jobs SET status='pending',progress=85,error_message=?,settings_json=? WHERE id=?",
+                         (str(error if public_error is None else public_error)[:500],
+                          json.dumps(settings, ensure_ascii=False), job_id))
+            return True, _current_video(conn, job_id, error_factory)
+    except VideoRefreshSuperseded as loss:
+        return False, loss.row
+
+
+@contextmanager
+def finalizing_download(row):
+    """Give each claim its own file, including during stale-claim recovery."""
+    token = json.loads(row["settings_json"] or "{}").get("finalizingToken")
+    if row["status"] != "finalizing" or not isinstance(token, str) or uuid.UUID(hex=token).hex != token:
+        raise ValueError("VIDEO_FINALIZATION_CLAIM_INVALID")
+    marker = _download_claim.set((row["id"], token))
+    try:
+        yield
+    finally:
+        _download_claim.reset(marker)
+
+
+def download_filename(job_id):
+    claim = _download_claim.get()
+    if claim is not None and claim[0] == job_id:
+        return f"{job_id}_{claim[1]}.mp4"
+    return f"{job_id}.mp4"
 
 
 class VideoStorageConnection(Protocol):

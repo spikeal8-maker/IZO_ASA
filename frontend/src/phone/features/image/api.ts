@@ -39,7 +39,8 @@ export async function startPhoneImage(input: {
   faceLora?: { id: string; triggerWord?: string }
   faceStrength?: number
   outpaint?: { left: number; right: number; top: number; bottom: number }
-}, onChange?: (job: PhoneJob) => void): Promise<PhoneJob> {
+}, onChange?: (job: PhoneJob) => void, signal?: AbortSignal): Promise<PhoneJob> {
+  signal?.throwIfAborted()
   const body: Record<string, unknown> = {
     mode: input.mode, provider: input.model.provider, prompt: input.prompt, negativePrompt: '',
     seed: Math.floor(Math.random() * 2147483646) + 1, width: input.width, height: input.height,
@@ -52,10 +53,11 @@ export async function startPhoneImage(input: {
   if (input.mode === 'paint') body.canvas = input.canvas
   if (input.mode === 'inpaint') body.maskImage = input.mask
   if (input.mode === 'outpaint') body.outpaint = input.outpaint
-  const started = await phoneFetch<{ id?: string; jobId?: string }>('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  const started = await phoneFetch<{ id?: string; jobId?: string }>('/api/generate', { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  signal?.throwIfAborted()
   const jobId = String(started.id || started.jobId || '')
   if (!jobId) throw new Error('Сервер не вернул номер генерации.')
-  return waitForPhoneJob(jobId, { onChange })
+  return waitForPhoneJob(jobId, { onChange, signal })
 }
 
 export async function loadFaceLora(signal?: AbortSignal): Promise<{ id: string; triggerWord?: string } | null> {

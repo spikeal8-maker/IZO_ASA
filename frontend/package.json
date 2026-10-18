@@ -51,7 +51,8 @@
     "e2e:desktop-chat": "node e2e-desktop-chat.mjs",
     "test:phone-image": "node --test phoneImage.test.ts",
     "test:phone-video": "node --test phoneVideo.test.ts",
-    "test:phone-audio": "node --test phoneAudio.test.ts",
+    "test:phone-audio": "node --test phoneAudio.test.ts phoneAudioSelection.test.mjs",
+    "test:phone-job-recovery": "node --test phoneJobRecovery.test.ts",
     "e2e:real25": "node e2e-real-generations-25.mjs",
     "preview": "vite preview",
     "check:origin": "node ../tools/check_frontend_origin_isolation.mjs"

@@ -2,7 +2,7 @@ name: Docker clean installation acceptance
 
 on:
   push:
-    branches: [agent/docker-acceptance-repair-001, agent/docker-worker-readiness-001]
+    branches: [agent/docker-acceptance-repair-001, agent/docker-worker-readiness-001, agent/docker-d3-acceptance-001]
   workflow_dispatch:
 
 permissions:
@@ -35,6 +35,10 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version-file: .python-version
+      - name: Configure pinned Node for pure browser contract tests
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.14.1
       - name: Install existing exact test dependencies
         run: |
           python -m pip install --require-hashes -r tools/file_hygiene_requirements.txt
@@ -46,8 +50,17 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/source-evidence"
-          python -m pytest -q tools/test_file_hygiene.py tools/test_file_hygiene_regressions.py tools/test_file_hygiene_markdown.py tools/test_file_hygiene_policy.py tools/test_ci_scope.py tools/test_source_alignment.py tools/test_portable_ci_gates.py tools/test_docker_shadow.py tools/test_docker_shadow_roles.py tools/test_docker_shadow_lifecycle.py tools/test_docker_shadow_executor.py tools/test_docker_shadow_linux.py tools/test_network_guard_lifecycle.py tools/test_docker_shadow_provider.py tools/test_docker_shadow_product.py tools/test_docker_shadow_storage.py tools/test_docker_shadow_fixture.py tools/test_docker_clean_install.py tools/test_docker_clean_storage.py tools/test_docker_clean_media.py tools/test_docker_clean_storage_quiesce.py tools/test_docker_clean_recovery.py tools/test_docker_clean_workers.py tools/test_docker_clean_features.py tools/test_docker_clean_admin.py tools/test_docker_clean_models.py tools/test_docker_clean_admin_runtime.py --junitxml="$RUNNER_TEMP/source-evidence/portable.xml" 2>&1 | tee "$RUNNER_TEMP/source-evidence/portable.log"
+          python -m pytest -q tools/test_file_hygiene.py tools/test_file_hygiene_regressions.py tools/test_file_hygiene_markdown.py tools/test_file_hygiene_policy.py tools/test_ci_scope.py tools/test_agent_ci_task_selection.py tools/test_source_alignment.py tools/test_portable_ci_gates.py tools/test_docker_shadow.py tools/test_docker_shadow_roles.py tools/test_docker_shadow_lifecycle.py tools/test_docker_shadow_executor.py tools/test_docker_shadow_linux.py tools/test_network_guard_lifecycle.py tools/test_docker_shadow_provider.py tools/test_docker_shadow_product.py tools/test_docker_shadow_storage.py tools/test_docker_shadow_fixture.py tools/test_docker_clean_install.py tools/test_docker_clean_storage.py tools/test_docker_clean_media.py tools/test_docker_clean_storage_quiesce.py tools/test_docker_clean_recovery.py tools/test_docker_clean_workers.py tools/test_docker_clean_features.py tools/test_docker_clean_admin.py tools/test_docker_clean_models.py tools/test_docker_clean_admin_runtime.py tools/test_docker_clean_admin_concurrency.py tools/test_docker_clean_audio_features.py tools/test_docker_d3_audio_runtime.py tools/test_docker_d3_audio_fixture.py tools/test_docker_d3_chat_video.py tools/test_docker_d3_browser_receipts.py tools/test_docker_d3_process.py tools/test_docker_d3_phone_watch.py tools/test_docker_d3_phone_ui.py tools/test_docker_d3_image_modes.py tools/test_docker_d3_image_ledger.py tools/test_docker_d3_ledger.py tools/test_docker_d3_orchestration.py tools/test_docker_d3_images.py tools/test_docker_d3_install.py tools/test_docker_d3_workflow.py --junitxml="$RUNNER_TEMP/source-evidence/portable.xml" 2>&1 | tee "$RUNNER_TEMP/source-evidence/portable.log"
           python -m tools.file_hygiene --base "$ACCEPTANCE_BASE" --head "$GITHUB_SHA" --comparison direct | tee "$RUNNER_TEMP/source-evidence/file-hygiene.json"
+      - name: Run all pure browser receipt and bounded IO regressions
+        run: |
+          set -euo pipefail
+          node --test tools/test_docker_d3_browser_contracts.mjs tools/test_docker_d3_browser_io.mjs tools/test_docker_d3_phone_recovery.mjs 2>&1 | tee "$RUNNER_TEMP/source-evidence/d3-node.log"
+      - name: Run Phone audio handlers and selection regressions explicitly
+        run: |
+          set -euo pipefail
+          npm --prefix frontend run test:phone-audio 2>&1 | tee "$RUNNER_TEMP/source-evidence/phone-audio.log"
+          npm --prefix frontend run test:phone-job-recovery 2>&1 | tee "$RUNNER_TEMP/source-evidence/phone-job-recovery.log"
       - name: Test inherited application extractions on Linux
         env:
           APP_ENV: test
@@ -62,6 +75,7 @@ jobs:
             backend/test_generation_claims.py backend/test_generation_worker_claims.py backend/test_generation_admission.py \
             backend/test_generation_leases.py backend/test_generation_dispatch.py backend/test_generation_worker_process.py backend/test_generation_process_ownership.py \
             backend/test_media_readiness.py backend/test_phone_job_progress.py backend/test_generation_admin_probe.py \
+            backend/test_audio_protocol_runtime.py backend/test_local_video_boundaries.py backend/test_local_video_job_history.py backend/test_video_cancellation_fence.py backend/test_video_result_cleanup.py \
             backend/test_integrations_comfyui_client.py backend/test_integrations_openrouter_module.py backend/test_integrations_openrouter_image_client_module.py \
             backend/test_integrations_openrouter_image_io_module.py backend/test_comfyui_client_wiring.py backend/test_comfyui_result_wiring.py \
             backend/test_api.py::test_all_generation_modes_complete_and_save_gallery_records backend/test_api.py::test_openrouter_generation_skips_comfyui backend/test_api.py::test_completed_generation_is_persisted_to_sqlite \
@@ -113,11 +127,99 @@ jobs:
           REPLICA: ${{ matrix.replica }}
         run: |
           python -m tools.docker_clean_install --source-sha "$GITHUB_SHA" --base-sha "$ACCEPTANCE_BASE" --replica "$REPLICA" --evidence-dir "$RUNNER_TEMP/docker-evidence" --extended
+      - name: Export only the first VM's three accepted installation images
+        if: ${{ always() && !cancelled() && matrix.replica == 1 }}
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          timeout --signal=INT --kill-after=30s 210s python -m tools.docker_d3_install export --source-sha "$GITHUB_SHA" --base-sha "$ACCEPTANCE_BASE" --install-dir "$RUNNER_TEMP/docker-evidence" --evidence-dir "$RUNNER_TEMP/d3-images"
+      - name: Preserve exact tested images and transfer admission
+        if: ${{ always() && !cancelled() && matrix.replica == 1 }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: clean-images-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/d3-images/handoff.json
+            ${{ runner.temp }}/d3-images/entrypoint.json
+            ${{ runner.temp }}/d3-images/images.tar
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
       - name: Preserve each original attempt including failures and screenshots
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: clean-linux-${{ matrix.replica }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/docker-evidence/
+          if-no-files-found: error
+          retention-days: 14
+
+  d3:
+    name: Controlled D3 runtime on the six accepted installs' exact images
+    needs: [source, install]
+    if: ${{ always() && !cancelled() && needs.source.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out the exact candidate on a separate VM
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Configure pinned Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version-file: .python-version
+      - name: Download only this attempt's first installation evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: clean-linux-1-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/d3-input/linux-1
+      - name: Download only this attempt's second installation evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: clean-linux-2-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/d3-input/linux-2
+      - name: Download this attempt's tested image archive
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: clean-images-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/d3-input/images
+      - name: Admit all 48 D1 assertions and all D2 cases before runtime setup
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          timeout --signal=INT --kill-after=30s 120s python -m tools.docker_d3_install admit --source-sha "$GITHUB_SHA" --base-sha "$ACCEPTANCE_BASE" --linux-1-dir "$RUNNER_TEMP/d3-input/linux-1" --linux-2-dir "$RUNNER_TEMP/d3-input/linux-2" --images-dir "$RUNNER_TEMP/d3-input/images" --evidence-dir "$RUNNER_TEMP/d3-admission"
+      - name: Configure the existing pinned frontend Node version
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.14.1
+      - name: Install the existing lockfile and its real browser
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npx --no-install playwright install --with-deps chromium
+      - name: Build the exact Phone UI and exercise all recovery browser scenarios
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          FRONTEND_BUILD_LABEL="$GITHUB_SHA" npm --prefix frontend run build
+          python -m tools.docker_d3_phone_ui --source-sha "$GITHUB_SHA" --output "$RUNNER_TEMP/d3-phone-ui"
+      - name: Load admitted exact images and run the finite owned D3 profiles
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          timeout --signal=INT --kill-after=180s 1800s python -m tools.docker_d3_install run --source-sha "$GITHUB_SHA" --base-sha "$ACCEPTANCE_BASE" --linux-1-dir "$RUNNER_TEMP/d3-input/linux-1" --linux-2-dir "$RUNNER_TEMP/d3-input/linux-2" --images-dir "$RUNNER_TEMP/d3-input/images" --evidence-dir "$RUNNER_TEMP/d3-evidence"
+      - name: Preserve D3 admission, every checkpoint, and final cleanup status
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: clean-d3-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/d3-admission/
+            ${{ runner.temp }}/d3-phone-ui/
+            ${{ runner.temp }}/d3-evidence/
           if-no-files-found: error
           retention-days: 14

@@ -9,6 +9,7 @@ from typing import Any, Protocol
 
 from ..security.trial_access import settle_trial_generation
 from . import generation_claims
+from .video_presentation import public_video_error_message
 
 
 ADMISSION_JOB_PREFIX = "job_request_"
@@ -99,6 +100,8 @@ def job_response_from_row(
     settings = _safe_json_load(row["settings_json"]) or {}
     result_url = _row_get(image_row, "url") or settings.get("resultUrl")
     public_error = public_generation_error_message(row["error_message"]) if row["error_message"] else None
+    if row["provider"] == "local_ltx":
+        public_error = public_video_error_message(row["error_message"], provider="local_ltx")
     response: dict[str, Any] = {
         "id": row["id"],
         "userId": row["user_id"],

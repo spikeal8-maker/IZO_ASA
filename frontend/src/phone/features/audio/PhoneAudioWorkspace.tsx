@@ -120,7 +120,7 @@ export default function PhoneAudioWorkspace({ offline }: { offline: boolean }) {
     if (text) {
       const next = { ...item, text }
       setEntries((current) => current.map((entry) => entry.id === item.id ? next : entry))
-      setSelected(next)
+      setSelected((current) => current?.id === item.id ? next : current)
     }
   }
 

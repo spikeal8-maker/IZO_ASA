@@ -4,6 +4,9 @@
 !tools/
 !tools/docker_shadow_provider.py
 !tools/docker_shadow_fixture.py
+!tools/docker_d3_chat_video_provider.py
+!tools/docker_d3_audio_provider.py
+!tools/docker_d3_audio_fixture.py
 **/.env
 **/.env.*
 **/.venv

@@ -60,6 +60,14 @@ def resolve_local_ltx_profile(model_id: str) -> LtxProfile | None:
     return next((profile for profile in _PROFILES if profile.model_id == model_id), None)
 
 
+def configured_output_size(settings: dict[str, Any]) -> tuple[int, int] | None:
+    """Return the configured workflow geometry, without claiming a media decode."""
+    profile_id = str(settings.get("localLtxProfile") or settings.get("model") or "")
+    if settings.get("resolution") != "480p" or resolve_local_ltx_profile(profile_id) is None:
+        return None
+    return LTX_480P_SIZES.get(str(settings.get("aspectRatio") or "16:9"))
+
+
 def local_ltx_catalog(*, enabled: bool) -> list[dict[str, Any]]:
     return local_ltx_catalog_for_profile(enabled=enabled, profile_model_id=None)
 

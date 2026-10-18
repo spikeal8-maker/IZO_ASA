@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Brush, Check, Download, Eraser, ImagePlus, Layers3, Pencil, Send, Share2, Sparkles, Trash2, Undo2, Video, X } from 'lucide-react'
 
 import { I2I_STYLES, T2I_TEMPLATES, styleShortLabel } from '../../../stylePresets.ts'
 import { faceStrengthPrompt } from '../../../studio/studioHelpers.ts'
 import { comfySafeGenerationSize, outpaintRequestSizeFromSource } from '../../../studio/studioImageProcessing.ts'
 import { phoneTokenClass } from '../../core/billing.ts'
+import { type PhoneJob } from '../../core/jobs.ts'
 import { fileToPhoneImage, loadFaceLora, loadImageModels, loadPhoneGallery, publishPhoneImage, startPhoneImage, type PhoneGalleryImage, type PhoneImageMode, type PhoneImageModel } from './api.ts'
 import PhoneImageEditor, { type PhoneEditorTool, type PhoneOutpaint } from './PhoneImageEditor.tsx'
+import { usePhoneImageRecovery } from './usePhoneImageRecovery.ts'
 import './phoneImage.css'
 
 
@@ -92,6 +94,7 @@ export default function PhoneImageWorkspace({ offline }: { offline: boolean }) {
   const [resultId, setResultId] = useState('')
   const [progress, setProgress] = useState(0)
   const [busy, setBusy] = useState(false)
+  const jobObserver = useRef<AbortController | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [viewer, setViewer] = useState(false)
@@ -126,6 +129,17 @@ export default function PhoneImageWorkspace({ offline }: { offline: boolean }) {
     return () => controller.abort()
   }, [])
 
+  const completeImage = useCallback((job: PhoneJob, signal: AbortSignal) => {
+    signal.throwIfAborted()
+    setProgress(job.progress)
+    if (job.status !== 'completed' || !job.result?.url) throw new Error(job.message || 'Изображение не создано.')
+    setResult(job.result.url); setResultId(job.result.id || ''); setProgress(100)
+    void loadPhoneGallery(signal).then((items) => { if (!signal.aborted) setHistory(items) }).catch(() => undefined)
+  }, [])
+
+  const { recovering, retryAllowed, retryRecovery, requireRecheck } = usePhoneImageRecovery({ offline, jobObserver,
+    completeImage, setBusy, setProgress, setError, setResult, setResultId })
+
   const model = models.find((item) => item.id === modelId) || models[0] || { id: 'server:local_flux_klein', label: 'ИЗО Base', provider: 'comfyui' as const, modelProfile: 'local_flux_klein', tokenHint: 1, supportedResolutionIds: [] }
   const selectedSize = sizes[ratio][tier]
   const tierAvailable = (value: Tier) => !model.supportedResolutionIds?.length || model.supportedResolutionIds.includes(sizes[ratio][value][0])
@@ -134,26 +148,33 @@ export default function PhoneImageWorkspace({ offline }: { offline: boolean }) {
   const generate = async () => {
     const mode = editorMode()
     const promptRequired = mode !== 'remove_background' && mode !== 'outpaint'
-    if ((promptRequired && !prompt.trim()) || busy || offline) { if (promptRequired && !prompt.trim()) setError('Опишите, что нужно создать или изменить.'); return }
+    if ((promptRequired && !prompt.trim()) || busy || recovering || offline) { if (promptRequired && !prompt.trim()) setError('Опишите, что нужно создать или изменить.'); return }
     if (mode === 'image_to_image' && !sources.length) { setError('Добавьте исходное изображение.'); return }
     if (mode === 'edit' && sources.length < 2) { setError('Для совмещения нужно минимум два изображения.'); return }
     if (['inpaint', 'outpaint', 'remove_background'].includes(mode) && !sources.length) { setError('Добавьте исходное изображение.'); return }
     if (mode === 'inpaint' && !mask) { setError('Закрасьте область, которую нужно изменить.'); return }
     if (mode === 'outpaint' && !Object.values(outpaint).some((value) => value > 0)) { setError('Задайте поле расширения.'); return }
     if (editorTool === 'face' && !faceLora) { setError('Модуль лица временно недоступен. Попробуйте ещё раз позже.'); return }
+    const controller = new AbortController()
+    let terminalObserved = false
+    jobObserver.current?.abort(); jobObserver.current = controller
     try {
       setBusy(true); setError(''); setNotice(''); setResult(''); setResultId(''); setProgress(8)
       const suffix = style ? (mode === 'text_to_image' ? style.stylePrompt : style.transformPrompt) : ''
       const userPrompt = mode === 'remove_background' ? 'Remove the background and preserve clean natural subject edges with transparency.' : mode === 'outpaint' && !prompt.trim() ? 'Continue the scene naturally beyond the original frame.' : prompt.trim()
       const faceInstruction = editorTool === 'face' ? `\n\n${faceStrengthPrompt(faceStrength)}\nUse the face reference only for identity. Preserve pose, body, clothing, background and composition.` : ''
       const requested = mode === 'outpaint' ? comfySafeGenerationSize(await outpaintRequestSizeFromSource(sources[0], outpaint, { width: selectedSize[1], height: selectedSize[2] })) : { width: selectedSize[1], height: selectedSize[2] }
-      const job = await startPhoneImage({ mode, prompt: `${userPrompt}${suffix ? `. ${suffix}` : ''}${faceInstruction}`, model, resolutionId: selectedSize[0], width: requested.width, height: requested.height, inputImages: sources, canvas: sketch, mask, inputRoles: sources.map((_, index) => index === 1 && editorTool === 'face' ? 'face' : index === 0 ? 'base' : 'reference'), faceLora: editorTool === 'face' ? faceLora || undefined : undefined, faceStrength, outpaint }, (snapshot) => setProgress(snapshot.progress))
-      setProgress(job.progress)
-      if (job.status !== 'completed' || !job.result?.url) throw new Error(job.message || 'Изображение не создано.')
-      setResult(job.result.url); setResultId(job.result.id || ''); setProgress(100)
-      void loadPhoneGallery().then(setHistory).catch(() => undefined)
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Генерация временно недоступна.') }
-    finally { setBusy(false) }
+      controller.signal.throwIfAborted()
+      const job = await startPhoneImage({ mode, prompt: `${userPrompt}${suffix ? `. ${suffix}` : ''}${faceInstruction}`, model, resolutionId: selectedSize[0], width: requested.width, height: requested.height, inputImages: sources, canvas: sketch, mask, inputRoles: sources.map((_, index) => index === 1 && editorTool === 'face' ? 'face' : index === 0 ? 'base' : 'reference'), faceLora: editorTool === 'face' ? faceLora || undefined : undefined, faceStrength, outpaint }, (snapshot) => setProgress(snapshot.progress), controller.signal)
+      terminalObserved = job.terminal
+      completeImage(job, controller.signal)
+    } catch (caught) {
+      if (!controller.signal.aborted) {
+        if (!terminalObserved) requireRecheck()
+        setError(caught instanceof Error ? caught.message : 'Генерация временно недоступна.')
+      }
+    }
+    finally { if (!controller.signal.aborted) setBusy(false) }
   }
 
   return <section className="phone-image" data-phone-workspace="image">
@@ -166,8 +187,8 @@ export default function PhoneImageWorkspace({ offline }: { offline: boolean }) {
 
       <input ref={fileRef} hidden multiple type="file" accept="image/jpeg,image/png,image/webp" onChange={async (event) => { try { const added = await Promise.all(Array.from(event.target.files || []).slice(0, 4 - sources.length).map(fileToPhoneImage)); setSources((value) => [...value, ...added].slice(0, 4)); setTab('edit') } catch (caught) { setError(caught instanceof Error ? caught.message : 'Не удалось добавить изображение.') } event.target.value = '' }} />
       {tab === 'edit' && <PhoneImageEditor tool={editorTool} setTool={setEditorTool} source={sources[0]} faceStrength={faceStrength} setFaceStrength={setFaceStrength} mask={mask} setMask={setMask} outpaint={outpaint} setOutpaint={setOutpaint} />}
-      <div className="phone-image-prompt"><textarea value={prompt} maxLength={3000} placeholder="Например: сова в космосе, неоновые звёзды…" onChange={(event) => setPrompt(event.target.value)} /><button type="button" disabled={busy || offline || (!prompt.trim() && !['remove_background', 'outpaint'].includes(editorMode()))} onClick={() => void generate()}><Sparkles />{busy ? 'Создаём…' : editorTool === 'remove_background' && tab === 'edit' ? 'Удалить фон' : editorTool === 'outpaint' && tab === 'edit' ? 'Расширить' : 'Сгенерировать'}<em className={phoneTokenClass(model.provider === 'comfyui' ? 'daily' : 'main')}>{model.tokenHint} ток.</em></button></div>
-      {error && <div className="phone-image-error">{error}<button type="button" aria-label="Закрыть" onClick={() => setError('')}><X /></button></div>}
+      <div className="phone-image-prompt"><textarea value={prompt} maxLength={3000} placeholder="Например: сова в космосе, неоновые звёзды…" onChange={(event) => setPrompt(event.target.value)} /><button type="button" disabled={busy || recovering || offline || (!prompt.trim() && !['remove_background', 'outpaint'].includes(editorMode()))} onClick={() => void generate()}><Sparkles />{busy ? 'Создаём…' : retryAllowed ? 'Нужна проверка заданий' : recovering && !offline ? 'Проверяем задания…' : editorTool === 'remove_background' && tab === 'edit' ? 'Удалить фон' : editorTool === 'outpaint' && tab === 'edit' ? 'Расширить' : 'Сгенерировать'}<em className={phoneTokenClass(model.provider === 'comfyui' ? 'daily' : 'main')}>{model.tokenHint} ток.</em></button></div>
+      {(error || retryAllowed) && <div className="phone-image-error">{error}{retryAllowed && <button type="button" onClick={retryRecovery}>Повторить проверку заданий</button>}{error && <button type="button" aria-label="Закрыть" onClick={() => setError('')}><X /></button>}</div>}
       {notice && <div className="phone-image-notice">{notice}<button type="button" aria-label="Закрыть уведомление" onClick={() => setNotice('')}><X /></button></div>}
 
       <section className="phone-image-options"><h2>Формат и качество</h2><div className="phone-image-ratios">{(['1:1', '9:16', '16:9', '3:2'] as Ratio[]).map((value) => <button className={ratio === value ? 'active' : ''} type="button" key={value} onClick={() => setRatio(value)}>{value}</button>)}</div><div className="phone-image-tiers">{(['SD', 'HD', 'Full HD', '4K'] as Tier[]).map((value) => <button className={tier === value ? 'active' : ''} disabled={!tierAvailable(value)} type="button" key={value} onClick={() => setTier(value)}><b>{value === 'Full HD' ? 'FHD' : value}</b><small>{sizes[ratio][value][1]}×{sizes[ratio][value][2]}</small></button>)}</div>

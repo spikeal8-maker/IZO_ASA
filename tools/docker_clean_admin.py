@@ -17,6 +17,7 @@ import uuid
 
 from tools.docker_shadow_product import HttpClient, ProductError, ProductFlow, path_id, validate_target
 from tools.docker_clean_models import prove_models
+from tools.docker_clean_admin_concurrency import prove_admin_concurrency
 
 PROFILE = "local-billing-simulator-v1"
 CHECKOUT = "/api/billing/checkout-v2"
@@ -330,6 +331,7 @@ class AdminProbe:
         self.step("cancellation", self.cancellation, ("legalSetup",))
         self.step("audit", self.audit, ("successReplay", "refund", "cancellation"))
         self.step("otherUserBalance", self.other_balance, ("legalSetup",))
+        self.step("adminConcurrency", lambda row: prove_admin_concurrency(self, row, code), tuple(self.checks))
 
     def close(self):
         failed = 0

@@ -75,14 +75,22 @@ export async function waitForPhoneJob(
   const read = options.read ?? loadPhoneJob
   while (!options.signal?.aborted) {
     const job = await read(jobId, options.signal)
+    options.signal?.throwIfAborted()
     options.onChange?.(job)
+    options.signal?.throwIfAborted()
     if (job.terminal) return job
     await new Promise<void>((resolve, reject) => {
-      const timer = globalThis.setTimeout(resolve, interval)
-      options.signal?.addEventListener('abort', () => {
+      const onAbort = () => {
         globalThis.clearTimeout(timer)
+        options.signal?.removeEventListener('abort', onAbort)
         reject(new DOMException('Aborted', 'AbortError'))
-      }, { once: true })
+      }
+      const timer = globalThis.setTimeout(() => {
+        options.signal?.removeEventListener('abort', onAbort)
+        resolve()
+      }, interval)
+      options.signal?.addEventListener('abort', onAbort, { once: true })
+      if (options.signal?.aborted) onAbort()
     })
   }
   throw new DOMException('Aborted', 'AbortError')

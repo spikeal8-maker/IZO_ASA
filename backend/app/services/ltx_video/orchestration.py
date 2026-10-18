@@ -17,6 +17,36 @@ class LocalLtxRequestError(RuntimeError):
         self.status_code = status_code
 
 
+_PUBLIC_SUBMIT_ERRORS = frozenset({
+    (422, "Локальный LTX пока поддерживает только генерацию по тексту."),
+    (422, "Локальный LTX пока работает без генерации звука."),
+    (422, "Локальный LTX поддерживает ролики длительностью 2 или 4 секунды."),
+    (422, "Локальный LTX поддерживает 480p в форматах 16:9, 9:16 и 1:1."),
+    (409, "Локальный LTX уже выполняет другое видео. Дождитесь завершения текущего задания."),
+})
+
+
+def public_submit_failure(error: Exception) -> tuple[int, str]:
+    """Only known validation messages may cross the local submit boundary."""
+    if isinstance(error, LocalLtxRequestError):
+        known = (error.status_code, str(error))
+        if known in _PUBLIC_SUBMIT_ERRORS:
+            return known
+        if error.status_code == 503:
+            return 503, "Локальный видеосервис временно недоступен. Попробуйте позже."
+    return 502, "Не удалось запустить локальный LTX."
+
+
+def repair_gallery_geometry(conn: Any, job_id: str, user_id: str, size: tuple[int, int]) -> None:
+    """Repair active owned local metadata; media, billing and favorites stay intact."""
+    if all(size):
+        conn.execute(
+            "UPDATE videos SET width=?,height=? WHERE job_id=? AND user_id=? "
+            "AND provider='local_ltx' AND deleted_at IS NULL AND (width IS NOT ? OR height IS NOT ?)",
+            (*size, job_id, user_id, *size),
+        )
+
+
 def normalize_runtime_settings(
     requested: dict[str, Any], current: dict[str, Any], *, has_active_job: bool
 ) -> dict[str, Any]:
@@ -150,8 +180,7 @@ async def validate_and_submit_local_ltx_job(
         )
     readiness = await client.readiness()
     if not readiness.get("ready"):
-        reason = readiness.get("error") or "GPU не готов"
-        raise LocalLtxRequestError(503, f"Локальный LTX недоступен: {reason}")
+        raise LocalLtxRequestError(503, "Локальный видеосервис временно недоступен.")
     return await submit_local_ltx_job(
         req,
         user_id=user_id,

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from contextlib import nullcontext
 import http.client
 import json
 import os
@@ -18,6 +19,8 @@ except ModuleNotFoundError:
     from docker_shadow_provider import ControlledProvider
 
 MARKER = "controlled-comfyui-v1"
+D3_MARKER = "controlled-chat-video-v1"
+AUDIO_MARKER = "controlled-audio-v1"
 PROVIDER_PORT = 48991
 CONTROL_PORT = 48992
 LIFETIME_SECONDS = 300
@@ -31,14 +34,27 @@ SECRET_KEYS = ("TELEGRAM_BOT_TOKEN", "MAX_BOT_TOKEN", "OPENROUTER_API_KEY",
 
 def validate_environment(environment: dict) -> None:
     """Refuse accidental provider fallback or a non-test application profile."""
-    required = {"IZO_SHADOW_FIXTURE": MARKER, "APP_ENV": "test", "ENV": "test",
+    marker = environment.get("IZO_SHADOW_FIXTURE")
+    is_d3 = marker == D3_MARKER
+    is_audio = marker == AUDIO_MARKER
+    required = {"IZO_SHADOW_FIXTURE": D3_MARKER if is_d3 else AUDIO_MARKER if is_audio else MARKER, "APP_ENV": "test", "ENV": "test",
                 "MODE": "test", "BOT_MODE": "disabled", "MAX_UPDATES_MODE": "disabled",
                 "COMFYUI_BASE_URL": f"http://127.0.0.1:{PROVIDER_PORT}",
                 "COMFYUI_MOCK_FALLBACK": "false"}
     if any(environment.get(key) != value for key, value in required.items()):
         raise RuntimeError("SHADOW_FIXTURE_PROFILE_REQUIRED")
-    if any(environment.get(key) != "http://127.0.0.1:1" for key in DISABLED_ENDPOINTS):
+    if is_d3:
+        required.update(LOCAL_LTX_ENABLED="true",
+                        LOCAL_LTX_WORKFLOW_API_PATH="/opt/izo/backend/workflows/ltx23_t2v_api.json")
+        if any(environment.get(key) != value for key, value in required.items()):
+            raise RuntimeError("SHADOW_FIXTURE_PROFILE_REQUIRED")
+    enabled = {"OLLAMA_BASE_URL", "LOCAL_LTX_COMFYUI_BASE_URL"} if is_d3 else set()
+    if any(environment.get(key) != (f"http://127.0.0.1:{PROVIDER_PORT}" if key in enabled else "http://127.0.0.1:1")
+           for key in DISABLED_ENDPOINTS):
         raise RuntimeError("SHADOW_FIXTURE_EXTERNAL_ENDPOINT_FORBIDDEN")
+    if is_audio and (environment.get("IZO_PROCESS_ROLE") != "server"
+                     or any(environment.get(key, "") for key in ("IZO_PHONE_TTS_HTTP_URL", "IZO_PHONE_TTS_HTTP_TOKEN_FILE"))):
+        raise RuntimeError("SHADOW_FIXTURE_AUDIO_STARTUP_REQUIRED")
     if any(environment.get(key, "") for key in SECRET_KEYS):
         raise RuntimeError("SHADOW_FIXTURE_EXTERNAL_CREDENTIAL_FORBIDDEN")
 
@@ -186,8 +202,10 @@ class FixtureControls:
 
 def write_receipt(provider: ControlledProvider, path: Path = RECEIPT, *, controls=None) -> None:
     """Only the existing provider's secret-free receipt crosses this boundary."""
-    data = {"fixture": MARKER, "lifetimeSeconds": LIFETIME_SECONDS,
-            "provider": provider.receipt()}
+    value = provider.receipt()
+    marker = AUDIO_MARKER if value.get("audio", {}).get("profile") == AUDIO_MARKER else (
+        D3_MARKER if value.get("d3", {}).get("profile") == D3_MARKER else MARKER)
+    data = {"fixture": marker, "lifetimeSeconds": LIFETIME_SECONDS, "provider": value}
     if controls is not None:
         data.update(controls.receipt())
     temporary = path.with_suffix(".tmp")
@@ -200,48 +218,72 @@ def run() -> None:
     validate_environment(dict(os.environ))
     import uvicorn
 
+    provider_type = ControlledProvider
+    if os.environ.get("IZO_SHADOW_FIXTURE") == D3_MARKER:
+        try:
+            from tools.docker_d3_chat_video_provider import ChatVideoProvider
+        except ModuleNotFoundError:
+            from docker_d3_chat_video_provider import ChatVideoProvider
+        provider_type = ChatVideoProvider
+    elif os.environ.get("IZO_SHADOW_FIXTURE") == AUDIO_MARKER:
+        try:
+            from tools.docker_d3_audio_provider import AudioProvider
+        except ModuleNotFoundError:
+            from docker_d3_audio_provider import AudioProvider
+        provider_type = AudioProvider
+
     server = uvicorn.Server(uvicorn.Config("main:app", host="0.0.0.0", port=8000,
                                          workers=1, log_level="warning"))
     stop = threading.Event()
     failures = []
-    with ControlledProvider(bind="127.0.0.1", port=PROVIDER_PORT,
+    with provider_type(bind="127.0.0.1", port=PROVIDER_PORT,
                             control_port=CONTROL_PORT,
                             lifetime_seconds=LIFETIME_SECONDS) as provider:
-        import main as application
-
-        controls = FixtureControls(provider)
-        controls.install()
-
-        async def bind_controls():
-            await controls.bind(application)
-
-        application.app.router.add_event_handler("startup", bind_controls)
-        write_receipt(provider, controls=controls)
-        deadline = time.monotonic() + LIFETIME_SECONDS
-
-        def record() -> None:
+        audio_context = nullcontext(None)
+        if os.environ.get("IZO_SHADOW_FIXTURE") == AUDIO_MARKER:
             try:
-                while not stop.wait(.2):
-                    controls.poll()
-                    write_receipt(provider, controls=controls)
-                    if time.monotonic() >= deadline:
-                        server.should_exit = True
-                        return
-            except (OSError, ValueError, TypeError):
-                failures.append("SHADOW_FIXTURE_RECEIPT_FAILED")
-                server.should_exit = True
+                from tools.docker_d3_audio_fixture import audio_environment
+            except ModuleNotFoundError:
+                from docker_d3_audio_fixture import audio_environment
+            audio_context = audio_environment(provider)
+        with audio_context as audio_setup:
+            import main as application
 
-        recorder = threading.Thread(target=record, name="shadow-fixture-receipt", daemon=True)
-        recorder.start()
-        try:
-            server.run()
-        finally:
-            stop.set()
-            recorder.join(timeout=2)
-            controls.close()
+            controls = FixtureControls(provider)
+            controls.install()
+
+            async def bind_controls():
+                await controls.bind(application)
+                if audio_setup is not None:
+                    audio_setup.seed(application)
+
+            application.app.router.add_event_handler("startup", bind_controls)
             write_receipt(provider, controls=controls)
-        if recorder.is_alive() or failures:
-            raise RuntimeError("SHADOW_FIXTURE_RECEIPT_FAILED")
+            deadline = time.monotonic() + LIFETIME_SECONDS
+
+            def record() -> None:
+                try:
+                    while not stop.wait(.2):
+                        controls.poll()
+                        write_receipt(provider, controls=controls)
+                        if time.monotonic() >= deadline:
+                            server.should_exit = True
+                            return
+                except (OSError, ValueError, TypeError):
+                    failures.append("SHADOW_FIXTURE_RECEIPT_FAILED")
+                    server.should_exit = True
+
+            recorder = threading.Thread(target=record, name="shadow-fixture-receipt", daemon=True)
+            recorder.start()
+            try:
+                server.run()
+            finally:
+                stop.set()
+                recorder.join(timeout=2)
+                controls.close()
+                write_receipt(provider, controls=controls)
+            if recorder.is_alive() or failures:
+                raise RuntimeError("SHADOW_FIXTURE_RECEIPT_FAILED")
 
 
 if __name__ == "__main__":

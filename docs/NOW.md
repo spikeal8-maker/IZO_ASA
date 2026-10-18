@@ -14,10 +14,10 @@ baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a
 baseline_status: completed-point-A-accepted
 next_candidate: CONTAINER-PRODUCTION-001
 candidate_pr: 194
-candidate_source_sha: 772623a4a36673aed19c97487272ed33d1239e8a
-candidate_state: guard-health-followup-in-progress
+candidate_source_sha: 0960801c6e17f2b3344a3ea7aa88bc9bff59691e
+candidate_state: d3-functional-acceptance-in-progress
 candidate_exact_head_ci: PASS
-candidate_docker_acceptance: D1_32_OF_48_D2_PARTIAL
+candidate_docker_acceptance: D1_48_OF_48_D2_PASS_D3_PARTIAL
 ---
 # IZO_ASA — NOW
 
@@ -36,16 +36,15 @@ Next: `CONTAINER-PRODUCTION-001` (#126).
 D0 и Docker DEV/TEST foundation (#115) приняты ранее; #124 завершён.
 PR #186/#191 интегрированы с main; Draft #192 хранит checkpoint `d6ecb7f`.
 Draft #193 (`06914cf`): исторические Full PASS, Д1 48/48.
-Draft #194, `772623a`: Full PASS, Д1 32/48; Д2 не принят.
-VM1: Д2-01–06 PASS ×3; VM2: guard health FAIL в Д2-03; media PASS ×4.
-Поля candidate_* относятся к 772623a; follow-up ждёт Full и 48 Д1.
-Д3 — после Д2. Результаты и отказы — в Draft #194.
+Draft #194, `0960801`: Full PASS; Д1 48/48, Д2 36/36, media ×6.
+Поля candidate_* — принятый Д2; его Task закрыт, история сохранена.
+Д3: отдельный `DOCKER-D3-ACCEPTANCE-001`, runtime ещё не принят.
 Full CI и независимая приёмка review HEAD обязательны.
 #126 не начат; production не переключать.
 
 Профили DEV, Shadow и будущей поставки: [docker-environments.md](docker-environments.md).
 Критерии: [docker-delivery-acceptance.md](docker-delivery-acceptance.md).
-Текущий Task: `DOCKER-WORKER-READINESS-001`; запуск и evidence —
+Текущий Task: `DOCKER-D3-ACCEPTANCE-001`; запуск и evidence —
 [docker-clean-install.md](docker-clean-install.md). Кандидат ещё не принят.
 История прежних Task Contracts сохранена в исходных коммитах.
 

@@ -32,10 +32,12 @@ export async function estimatePhoneVideo(input: PhoneVideoRequest, signal?: Abor
   return phoneFetch('/api/video/estimate', { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
 }
 
-export async function startPhoneVideo(input: PhoneVideoRequest, onChange?: (job: PhoneJob) => void): Promise<PhoneJob> {
-  const started = await phoneFetch<{ id?: string }>('/api/video/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
+export async function startPhoneVideo(input: PhoneVideoRequest, onChange?: (job: PhoneJob) => void, signal?: AbortSignal): Promise<PhoneJob> {
+  signal?.throwIfAborted()
+  const started = await phoneFetch<{ id?: string }>('/api/video/generate', { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
+  signal?.throwIfAborted()
   if (!started.id) throw new Error('Сервер не вернул номер видеозадания.')
-  return waitForPhoneJob(started.id, { onChange, intervalMs: 1800 })
+  return waitForPhoneJob(started.id, { onChange, signal, intervalMs: 1800 })
 }
 
 export async function loadPhoneVideoHistory(signal?: AbortSignal): Promise<PhoneVideoHistoryItem[]> {

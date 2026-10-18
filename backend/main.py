@@ -7991,8 +7991,8 @@ async def transcribe_audio(
     try:
         spoken_language = "русском" if language == "ru" else "английском"
         text, payload, provider, model = await transcribe_audio_routed(audio, audio_format, spoken_language, config)
-    except (httpx.HTTPError, RuntimeError) as exc:
-        raise HTTPException(502, str(exc)) from exc
+    except (httpx.HTTPError, RuntimeError):
+        raise HTTPException(502, "ASR_UNAVAILABLE")
     usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
     actual_cost_usd = extract_openrouter_generation_cost(payload) if provider == "api" else 0.0
     record_event_log(
@@ -15940,46 +15940,21 @@ def _evict_videos_for_new_result(
     return len(rows)
 
 
-def _claim_video_finalization(job_id: str) -> tuple[bool, sqlite3.Row]:
-    with db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        current = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
-        if current is None:
-            raise HTTPException(404, "Видео-задание не найдено.")
-        settings = safe_json_load(current["settings_json"]) or {}
-        if current["status"] == "completed":
-            return False, current
-        if current["status"] == "finalizing" and video_storage.finalization_is_fresh(
-            settings, stale_seconds=VIDEO_FINALIZATION_STALE_SECONDS
-        ):
-            return False, current
-        settings["finalizingAt"] = datetime.now(timezone.utc).isoformat()
-        settings.pop("finalizingError", None)
-        conn.execute(
-            "UPDATE jobs SET status='finalizing',progress=90,settings_json=? WHERE id=?",
-            (json.dumps(settings, ensure_ascii=False), job_id),
-        )
-        return True, conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+def _claim_video_finalization(job_id: str, *, expected=None) -> tuple[bool, sqlite3.Row]:
+    return video_storage.claim_finalization(db, job_id, stale_seconds=VIDEO_FINALIZATION_STALE_SECONDS,
+                                            error_factory=HTTPException, expected=expected)
 
 
-def _release_video_finalization(job_id: str, error: str) -> None:
-    with db() as conn:
-        row = conn.execute("SELECT settings_json FROM jobs WHERE id=?", (job_id,)).fetchone()
-        settings = safe_json_load(row["settings_json"]) if row else {}
-        settings = settings if isinstance(settings, dict) else {}
-        settings.pop("finalizingAt", None)
-        settings["finalizingError"] = truncate_admin_text(error, 500)
-        conn.execute(
-            "UPDATE jobs SET status='pending',progress=85,error_message=?,settings_json=? WHERE id=?",
-            (truncate_admin_text(error, 500), json.dumps(settings, ensure_ascii=False), job_id),
-        )
+def _release_video_finalization(job_id: str, error: str, *, expected, public_error=None):
+    public_error = public_error if public_error is not None else video_presentation.public_video_error_message(error, provider="local_ltx") if expected["provider"] == "local_ltx" else error
+    return video_storage.release_finalization(db, job_id, error, expected=expected, error_factory=HTTPException, public_error=public_error)
 async def _download_video_result(
     url: str,
     job_id: str,
     *,
     use_openrouter_auth: bool = True,
 ) -> tuple[str, int]:
-    filename = f"{job_id}.mp4"
+    filename = video_storage.download_filename(job_id)
     target = storage_resolve_under_root(MEDIA, filename)
     temporary = storage_resolve_under_root(MEDIA, f"{filename}.part")
     if target is None or temporary is None:
@@ -16062,9 +16037,8 @@ async def _generate_local_ltx_video(
             charge_tokens=charge_generation_tokens, refund_tokens=refund_generation_tokens,
         )
     except Exception as exc:
-        if isinstance(exc, ltx_video.LocalLtxRequestError):
-            raise HTTPException(exc.status_code, str(exc)) from exc
-        raise HTTPException(502, f"Не удалось запустить LTX: {truncate_admin_text(str(exc), 300)}") from exc
+        status, message = ltx_video.public_submit_failure(exc)
+        raise HTTPException(status, message) from exc
 @app.post("/api/video/generate")
 async def generate_video(req: VideoGenerateRequest, request: Request) -> dict[str, Any]:
     trusted = require_trusted_user(request)
@@ -16211,75 +16185,68 @@ async def _refresh_video_job(row: sqlite3.Row) -> sqlite3.Row:
     error = None
     downloaded_filename: str | None = None
     stored_bytes: int | None = None
-    if status == "completed":
-        if is_local_ltx and isinstance(state.get("output"), dict):
-            urls = [local_client.view_url(state["output"])]
-        else:
-            urls = state.get("unsigned_urls") if isinstance(state.get("unsigned_urls"), list) else []
-        if not urls:
-            status = "failed"
-            progress = 100
-            error = "Провайдер завершил генерацию без видеофайла."
-            completed_at = datetime.now(timezone.utc).isoformat()
-            with db() as conn:
-                refund_generation_tokens(conn, row["id"], reason="video_missing_result")
-        else:
-            claimed, claimed_row = _claim_video_finalization(row["id"])
-            if not claimed:
-                return claimed_row
-            row = claimed_row
-            settings = safe_json_load(row["settings_json"]) or {}
-            try:
-                if is_local_ltx:
-                    downloaded_filename, stored_bytes = await _download_video_result(
-                        str(urls[0]),
-                        row["id"],
-                        use_openrouter_auth=False,
-                    )
-                else:
-                    downloaded_filename, stored_bytes = await _download_video_result(
-                        str(urls[0]),
-                        row["id"],
-                    )
-            except Exception as exc:
-                _release_video_finalization(row["id"], str(exc))
-                if isinstance(exc, HTTPException):
-                    raise
-                raise HTTPException(502, "Не удалось сохранить полученное видео.") from exc
-            progress = 100
-            settings["localFile"] = downloaded_filename
-            settings["galleryVideoId"] = f"gallery_{row['id']}"
-            settings.pop("galleryDeleted", None)
-            settings.pop("finalizingAt", None)
-            settings.pop("finalizingError", None)
-            if not is_local_ltx:
-                settings["openrouterUsage"] = state.get("usage") or {}
-                settings["openrouterCostUsd"] = (state.get("usage") or {}).get("cost")
-                billing = settings.get("openrouterBilling") if isinstance(settings.get("openrouterBilling"), dict) else {}
-                actual = (state.get("usage") or {}).get("cost")
-                if isinstance(actual, (int, float)):
-                    # Video is sold at the server quote accepted before submission. Keep the
-                    # provider's actual cost for margin reporting without changing that price.
-                    settings["openrouterBilling"] = finalize_openrouter_billing_snapshot(billing, float(actual))
-            completed_at = datetime.now(timezone.utc).isoformat()
-    elif status in {"failed", "cancelled", "expired"}:
-        progress = 100
-        error = str(state.get("error") or "Провайдер не завершил генерацию видео.")
-        completed_at = datetime.now(timezone.utc).isoformat()
-        with db() as conn:
-            refund_generation_tokens(conn, row["id"], reason=f"video_{status}")
-    settings["pollingUrl"] = state.get("polling_url") or settings.get("pollingUrl")
+    refund_reason = None
     try:
-        with db() as conn:
+        if status == "completed":
+            if is_local_ltx and isinstance(state.get("output"), dict):
+                urls = [local_client.view_url(state["output"])]
+            else:
+                urls = state.get("unsigned_urls") if isinstance(state.get("unsigned_urls"), list) else []
+            if not urls:
+                status = "failed"
+                progress = 100
+                error = "Провайдер завершил генерацию без видеофайла."
+                completed_at = datetime.now(timezone.utc).isoformat()
+                refund_reason = "video_missing_result"
+            else:
+                claimed, claimed_row = _claim_video_finalization(row["id"], expected=row)
+                if not claimed:
+                    return claimed_row
+                row = claimed_row
+                settings = safe_json_load(row["settings_json"]) or {}
+                try:
+                    with video_storage.finalizing_download(row):
+                        downloaded_filename, stored_bytes = await _download_video_result(
+                            str(urls[0]), row["id"], **({"use_openrouter_auth": False} if is_local_ltx else {}),
+                        )
+                except Exception as exc:
+                    released, current = _release_video_finalization(row["id"], str(exc), expected=row)
+                    if not released:
+                        return current
+                    if isinstance(exc, HTTPException) and not is_local_ltx:
+                        raise
+                    raise HTTPException(502, "Не удалось сохранить полученное видео.") from exc
+                progress = 100
+                settings["localFile"] = downloaded_filename
+                settings["galleryVideoId"] = f"gallery_{row['id']}"
+                settings.pop("galleryDeleted", None)
+                settings.pop("finalizingAt", None)
+                settings.pop("finalizingToken", None)
+                settings.pop("finalizingError", None)
+                if not is_local_ltx:
+                    settings["openrouterUsage"] = state.get("usage") or {}
+                    settings["openrouterCostUsd"] = (state.get("usage") or {}).get("cost")
+                    billing = settings.get("openrouterBilling") if isinstance(settings.get("openrouterBilling"), dict) else {}
+                    actual = (state.get("usage") or {}).get("cost")
+                    if isinstance(actual, (int, float)):
+                        # Video is sold at the server quote accepted before submission. Keep the
+                        # provider's actual cost for margin reporting without changing that price.
+                        settings["openrouterBilling"] = finalize_openrouter_billing_snapshot(billing, float(actual))
+                completed_at = datetime.now(timezone.utc).isoformat()
+        elif status in {"failed", "cancelled", "expired"}:
+            progress = 100
+            error = str(state.get("error") or "Провайдер не завершил генерацию видео.")
+            error = video_presentation.public_video_error_message(error, provider="local_ltx") if is_local_ltx else error
+            completed_at = datetime.now(timezone.utc).isoformat()
+            refund_reason = f"video_{status}"
+        settings["pollingUrl"] = state.get("polling_url") or settings.get("pollingUrl")
+        with video_storage.refresh_transaction(db, row, error_factory=HTTPException) as conn:
+            if refund_reason:
+                refund_generation_tokens(conn, row["id"], reason=refund_reason)
             if status == "completed" and settings.get("localFile"):
-                conn.execute("BEGIN IMMEDIATE")
                 user_row = conn.execute("SELECT * FROM users WHERE id=?", (row["user_id"],)).fetchone()
                 _evict_videos_for_new_result(conn, user_row, row["user_id"], now=completed_at or datetime.now(timezone.utc).isoformat())
-                size = video_pricing.video_size(
-                    {"supportedSizes": []},
-                    str(settings.get("resolution") or "720p"),
-                    str(settings.get("aspectRatio") or "16:9"),
-                ) or (0, 0)
+                size = video_presentation.output_size(settings, provider=row["provider"])
                 conn.execute(
                     """
                     INSERT INTO videos (
@@ -16308,7 +16275,9 @@ async def _refresh_video_job(row: sqlite3.Row) -> sqlite3.Row:
             path = storage_resolve_under_root(MEDIA, downloaded_filename)
             if path:
                 path.unlink(missing_ok=True)
-            _release_video_finalization(row["id"], str(exc))
+            _release_video_finalization(row["id"], str(exc), expected=row, public_error="Не удалось сохранить полученное видео.")
+        if isinstance(exc, video_storage.VideoRefreshSuperseded):
+            return exc.row
         raise
     if status == "completed":
         drain_video_file_deletions(limit=10)
@@ -16344,11 +16313,7 @@ def _backfill_completed_video_gallery(conn: sqlite3.Connection, user_id: str) ->
             continue
         gallery_id = str(settings.get("galleryVideoId") or f"gallery_{row['id']}")
         settings["galleryVideoId"] = gallery_id
-        size = video_pricing.video_size(
-            {"supportedSizes": []},
-            str(settings.get("resolution") or "720p"),
-            str(settings.get("aspectRatio") or "16:9"),
-        ) or (0, 0)
+        size = video_presentation.output_size(settings, provider=row["provider"])
         before = conn.total_changes
         conn.execute(
             """
@@ -16371,6 +16336,8 @@ def _backfill_completed_video_gallery(conn: sqlite3.Connection, user_id: str) ->
                 (json.dumps(settings, ensure_ascii=False), row["id"]),
             )
             inserted += 1
+        if row["provider"] == "local_ltx":
+            ltx_video.repair_gallery_geometry(conn, row["id"], user_id, size)
     return inserted
 
 
