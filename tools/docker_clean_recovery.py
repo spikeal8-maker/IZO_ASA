@@ -145,7 +145,12 @@ class RecoveryRun:
         images = shadow.image_guard(shadow.config())
         require(self.images is None or images == self.images, "RECOVERY_IMAGE_CHANGED")
         self.images = images
-        shadow.ownership_guard()
+        return shadow.ownership_guard()
+
+    def preflight(self):
+        # Admit the same retained boundary before creating jobs or killing the API.
+        containers = self.guard()
+        return roles.retained_runtime(self.shadow, containers, self.images)
 
     def backend(self, *, running=True):
         rows = [row for row in self.shadow.ownership_guard()
@@ -382,7 +387,7 @@ def prove_recovery(shadow: Shadow, attestation: dict, receipt: Path) -> dict:
         require(origin == f"http://127.0.0.1:{shadow.web_port}" and attestation["sourceSha"] == shadow.sha
                 and attestation["project"] == shadow.project, "RECOVERY_TARGET_MISMATCH")
         run = RecoveryRun(shadow, None, lambda: save(receipt, report))
-        run.guard()
+        report["retainedRuntimeAdmission"] = run.preflight()
         run.provider()
         foreign = shadow.executor.foreign_snapshot(shadow.project)
         admitted = True

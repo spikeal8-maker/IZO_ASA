@@ -313,7 +313,7 @@ class RecoveryOrchestrationTests(unittest.TestCase):
         actions = actions or [lambda case: case.update(status="PASS")] * 3
         with tempfile.TemporaryDirectory(prefix="izo-recovery-report-") as directory, ExitStack() as stack:
             path = Path(directory) / "receipt.json"
-            stack.enter_context(patch.object(recovery.RecoveryRun, "guard"))
+            stack.enter_context(patch.object(recovery.RecoveryRun, "preflight", return_value={}))
             stack.enter_context(patch.object(recovery.RecoveryRun, "provider", return_value=provider()))
             for name, action in zip(("crash", "repeated", "concurrent"), actions):
                 stack.enter_context(patch.object(recovery.RecoveryRun, name, side_effect=action))

@@ -92,6 +92,12 @@ def runtime_guard(shadow, container, service):
                 "SHADOW_ROLE_RUNTIME_WORKER_INVALID")
 
 
+def guard_capabilities(value):
+    """Docker 28 serializes CAP_ names; legacy inspect may omit that prefix."""
+    return (isinstance(value, list) and len(value) == 3 and all(isinstance(item, str) for item in value)
+            and {item.removeprefix("CAP_") for item in value} == {"NET_ADMIN", "SETUID", "SETGID"})
+
+
 def retained_runtime(shadow, containers, images):
     """Prove the unchanged guard/web boundary around a fixture-only API recycle."""
     require(shadow.fixture is True and len(containers) == 5, "SHADOW_RETAINED_STACK_INVALID")
@@ -111,11 +117,12 @@ def retained_runtime(shadow, containers, images):
         require(all(mount.get("Type") in {"volume", "tmpfs"} for mount in row["Mounts"]),
                 "SHADOW_RETAINED_HOST_MOUNT")
         if name == "guard":
-            require(set(networks) == {shadow.project + "_shadow"} and host.get("Dns") == ["127.0.0.1"]
-                    and set(host.get("CapAdd") or []) == {"NET_ADMIN", "SETUID", "SETGID"}
-                    and len(bindings) == 2 and all(port.get("HostIp") == "127.0.0.1"
-                        for ports in bindings.values() for port in ports)
-                    and row["State"].get("Health", {}).get("Status") == "healthy", "SHADOW_RETAINED_GUARD_INVALID")
+            require(set(networks) == {shadow.project + "_shadow"}, "SHADOW_RETAINED_GUARD_NETWORK_INVALID")
+            require(host.get("Dns") == ["127.0.0.1"], "SHADOW_RETAINED_GUARD_DNS_INVALID")
+            require(guard_capabilities(host.get("CapAdd")), "SHADOW_RETAINED_GUARD_CAPABILITIES_INVALID")
+            require(len(bindings) == 2 and all(port.get("HostIp") == "127.0.0.1"
+                        for ports in bindings.values() for port in ports), "SHADOW_RETAINED_GUARD_PORTS_INVALID")
+            require(row["State"].get("Health", {}).get("Status") == "healthy", "SHADOW_RETAINED_GUARD_HEALTH_INVALID")
         else:
             require(host.get("NetworkMode") == "container:" + guard["Id"] and not networks and not bindings
                     and not host.get("CapAdd"), "SHADOW_RETAINED_NAMESPACE_INVALID")

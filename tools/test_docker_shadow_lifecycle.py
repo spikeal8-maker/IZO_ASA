@@ -1,11 +1,15 @@
 """Reject unsafe fast fixture recycles; no Docker runtime is simulated as PASS."""
 from copy import deepcopy
 import json
+from pathlib import Path
+import tempfile
 from unittest import TestCase
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
+from tools import docker_clean_recovery as recovery
 from tools.docker_shadow import OWNER, Shadow, ShadowError
 from tools.docker_clean_recovery import RecoveryError, RecoveryRun
+from tools.test_docker_clean_recovery import target as recovery_target
 from tools.test_docker_clean_workers import rows
 from tools.test_docker_shadow_roles import IMAGE, PROJECT
 
@@ -128,6 +132,69 @@ class OwnedInventoryTests(TestCase):
 
 
 class ApplicationRecycleTests(TestCase):
+    def test_docker28_canonical_and_legacy_capabilities_keep_the_exact_three_grants(self):
+        for caps in (["CAP_NET_ADMIN", "CAP_SETGID", "CAP_SETUID"],
+                     ["NET_ADMIN", "SETUID", "SETGID"], ["CAP_SETUID", "NET_ADMIN", "CAP_SETGID"]):
+            with self.subTest(caps=caps):
+                before = stack()
+                before[3]["HostConfig"]["CapAdd"] = caps
+                shadow = fixture_shadow(before)
+                observed = shadow.up(build=False, recreate=True, application_only=True)
+                self.assertEqual(observed["before"], observed["after"])
+                shadow.compose.assert_called_once()
+
+    def test_capability_aliases_never_admit_extra_missing_duplicate_or_malformed_grants(self):
+        canonical = ["CAP_NET_ADMIN", "CAP_SETGID", "CAP_SETUID"]
+        invalid = [None, {}, "CAP_NET_ADMIN", [], canonical[:2], canonical + ["CAP_SYS_ADMIN"],
+            canonical + ["NET_ADMIN"], ["CAP_NET_ADMIN", "NET_ADMIN", "CAP_SETUID"],
+            ["CAP_NET_ADMIN", "CAP_SETUID", "ALL"], ["CAP_NET_ADMIN", "CAP_SETUID", "CAP_ALL"],
+            ["CAP_NET_ADMIN", "CAP_SETUID", "CAP_CAP_SETGID"],
+            ["CAP_NET_ADMIN", "CAP_SETUID", "setgid"], ["CAP_NET_ADMIN", "CAP_SETUID", 1]]
+        for caps in invalid:
+            with self.subTest(caps=caps):
+                before = stack()
+                before[3]["HostConfig"]["CapAdd"] = caps
+                shadow = fixture_shadow(before)
+                with self.assertRaisesRegex(ShadowError, "^SHADOW_RETAINED_GUARD_CAPABILITIES_INVALID$"):
+                    shadow.up(build=False, recreate=True, application_only=True)
+                shadow.compose.assert_not_called()
+
+    def test_guard_diagnostics_are_fixed_and_distinguish_network_dns_ports_and_health(self):
+        for field, code in (("network", "NETWORK"), ("dns", "DNS"), ("ports", "PORTS"), ("health", "HEALTH")):
+            with self.subTest(field=field):
+                before = stack()
+                guard = before[3]
+                if field == "network":
+                    guard["NetworkSettings"]["Networks"]["foreign-secret-network"] = {}
+                elif field == "dns":
+                    guard["HostConfig"]["Dns"] = ["192.0.2.1"]
+                elif field == "ports":
+                    guard["HostConfig"]["PortBindings"]["8080/tcp"][0]["HostIp"] = "0.0.0.0"
+                else:
+                    guard["State"]["Health"]["Status"] = "unhealthy"
+                shadow = fixture_shadow(before)
+                with self.assertRaisesRegex(ShadowError, "^SHADOW_RETAINED_GUARD_" + code + "_INVALID$"):
+                    shadow.up(build=False, recreate=True, application_only=True)
+                shadow.compose.assert_not_called()
+
+    def test_recovery_preflight_rejects_the_retained_boundary_before_http_or_sigkill(self):
+        for caps in (["CAP_NET_ADMIN", "CAP_SETUID", "CAP_SYS_ADMIN"], None):
+            with self.subTest(caps=caps), tempfile.TemporaryDirectory(prefix="izo-guard-preflight-") as directory:
+                before = stack()
+                before[3]["HostConfig"]["CapAdd"] = caps
+                shadow = fixture_shadow(before)
+                shadow.executor, shadow.docker = Mock(), Mock()
+                attestation = {**recovery_target(), "sourceSha": shadow.sha, "project": shadow.project}
+                with patch.object(recovery, "ProductFlow") as flow:
+                    result = recovery.prove_recovery(shadow, attestation, Path(directory) / "receipt.json")
+                self.assertEqual(result["status"], "FAIL")
+                self.assertEqual(result["errorCode"], "SHADOW_RETAINED_GUARD_CAPABILITIES_INVALID")
+                self.assertEqual(result["checks"], {})
+                flow.assert_not_called()
+                shadow.compose.assert_not_called()
+                shadow.docker.assert_not_called()
+                self.assertEqual(shadow.ownership_guard.call_count, 1)
+
     def test_only_api_and_two_workers_are_selected_with_immutable_ids_and_all_guards(self):
         shadow = fixture_shadow()
         launches = []
