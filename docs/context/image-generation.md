@@ -2,13 +2,13 @@
 status: canonical
 domain: image-generation
 read_when: ["image-generation","text-to-image","image-to-image","generation-jobs"]
-source_paths: ["backend/app/services/generation_admission.py","backend/app/services/generation_accounting.py","backend/app/services/generation_claims.py","backend/app/services/generation_jobs.py","backend/app/services/generation_queue.py","backend/app/services/generation_recovery.py","backend/app/services/generation_results.py","backend/app/services/generation_worker.py","backend/app/services/generation_worker_persistence.py","frontend/src/phone/features/image/api.ts"]
-test_paths: ["backend/test_generation_admission.py","backend/test_generation_claims.py","backend/test_generation_worker_claims.py","backend/test_generation_jobs_characterization.py","backend/test_generation_protection.py","backend/test_generation_recovery_wiring.py","backend/test_services_generation_jobs_module.py","backend/test_services_generation_queue_module.py","backend/test_services_generation_results_module.py","backend/test_services_generation_worker_module.py","frontend/phoneImage.test.ts"]
+source_paths: ["backend/app/services/generation_admission.py","backend/app/services/generation_accounting.py","backend/app/services/generation_claims.py","backend/app/services/generation_leases.py","backend/app/services/generation_dispatch.py","backend/app/services/generation_bootstrap.py","backend/app/generation_worker.py","backend/app/integrations/generation_ipc.py","backend/app/services/generation_jobs.py","backend/app/services/generation_queue.py","backend/app/services/generation_recovery.py","backend/app/services/generation_results.py","backend/app/services/generation_worker.py","backend/app/services/generation_worker_persistence.py","frontend/src/phone/features/image/api.ts"]
+test_paths: ["backend/test_generation_admission.py","backend/test_generation_claims.py","backend/test_generation_leases.py","backend/test_generation_dispatch.py","backend/test_generation_worker_process.py","backend/test_generation_worker_claims.py","backend/test_generation_jobs_characterization.py","backend/test_generation_protection.py","backend/test_generation_recovery_wiring.py","backend/test_services_generation_jobs_module.py","backend/test_services_generation_queue_module.py","backend/test_services_generation_results_module.py","backend/test_services_generation_worker_module.py","frontend/phoneImage.test.ts"]
 related_domains: ["frontend-studio","video-gallery-feed","chat"]
 forbidden_paths: ["unknown"]
 owner: image-generation-platform
 context_role: scoped-domain-map
-updated: 2026-10-17
+updated: 2026-10-18
 ---
 # Context: генерация изображений
 
@@ -30,7 +30,10 @@ Layout, paint и общий shell принадлежат `frontend-studio`; пу
 | `generation_admission.py` | Нормализованный запрос, validation, replay, charge/trial reservation и создание задания. |
 | `generation_jobs.py` | Persisted job, protected metadata и публичная API projection. |
 | `generation_claims.py` | Durable queued → running claim и проверка права на запись. |
-| `generation_queue.py` | Выборка из локальной очереди, acknowledgement и однократный запуск consumer. |
+| `generation_queue.py` | Локальная очередь и единственный consumer только в совместимом combined role. |
+| `generation_leases.py`, `generation_dispatch.py` | Durable selection, lease/expiry, heartbeat и IPC владение в server role. |
+| `generation_bootstrap.py` | Роль процесса, ранний single-writer lock, startup/shutdown и composition. |
+| `generation_admin_probe.py` | Trusted admin probe через ту же claim/finalization boundary без пользовательских списаний. |
 | `generation_worker.py` | Порядок provider work, завершения, failure и post-completion callbacks. |
 | `generation_worker_persistence.py` | Присоединение DB callbacks, cancellation, cache и optimization. |
 | `generation_accounting.py` | Существующие charge adjustments и однократные refunds на caller connection. |
@@ -62,7 +65,12 @@ Persist сохраняет прежнюю metadata; request payload не мож�
 
 ## Queue, claim и выполнение
 
-Существующая `asyncio.Queue` — wake-up механизм одного backend; durable truth находится в SQLite.
+`IZO_PROCESS_ROLE=combined` сохраняет прежнюю `asyncio.Queue` и локальный consumer.
+`server` получает process lock до SQLite startup и не запускает этот consumer; durable truth находится в SQLite.
+Отдельный `python -m app.generation_worker` не импортирует main/SQLite и выполняет provider HTTP через private Unix IPC.
+API сохраняет admission, accounting, provider orchestration и media finalization; worker монтирует только IPC volume.
+Server выбирает queued row из SQLite под single-writer lease, независимо от cache/wake, с одним активным image job.
+Heartbeat продлевает только текущий lease; stream loss/expiry дают fenced failure и однократный refund без uncertain retry.
 После каждого успешного `queue.get()` выполняется `task_done()` в `finally`, включая lookup/parse/runtime errors.
 Ошибки продолжают распространяться; acknowledgement не означает успешную обработку или автоматический restart consumer.
 
@@ -88,7 +96,7 @@ Optimization запускается после durable completion; её ошиб
 Cancellation проверяет persisted owner/status и выполняет refund + cancelled persist в одной transaction.
 Повторная отмена terminal job не возвращает средства снова.
 Отмена queued ComfyUI job не вызывает global interrupt активной чужой задачи.
-Для активного ComfyUI job сохраняется существующий global provider interrupt; per-prompt isolation этим flow не предоставляется.
+Для активного ComfyUI job сохраняется global provider interrupt, сериализованный с admission следующего job; per-prompt isolation не предоставляется.
 
 Startup recovery использует существующие jobs: найденный durable image позволяет согласовать completion; иначе active job завершается failure/refund по действующим правилам.
 Recovery не создаёт новый claim, provider retry или независимый lifecycle.
@@ -97,15 +105,17 @@ Disk index repair не восстанавливает изображения д�
 
 ## Границы и текущие ограничения
 
-- Этот flow не предоставляет отдельные server/worker roles, lease/expiry или durable scheduler.
-- SQLite claim не доказывает process-role isolation; разные контейнеры не разделяют Python queue.
-- Commit и queue wake не являются одной transaction/outbox. Потеря wake не исправляется повторным admission.
+- Split role поддерживает один API/SQLite writer; несколько API writers и распределённый broker не предоставляются.
+- Durable polling закрывает commit-to-wake gap в server role; combined сохраняет прежнюю локальную очередь.
+- Worker liveness хранится в private status, lease/watchdog — в API snapshot; public health раскрывает только safe readiness reason.
 - Provider и filesystem не имеют общего atomic rollback с SQLite; после сбоя могут остаться неиндексированные файлы.
 - Materialized result не означает публикацию в feed; gallery/publication policy остаётся в соседнем domain.
 - Provider/model availability, capacity и production queue не выводятся из source или configured credentials.
 
 ## Focused tests
 
+- `backend/test_generation_leases.py`, `backend/test_generation_dispatch.py`, `backend/test_generation_worker_process.py` — durable selection, real process roles, loss/expiry и late-result fencing.
+- `backend/test_phone_job_progress.py`, `backend/test_generation_admin_probe.py` — сохранённые Phone progress и admin probe contracts.
 - `backend/test_generation_admission.py` — replay, mismatch, owner isolation, rollback, restart, two-connection races и last-trial reservation.
 - `backend/test_generation_claims.py` — claim authority, nested transactions, cancellation permission и metadata boundaries.
 - `backend/test_generation_worker_claims.py` — duplicate/shared-dict consumers, late results, SQL/cache rollback, actual recovery, cancellation и optimizer ordering.

@@ -2,7 +2,7 @@ name: Docker clean installation acceptance
 
 on:
   push:
-    branches: [agent/docker-acceptance-repair-001]
+    branches: [agent/docker-acceptance-repair-001, agent/docker-worker-readiness-001]
   workflow_dispatch:
 
 permissions:
@@ -46,7 +46,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/source-evidence"
-          python -m pytest -q tools/test_file_hygiene.py tools/test_file_hygiene_regressions.py tools/test_file_hygiene_markdown.py tools/test_file_hygiene_policy.py tools/test_ci_scope.py tools/test_source_alignment.py tools/test_portable_ci_gates.py tools/test_docker_shadow.py tools/test_docker_shadow_executor.py tools/test_docker_shadow_linux.py tools/test_docker_shadow_provider.py tools/test_docker_shadow_product.py tools/test_docker_shadow_storage.py tools/test_docker_shadow_fixture.py tools/test_docker_clean_install.py tools/test_docker_clean_storage.py tools/test_docker_clean_storage_quiesce.py tools/test_docker_clean_recovery.py tools/test_docker_clean_features.py tools/test_docker_clean_admin.py tools/test_docker_clean_models.py tools/test_docker_clean_admin_runtime.py --junitxml="$RUNNER_TEMP/source-evidence/portable.xml" 2>&1 | tee "$RUNNER_TEMP/source-evidence/portable.log"
+          python -m pytest -q tools/test_file_hygiene.py tools/test_file_hygiene_regressions.py tools/test_file_hygiene_markdown.py tools/test_file_hygiene_policy.py tools/test_ci_scope.py tools/test_source_alignment.py tools/test_portable_ci_gates.py tools/test_docker_shadow.py tools/test_docker_shadow_roles.py tools/test_docker_shadow_executor.py tools/test_docker_shadow_linux.py tools/test_docker_shadow_provider.py tools/test_docker_shadow_product.py tools/test_docker_shadow_storage.py tools/test_docker_shadow_fixture.py tools/test_docker_clean_install.py tools/test_docker_clean_storage.py tools/test_docker_clean_media.py tools/test_docker_clean_storage_quiesce.py tools/test_docker_clean_recovery.py tools/test_docker_clean_workers.py tools/test_docker_clean_features.py tools/test_docker_clean_admin.py tools/test_docker_clean_models.py tools/test_docker_clean_admin_runtime.py --junitxml="$RUNNER_TEMP/source-evidence/portable.xml" 2>&1 | tee "$RUNNER_TEMP/source-evidence/portable.log"
           python -m tools.file_hygiene --base "$ACCEPTANCE_BASE" --head "$GITHUB_SHA" --comparison direct | tee "$RUNNER_TEMP/source-evidence/file-hygiene.json"
       - name: Test inherited application extractions on Linux
         env:
@@ -60,8 +60,13 @@ jobs:
           python -m pytest -q \
             backend/test_services_generation_accounting_module.py backend/test_services_generation_recovery_module.py backend/test_phone_audio.py \
             backend/test_generation_claims.py backend/test_generation_worker_claims.py backend/test_generation_admission.py \
+            backend/test_generation_leases.py backend/test_generation_dispatch.py backend/test_generation_worker_process.py backend/test_generation_process_ownership.py \
+            backend/test_media_readiness.py backend/test_phone_job_progress.py backend/test_generation_admin_probe.py \
+            backend/test_integrations_comfyui_client.py backend/test_integrations_openrouter_module.py backend/test_integrations_openrouter_image_client_module.py \
+            backend/test_integrations_openrouter_image_io_module.py backend/test_comfyui_client_wiring.py backend/test_comfyui_result_wiring.py \
+            backend/test_api.py::test_all_generation_modes_complete_and_save_gallery_records backend/test_api.py::test_openrouter_generation_skips_comfyui backend/test_api.py::test_completed_generation_is_persisted_to_sqlite \
             backend/test_services_generation_worker_module.py backend/test_services_generation_queue_module.py backend/test_services_generation_jobs_module.py \
-            backend/test_billing_replay_guards.py backend/test_video_config_availability.py \
+            backend/test_billing_replay_guards.py backend/test_video_config_availability.py backend/test_api.py::test_public_health_is_minimal_and_does_not_expose_runtime_details \
             --junitxml="$RUNNER_TEMP/source-evidence/backend.xml" 2>&1 | tee "$RUNNER_TEMP/source-evidence/backend.log"
       - name: Preserve exact-source admission evidence
         if: always()

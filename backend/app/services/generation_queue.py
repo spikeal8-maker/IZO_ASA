@@ -21,9 +21,12 @@ class GenerationQueueRuntime:
     perf_counter: Callable[[], float]
     build_worker_runtime: Callable[[], Any]
     process_job: Callable[..., Awaitable[None]]
+    allow_consume: bool = True
 
 
 async def consume_generation_queue(runtime: GenerationQueueRuntime) -> None:
+    if not runtime.allow_consume:
+        raise RuntimeError("GENERATION_BACKEND_CONSUMER_FORBIDDEN")
     while True:
         job_id = await runtime.queue.get()
         try:
@@ -47,8 +50,11 @@ def start_generation_consumer_once(
     already_started: bool,
     create_task: Callable[[Awaitable[None]], Any],
     consumer: Callable[[], Awaitable[None]],
+    on_task: Callable[[Any], None] | None = None,
 ) -> bool:
     if already_started:
         return True
-    create_task(consumer())
+    task = create_task(consumer())
+    if on_task is not None:
+        on_task(task)
     return True

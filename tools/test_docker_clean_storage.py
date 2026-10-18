@@ -228,6 +228,28 @@ class OwnershipTests(unittest.TestCase):
             storage.mount_guard(self.shadow, CID, helper=True)
         self.assertEqual(storage.mount_guard(self.shadow, CID, helper=True, running=False)["Id"], CID)
 
+    def test_fixture_requires_exact_owned_worker_ipc_without_widening_default_mounts(self):
+        self.shadow.fixture = True
+        with self.assertRaisesRegex(storage.StorageError, "STORAGE_VOLUME_NOT_OWNED"):
+            storage.mount_guard(self.shadow, CID)
+        self.assertEqual(storage.mount_guard(self.shadow, CID, helper=True)["Id"], CID)
+        self.row["Mounts"].append({"Type": "volume", "RW": True,
+            "Destination": "/home/izo/worker", "Name": PROJECT + "_worker_ipc"})
+        self.assertEqual(storage.mount_guard(self.shadow, CID)["Id"], CID)
+        with self.assertRaisesRegex(storage.StorageError, "STORAGE_VOLUME_NOT_OWNED"):
+            storage.mount_guard(self.shadow, CID, helper=True)
+        original = copy.deepcopy(self.row)
+        for field, value in (("Type", "bind"), ("RW", False), ("Name", "foreign_worker_ipc"),
+                             ("Destination", "/home/izo/foreign")):
+            with self.subTest(field=field):
+                self.row = copy.deepcopy(original)
+                self.row["Mounts"][2][field] = value
+                with self.assertRaisesRegex(storage.StorageError, "STORAGE_VOLUME_NOT_OWNED"):
+                    storage.mount_guard(self.shadow, CID)
+        self.row, self.shadow.fixture = original, False
+        with self.assertRaisesRegex(storage.StorageError, "STORAGE_VOLUME_NOT_OWNED"):
+            storage.mount_guard(self.shadow, CID)
+
     def test_cookie_transport_copies_in_memory_without_altering_source(self):
         from tools.docker_shadow_product import ProductFlow
         attestation = {"origin": "http://127.0.0.1:48125", "sourceSha": "a" * 40, "project": PROJECT,
@@ -244,62 +266,6 @@ class OwnershipTests(unittest.TestCase):
         self.assertEqual(len(list(flow.owner.cookies)), 1)
         self.assertEqual(flow.saved["fixture"], [1])
         self.assertEqual(clone.origin, "http://127.0.0.1:48127")
-
-
-class StorageFaultTests(unittest.TestCase):
-    def setUp(self):
-        self.before = {"account": {"token_balance": 50, "daily_tokens_used": 0}, "ledger": {"items": []}}
-        self.after = {"account": copy.deepcopy(self.before["account"]), "ledger": {"items": [
-            {"id": "charge", "spentTokens": 4, "reason": "daily_generation", "jobId": "fixturejob"},
-            {"id": "refund", "spentTokens": 0, "reason": "daily_generation_refund", "jobId": "fixturejob"}]}}
-        self.calls, self.snapshots = [], [self.before, self.after, self.after]
-        self.job_status, self.blocked, self.http_status = "error", True, None
-        self.owner = types.SimpleNamespace(request=self.request)
-        self.flow = types.SimpleNamespace(owner=self.owner, guest=types.SimpleNamespace(request=lambda *a, **k: {"ok": True}),
-            account_snapshot=lambda client: copy.deepcopy(self.snapshots.pop(0)))
-
-    def request(self, method, path, *args, **kwargs):
-        self.calls.append((method, path))
-        if method == "POST":
-            return {"httpStatus": self.http_status} if self.http_status else {"id": "fixturejob", "tokenCost": 4}
-        return {"status": self.job_status, "resultImageId": "bad-image" if self.job_status == "completed" else None}
-
-    def run_fault(self):
-        with patch.object(storage, "backend_id", return_value=CID), patch.object(storage.time, "sleep"), \
-             patch.object(storage, "container_call", side_effect=[{"mode": 493}, {"blocked": self.blocked},
-                                                                  {"permissionsRestored": True}]) as transport:
-            try:
-                return storage.media_fault(object(), self.flow)
-            finally:
-                self.assertIn("chmod(493)", transport.call_args.args[2])
-
-    def test_error_and_one_refund_are_required_and_permissions_restored(self):
-        result = self.run_fault()
-        self.assertEqual(result["status"], "PASS")
-        self.assertEqual(result["charges"], 1)
-        self.assertEqual(result["refunds"], 1)
-
-    def test_unestablished_fault_never_submits_generation(self):
-        self.blocked = False
-        with self.assertRaisesRegex(storage.StorageError, "STORAGE_FAULT_NOT_ESTABLISHED"):
-            self.run_fault()
-        self.assertFalse(self.calls)
-
-    def test_false_success_or_financial_duplication_is_rejected(self):
-        self.job_status = "completed"
-        with self.assertRaisesRegex(storage.StorageError, "STORAGE_FAILURE_FALSE_SUCCESS"):
-            self.run_fault()
-        self.job_status = "error"
-        self.snapshots = [self.before, copy.deepcopy(self.after)]
-        self.snapshots[1]["ledger"]["items"].append({"id": "extra", "spentTokens": 4, "reason": "daily_generation"})
-        with self.assertRaisesRegex(storage.StorageError, "STORAGE_FAILURE_LEDGER_INVALID"):
-            self.run_fault()
-
-    def test_http_rejection_passes_only_with_unchanged_finances(self):
-        self.http_status, self.snapshots = 503, [self.before, self.before]
-        result = self.run_fault()
-        self.assertEqual(result["requestHttpStatus"], 503)
-        self.assertEqual(result["charges"], 0)
 
 
 class OrchestrationTests(unittest.TestCase):
@@ -334,11 +300,16 @@ class OrchestrationTests(unittest.TestCase):
                     events.append(args[0])
                     if args[0] == "run":
                         self.assertNotIn("-c", args)
-                        settings = json.loads(override.read_text())["services"]["backend"]
+                        raw_override = override.read_text()
+                        self.assertEqual(raw_override.count('"volumes": !override ['), 1)
+                        settings = json.loads(raw_override.replace('"volumes": !override [', '"volumes": [', 1))["services"]["backend"]
                         self.assertEqual(settings["image"], image)
                         self.assertEqual(settings["network_mode"], "none")
                         self.assertEqual(settings["healthcheck"], {"disable": True})
-                        self.assertFalse("volumes" in settings or "ports" in settings)
+                        self.assertNotIn("ports", settings)
+                        self.assertEqual(settings["volumes"], [
+                            {"type": "volume", "source": "sqlite-data", "target": "/home/izo/data"},
+                            {"type": "volume", "source": "media-data", "target": "/home/izo/media"}])
                         running["helper"] = True
                         return CID
                     self.assertEqual(args, ("down", "--volumes"))
@@ -368,7 +339,7 @@ class OrchestrationTests(unittest.TestCase):
                         return changed if shadow is source and source_changed else baseline
                     return {"written": True}
 
-                def fault(*args):
+                def fault(*args, **kwargs):
                     if unavailable:
                         raise storage.StorageError("STORAGE_FAULT_NOT_ESTABLISHED")
                     return {"status": "PASS"}
@@ -390,6 +361,8 @@ class OrchestrationTests(unittest.TestCase):
                 reader.close.assert_called_once()
                 self.assertEqual(result["status"], "FAIL" if source_changed or unavailable else "PASS")
                 self.assertEqual(result["checks"]["D2-06"]["status"], "NOT_RUN" if unavailable else "PASS")
+                self.assertEqual(result["applicationVolumes"], {"/home/izo/data": restored.project + "_sqlite-data",
+                    "/home/izo/media": restored.project + "_media-data", "/home/izo/worker": restored.project + "_worker_ipc"})
                 self.assertLess(events.index("remove-helper"), events.index("application-up"))
                 self.assertEqual(events[-1], "down")
                 self.assertFalse(any(running.values()))

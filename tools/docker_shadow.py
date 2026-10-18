@@ -8,6 +8,10 @@ import re
 import subprocess
 import tempfile
 from pathlib import Path
+try:
+    from tools import docker_shadow_roles as roles
+except ModuleNotFoundError:
+    import docker_shadow_roles as roles
 
 ROOT = Path(__file__).resolve().parents[1]
 OWNER = "SHADOW-TOPOLOGY-01"
@@ -88,7 +92,7 @@ class Shadow:
     def config(self) -> dict:
         config = json.loads(self.compose("config", "--format", "json"))
         services = config["services"]
-        if set(services) != {"backend", "web", "guard"} or set(config["networks"]) != {"shadow"}:
+        if set(services) != roles.services(self) or set(config["networks"]) != {"shadow"}:
             raise ShadowError("SHADOW_CONFIG_NETWORK_INVALID")
         for name, service in services.items():
             if name == "guard":
@@ -122,6 +126,7 @@ class Shadow:
             if (any(environment.get(key) != value for key, value in expected.items())
                     or backend.get("command") != ["python", "/opt/izo/fixtures/docker_shadow_fixture.py"]):
                 raise ShadowError("SHADOW_FIXTURE_CONFIG_INVALID")
+        roles.config_guard(self, config)
         return config
 
     def containers(self) -> list[dict]:
@@ -131,7 +136,7 @@ class Shadow:
     def ownership_guard(self) -> None:
         for container in self.containers():
             labels = container["Config"].get("Labels", {})
-            if labels.get("io.izo.owner") != OWNER or labels.get("com.docker.compose.service") not in {"backend", "web", "guard"}:
+            if labels.get("io.izo.owner") != OWNER or labels.get("com.docker.compose.service") not in roles.services(self):
                 raise ShadowError("SHADOW_FOREIGN_CONTAINER")
         for kind in ("volume", "network"):
             ids = self.docker(kind, "ls", "-q", "--filter", f"label=com.docker.compose.project={self.project}").split()
@@ -140,7 +145,7 @@ class Shadow:
                     if resource.get("Labels", {}).get("io.izo.owner") != OWNER:
                         raise ShadowError(f"SHADOW_FOREIGN_{kind.upper()}")
         # Reject an unlabeled resource squatting on a Compose-generated name too.
-        expected = [("volume", f"{self.project}_{name}") for name in ("sqlite-data", "media-data")]
+        expected = [("volume", f"{self.project}_{name}") for name in roles.backend_targets(self).values()]
         expected.append(("network", f"{self.project}_shadow"))
         for kind, name in expected:
             names = self.docker(kind, "ls", "--format", "{{.Name}}").splitlines()
@@ -172,6 +177,8 @@ class Shadow:
             except (ValueError, KeyError, TypeError, AttributeError):
                 raise ShadowError("SHADOW_IMAGE_METADATA_INVALID") from None
             images[service] = image_id
+        if self.fixture and any(images[name] != images["backend"] for name in roles.WORKERS):
+            raise ShadowError("SHADOW_ROLE_WORKER_IMAGE_CHANGED")
         return images
 
     def up(self, *, build: bool = True, recreate: bool = False) -> None:

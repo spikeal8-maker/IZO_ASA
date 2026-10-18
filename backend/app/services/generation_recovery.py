@@ -57,8 +57,9 @@ def reconcile_stale_generation_jobs(
     *,
     completed_at: str,
     refund_job: RefundJob,
+    preserve_queued: bool = False,
 ) -> GenerationRecoveryReport:
-    """Finish jobs that cannot be resumed by the new single-process worker.
+    """Finish orphaned jobs; the server role preserves durable queued requests.
 
     A persisted active image proves that generation output was already committed,
     so that job is completed without a refund. Every other active row belongs to
@@ -75,9 +76,10 @@ def reconcile_stale_generation_jobs(
         WHERE status IN ({placeholders})
           AND NOT (COALESCE(provider, '') IN (?, ?)
                    AND COALESCE(mode, '') IN (?, ?, ?, ?))
+          AND (? = 0 OR status != 'queued')
         ORDER BY created_at, id
         """,
-        (*ACTIVE_GENERATION_STATUSES, *RESUMABLE_VIDEO_PROVIDERS, *RESUMABLE_VIDEO_MODES),
+        (*ACTIVE_GENERATION_STATUSES, *RESUMABLE_VIDEO_PROVIDERS, *RESUMABLE_VIDEO_MODES, int(preserve_queued)),
     ).fetchall()
     completed_from_images = 0
     failed = 0

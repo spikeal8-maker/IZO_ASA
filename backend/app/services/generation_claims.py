@@ -1,16 +1,14 @@
-"""Owned generation claims and caller-transaction fences, without schema changes.
-
-The in-process queue remains a wake-up mechanism. This module does not provide
-leases, cross-process scheduling, or atomic rollback of filesystem/provider work.
-"""
+"""Generation ownership fences for local and leased execution callbacks."""
 from __future__ import annotations
 
 from contextlib import closing, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 import json
+import math
 import sqlite3
 import threading
+import time
 import uuid
 
 from .generation_worker import GenerationClaimLost
@@ -26,6 +24,7 @@ class Claim:
     job_id: str
     user_id: str
     token: str
+    worker_id: str | None = None
 
 
 @dataclass
@@ -67,9 +66,32 @@ def _owned(conn, claim: Claim):
     row = _row(conn, claim.job_id)
     if row is None or row["user_id"] != claim.user_id or row["status"] not in ACTIVE - {"queued"}:
         raise GenerationClaimLost("GENERATION_CLAIM_LOST")
-    if _settings(row).get(METADATA_KEY) != {"version": 1, "token": claim.token}:
+    metadata = _settings(row).get(METADATA_KEY)
+    if claim.worker_id is None:
+        if metadata != {"version": 1, "token": claim.token}:
+            raise GenerationClaimLost("GENERATION_CLAIM_LOST")
+    elif (not isinstance(metadata, dict) or metadata.get("version") != 2
+          or metadata.get("token") != claim.token or metadata.get("workerId") != claim.worker_id
+          or type(metadata.get("leaseUntil")) not in (int, float)
+          or not math.isfinite(metadata["leaseUntil"])
+          or not metadata["leaseUntil"] > time.time()):
         raise GenerationClaimLost("GENERATION_CLAIM_LOST")
     return row
+
+
+def owned(conn, claim: Claim):
+    return _owned(conn, claim)
+
+
+@contextmanager
+def bind_claim(claim: Claim):
+    if _claim.get() is not None:
+        raise GenerationClaimLost("GENERATION_NESTED_CLAIM")
+    marker = _claim.set(claim)
+    try:
+        yield
+    finally:
+        _claim.reset(marker)
 
 
 def check_persist(conn, job_id: str, status: str) -> None:

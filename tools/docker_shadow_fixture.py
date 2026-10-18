@@ -168,7 +168,14 @@ class FixtureControls:
 
     def receipt(self):
         with self._lock:
-            return {"instanceId": self.instance_id, "control": dict(self.control), "race": dict(self.race)}
+            value = {"instanceId": self.instance_id, "control": dict(self.control), "race": dict(self.race)}
+        dispatcher = getattr(self.application, "generation_dispatcher", None)
+        if dispatcher is not None:
+            snapshot = dispatcher.snapshot()
+            value["generationDispatcher"] = {key: snapshot[key] for key in (
+                "role", "localConsumer", "ready", "connectedWorkers", "onlineWorkers", "lastWorkerSeenAt", "lastSuccessAt",
+                "lastFailureAt", "claimedJobs", "completedJobs", "expiredLeases", "watchdog") if key in snapshot}
+        return value
 
     def close(self):
         for number, previous in self._handlers.items():

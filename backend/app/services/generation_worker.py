@@ -8,10 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from . import generation_results
-
-
-class GenerationClaimLost(RuntimeError):
-    """The durable job owner or active state no longer permits a write."""
+from ..generation_errors import GenerationClaimLost
 
 
 class ComfyUIWorkerResult(Protocol):

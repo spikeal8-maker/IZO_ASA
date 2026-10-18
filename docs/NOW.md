@@ -2,7 +2,7 @@
 status: canonical
 status_role: current-status-aggregator
 backlog_role: program-router
-updated: 2026-10-17
+updated: 2026-10-18
 source_main_at_status_update: d1ee3a0ac5114ec08f4a8daee9cf6e41e97d6a7a
 last_verified_main: 7ab1861b53320b1234f3680f4fa5dd13175f3e27
 production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa
@@ -14,9 +14,9 @@ baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a
 baseline_status: completed-point-A-accepted
 next_candidate: CONTAINER-PRODUCTION-001
 candidate_pr: 193
-candidate_source_sha: 9609adeecae78e6f538bcbab7eb8aa5d4b876cc4
-candidate_state: acceptance-repair-in-progress
-candidate_exact_head_ci: NOT_RUN
+candidate_source_sha: 06914cf88dcf5574c574df559433c3a29c005b82
+candidate_state: worker-readiness-in-progress
+candidate_exact_head_ci: PASS
 candidate_docker_acceptance: D1_PASS_EXTENDED_FAIL
 ---
 # IZO_ASA — NOW
@@ -35,15 +35,16 @@ Next: `CONTAINER-PRODUCTION-001` (#126).
 
 D0 и Docker DEV/TEST foundation (#115) приняты ранее; #124 завершён.
 PR #186/#191 интегрированы с main; Draft #192 хранит checkpoint `d6ecb7f`.
-На `9609ade`: Д1 6×8 PASS; исправления generation/payment/video подтверждены.
-Д2/Д3 не приняты: source drift телеметрии, отдельная роль и live gaps.
-Следующий кандидат: quiesced backup и доступные admin/factory API.
+Последний проверенный checkpoint Draft #193 — `06914cf`: Full PASS, Д1 6×8 PASS.
+Поля candidate_pr/source_sha/exact_head_ci относятся только к этому checkpoint.
+Д2/Д3 не приняты: отдельная роль worker, media readiness и live gaps.
+Следующий кандидат закрывает Д2-03 и отказ media; его exact-head проверки ещё впереди.
 Full CI и независимая приёмка review HEAD обязательны.
 #126 не начат; production не переключать.
 
 Профили DEV, Shadow и будущей поставки: [docker-environments.md](docker-environments.md).
 Критерии: [docker-delivery-acceptance.md](docker-delivery-acceptance.md).
-Текущий Task: `DOCKER-ACCEPTANCE-REPAIR-001`; запуск и evidence —
+Текущий Task: `DOCKER-WORKER-READINESS-001`; запуск и evidence —
 [docker-clean-install.md](docker-clean-install.md). Кандидат ещё не принят.
 История прежних Task Contracts сохранена в исходных коммитах.
 

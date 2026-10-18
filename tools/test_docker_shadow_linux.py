@@ -30,21 +30,8 @@ def boundary_snapshot():
 
 
 def fixture_config():
-    app = {"network_mode": "service:guard", "labels": {"io.izo.owner": lifecycle.OWNER},
-           "user": "10001:10001", "cap_drop": ["ALL"],
-           "security_opt": ["no-new-privileges:true"],
-           "depends_on": {"guard": {"condition": "service_healthy"}}}
-    backend = copy.deepcopy(app)
-    backend.update(command=["python", "/opt/izo/fixtures/docker_shadow_fixture.py"],
-                   environment={"IZO_SHADOW_FIXTURE": "controlled-comfyui-v1",
-                                "COMFYUI_BASE_URL": "http://127.0.0.1:48991",
-                                "COMFYUI_MOCK_FALLBACK": "false"})
-    guard = {"networks": {"shadow": {}}, "dns": ["127.0.0.1"],
-             "labels": {"io.izo.owner": lifecycle.OWNER}, "cap_drop": ["ALL"],
-             "security_opt": ["no-new-privileges:true"],
-             "healthcheck": {"test": ["CMD", "python", "/network_guard.py", "--check"]}}
-    return {"services": {"backend": backend, "web": app, "guard": guard},
-            "networks": {"shadow": {}}}
+    from tools.test_docker_shadow_roles import acceptance_config
+    return acceptance_config()
 
 
 class LinuxLifecycleTests(unittest.TestCase):

@@ -7,6 +7,7 @@ import sqlite3
 import types
 
 from tools import docker_clean_storage_quiesce as quiesce
+from tools.docker_shadow_roles import backend_targets
 
 CID, HID, IMAGE = "a" * 64, "b" * 64, "sha256:" + "c" * 64
 PROJECT = "izo-asa-shadow-quiesce-contract"
@@ -25,13 +26,13 @@ class Source:
             "Config": {"User": "10001:10001", "Labels": labels, "Healthcheck": {"Test": ["CMD", "health"]}},
             "State": {"Running": True, "Paused": False, "Restarting": False},
             "Mounts": [{"Type": "volume", "Destination": key, "Name": PROJECT + "_" + value, "RW": True}
-                       for key, value in quiesce.TARGETS.items()],
+                       for key, value in backend_targets(self).items()],
             "HostConfig": {"NetworkMode": "container:owned-guard", "CapDrop": ["ALL"],
                            "SecurityOpt": ["no-new-privileges:true"], "Privileged": False}}}
         self.volumes = {PROJECT + "_" + value: {"Name": PROJECT + "_" + value, "CreatedAt": "2026-10-17T00:00:00Z",
             "Driver": "local", "Scope": "local", "Options": None,
             "Labels": {"io.izo.owner": quiesce.OWNER, "com.docker.compose.project": PROJECT}}
-            for value in quiesce.TARGETS.values()}
+            for value in backend_targets(self).values()}
         self.events, self.failure, self.bad_reader, self.bad_config = [], None, None, None
         self.payload = {"database": {"tables": {"power_samples": {"rows": 1, "digest": "f" * 64}}}}
         self.probe = {"journalMode": "wal", "sqliteVersion": sqlite3.sqlite_version,
@@ -50,7 +51,7 @@ class Source:
         return copy.deepcopy(list(self.rows.values()))
 
     def config(self):
-        return {"volumes": {value: {"name": PROJECT + "_" + value} for value in quiesce.TARGETS.values()},
+        return {"volumes": {value: {"name": PROJECT + "_" + value} for value in backend_targets(self).values()},
             "services": {"backend": {"image": "local-fixture-tag", "network_mode": "service:guard",
                 "user": "10001:10001", "cap_drop": ["ALL"], "security_opt": ["no-new-privileges:true"],
                 "labels": {"io.izo.owner": quiesce.OWNER}, "environment": dict(self.env)}}}
@@ -62,8 +63,11 @@ class Source:
         if args[0] == "config":
             resolved = self.config()
             backend = resolved["services"]["backend"]
-            labels = backend["labels"] | json.loads(override.read_bytes())["services"]["backend"]["labels"]
-            backend.update(json.loads(override.read_bytes())["services"]["backend"])
+            text = override.read_text()
+            assert text.count('"volumes": !override [') == 1
+            overlay = json.loads(text.replace('"volumes": !override [', '"volumes": [', 1))["services"]["backend"]
+            labels = backend["labels"] | overlay["labels"]
+            backend.update(overlay)
             backend["labels"] = labels
             backend["healthcheck"]["test"] = ["CMD", "inherited-but-disabled"]
             if self.bad_config:
@@ -90,6 +94,7 @@ class Source:
             row["Config"]["Labels"]["com.docker.compose.oneoff"] = "True"
             row["Config"]["Healthcheck"] = {"Test": ["NONE"]}
             row["HostConfig"]["NetworkMode"] = "none"
+            row["Mounts"] = [mount for mount in row["Mounts"] if mount["Destination"] in quiesce.TARGETS]
             for mount in row["Mounts"]:
                 mount["RW"] = False
             if self.bad_reader:

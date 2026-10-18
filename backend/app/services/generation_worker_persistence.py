@@ -2,13 +2,31 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import closing
+from contextlib import closing, nullcontext
 from dataclasses import dataclass
 import json
 from typing import Any, Callable, MutableMapping
 
 from . import generation_claims
 from .generation_worker import OpenRouterSettlement
+
+
+async def drain_owned_task(task):
+    """Defer caller cancellation until owned work, including its thread, ends."""
+    cancelled = False
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if task.cancelled():
+                raise
+            cancelled = True
+        except Exception:
+            break
+    if cancelled:
+        task.exception()
+        raise asyncio.CancelledError
+    return task.result()
 
 
 @dataclass(frozen=True)
@@ -63,8 +81,9 @@ class WorkerPersistence:
         generation_claims.after_commit(lambda: self.images.__setitem__(record["id"], record))
 
     async def after_completion(self, user_id: str) -> None:
+        task = asyncio.create_task(asyncio.to_thread(self.optimize, user_id, limit=2), name="generation-media-optimization")
         try:
-            await asyncio.to_thread(self.optimize, user_id, limit=2)
+            await drain_owned_task(task)
         except Exception as error:
             print(f"generation storage optimization deferred: {type(error).__name__}")
 
@@ -87,24 +106,25 @@ class WorkerPersistence:
 
 
 async def cancel_job(job_id: str, user_id: str, *, connect, jobs, persist_job,
-                     refund, read_job, interrupt, now_iso: str) -> dict:
+                     refund, read_job, interrupt, now_iso: str, admission_lock=None) -> dict:
     """Serialize terminal cancellation/refund, without interrupting a queued job."""
-    should_interrupt = False
-    with closing(connect()) as conn, conn:
-        with generation_claims.authorize_cancellation(conn, job_id, user_id) as row:
-            if row["status"] in generation_claims.ACTIVE:
-                stored = json.loads(row["settings_json"] or "{}")
-                job = dict(jobs.get(job_id) or {})
-                job.update(id=job_id, userId=user_id, request=stored, status="cancelled",
-                           progress=100, message="Отменено", completedAt=now_iso)
-                should_interrupt = row["status"] != "queued" and str(stored.get("provider") or job.get("provider")) == "comfyui"
-                refund(conn, job_id, reason="user_cancelled")
-                persist_job(job, conn=conn)
-    current = read_job(job_id, user_id)
-    if current is None:
-        raise LookupError("GENERATION_JOB_NOT_FOUND")
-    if job_id in jobs:
-        jobs[job_id].update(current)
-    if should_interrupt:
-        await interrupt()
-    return current
+    async with admission_lock if admission_lock is not None else nullcontext():
+        should_interrupt = False
+        with closing(connect()) as conn, conn:
+            with generation_claims.authorize_cancellation(conn, job_id, user_id) as row:
+                if row["status"] in generation_claims.ACTIVE:
+                    stored = json.loads(row["settings_json"] or "{}")
+                    job = dict(jobs.get(job_id) or {})
+                    job.update(id=job_id, userId=user_id, request=stored, status="cancelled",
+                               progress=100, message="Отменено", completedAt=now_iso)
+                    should_interrupt = row["status"] != "queued" and str(stored.get("provider") or job.get("provider")) == "comfyui"
+                    refund(conn, job_id, reason="user_cancelled")
+                    persist_job(job, conn=conn)
+        current = read_job(job_id, user_id)
+        if current is None:
+            raise LookupError("GENERATION_JOB_NOT_FOUND")
+        if job_id in jobs:
+            jobs[job_id].update(current)
+        if should_interrupt:
+            await interrupt()
+        return current

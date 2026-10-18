@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 import httpx
+
+from .generation_transport import client_options as generation_client_options
 from PIL import Image
 
 
@@ -51,8 +53,7 @@ async def load_openrouter_response_image(
             "timeout": timeout_seconds,
             "follow_redirects": True,
         }
-        if transport is not None:
-            client_options["transport"] = transport
+        client_options = generation_client_options(client_options, transport)
         async with httpx.AsyncClient(**client_options) as client:
             response = await client.get(url)
             response.raise_for_status()

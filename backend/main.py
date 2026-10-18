@@ -327,12 +327,12 @@ try:
         comfyui_watchdog,
         comfyui_workflows,
         generation_jobs,
-        generation_admission,
+        generation_admission, generation_admin_probe,
         generation_accounting,
         generation_recovery,
         generation_results,
         generation_worker, generation_claims, generation_worker_persistence,
-        generation_queue, image_model_publication, openrouter_availability, openrouter_image_economics, cloud_quote,
+        generation_queue, generation_bootstrap, image_model_publication, openrouter_availability, openrouter_image_economics, cloud_quote,
         gallery_policy,
         gallery_eviction,
         gallery_query,
@@ -381,12 +381,12 @@ except ImportError:  # Direct `python backend/main.py` execution.
         comfyui_watchdog,
         comfyui_workflows,
         generation_jobs,
-        generation_admission,
+        generation_admission, generation_admin_probe,
         generation_accounting,
         generation_recovery,
         generation_results,
         generation_worker, generation_claims, generation_worker_persistence,
-        generation_queue, image_model_publication, openrouter_availability, openrouter_image_economics, cloud_quote,
+        generation_queue, generation_bootstrap, image_model_publication, openrouter_availability, openrouter_image_economics, cloud_quote,
         gallery_policy,
         gallery_eviction,
         gallery_query,
@@ -463,6 +463,7 @@ try:
     from .app.api.routers.phone_audio import PhoneAudioDependencies, create_phone_audio_router
     from .app.api.routers.phone_platform import PhonePlatformDependencies, create_phone_platform_router
     from .app.api.routers.phone_jobs import PhoneJobDependencies, create_phone_jobs_router
+    from .app.api.routers.health import HealthDependencies, create_health_router
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.services.platform_status import (
         mini_app_public_url,
@@ -501,6 +502,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
     from app.api.routers.phone_audio import PhoneAudioDependencies, create_phone_audio_router
     from app.api.routers.phone_platform import PhonePlatformDependencies, create_phone_platform_router
     from app.api.routers.phone_jobs import PhoneJobDependencies, create_phone_jobs_router
+    from app.api.routers.health import HealthDependencies, create_health_router
 
 try:
     from .app.services.bot_admin import (
@@ -831,6 +833,7 @@ SOURCE_THUMB_WEBP_QUALITY = MEDIA_PROCESSING_POLICY.source_thumb_webp_quality
 
 
 load_local_env(ROOT)
+generation_bootstrap.api_role(os.environ)
 mimetypes.add_type("image/webp", ".webp")
 STORAGE_PATH_POLICY = load_storage_path_policy(ROOT)
 MEDIA = STORAGE_PATH_POLICY.media_dir
@@ -1638,6 +1641,7 @@ jobs: dict[str, dict[str, Any]] = {}
 images: dict[str, dict[str, Any]] = {}
 queue: asyncio.Queue[str] = asyncio.Queue()
 worker_started = False
+generation_dispatcher = None
 # bot_polling_started / bot_polling_tasks are worker-owned mutable state on
 # BOT_RUNTIME.polling_started / .polling_tasks (ARCH-BE-BOTS-001).
 
@@ -4332,6 +4336,7 @@ def reconcile_stale_generation_state() -> dict[str, int]:
             conn,
             completed_at=completed_at,
             refund_job=refund_generation_tokens,
+            preserve_queued=generation_bootstrap.role(os.environ) == "server",
         )
     return report.as_dict()
 
@@ -6761,6 +6766,7 @@ async def fetch_openrouter_key_status(force: bool = False) -> dict[str, Any]:
 
 
 async def send_to_openrouter(payload: GenerateRequest, job: dict[str, Any]) -> OpenRouterResult:
+    generation_bootstrap.require_executor(os.environ)
     if not openrouter_api_key():
         raise RuntimeError("OPENROUTER_API_KEY не задан. Добавьте ключ перед включением OpenRouter.")
     model = resolve_openrouter_model(payload)
@@ -7315,6 +7321,7 @@ async def download_comfyui_image(image: dict[str, str], job_id: str) -> tuple[Pa
 
 
 async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> ComfyUIResult | None:
+    generation_bootstrap.require_executor(os.environ)
     if _saved_setting("config_ui_runtime").get("imageEnabled") is False:
         raise RuntimeError("Локальная генерация изображений отключена администратором.")
     await wait_for_comfyui_recovery_gate()
@@ -7566,34 +7573,11 @@ def mock_image(req: GenerateRequest, job_id: str) -> tuple[Path, Path]:
 
 
 def _generation_worker_runtime() -> generation_worker.GenerationWorkerRuntime:
-    persistence = generation_worker_persistence.WorkerPersistence(
-        connect=db, refund=refund_generation_tokens,
-        finalize_billing=finalize_openrouter_billing_snapshot,
-        reconcile_charge=reconcile_openrouter_token_charge, quota=gallery_quota_for_user,
-        evict=evict_gallery_images_for_new_save, persist_image=persist_image,
-        persist_sources=persist_image_sources, images=images,
-        optimize=optimize_gallery_storage_for_user, read_job=get_persisted_job_response,
-        now_iso=lambda: datetime.now(timezone.utc).isoformat(),
-    )
-    return generation_worker.GenerationWorkerRuntime(
-        comfyui_mock_fallback=COMFYUI_MOCK_FALLBACK, persist_job=persist_job,
-        send_to_comfyui=send_to_comfyui, send_to_openrouter=send_to_openrouter,
-        mock_image=mock_image, public_url=public_url,
-        new_image_id=lambda: f"img_{uuid.uuid4().hex[:12]}",
-        now_iso=lambda: datetime.now(timezone.utc).isoformat(),
-        perf_counter=time.perf_counter, sleep=asyncio.sleep, **persistence.callbacks(),
-    )
+    return generation_bootstrap.worker_runtime(sys.modules[__name__])
 
 
 def _generation_queue_runtime() -> generation_queue.GenerationQueueRuntime:
-    return generation_queue.GenerationQueueRuntime(
-        queue=queue,
-        jobs=jobs,
-        parse_request=lambda payload: GenerateRequest(**payload),
-        perf_counter=time.perf_counter,
-        build_worker_runtime=_generation_worker_runtime,
-        process_job=generation_worker.process_generation_job,
-    )
+    return generation_bootstrap.queue_runtime(sys.modules[__name__])
 
 
 async def worker() -> None:
@@ -7603,94 +7587,90 @@ async def worker() -> None:
 @app.on_event("startup")
 async def startup() -> None:
     global worker_started
-    validate_config_production_configuration(
-        runtime=RUNTIME_ENVIRONMENT_POLICY,
-        http_security=_HTTP_SECURITY_POLICY,
-        providers=PROVIDER_ENDPOINT_POLICY,
-        storage=STORAGE_PATH_POLICY,
-    )
-    validate_telegram_webhook_secret(BOT_UPDATES_MODE, TELEGRAM_WEBHOOK_SECRET)
-    validate_max_webhook_secret(MAX_UPDATES_MODE, MAX_WEBHOOK_SECRET)
-    db_guard_preflight()
-    if RELEASE_IDENTITY.managed:
-        with db() as conn:
-            schema_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
-        assert_release_schema_compatible(RELEASE_IDENTITY, schema_version)
-    validate_session_crypto_config()
-    init_db()
-    video_cleanup = drain_video_file_deletions(limit=200)
-    if video_cleanup["checked"]:
-        print(f"video file deletion queue: {video_cleanup}")
-    bot_runtime = apply_saved_bot_runtime_configuration()
-    validate_telegram_webhook_secret(BOT_UPDATES_MODE, TELEGRAM_WEBHOOK_SECRET)
-    validate_max_webhook_secret(MAX_UPDATES_MODE, MAX_WEBHOOK_SECRET)
-    print(
-        "bot runtime configuration "
-        f"source={bot_runtime['source']} "
-        f"telegramMode={bot_runtime['telegramMode']} "
-        f"maxMode={bot_runtime['maxMode']}"
-    )
-    openrouter_secret_migration = migrate_openrouter_secret_from_sqlite()
-    if openrouter_secret_migration != "not_configured":
-        print(f"OpenRouter secret store status={openrouter_secret_migration} source={openrouter_api_key_source()}")
-    ADMIN_NOTIFICATION_DELIVERY_WORKER.start(connection_factory=db, send_telegram=send_admin_telegram_notification, send_email=send_admin_email_notification)
-    SOCIAL_DELIVERY_WORKER.start(
-        connection_factory=db,
-        send_telegram=send_social_telegram_publication,
-        send_max=send_social_max_publication,
-        send_vk=send_social_vk_publication, send_vk_story=send_social_vk_story, delete_social=delete_social_publication,
-    )
-    enforce_db_guard_after_migrations()
-    if is_production_like_env():
-        ACCOUNT_RETENTION_WORKER.start_with_cleanup(connect=db, record_security_event=record_security_event)
-    generation_recovery_report = reconcile_stale_generation_state()
-    if generation_recovery_report["checked"]:
-        print(f"generation startup reconciliation: {generation_recovery_report}")
-    storage_maintenance_enabled = startup_storage_maintenance_allowed(os.environ)
-    if storage_maintenance_enabled:
-        recovered_gallery = recover_missing_optimized_gallery_files()
-        if any(value for key, value in recovered_gallery.items() if key != "checked"):
-            print(f"gallery storage recovery: {recovered_gallery}")
-        repaired_thumbnails = repair_missing_gallery_thumbnails()
-        if any(value for key, value in repaired_thumbnails.items() if key != "checked"):
-            print(f"gallery thumbnail repair: {repaired_thumbnails}")
-        repaired_avatars = repair_missing_user_avatars()
-        if repaired_avatars["repaired"]:
-            print(f"user avatar repair: {repaired_avatars}")
-        source_cleanup = cleanup_orphan_image_sources()
-        if any(source_cleanup.values()):
-            print(f"image source cleanup: {source_cleanup}")
-        source_availability = reconcile_image_source_availability()
-        if source_availability["missing"]:
-            print(f"image source availability: {source_availability}")
-        repaired_sources = repair_unavailable_image_sources_from_jobs()
-        if repaired_sources["repaired"] or repaired_sources["errors"]:
-            print(f"image source repair: {repaired_sources}")
-    else:
-        print("startup storage maintenance skipped by runtime safety policy")
-    backfilled_feed = backfill_feed_generation_snapshots()
-    if backfilled_feed:
-        print(f"feed generation snapshots backfilled: {backfilled_feed}")
-    recovered_feed_videos = start_feed_video_publication_worker()
-    if recovered_feed_videos:
-        print(f"feed video publications requeued: {recovered_feed_videos}")
-    load_db_state()
-    energy_telemetry.POWER_TELEMETRY_WORKER.start(connect=db)
-    if is_production_like_env():
-        assistant_runtime.OLLAMA_RESIDENCY.start(assistant_models_config)
-    if storage_maintenance_enabled:
-        asyncio.create_task(asyncio.to_thread(optimize_existing_gallery_storage))
-    worker_started = generation_queue.start_generation_consumer_once(
-        already_started=worker_started,
-        create_task=asyncio.create_task,
-        consumer=worker,
-    )
-    start_bot_workers(
-        BOT_RUNTIME,
-        telegram_poll=telegram_poll_once_from_api,
-        max_poll=max_poll_once_from_api,
-    )
-
+    async with generation_bootstrap.prepared_api(sys.modules[__name__]):
+        validate_config_production_configuration(
+            runtime=RUNTIME_ENVIRONMENT_POLICY,
+            http_security=_HTTP_SECURITY_POLICY,
+            providers=PROVIDER_ENDPOINT_POLICY,
+            storage=STORAGE_PATH_POLICY,
+        )
+        validate_telegram_webhook_secret(BOT_UPDATES_MODE, TELEGRAM_WEBHOOK_SECRET)
+        validate_max_webhook_secret(MAX_UPDATES_MODE, MAX_WEBHOOK_SECRET)
+        db_guard_preflight()
+        if RELEASE_IDENTITY.managed:
+            with db() as conn:
+                schema_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+            assert_release_schema_compatible(RELEASE_IDENTITY, schema_version)
+        validate_session_crypto_config()
+        init_db()
+        video_cleanup = drain_video_file_deletions(limit=200)
+        if video_cleanup["checked"]:
+            print(f"video file deletion queue: {video_cleanup}")
+        bot_runtime = apply_saved_bot_runtime_configuration()
+        validate_telegram_webhook_secret(BOT_UPDATES_MODE, TELEGRAM_WEBHOOK_SECRET)
+        validate_max_webhook_secret(MAX_UPDATES_MODE, MAX_WEBHOOK_SECRET)
+        print(
+            "bot runtime configuration "
+            f"source={bot_runtime['source']} "
+            f"telegramMode={bot_runtime['telegramMode']} "
+            f"maxMode={bot_runtime['maxMode']}"
+        )
+        openrouter_secret_migration = migrate_openrouter_secret_from_sqlite()
+        if openrouter_secret_migration != "not_configured":
+            print(f"OpenRouter secret store status={openrouter_secret_migration} source={openrouter_api_key_source()}")
+        ADMIN_NOTIFICATION_DELIVERY_WORKER.start(connection_factory=db, send_telegram=send_admin_telegram_notification, send_email=send_admin_email_notification)
+        SOCIAL_DELIVERY_WORKER.start(
+            connection_factory=db,
+            send_telegram=send_social_telegram_publication,
+            send_max=send_social_max_publication,
+            send_vk=send_social_vk_publication, send_vk_story=send_social_vk_story, delete_social=delete_social_publication,
+        )
+        enforce_db_guard_after_migrations()
+        if is_production_like_env():
+            ACCOUNT_RETENTION_WORKER.start_with_cleanup(connect=db, record_security_event=record_security_event)
+        generation_recovery_report = reconcile_stale_generation_state()
+        if generation_recovery_report["checked"]:
+            print(f"generation startup reconciliation: {generation_recovery_report}")
+        storage_maintenance_enabled = startup_storage_maintenance_allowed(os.environ)
+        if storage_maintenance_enabled:
+            recovered_gallery = recover_missing_optimized_gallery_files()
+            if any(value for key, value in recovered_gallery.items() if key != "checked"):
+                print(f"gallery storage recovery: {recovered_gallery}")
+            repaired_thumbnails = repair_missing_gallery_thumbnails()
+            if any(value for key, value in repaired_thumbnails.items() if key != "checked"):
+                print(f"gallery thumbnail repair: {repaired_thumbnails}")
+            repaired_avatars = repair_missing_user_avatars()
+            if repaired_avatars["repaired"]:
+                print(f"user avatar repair: {repaired_avatars}")
+            source_cleanup = cleanup_orphan_image_sources()
+            if any(source_cleanup.values()):
+                print(f"image source cleanup: {source_cleanup}")
+            source_availability = reconcile_image_source_availability()
+            if source_availability["missing"]:
+                print(f"image source availability: {source_availability}")
+            repaired_sources = repair_unavailable_image_sources_from_jobs()
+            if repaired_sources["repaired"] or repaired_sources["errors"]:
+                print(f"image source repair: {repaired_sources}")
+        else:
+            print("startup storage maintenance skipped by runtime safety policy")
+        backfilled_feed = backfill_feed_generation_snapshots()
+        if backfilled_feed:
+            print(f"feed generation snapshots backfilled: {backfilled_feed}")
+        recovered_feed_videos = start_feed_video_publication_worker()
+        if recovered_feed_videos:
+            print(f"feed video publications requeued: {recovered_feed_videos}")
+        load_db_state()
+        energy_telemetry.POWER_TELEMETRY_WORKER.start(connect=db)
+        if is_production_like_env():
+            assistant_runtime.OLLAMA_RESIDENCY.start(assistant_models_config)
+        if storage_maintenance_enabled:
+            generation_bootstrap.start_storage_maintenance(sys.modules[__name__])
+        worker_started = await generation_bootstrap.start(sys.modules[__name__])
+        start_bot_workers(
+            BOT_RUNTIME,
+            telegram_poll=telegram_poll_once_from_api,
+            max_poll=max_poll_once_from_api,
+        )
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
@@ -7701,18 +7681,14 @@ async def shutdown() -> None:
     await SOCIAL_DELIVERY_WORKER.stop()
     await stop_feed_video_publication_worker()
     await stop_bot_workers(BOT_RUNTIME)
+    await generation_bootstrap.stop(sys.modules[__name__])
 
 
-@app.get("/api/health")
-async def health() -> dict[str, Any]:
-    guard = collect_db_guard_status()
-    DB_GUARD_STATUS.update(guard)
-    return {
-        "ok": True,
-        "app": "izo-asa",
-        "release_id": RELEASE_IDENTITY.release_id,
-        "ready": bool(guard.get("ok")),
-    }
+app.include_router(create_health_router(HealthDependencies(
+    media_dir=lambda: MEDIA, release_id=lambda: RELEASE_IDENTITY.release_id,
+    collect_db_guard=lambda: collect_db_guard_status(), update_db_guard=lambda guard: DB_GUARD_STATUS.update(guard),
+    worker_ready=lambda: generation_bootstrap.worker_ready(sys.modules[__name__]),
+)))
 
 
 _runtime_error_rate: dict[str, list[float]] = {}
@@ -8109,6 +8085,7 @@ async def cancel_job(job_id: str, request: Request) -> dict[str, Any]:
             job_id, trusted["legacy_user_id"], connect=db, jobs=jobs, persist_job=persist_job,
             refund=refund_generation_tokens, read_job=get_persisted_job_response,
             interrupt=interrupt_comfyui_prompt, now_iso=datetime.now(timezone.utc).isoformat(),
+            admission_lock=generation_dispatcher.admission_lock if generation_dispatcher else None,
         )
     except LookupError:
         raise HTTPException(404, "Job not found") from None
@@ -16775,74 +16752,8 @@ async def admin_delete_openrouter_key(request: Request) -> dict[str, Any]:
 
 @app.post("/api/admin/openrouter/test-generate")
 async def admin_openrouter_test_generate(req: AdminOpenRouterTestRequest, request: Request) -> dict[str, Any]:
-    admin = require_trusted_admin(request)
-    if "/" not in req.model:
-        raise HTTPException(400, "model должен быть OpenRouter id вида provider/model")
-    job_id = f"admin_or_test_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
-    gen_req = GenerateRequest(
-        mode="text_to_image",
-        provider="openrouter",
-        prompt=req.prompt,
-        width=req.width,
-        height=req.height,
-        steps=4,
-        modelProfile=req.model,
-    )
-    job = {
-        "id": job_id,
-        "userId": admin["legacy_user_id"],
-        "mode": gen_req.mode,
-        "provider": gen_req.provider,
-        "status": "queued",
-        "progress": 0,
-        "message": "Admin OpenRouter test",
-        "request": gen_req.model_dump(),
-        "createdAt": datetime.now(timezone.utc).isoformat(),
-    }
-    result = await send_to_openrouter(gen_req, job)
-    created_at = datetime.now(timezone.utc).isoformat()
-    with Image.open(result.image_path) as opened:
-        width, height = opened.size
-    image_id = f"img_{uuid.uuid4().hex[:12]}"
-    record = {
-        "id": image_id,
-        "userId": admin["legacy_user_id"],
-        "url": public_url(result.image_path, admin["legacy_user_id"]),
-        "thumbnailUrl": public_url(result.thumbnail_path, admin["legacy_user_id"]),
-        "mode": gen_req.mode,
-        "provider": gen_req.provider,
-        "promptOriginal": gen_req.prompt,
-        "promptTranslated": gen_req.prompt,
-        "seed": gen_req.seed,
-        "width": width,
-        "height": height,
-        "modelProfile": gen_req.modelProfile,
-        "loras": [],
-        "preset": "admin_openrouter_test",
-        "generationTimeMs": 0,
-        "isFavorite": False,
-        "createdAt": created_at,
-        "openrouterModel": result.model,
-        "openrouterResponseId": result.response_id,
-        "openrouterUsage": result.usage,
-        "openrouterCostUsd": result.cost_usd,
-    }
-    images[image_id] = record
-    persist_image(record, job_id)
-    job.update(
-        status="completed",
-        progress=100,
-        message="OpenRouter test completed",
-        resultImageId=image_id,
-        resultUrl=record["url"],
-        openrouterModel=result.model,
-        openrouterResponseId=result.response_id,
-        openrouterUsage=result.usage,
-        openrouterCostUsd=result.cost_usd,
-        completedAt=created_at,
-    )
-    persist_job(job, gen_req)
-    return {"ok": True, "image": record, "costUsd": result.cost_usd, "model": result.model, "usage": result.usage, "stats": openrouter_usage_stats()}
+    require_trusted_admin(request)
+    return await generation_admin_probe.generate(sys.modules[__name__], req, request)
 
 
 def default_routes(model_status: dict[str, Any]) -> list[dict[str, Any]]:

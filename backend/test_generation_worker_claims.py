@@ -14,6 +14,7 @@ from types import SimpleNamespace
 import unittest
 
 from app.services import generation_accounting as accounting, generation_queue as queue_service
+from app.services import generation_bootstrap
 from app.services import generation_recovery as recovery
 from app.services import generation_worker
 from app.services.generation_worker import process_generation_job
@@ -304,6 +305,8 @@ class WorkerClaimIntegrationTests(ClaimDatabase, unittest.TestCase):
                 payload.__dict__.update(mode=mode, inputImage1="first", inputImage2="second",
                     maskImage=None, outpaintMask=None, canvas=None, inputImages=[], model_copy=clone)
                 namespace = {"generation_worker": generation_worker, "COMFYUI_MOCK_FALLBACK": True,
+                    "generation_bootstrap": generation_bootstrap,
+                    "os": SimpleNamespace(environ={"IZO_PROCESS_ROLE": "combined"}),
                     "COMFYUI_REQUIRED": True, "COMFYUI_FACE_INPUT_MAX_SIDE": 512,
                     "_saved_setting": lambda _name: {}, "wait_for_comfyui_recovery_gate": available,
                     "comfyui_available": available, "effective_face_profile": str, "effective_edit_profile": str,

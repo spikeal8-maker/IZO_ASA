@@ -16,6 +16,7 @@ import uuid
 from tools.docker_shadow import Shadow
 from tools.docker_shadow_executor import compare_isolated
 from tools.docker_shadow_product import ProductFlow, path_id, validate_target
+from tools import docker_shadow_roles as roles
 
 ACTIVE = {"queued", "running", "uploading", "sent_to_comfyui", "sent_to_openrouter"}
 TERMINAL = {"completed", "failed", "cancelled"}
@@ -55,7 +56,7 @@ for row in rows:
     item.update({key:meta.get(key) for key in ('jobId','token_cost','refund_tokens','daily_part','balance_part','monthly_part')})
     item['cause']=meta.get('reason') if meta.get('reason') in {
         'startup_reconciliation','user_cancelled','generation_failed',
-        'cancelled_before_start','cancelled_during_generation'} else None
+        'cancelled_before_start','cancelled_during_generation','worker_lease_expired'} else None
     ledger.append(item)
 active=conn.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running','uploading','sent_to_comfyui','sent_to_openrouter')").fetchone()[0]
 conn.rollback()
@@ -228,7 +229,8 @@ class RecoveryRun:
         self.guard()
         before = self.backend(running=False)
         volumes = sorted(mount["Name"] for mount in before["Mounts"] if mount["Type"] == "volume")
-        require(len(volumes) == 2, "RECOVERY_VOLUMES_INVALID")
+        require(volumes == sorted(self.shadow.project + "_" + name for name in roles.backend_targets(self.shadow).values()),
+                "RECOVERY_VOLUMES_INVALID")
         self.shadow.up(build=False, recreate=True)
         after = self.backend()
         require(after["Id"] != before["Id"] and volumes == sorted(
@@ -306,34 +308,8 @@ class RecoveryRun:
             case["errorCode"] = "RECOVERY_DUPLICATE_GENERATION_CHARGED"
 
     def concurrent(self, case):
-        baseline = self.snapshot()
-        job_id = self.held_job(case)
-        client = case["acceptedBeforeAction"]["provider"]["provider"]["jobs"][-1]["client_sha256"]
-        self.signal("hold")
-        case["delivery"] = self.signal("duplicate")
-        require(case["delivery"]["race"].get("jobId") == job_id, "RECOVERY_WRONG_DUPLICATE_JOB")
-
-        def attempted():
-            value = self.provider()
-            submitted = [job for job in value["provider"]["jobs"] if job["client_sha256"] == client]
-            if len(submitted) >= 2 or value["race"].get("active") is False:
-                return value
-            return None
-
-        case["concurrentProvider"] = wait_for(attempted, seconds=20)
-        require(case["concurrentProvider"]["race"].get("dequeuedJobId") == job_id,
-                "RECOVERY_DUPLICATE_DELIVERY_NOT_OBSERVED")
-        case["cancel"] = self.cancel([job_id], uuid.uuid4().hex)
-        case["consumerStopped"] = wait_for(lambda: (value if not value["race"]["active"] else None)
-            if (value := self.provider()) else None, seconds=20)
-        require(case["consumerStopped"]["race"]["status"] == "STOPPED", "RECOVERY_EXTRA_CONSUMER_FAILED")
-        require(same_accounts(case["cancel"]["database"], baseline), "RECOVERY_RACE_ACCOUNT_NOT_RESTORED")
-        submissions = [job for job in case["concurrentProvider"]["provider"]["jobs"] if job["client_sha256"] == client]
-        case["providerSubmissionsForSameJob"] = len(submissions)
-        case["status"] = "FAIL" if len(submissions) > 1 else "PARTIAL"
-        case["errorCode"] = ("RECOVERY_DUPLICATE_PROVIDER_OPERATION" if len(submissions) > 1
-                             else "RECOVERY_CROSS_PROCESS_ROLE_NOT_EXERCISED")
-        case["probeScope"] = "SAME_PROCESS_DUPLICATE_QUEUE_DELIVERY"
+        from tools.docker_clean_workers import prove_workers
+        prove_workers(self, case)
 
     def two_users(self, case):
         case["freshFixture"] = self.recreate()
@@ -353,12 +329,12 @@ class RecoveryRun:
                 client.request("GET", f"/api/jobs/{job}", expected=(404,))
             self.guard()
             rows = self.shadow.containers()
-            require(len(rows) == 3 and all(row["State"]["Running"] for row in rows) and {
+            require(len(rows) == len(self.images) and all(row["State"]["Running"] for row in rows) and {
                 row["Config"]["Labels"]["com.docker.compose.service"]: row["Image"] for row in rows
             } == self.images, "RECOVERY_STATS_CONTAINER_MISMATCH")
             samples = [json.loads(line) for line in self.shadow.docker("stats", "--no-stream", "--no-trunc",
                 "--format", "{{json .}}", *[row["Id"] for row in rows], timeout=15).splitlines() if line]
-            require(len(samples) == 3 and {row["ID"] for row in samples} == {row["Id"] for row in rows}
+            require(len(samples) == len(self.images) and {row["ID"] for row in samples} == {row["Id"] for row in rows}
                     and all(row.get("CPUPerc") and row.get("MemUsage") for row in samples), "RECOVERY_STATS_SAMPLE_MISMATCH")
             database, wire = self.snapshot(), self.provider()
             held = sum(job["state"] == "held" for job in wire["provider"]["jobs"])

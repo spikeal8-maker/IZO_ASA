@@ -11,9 +11,10 @@ from pathlib import Path
 
 from tools.docker_clean_storage import MAX_ARCHIVE, StorageError, backend_id, mount_guard, require
 from tools.docker_shadow import OWNER
+from tools.docker_shadow_roles import DATA_TARGETS, backend_targets, volume_override
 
 READER_LABEL = "io.izo.storage.reader"
-TARGETS = {"/home/izo/data": "sqlite-data", "/home/izo/media": "media-data"}
+TARGETS = DATA_TARGETS
 READ_ONLY_PROBE = """import json,sqlite3
 from pathlib import Path
 from contextlib import closing
@@ -38,7 +39,7 @@ def digest(value):
 class QuiescedSource:
     """A caller must close in finally, including when open fails after pausing.
 
-    Only the original backend is paused. Its two named volumes remain attached;
+    Only the original backend is paused. Its owned volumes remain attached;
     the one-off reader receives read-only mounts and cannot access a network.
     No source table is excluded from the caller's exact comparison window.
     """
@@ -58,9 +59,9 @@ class QuiescedSource:
                         "helperRemoved": "NOT_RUN", "sourceResumed": "NOT_RUN"}
 
     def _volume_identity(self):
-        expected = {self.source.project + "_" + value for value in TARGETS.values()}
+        expected = {self.source.project + "_" + value for value in backend_targets(self.source).values()}
         rows = json.loads(self.source.docker("volume", "inspect", *sorted(expected)))
-        require(isinstance(rows, list) and len(rows) == 2
+        require(isinstance(rows, list) and len(rows) == len(expected)
                 and {row["Name"] for row in rows} == expected, "STORAGE_QUIESCE_VOLUMES_INVALID")
         result = {}
         for row in rows:
@@ -98,9 +99,10 @@ class QuiescedSource:
                     and labels.get("com.docker.compose.project") == self.source.project
                     and labels.get("com.docker.compose.service") == "backend",
                     "STORAGE_QUIESCE_SOURCE_NOT_OWNED")
-            require(len(row["Mounts"]) == 2 and {item["Destination"] for item in row["Mounts"]} == set(TARGETS)
+            targets = backend_targets(self.source)
+            require(len(row["Mounts"]) == len(targets) and {item["Destination"] for item in row["Mounts"]} == set(targets)
                     and all(item["Type"] == "volume" and item.get("RW") is True
-                            and item.get("Name") == self.source.project + "_" + TARGETS[item["Destination"]]
+                            and item.get("Name") == self.source.project + "_" + targets[item["Destination"]]
                             for item in row["Mounts"]), "STORAGE_QUIESCE_SOURCE_MOUNT_CHANGED")
         else:
             row = mount_guard(self.source, self.identifier)
@@ -176,12 +178,12 @@ class QuiescedSource:
                    "volumes": [{"type": "volume", "source": value, "target": key, "read_only": True}
                                for key, value in TARGETS.items()]}
         self.directory = tempfile.TemporaryDirectory(prefix="izo-storage-reader-")
-        self.override = Path(self.directory.name) / "reader.json"
-        self.overlay_bytes = (json.dumps({"services": {"backend": backend}}) + "\n").encode()
+        self.override = Path(self.directory.name) / "reader.yml"
+        self.overlay_bytes = volume_override(backend).encode()
         self.override.write_bytes(self.overlay_bytes)
         resolved = json.loads(self.source.compose("config", "--format", "json", override=self.override))
         service = resolved["services"]["backend"]
-        require(set(resolved.get("volumes", {})) == set(TARGETS.values())
+        require(set(resolved.get("volumes", {})) == set(backend_targets(self.source).values())
                 and all(service.get(key) == value for key, value in backend.items()
                         if key not in {"labels", "volumes", "healthcheck"})
                 and service.get("healthcheck", {}).get("disable") is True

@@ -239,23 +239,14 @@ class RecoveryActionTests(unittest.TestCase):
         for call in run.flow.owner.request.call_args_list:
             self.assertEqual(call.args, ("POST", "/api/jobs/job-a/cancel", {}))
 
-    def test_concurrent_proof_counts_provider_operations_and_never_claims_other_process(self):
-        for count, expected in ((2, "FAIL"), (1, "PARTIAL")):
-            run, case = self.run_object(), {}
-            run.snapshot = Mock(return_value=snapshot())
-
-            def held(value):
-                value["acceptedBeforeAction"] = {"provider": provider(accepted=1)}
-                return "job-a"
-
-            run.held_job = held
-            run.signal = Mock(return_value=provider())
-            run.provider = Mock(side_effect=[provider(accepted=count), provider(accepted=count)])
-            run.cancel = Mock(return_value={"database": snapshot(["job-a"], refunded=True, status="cancelled")})
-            run.concurrent(case)
-            self.assertEqual(case["status"], expected)
-            self.assertEqual(case["providerSubmissionsForSameJob"], count)
-            self.assertEqual(case["probeScope"], "SAME_PROCESS_DUPLICATE_QUEUE_DELIVERY")
+    def test_concurrent_acceptance_uses_real_container_probe_and_propagates_failure(self):
+        run, case = self.run_object(), {}
+        run.signal = Mock()
+        with patch('tools.docker_clean_workers.prove_workers', side_effect=recovery.RecoveryError('RECOVERY_WORKER_NOT_OWNED')) as probe:
+            with self.assertRaisesRegex(recovery.RecoveryError, 'WORKER_NOT_OWNED'):
+                run.concurrent(case)
+            probe.assert_called_once_with(run, case)
+        run.signal.assert_not_called()
 
     def test_two_users_measure_inflight_and_cancel_each_with_own_auth(self):
         for wrong_owner in (False, True):

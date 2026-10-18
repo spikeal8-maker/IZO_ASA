@@ -430,7 +430,8 @@ def test_slice_e_native_docker_deterministic_parity_matrix() -> None:
     native_database = native["DATABASE_URL"].replace("\\", "/")
     native_media = native["MEDIA_DIR"].replace("\\", "/")
     matrix = {
-        "health_contract": '@app.get("/api/health")' in (ROOT / "backend" / "main.py").read_text(encoding="utf-8"),
+        "health_contract": 'app.include_router(create_health_router(' in (ROOT / "backend" / "main.py").read_text(encoding="utf-8")
+            and '@router.get("/api/health")' in (ROOT / "backend" / "app" / "api" / "routers" / "health.py").read_text(encoding="utf-8"),
         "storage": native_database.startswith("C:/isolated-dev/") and docker["DATABASE_URL"] == "/home/izo/data/app.sqlite3",
         "media": native_media.startswith("C:/isolated-dev/") and docker["MEDIA_DIR"] == "/home/izo/media",
         "provider_config": all(native[key] == docker[key] == disabled for key in ("COMFYUI_BASE_URL", "OLLAMA_BASE_URL", "QWEN_ASR_BASE_URL")),

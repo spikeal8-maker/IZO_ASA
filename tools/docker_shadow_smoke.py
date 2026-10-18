@@ -10,6 +10,10 @@ from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.request import urlopen
+try:
+    from tools import docker_shadow_roles as roles
+except ModuleNotFoundError:
+    import docker_shadow_roles as roles
 
 LISTENER_SCRIPT = """
 import socket,sys
@@ -69,7 +73,9 @@ def check_backend_credentials(shadow, container, env, *, expected_ephemeral_admi
 def inspect_stack(shadow, *, expected_ephemeral_admin_code=None) -> dict:
     shadow.ownership_guard()
     containers = shadow.containers()
-    check(len(containers) == 3, "SHADOW_CONTAINER_COUNT")
+    check(len(containers) == len(roles.services(shadow)) and {
+        row["Config"]["Labels"]["com.docker.compose.service"] for row in containers
+    } == roles.services(shadow), "SHADOW_CONTAINER_COUNT")
     guard = next(c for c in containers if c["Config"]["Labels"]["com.docker.compose.service"] == "guard")
     rows = {}
     for container in containers:
@@ -130,13 +136,17 @@ print(json.dumps({'defaultRoutePresent':any(r.split()[1]=='00000000' for r in Pa
             check(all(env[k] == "http://127.0.0.1:1" for k in
                       ("OLLAMA_BASE_URL", "QWEN_ASR_BASE_URL",
                        "LOCAL_LTX_COMFYUI_BASE_URL", "OPENROUTER_BASE_URL")), "SHADOW_PROVIDER_ENABLED")
-            check({m["Destination"] for m in mounts} == {"/home/izo/data", "/home/izo/media"},
+            check({m["Destination"] for m in mounts} == set(roles.backend_targets(shadow)),
                   "SHADOW_VOLUME_BOUNDARY")
+        roles.runtime_guard(shadow, container, service)
         rows[service] = {"container": container["Id"], "image": container["Image"],
                          "sourceSha": shadow.sha, "ports": bindings,
                          "dnsForwarders": container["HostConfig"].get("Dns") or [],
                          "volumes": [{"name": m["Name"], "target": m["Destination"]}
                                      for m in mounts if m["Type"] == "volume"]}
+    if getattr(shadow, "fixture", False) is True:
+        check(all(rows[name]["image"] == rows["backend"]["image"] for name in roles.WORKERS), "SHADOW_ROLE_WORKER_IMAGE_CHANGED")
+        rows["backend"]["workerIpc"] = roles.ipc_guard(shadow, rows["backend"]["container"])
     return rows
 
 

@@ -17,6 +17,8 @@ import types
 from pathlib import Path, PurePosixPath
 from contextlib import closing
 from datetime import datetime, timezone
+from urllib.error import HTTPError, URLError
+from urllib.request import Request
 
 MAX_ARCHIVE = 16 * 1024 * 1024
 MAX_EXPANDED = 192 * 1024 * 1024
@@ -169,6 +171,7 @@ def script(operation, arguments, module_source):
 
 def mount_guard(shadow, identifier, *, helper=False, running=True):
     from tools.docker_shadow import OWNER
+    from tools.docker_shadow_roles import DATA_TARGETS, backend_targets
     shadow.ownership_guard()
     rows = json.loads(shadow.docker("inspect", identifier))
     require(len(rows) == 1, "STORAGE_CONTAINER_AMBIGUOUS")
@@ -177,8 +180,9 @@ def mount_guard(shadow, identifier, *, helper=False, running=True):
             and labels.get("io.izo.owner") == OWNER and labels.get("com.docker.compose.project") == shadow.project
             and labels.get("com.docker.compose.service") == "backend" and row["Config"]["User"] == "10001:10001",
             "STORAGE_CONTAINER_NOT_OWNED")
-    expected = {"/home/izo/data": shadow.project + "_sqlite-data", "/home/izo/media": shadow.project + "_media-data"}
-    require(len(row["Mounts"]) == 2 and {m["Destination"] for m in row["Mounts"]} == set(expected)
+    targets = DATA_TARGETS if helper else backend_targets(shadow)
+    expected = {target: shadow.project + "_" + name for target, name in targets.items()}
+    require(len(row["Mounts"]) == len(expected) and {m["Destination"] for m in row["Mounts"]} == set(expected)
             and all(m["Type"] == "volume" and m.get("RW") is True
             and expected.get(m["Destination"]) == m.get("Name") for m in row["Mounts"]), "STORAGE_VOLUME_NOT_OWNED")
     if helper:
@@ -218,7 +222,47 @@ def copied_flow(flow, restored):
     return copy_flow
 
 
-def media_fault(shadow, flow):
+def media_health(client):
+    """Read only the small public health contract, including its expected 503.
+
+    Ordinary ProductFlow errors still discard their bodies. This fixed GET uses
+    its already-attested origin, cookies and redirect guard; no arbitrary error
+    payload or operator detail can enter a storage receipt.
+    """
+    request = Request(client.origin + "/api/health", headers={"Origin": client.origin, "Accept": "application/json"})
+    try:
+        with client.opener.open(request, timeout=8) as response:
+            status, content = response.status, response.read(4097)
+    except HTTPError as error:
+        try:
+            require(error.code == 503, "STORAGE_HEALTH_HTTP_STATUS_INVALID")
+            status, content = error.code, error.read(4097)
+        finally:
+            error.close()
+    except (OSError, URLError, TimeoutError):
+        raise StorageError("STORAGE_HEALTH_HTTP_UNAVAILABLE") from None
+    require(status in {200, 503} and len(content) <= 4096, "STORAGE_HEALTH_RESPONSE_INVALID")
+    try:
+        value = json.loads(content)
+    except (ValueError, UnicodeError):
+        raise StorageError("STORAGE_HEALTH_RESPONSE_INVALID") from None
+    reasons = {"DATABASE_NOT_READY", "MEDIA_UNAVAILABLE", "MEDIA_NOT_WRITABLE", "MEDIA_CAPACITY_EXHAUSTED",
+               "MEDIA_IO_FAILED", "MEDIA_PROBE_UNAVAILABLE", "MEDIA_PROBE_BUSY", "MEDIA_PROBE_TIMEOUT", "GENERATION_WORKER_UNAVAILABLE"}
+    require(isinstance(value, dict) and set(value) in ({"ok", "app", "release_id", "ready"},
+            {"ok", "app", "release_id", "ready", "reasonCode"}) and value.get("app") == "izo-asa"
+            and isinstance(value.get("release_id"), str) and type(value.get("ok")) is bool
+            and type(value.get("ready")) is bool and ("reasonCode" not in value
+            or isinstance(value["reasonCode"], str) and value["reasonCode"] in reasons),
+            "STORAGE_HEALTH_RESPONSE_INVALID")
+    return {"httpStatus": status, "ok": value["ok"], "ready": value["ready"],
+            **({"reasonCode": value["reasonCode"]} if "reasonCode" in value else {})}
+
+
+def media_fault(shadow, flow, *, evidence=None):
+    report = evidence if evidence is not None else {}
+    report.update(status="FAIL", readiness={"before": media_health(flow.guest)})
+    require(report["readiness"]["before"] == {"httpStatus": 200, "ok": True, "ready": True},
+            "STORAGE_INITIAL_READINESS_NOT_READY")
     identifier = backend_id(shadow)
     mode = container_call(shadow, identifier,
         "import json,stat; from pathlib import Path; p=Path('/home/izo/media'); "
@@ -231,8 +275,13 @@ def media_fault(shadow, flow):
             "f=p/'.denied-probe'\ntry:\n f.open('xb').close(); f.unlink(); blocked=False\n"
             "except PermissionError:\n blocked=True\nprint(json.dumps({'blocked':blocked}))")
         require(fault.get("blocked") is True, "STORAGE_FAULT_NOT_ESTABLISHED")
-        health = flow.guest.request("GET", "/api/health", expected=(200, 503))
+        health = report["readiness"]["duringFault"] = media_health(flow.guest)
         health_status = health.get("httpStatus", 200)
+        require(health == {"httpStatus": 503, "ok": False, "ready": False, "reasonCode": "MEDIA_NOT_WRITABLE"},
+                "STORAGE_FAILURE_READINESS_NOT_DEGRADED")
+        alive = flow.guest.request("GET", "/api/live")
+        require(alive.get("ok") is True and "ready" not in alive, "STORAGE_LIVENESS_NOT_ALIVE")
+        report["readiness"]["livenessDuringFault"] = {"httpStatus": 200, "ok": True}
         started = flow.owner.request("POST", "/api/generate", {"provider": "comfyui", "mode": "text_to_image",
             "prompt": "Storage rejection fixture", "width": 704, "height": 704, "steps": 4, "seed": 193},
             expected=(200, 500, 503))
@@ -241,9 +290,10 @@ def media_fault(shadow, flow):
             after = flow.account_snapshot(flow.owner)
             require(after["account"] == before["account"] and after["ledger"] == before["ledger"],
                     "STORAGE_REJECTED_REQUEST_CHARGED")
-            return {"status": "PASS", "requestHttpStatus": started["httpStatus"],
+            report.update({"status": "PASS", "requestHttpStatus": started["httpStatus"],
                     "healthHttpStatus": health_status, "healthOk": health.get("ok"),
-                    "charges": 0, "fault": "OWNED_MEDIA_DIRECTORY_NOT_WRITABLE", "duplicateChargeObservationSeconds": 1}
+                    "charges": 0, "fault": "OWNED_MEDIA_DIRECTORY_NOT_WRITABLE", "duplicateChargeObservationSeconds": 1})
+            return report
         from tools.docker_shadow_product import path_id
         job_id, deadline = path_id(started.get("id")), time.monotonic() + 60
         while True:
@@ -267,16 +317,27 @@ def media_fault(shadow, flow):
                 "STORAGE_FAILURE_LEDGER_INVALID")
         time.sleep(1)
         require(flow.account_snapshot(flow.owner)["ledger"] == after["ledger"], "STORAGE_FAILURE_RECHARGED")
-        return {"status": "PASS", "jobId": job_id, "jobStatus": job["status"],
+        report.update({"status": "PASS", "jobId": job_id, "jobStatus": job["status"],
                 "healthHttpStatus": health_status, "healthOk": health.get("ok"),
                 "balanceRestored": True, "charges": 1, "refunds": 1,
-                "duplicateChargeObservationSeconds": 1, "fault": "OWNED_MEDIA_DIRECTORY_NOT_WRITABLE"}
+                "duplicateChargeObservationSeconds": 1, "fault": "OWNED_MEDIA_DIRECTORY_NOT_WRITABLE"})
+        return report
     finally:
-        container_call(shadow, identifier, "import json; from pathlib import Path; "
+        outcome, report["status"] = report["status"], "FAIL"
+        restored_mode = container_call(shadow, identifier, "import json; from pathlib import Path; "
             f"Path('/home/izo/media').chmod({int(mode)}); print(json.dumps({{'permissionsRestored':True}}))")
+        require(restored_mode.get("permissionsRestored") is True, "STORAGE_MEDIA_PERMISSIONS_NOT_RESTORED")
+        report["readiness"]["recovered"] = media_health(flow.guest)
+        report["readiness"]["sameContainer"] = backend_id(shadow) == identifier
+        if (report["readiness"]["recovered"] != {"httpStatus": 200, "ok": True, "ready": True}
+                or not report["readiness"]["sameContainer"]):
+            report["status"] = "FAIL"
+            raise StorageError("STORAGE_READINESS_NOT_RECOVERED")
+        report["status"] = outcome
 
 
 def rehearse_storage(source, restored, flow, evidence_dir):
+    from tools.docker_shadow_roles import DATA_TARGETS, backend_targets, volume_override
     from tools.docker_shadow_executor import compare_isolated
     from tools.docker_clean_storage_quiesce import QuiescedSource
     from tools.docker_shadow_smoke import inspect_stack, http_proof, kernel_policy
@@ -313,10 +374,12 @@ def rehearse_storage(source, restored, flow, evidence_dir):
                 "STORAGE_EXPORT_CHECKSUM")
         report["backup"] = exported
         images = restored.image_guard(restored.config())
-        override = evidence_dir / "helper.json"
-        override.write_text(json.dumps({"services": {"backend": {"image": images["backend"], "pull_policy": "never",
+        override = evidence_dir / "helper.yml"
+        override.write_text(volume_override({"image": images["backend"], "pull_policy": "never",
             "network_mode": "none", "healthcheck": {"disable": True}, "entrypoint": ["python"],
-            "command": ["-c", "import time; time.sleep(600)"]}}}), encoding="utf-8")
+            "command": ["-c", "import time; time.sleep(600)"],
+            "volumes": [{"type": "volume", "source": name, "target": target}
+                        for target, name in DATA_TARGETS.items()]}), encoding="utf-8")
         report["stage"] = "new-volumes"
         helper = restored.compose("run", "--no-deps", "-d", "--rm", "--name", restored.project + "-storage-helper",
             "backend", override=override).strip()
@@ -359,9 +422,12 @@ def rehearse_storage(source, restored, flow, evidence_dir):
                 and current["database"]["imageReferences"] == baseline["database"]["imageReferences"],
                 "STORAGE_RUNNING_APPLICATION_STATE_MISMATCH")
         report["runningStorage"] = current
+        report["applicationVolumes"] = {target: restored.project + "_" + name
+                                         for target, name in backend_targets(restored).items()}
         report["checks"]["D2-04"] = {"status": "PASS", "newNamedVolumes": 2, "application": "PASS"}
         report["stage"] = "storage-fault"
-        report["checks"]["D2-06"] = media_fault(restored, restored_flow)
+        report["checks"]["D2-06"] = {"status": "FAIL"}
+        report["checks"]["D2-06"] = media_fault(restored, restored_flow, evidence=report["checks"]["D2-06"])
         report["status"] = "PASS"
     except Exception as error:
         code = str(error)

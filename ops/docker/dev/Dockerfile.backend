@@ -15,6 +15,7 @@ WORKDIR /opt/izo/backend
 RUN groupadd --gid 10001 izo \
     && useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin izo
 RUN install -d -o 10001 -g 10001 /home/izo/data /home/izo/media
+RUN install -d -m 0700 -o 10001 -g 10001 /home/izo/worker
 
 COPY backend/requirements.txt /tmp/requirements.txt
 RUN python -m pip install --no-cache-dir --disable-pip-version-check -r /tmp/requirements.txt \
