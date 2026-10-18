@@ -422,6 +422,31 @@ def execute_run(shadow: Shadow, directory: Path, *, build: bool, base: str, host
     return report
 
 
+def completed_extended(report):
+    """Continue only after complete measurements and proven cleanup, preserving failures."""
+    try:
+        s, r, f, a = (report["extended"]["results"][key] for key in ("storage", "recovery", "features", "admin"))
+        cases = [r["checks"][key] for key in ("D2-01", "D2-02", "D2-03")] + [r["measurements"]["D3-queue"]]
+        passing = (report["D1Status"], report["sessionCleanup"]["sessionCleanup"], report["cleanup"]["status"],
+            report["foreignResources"]["status"], s["cleanup"]["status"], s["sessionCleanup"]["sessionCleanup"],
+            s["foreignComparison"]["status"], s["sourceQuiescence"]["status"], s["sourceUnchanged"],
+            r["sessionCleanup"]["sessionCleanup"], r["foreignResources"]["status"], f["checks"]["chatHistory"]["threadCleanup"],
+            a["cleanup"]["status"], a["foreignResources"]["status"], a["acceptance"]["cleanup"]["sessionCleanup"],
+            a["acceptance"]["checks"]["modelEconomics"]["settingCleanup"], a["acceptance"]["checks"]["modelEconomics"]["accountInvariance"])
+        return (all(value == "PASS" for value in passing) and report["extended"]["status"] == ("PASS" if all(row["status"] == "PASS" for row in (s, r, f, a)) else "FAIL")
+            and report["status"] == report["extended"]["status"] and (report["status"] == "PASS" or report.get("failedStage") == "D2-D3")
+            and not any(key in row for row in (report, r, a) for key in ("cleanupError", "sessionCleanupError", "logCapture")) and "errorCode" not in report
+            and all(row["sourceSha"] == report["sourceSha"] and row["status"] in ("PASS", "FAIL", "PARTIAL") for row in (s, r, f, a, a["acceptance"]))
+            and s["sourceProject"] == r["project"] == f["project"] == report["project"] and a["project"] == report["project"] + "-admin"
+            and a["acceptance"]["sourceSha"] == report["sourceSha"] and a["acceptance"]["project"] == a["project"]
+            and all(isinstance(row["checks"], dict) and row["checks"] for row in (s, r, f, a["acceptance"]))
+            and all(s["checks"][key]["status"] in ("PASS", "FAIL") for key in ("D2-04", "D2-05", "D2-06"))
+            and all(case["status"] in ("PASS", "FAIL", "PARTIAL") and "cleanupError" not in case and not case.get("cleanupErrors")
+                and case["cleanupRestart"]["beforeContainer"] != case["cleanupRestart"]["afterContainer"] for case in cases))
+    except (KeyError, TypeError, AttributeError):
+        return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-sha", required=True)
@@ -429,7 +454,7 @@ def main() -> int:
     parser.add_argument("--evidence-dir", type=Path, required=True)
     parser.add_argument("--replica", type=int, choices=(1, 2), required=True)
     parser.add_argument("--extended", action="store_true",
-                        help="Run D2-D3 after the third fixture's D1 persistence checks")
+                        help="Run D2-D3 after each of three fresh fixtures' D1 persistence checks")
     args = parser.parse_args()
     try:
         host = host_admission(args.source_sha, args.base_sha, args.evidence_dir)
@@ -449,17 +474,20 @@ def main() -> int:
                 machine_sha256=host["machineIdentitySha256"])
             report = execute_run(shadow, args.evidence_dir / f"run-{number}",
                                  build=number == 1, base=args.base_sha, host=host,
-                                 extended=args.extended and number == 3)
+                                 extended=args.extended)
             reports.append(report)
-            # Never retry a failed fixture behind a later success in the same run.
-            if report["status"] != "PASS":
+            # A measured failure remains failed; only complete, cleaned fixtures may continue.
+            complete = completed_extended(report) if args.extended else report["status"] == "PASS"
+            if not complete:
                 break
-        passed = len(reports) == 3 and all(report["status"] == "PASS" for report in reports)
+        passed = len(reports) == 3 and complete and all(report["status"] == "PASS" for report in reports)
         save(args.evidence_dir / "summary.json", {"status": "PASS" if passed else "FAIL",
             "repository": REPOSITORY, "sourceSha": args.source_sha, "baseSha": args.base_sha,
             "replica": args.replica, "host": host, "completedFixtureRuns": len(reports),
             "D1Status": "PASS" if len(reports) == 3 and all(r["D1Status"] == "PASS" for r in reports) else "FAIL",
-            "extended": reports[-1].get("extended", {"status": "NOT_RUN"}) if reports else {"status": "NOT_RUN"},
+            "extended": {"status": "PASS" if passed else "FAIL", "runs": [
+                {"project": r["project"], "receipt": f"run-{n}/receipt.json", "result": r.get("extended", {"status": "NOT_RUN"})}
+                for n, r in enumerate(reports, 1)]} if args.extended else {"status": "NOT_RUN"},
             "runs": [{"project": report["project"], "status": report["status"],
                       "checks": report["checks"]} for report in reports]})
         return 0 if passed else 1

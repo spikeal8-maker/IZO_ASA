@@ -88,9 +88,12 @@ global prune отсутствует. Обычный Shadow `down` сохраня
 
 ## Аварии, копия и дополнительные функции
 
-`--extended` запускает дополнительные пробы после Д1 третьей установки.
-`D1Status` сохраняется отдельно; общий `FAIL`/ненулевой exit code остаётся,
-если дополнительный сценарий не доказан. Успешный Д1 не переименовывает его в PASS.
+`--extended` запускает дополнительные пробы после Д1 каждой из трёх установок.
+Все `run-N/receipt.json` и расширенные результаты сохраняются. После измеренного
+extended FAIL следующая свежая установка допускается только при Д1 PASS, полной
+квитанции и успешной очистке сессий/ресурсов и сравнении чужих ресурсов.
+Иной сбой останавливает цикл. Общий `FAIL`/ненулевой exit остаётся, если любой
+прогон не PASS; поздний успех не заменяет ранний FAIL.
 
 | Проверка | Действие и граница |
 |---|---|
@@ -105,7 +108,7 @@ global prune отсутствует. Обычный Shadow `down` сохраня
 
 Архив резервной копии передаётся в пределах VM через память и временные файлы;
 SQLite, cookies, пароли и backup payload не публикуются в Actions artifacts.
-Расширенные JSON находятся в `run-3/extended/`. Общий статус Д3 остаётся
+Расширенные JSON находятся в `run-N/extended/`. Общий статус Д3 остаётся
 `PARTIAL` при непроверенном model inference, даже если все доступные API прошли.
 
 Quiesce/Phone/modelEconomics: runtime `NOT_RUN`.
@@ -123,11 +126,9 @@ Quiesce/Phone/modelEconomics: runtime `NOT_RUN`.
 
 ## Сохранённые попытки
 
-`9609ade`: Д1 6×8 PASS, D2-01/02 и admin 16/16 PASS, один submit, video 200.
-D2-03/Д3 PARTIAL; общий FAIL. [Run 39077798620](https://github.com/spikeal8-maker/IZO_ASA/actions/runs/39077798620).
-Source drift — только `power_samples`: 70→96 и 74→102; media неизменны.
-Прежние FAIL, исходные ZIP с проверенными SHA256 и Full CI —
-[Draft #192](https://github.com/spikeal8-maker/IZO_ASA/pull/192).
+История D1 PASS, D2/Д3 FAIL, source/Full failures, исходные ZIP и SHA256 —
+[PR #193](https://github.com/spikeal8-maker/IZO_ASA/pull/193) и predecessor
+[#192](https://github.com/spikeal8-maker/IZO_ASA/pull/192).
 
 Admin overlay изменяет только одноразовый код, флаг simulator и собственный
 loopback origin. Код живёт в памяти; полный config сравнивается до запуска.
@@ -137,8 +138,7 @@ loopback origin. Код живёт в памяти; полный config срав
 ## Границы результата
 
 Начальная топология содержит один прикладной процесс и встроенный обработчик.
-Д2 recovery, конкуренция, backup/restore и отказ хранилища имеют отдельные
-исполняемые результаты; Д1 не заменяет их. Cross-process role
+Д1 не подтверждает Д2/Д3. Cross-process role
 не подтверждается одним backend; Phone factory API имеет отдельную HTTP-пробу. Chat inference в этой конфигурации
 заблокирован недоступным Ollama; TTS возвращает контролируемый PCM, не живой голос.
 Администраторские действия измеряются отдельно; 3D остаётся `NOT_VERIFIED`.

@@ -342,6 +342,43 @@ def test_concurrency_and_retention_are_bounded(provider, monkeypatch):
             own.close()
 
 
+def test_rejection_is_counted_before_peer_observes_eof():
+    """Hold return from a real close until the receiver has inspected its receipt."""
+    owned = fixture.ControlledProvider(bind='127.0.0.1', port=48131, control_port=48132)
+    for _ in range(4):
+        assert owned._slots.acquire(blocking=False)
+    owned._until = time.monotonic() + 5
+    server, peer = socket.socketpair()
+    release, expired, listener_closed = threading.Event(), threading.Event(), threading.Event()
+
+    def close_after_eof():
+        server.close()
+        if not release.wait(1):
+            expired.set()
+        owned._stop.set()
+
+    connection = SimpleNamespace(close=close_after_eof)
+    listener = SimpleNamespace(accept=lambda: (connection, None), close=listener_closed.set)
+    worker = threading.Thread(target=owned._accept, args=(listener, False), daemon=True)
+    try:
+        worker.start()
+        peer.settimeout(1)
+        assert peer.recv(1) == b''
+        assert owned.receipt()['counts']['concurrency_rejected'] == 1
+    finally:
+        release.set()
+        owned._stop.set()
+        if worker.ident is not None:
+            worker.join(1)
+        server.close()
+        peer.close()
+        for _ in range(4):
+            owned._slots.release()
+    assert not worker.is_alive() and listener_closed.is_set()
+    assert not expired.is_set()
+    assert not owned._connections and owned._slots._value == 4
+
+
 def test_foreign_port_not_replaced_and_partial_start_is_cleaned():
     port, control_port = free_ports()
     with socket.socket() as foreign:

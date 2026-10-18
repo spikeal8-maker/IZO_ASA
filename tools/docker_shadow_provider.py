@@ -131,8 +131,8 @@ class ControlledProvider:
             except OSError:
                 break
             if not self._slots.acquire(blocking=False):
-                connection.close()
                 self._count('concurrency_rejected')
+                connection.close()
                 continue
             with self._lock:
                 self._connections.add(connection)

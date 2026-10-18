@@ -95,7 +95,7 @@ Recovery не создаёт новый claim, provider retry или незав�
 Disk index repair не восстанавливает изображения для известных active/failed/cancelled jobs.
 Реальные crash ordering и restart timing требуют отдельного runtime evidence.
 
-## Текущие ограничения
+## Границы и текущие ограничения
 
 - Этот flow не предоставляет отдельные server/worker roles, lease/expiry или durable scheduler.
 - SQLite claim не доказывает process-role isolation; разные контейнеры не разделяют Python queue.
