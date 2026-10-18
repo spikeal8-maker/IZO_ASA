@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -71,6 +72,8 @@ def main() -> None:
     status = Path('/proc/self/status').read_text()
     if 'CapEff:\t0000000000000000' not in status or os.getuid() == 0:
         raise RuntimeError('SHADOW_PRIVILEGE_DROP_FAILED')
+    # Only PID 1 reaps adopted exec/health descendants; --check retains normal waits.
+    signal.signal(signal.SIGCHLD, signal.SIG_IGN)
     READY.write_text(MARKER)
     print('SHADOW_NETWORK_READY uid=10001 capabilities=0 statefulEgress=deny', flush=True)
     while True:

@@ -182,6 +182,7 @@ declaredFiles = [
   "backend/test_generation_process_ownership.py",
   "backend/test_generation_worker_status_support.py",
   "tools/test_docker_shadow_lifecycle.py",
+  "tools/test_network_guard_lifecycle.py",
 ]
 allowedPatterns = [
   "tools/docker_clean_browser.mjs",
@@ -349,3 +350,8 @@ recordedAtUtc = "2026-10-18T14:12:36.328018Z"
 path = "tools/test_docker_shadow_lifecycle.py"
 reason = "Preserve ownership, retained guard/web isolation, exact image and full D1 lifecycle invariants while removing repeated Docker metadata reads and recovery-only recreates after the measured 45-minute timeout"
 recordedAtUtc = "2026-10-18T15:51:50.736886Z"
+
+[[scopeExpansions]]
+path = "tools/test_network_guard_lifecycle.py"
+reason = "Prove guard PID1 reaping of adopted healthcheck children and preserve bounded sanitized failed-health diagnostics after the exact 772623a D2-03 runtime failure; no resource, network or health gate relaxation"
+recordedAtUtc = "2026-10-18T16:58:58.943861Z"

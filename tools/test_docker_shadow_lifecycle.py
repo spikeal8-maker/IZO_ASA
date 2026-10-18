@@ -20,7 +20,7 @@ def stack():
     result = rows()
     for row in result:
         row["RestartCount"] = 0
-        row["State"]["Health"] = {"Status": "healthy"}
+        row["State"]["Health"] = {"Status": "healthy", "FailingStreak": 0, "Log": []}
         service = row["Config"]["Labels"]["com.docker.compose.service"]
         if service in {"guard", "web"}:
             row["Mounts"] = []

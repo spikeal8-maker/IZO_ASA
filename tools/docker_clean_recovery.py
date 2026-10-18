@@ -382,6 +382,14 @@ def prove_recovery(shadow: Shadow, attestation: dict, receipt: Path) -> dict:
               "measurements": {"D3-queue": {"status": "NOT_RUN"}}}
     flow = run = foreign = None
     admitted = False
+    previous_recorder = vars(shadow).get("_guard_health_recorder")
+    def record_health(value):
+        history = report.setdefault("guardHealth", [])
+        if not history or history[-1] != value:
+            history.append(value)
+            del history[:-16]
+        save(receipt, report)  # Saved before the unchanged healthy predicate may reject.
+    shadow._guard_health_recorder = record_health
     try:
         origin = validate_target(attestation)
         require(origin == f"http://127.0.0.1:{shadow.web_port}" and attestation["sourceSha"] == shadow.sha
@@ -429,7 +437,13 @@ def prove_recovery(shadow: Shadow, attestation: dict, receipt: Path) -> dict:
                 require(report["foreignResources"]["status"] == "PASS", "RECOVERY_FOREIGN_RESOURCE_CHANGED")
             except Exception as error:
                 report.update(status="FAIL", cleanupError=error_code(error))
-        save(receipt, report)
+        try:
+            save(receipt, report)
+        finally:
+            if previous_recorder is None:
+                vars(shadow).pop("_guard_health_recorder", None)
+            else:
+                shadow._guard_health_recorder = previous_recorder
     return report
 
 

@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import re
+from datetime import datetime
 
 DATA_TARGETS = {"/home/izo/data": "sqlite-data", "/home/izo/media": "media-data"}
 IPC_TARGET, IPC_VOLUME = "/home/izo/worker", "worker_ipc"
@@ -98,6 +101,68 @@ def guard_capabilities(value):
             and {item.removeprefix("CAP_") for item in value} == {"NET_ADMIN", "SETUID", "SETGID"})
 
 
+def guard_health(health):
+    """Bounded inspect diagnostics, without raw probe output or environment."""
+    code = "SHADOW_GUARD_HEALTH_METADATA_INVALID"
+    require(isinstance(health, dict) and isinstance(health.get("Status"), str)
+            and health["Status"] in {"healthy", "unhealthy", "starting"}
+            and type(health.get("FailingStreak")) is int and 0 <= health["FailingStreak"] <= 2**31 - 1
+            and isinstance(health.get("Log"), list), code)
+    result = {"status": health["Status"], "failingStreak": health["FailingStreak"], "lastChecks": []}
+    known = {"SHADOW_KERNEL_POLICY_COMMAND_FAILED", "SHADOW_KERNEL_POLICY_MISMATCH",
+        "SHADOW_KERNEL_POLICY_COUNTER_MISSING", "SHADOW_GUARD_NOT_READY",
+        "SHADOW_GUARD_CAPABILITIES_REMAIN", "SHADOW_IPV6_ENABLED", "SHADOW_PRIVILEGE_DROP_FAILED"}
+    for row in health["Log"][-5:]:
+        require(isinstance(row, dict) and type(row.get("ExitCode")) is int
+                and -1 <= row["ExitCode"] <= 255 and isinstance(row.get("Output"), str)
+                and len(row["Output"]) <= 8192, code)
+        times = {}
+        for key in ("Start", "End"):
+            value = row.get(key)
+            require(isinstance(value, str) and len(value) <= 40 and re.fullmatch(
+                r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})", value), code)
+            try:
+                datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                require(False, code)
+            times[key.lower()] = value
+        try:
+            output = row["Output"].encode("utf-8")
+        except UnicodeError:
+            require(False, code)
+        require(len(output) <= 8192, code)
+        text, classification = row["Output"].strip(), "UNCLASSIFIED"
+        last = text.splitlines()[-1] if text else ""
+        if last.removeprefix("RuntimeError: ") in known:
+            classification = last.removeprefix("RuntimeError: ")
+        elif re.match(r"^Health check exceeded timeout \([0-9.]+[a-zµ]+\)", text):
+            classification = "DOCKER_HEALTH_TIMEOUT"
+        elif last.startswith("subprocess.TimeoutExpired: "):
+            classification = "PROBE_SUBPROCESS_TIMEOUT"
+        else:
+            try:
+                value = json.loads(text)
+                if (isinstance(value, dict) and set(value) == {"policy", "blockedPackets"}
+                        and value["policy"] == "VERIFIED" and type(value["blockedPackets"]) is int
+                        and value["blockedPackets"] >= 0 and row["ExitCode"] == 0):
+                    classification = "POLICY_VERIFIED"
+            except (ValueError, TypeError):
+                pass
+        result["lastChecks"].append({**times, "exitCode": row["ExitCode"], "outputBytes": len(output),
+            "outputSha256": hashlib.sha256(output).hexdigest(), "classification": classification})
+    return result
+
+
+def observe_guard_health(shadow, health):
+    value = {"status": "INVALID", "errorCode": "SHADOW_GUARD_HEALTH_METADATA_INVALID"}
+    try:
+        value = guard_health(health)
+    finally:
+        recorder = vars(shadow).get("_guard_health_recorder")
+        if callable(recorder):
+            recorder(value)
+
+
 def retained_runtime(shadow, containers, images):
     """Prove the unchanged guard/web boundary around a fixture-only API recycle."""
     require(shadow.fixture is True and len(containers) == 5, "SHADOW_RETAINED_STACK_INVALID")
@@ -122,6 +187,7 @@ def retained_runtime(shadow, containers, images):
             require(guard_capabilities(host.get("CapAdd")), "SHADOW_RETAINED_GUARD_CAPABILITIES_INVALID")
             require(len(bindings) == 2 and all(port.get("HostIp") == "127.0.0.1"
                         for ports in bindings.values() for port in ports), "SHADOW_RETAINED_GUARD_PORTS_INVALID")
+            observe_guard_health(shadow, row["State"].get("Health"))
             require(row["State"].get("Health", {}).get("Status") == "healthy", "SHADOW_RETAINED_GUARD_HEALTH_INVALID")
         else:
             require(host.get("NetworkMode") == "container:" + guard["Id"] and not networks and not bindings

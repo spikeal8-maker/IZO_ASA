@@ -13,11 +13,11 @@ active_task_contract: github-issue-125
 baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a
 baseline_status: completed-point-A-accepted
 next_candidate: CONTAINER-PRODUCTION-001
-candidate_pr: 193
-candidate_source_sha: 06914cf88dcf5574c574df559433c3a29c005b82
-candidate_state: worker-readiness-in-progress
+candidate_pr: 194
+candidate_source_sha: 772623a4a36673aed19c97487272ed33d1239e8a
+candidate_state: guard-health-followup-in-progress
 candidate_exact_head_ci: PASS
-candidate_docker_acceptance: D1_PASS_EXTENDED_FAIL
+candidate_docker_acceptance: D1_32_OF_48_D2_PARTIAL
 ---
 # IZO_ASA — NOW
 
@@ -35,10 +35,15 @@ Next: `CONTAINER-PRODUCTION-001` (#126).
 
 D0 и Docker DEV/TEST foundation (#115) приняты ранее; #124 завершён.
 PR #186/#191 интегрированы с main; Draft #192 хранит checkpoint `d6ecb7f`.
-Последний проверенный checkpoint Draft #193 — `06914cf`: Full PASS, Д1 6×8 PASS.
-Поля candidate_pr/source_sha/exact_head_ci относятся только к этому checkpoint.
-Д2/Д3 не приняты: отдельная роль worker, media readiness и live gaps.
-Следующий кандидат закрывает Д2-03 и отказ media; его exact-head проверки ещё впереди.
+Исторический checkpoint Draft #193 — `06914cf`: Full PASS, Д1 6×8 PASS.
+Последний проверенный checkpoint Draft #194 — `772623a`: Full PASS, 2921 tests,
+450 subtests, 16 skips, 97 warnings, process leak PASS; Д1 32/48 PASS.
+На VM1 Д2-01–06 PASS в трёх установках; VM2 остановилась в Д2-03 на guard health.
+Media readiness PASS в четырёх установках: 503 при отказе, liveness 200,
+восстановление в том же контейнере, один charge/refund; owned cleanup PASS.
+Поля candidate_pr/source_sha/exact_head_ci относятся только к checkpoint 772623a.
+Guard lifecycle/diagnostics follow-up ещё требует exact-head Full и всех 48 Д1.
+Д2/Д3 не приняты; каноническая Д3-интеграция следует после принятия Д2.
 Full CI и независимая приёмка review HEAD обязательны.
 #126 не начат; production не переключать.
 
