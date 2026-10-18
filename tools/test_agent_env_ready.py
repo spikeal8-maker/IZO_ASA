@@ -432,12 +432,12 @@ def _available_package_id(prefix: str) -> str:
         try:
             for port in (ports["backend"], ports["frontend"]):
                 listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                listeners.append(listener)
                 if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
                     listener.setsockopt(
                         socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1
                     )
                 listener.bind((lifecycle.LOOPBACK, int(port)))
-                listeners.append(listener)
             return package_id
         except OSError:
             pass
