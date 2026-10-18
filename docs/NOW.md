@@ -35,15 +35,11 @@ Next: `CONTAINER-PRODUCTION-001` (#126).
 
 D0 и Docker DEV/TEST foundation (#115) приняты ранее; #124 завершён.
 PR #186/#191 интегрированы с main; Draft #192 хранит checkpoint `d6ecb7f`.
-Исторический checkpoint Draft #193 — `06914cf`: Full PASS, Д1 6×8 PASS.
-Последний проверенный checkpoint Draft #194 — `772623a`: Full PASS, 2921 tests,
-450 subtests, 16 skips, 97 warnings, process leak PASS; Д1 32/48 PASS.
-На VM1 Д2-01–06 PASS в трёх установках; VM2 остановилась в Д2-03 на guard health.
-Media readiness PASS в четырёх установках: 503 при отказе, liveness 200,
-восстановление в том же контейнере, один charge/refund; owned cleanup PASS.
-Поля candidate_pr/source_sha/exact_head_ci относятся только к checkpoint 772623a.
-Guard lifecycle/diagnostics follow-up ещё требует exact-head Full и всех 48 Д1.
-Д2/Д3 не приняты; каноническая Д3-интеграция следует после принятия Д2.
+Draft #193 (`06914cf`): исторические Full PASS, Д1 48/48.
+Draft #194, `772623a`: Full PASS, Д1 32/48; Д2 не принят.
+VM1: Д2-01–06 PASS ×3; VM2: guard health FAIL в Д2-03; media PASS ×4.
+Поля candidate_* относятся к 772623a; follow-up ждёт Full и 48 Д1.
+Д3 — после Д2. Результаты и отказы — в Draft #194.
 Full CI и независимая приёмка review HEAD обязательны.
 #126 не начат; production не переключать.
 
@@ -96,4 +92,4 @@ Release: `docs/production-release-runbook.md`; backup:
 После реализации — Package Health Gate, после трёх implementation packages —
 Architecture Checkpoint, после фазы — Phase Acceptance и bounded cold-agent case.
 Обновлять NOW при изменении активной работы/барьеров/проверенных фактов,
-а не для накопления логов или автоматического присваивания нового production SHA.
+а не для накопления логов или автоматического присваивания нового production SHA
