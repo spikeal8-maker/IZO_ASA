@@ -55,7 +55,7 @@ def run_object():
     shadow.ownership_guard.side_effect = lambda: shadow.containers()
     shadow.docker.side_effect = lambda _exec, cid, *_args, **_kwargs: json.dumps(status(1 if cid == '2' * 64 else 2))
     return SimpleNamespace(shadow=shadow, images={name: IMAGE for name in workers.roles.services(shadow)},
-        user_ids=['owner', 'other'], guard=Mock(), checkpoint=Mock(), inside=Mock(), flow=Mock(),
+        user_ids=['owner', 'other'], guard=Mock(side_effect=shadow.ownership_guard), checkpoint=Mock(), inside=Mock(), flow=Mock(),
         provider=Mock(return_value=provider(accepted=1)), snapshot=Mock(), held_job=Mock(), signal=Mock(), recreate=Mock())
 
 
@@ -144,11 +144,17 @@ class PrivateEvidenceTests(unittest.TestCase):
             probe.action('worker', 'kill', 'SIGKILL')
         run.shadow.compose.assert_not_called()
         run.guard.side_effect = None
+        run.guard.return_value = []
+        with self.assertRaisesRegex(RecoveryError, 'SPLIT_CONTAINERS_INVALID'):
+            probe.action('worker', 'stop')
+        run.shadow.compose.assert_not_called()
+        run.guard.side_effect = run.shadow.ownership_guard
         changed = rows()
         changed[1]['Id'] = 'f' * 64
         run.shadow.containers.side_effect = [rows(), changed]
         with self.assertRaisesRegex(RecoveryError, 'CONTAINER_REPLACED'):
             probe.action('worker', 'kill', 'SIGKILL')
+        self.assertEqual(run.shadow.ownership_guard.call_count, 2)
 
 
 class LeaseFailureTests(unittest.TestCase):

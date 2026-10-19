@@ -70,8 +70,8 @@ class WorkerRun:
     def __init__(self, run):
         self.run, self.shadow = run, run.shadow
 
-    def rows(self):
-        rows = self.shadow.ownership_guard()
+    def rows(self, *, source_guard=False):
+        rows = self.run.guard() if source_guard else self.shadow.ownership_guard()
         require(len(rows) == 5 and {row['Config']['Labels'].get('com.docker.compose.service') for row in rows}
                 == roles.services(self.shadow), 'RECOVERY_SPLIT_CONTAINERS_INVALID')
         result = {row['Config']['Labels']['com.docker.compose.service']: row for row in rows}
@@ -164,8 +164,7 @@ class WorkerRun:
         require(name in {'backend', *roles.WORKERS} and action in {'start', 'stop', 'kill'}, 'RECOVERY_WORKER_ACTION_INVALID')
         require(signal in {'SIGKILL', 'SIGSTOP', 'SIGCONT'} if action == 'kill' else signal is None,
                 'RECOVERY_WORKER_SIGNAL_INVALID')
-        self.run.guard()
-        before = self.rows()[name]
+        before = self.rows(source_guard=True)[name]
         args = ('kill', '--signal', signal, name) if signal else (action, name)
         self.shadow.compose(*args, timeout=45)
         after = self.rows()[name]
