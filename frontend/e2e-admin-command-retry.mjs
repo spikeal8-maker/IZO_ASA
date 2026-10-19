@@ -144,7 +144,7 @@ try {
         let dialog = await openConfirmation(page, viewport, kind)
         const reason = `Controlled ${viewport} ${kind} retry`
         if (kind === 'tokens') await dialog.getByLabel('Изменение баланса', { exact: true }).fill('25')
-        else await dialog.getByLabel('Тариф', { exact: true }).selectOption('pro')
+        else await dialog.getByRole('combobox', { name: 'Тариф', exact: true }).selectOption('pro')
         await dialog.getByLabel('Причина (обязательно)', { exact: true }).fill(reason)
         await dialog.getByRole('button', { name: 'Подтвердить', exact: true }).click()
         await dialog.locator('.crm-err').waitFor()
@@ -155,7 +155,10 @@ try {
         await page.reload({ waitUntil: 'networkidle' })
         dialog = await openConfirmation(page, viewport, kind)
         assert.equal(await dialog.getByLabel('Причина (обязательно)', { exact: true }).inputValue(), reason)
-        assert.equal(await dialog.getByLabel(kind === 'tokens' ? 'Изменение баланса' : 'Тариф', { exact: true }).inputValue(), kind === 'tokens' ? '25' : 'pro')
+        const restoredField = kind === 'tokens'
+          ? dialog.getByLabel('Изменение баланса', { exact: true })
+          : dialog.getByRole('combobox', { name: 'Тариф', exact: true })
+        assert.equal(await restoredField.inputValue(), kind === 'tokens' ? '25' : 'pro')
         await dialog.getByRole('button', { name: 'Подтвердить', exact: true }).scrollIntoViewIfNeeded()
         const bounds = await dialog.boundingBox()
         assert(bounds && bounds.x >= -1 && bounds.x + bounds.width <= dimensions.width + 1, 'ADMIN_BROWSER_CONFIRMATION_OVERFLOW')

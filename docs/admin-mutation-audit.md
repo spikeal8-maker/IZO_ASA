@@ -46,7 +46,7 @@ AM-006 разрешён лишь для двух `resolved_routes`.
     {"path": "frontend/src/adminCommand.ts", "fingerprint": "sha256:833b2e40a4eea4a8f223ff2cb367b8457554187c84c528f1f3d3c3bb94750f67"},
     {"path": "frontend/src/adminAnalytics.tsx", "fingerprint": "sha256:bb56fce40e6c9c886290988af493b82b923cc605a70ba24bf07925e09c79681f"},
     {"path": "frontend/adminCommand.test.ts", "fingerprint": "sha256:a5fc209d6b1e55e1affdcf2a57f89403f244f902a76aef3f37c944d4cd90a6bb"},
-    {"path": "frontend/e2e-admin-command-retry.mjs", "fingerprint": "sha256:e4eca44c8ce38c8715d4c04df2d98c8e421747f6f6e2adf45c70474e3ea7a701"},
+    {"path": "frontend/e2e-admin-command-retry.mjs", "fingerprint": "sha256:63d0b2960740fda9f2c55b182148f88da8fcd1cae9a16275080be18926e100ae"},
     {"path": "tools/docker_admin_commands.py", "fingerprint": "sha256:8ee32ae3d1e058c1ce09522f02f23c933e5ae92ab2ef7f4795495fb2d0999742"},
     {"path": "tools/docker_admin_commands_runtime.py", "fingerprint": "sha256:db7b349e23ed269d49cd9956bbe36b9ead9f88775a51f59c467dce3163fe8e8f"},
     {"path": "tools/test_docker_admin_commands.py", "fingerprint": "sha256:985eec44fd55f17fa552dceb1e7d8863f8968c4f816a0fde1de7a1df0b50620e"},
