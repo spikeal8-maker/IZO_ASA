@@ -1,0 +1,68 @@
+manifestVersion = 1
+id = "CI-HOSTED-COMPAT-001"
+baseSha = "d1ee3a0ac5114ec08f4a8daee9cf6e41e97d6a7a"
+goal = "Adopt the existing hosted Windows CI runner together with the already tested compatible Starlette and AnyIO pins."
+userOutcome = "New main-based changes can receive complete isolated CI without using the shared Windows runner or adding a new warning."
+beforeScenario = "PR196 exact74f6 completed2295 tests and all verifier gates, but health failed because Starlette1.3.1 used the deprecated BlockingPortal alias with unpinned AnyIO4.15.1."
+afterScenario = "The hosted runner and original required checks are preserved; the exact Starlette1.7.0 and AnyIO4.15.1 pair from tested PR195 is installed, and source-bound CI must pass the unchanged warning policy."
+nonGoals = [
+  "No warning filters, health baselines, scope thresholds, global permissions, production, shared Docker or provider changes.",
+  "Do not merge or modify PR195, discard PR196 evidence, or copy unrelated changes from source commits.",
+]
+declaredFiles = [
+  ".github/workflows/ci.yml",
+  "tools/test_ci_workflow.py",
+  "backend/requirements.txt",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "ops/**",
+  "backend/main.py",
+  "backend/app/**",
+  "frontend/**",
+  "architecture/**",
+  "tools/verify.ps1",
+  "tools/test_health_audit.py",
+]
+protectedFilesTouched = [
+]
+domain = "verification"
+riskClass = "high-assurance"
+changeClass = "implementation"
+maxProductionFiles = 1
+maxChangedLines = 400
+acceptance = [
+  "Adopt only existing reviewed runner/toolchain hunks and PYTHONUTF8; preserve every original mandatory range/scope/supply-chain/Full/evidence/cleanup gate.",
+  "Requirements exactly match PR195 for Starlette1.7.0 and AnyIO4.15.1; all unrelated dependencies remain unchanged.",
+  "Focused workflow tests, dependency resolver consistency and TestClient smoke pass; a single hosted Full on exact source passes the unchanged health and safety gates.",
+  "An independent source review covers exact source and dependency provenance before controlled integration; no author-only substitute.",
+]
+requiredEvidence = [
+  "Fresh origin/main and canonical start/ownership/scope receipts.",
+  "PR196 run39229874271 and original artifact12177197173 retain their FAIL result:2295passed,1skipped,98warnings,cleanup0.",
+  "Runner provenance0df63491fdc09b71150d435663a80bbf4ad70969 and UTF8 provenance03a9d850601ef85b9be940283037c9e19d291255.",
+  "Dependency provenance0eb0afaf281dca84120a83285bd0eeb3f40629a3; tested source6f43f78a7de8f0d82306fbddeb1cfba2c89b0e91.",
+  "Exact-head CI, warning receipt, source review and full changed-file hashes.",
+]
+targetedTests = [
+  "tools/test_ci_workflow.py",
+  "tools/test_d0_executor_workflow.py",
+  "Dependency version/pip consistency and real local TestClient request without the BlockingPortal warning.",
+  "Canonical agent scope, file hygiene and complete hosted CI.",
+]
+fileGrowthExpectations = [
+  "Exactly three existing source files plus this manifest; no new test framework or duplicate runtime implementation.",
+  "No source, security, test-health, task or architecture threshold increase.",
+]
+forbiddenOperations = [
+  "direct-main-write",
+  "force-push",
+  "production-mutation",
+  "production-data",
+  "production-secrets",
+  "live-provider-call",
+  "shared-docker-lifecycle",
+  "merge-before-gates",
+]
+rollbackBoundary = "Not deployed. Preserve the original main and PR196 commits; reject this branch on failed gates. A later source revert must not silently route checks to the shared runner."
