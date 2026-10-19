@@ -109,7 +109,7 @@ def test_plan_v2_updates_canonical_field_and_analytics_reads_it(temp_db):
     token = admin_token()
     make_user("iuid-target", "telegram_target", plan="mini")
     with TestClient(main.app) as c:
-        r = c.post("/api/admin/users/iuid-target/plan-v2", json={"plan": "pro", "reason": "upgrade"}, headers=bearer(token))
+        r = c.post("/api/admin/users/iuid-target/plan-v2", json={"idempotency_key": "compat-test_product_consistency_20e2b-0112", "plan": "pro", "reason": "upgrade"}, headers=bearer(token))
         table = c.get("/api/admin/users-analytics-v2", headers=bearer(token))
         card = c.get("/api/admin/users/iuid-target/analytics-v2", headers=bearer(token))
     assert r.status_code == 200

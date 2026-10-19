@@ -2,7 +2,7 @@
 status: canonical
 document_role: admin-current-guide
 audience: owner, operators, developers
-updated: 2026-08-31
+updated: 2026-10-19
 verified_source_sha: 11b087d8441cb109b50b1d1e863fdcfa73201d07
 production_status_role: none
 ---
@@ -109,6 +109,14 @@ identity/CRM/finance mutations сначала используется
 `verified`/`partial`/`gap` и обязательные `gap_ids`. Ещё 39 mutation routes в
 эту карту не входят и не считаются проверенными автоматически.
 
+### Повтор изменения токенов или тарифа
+
+В CRM откройте карточку пользователя → «Управление» → «Своя сумма» или «Изменить тариф». Укажите значение и непустую причину, затем подтвердите. Эти два действия сохраняют идентификатор команды до отправки. Повторный клик, потеря ответа и повтор после перезагрузки вкладки используют ту же команду: сервер возвращает исходный результат, сохраняя баланс, единственный grant и даты тарифа.
+
+Если ответ не подтверждён, повторно откройте то же действие в этой вкладке и подтвердите сохранённые значения. Пока результат неизвестен, другой payload не заменяет команду. После успешного ответа начинается новое действие с новым key. Не очищайте данные вкладки для обхода неподтверждённого результата: сначала проверьте outcome. Закрытие всей вкладки или ручная очистка session storage не обещает сохранение pending key. Повтор проверяет текущие права администратора; отзыв прав не обходится сохранённым ключом.
+
+Граница относится только к `tokens-v2` и `plan-v2`. Остальные invoice/loyalty/payment-maintenance gaps перечислены в mutation audit и требуют отдельных packages.
+
 ## Секреты и внешние провайдеры
 
 - Сырые API keys, bot tokens, webhook secrets, SMTP passwords, cookies и OTP не
@@ -139,6 +147,7 @@ Backend-покрытие включает CRM/actions, dashboard analytics, trus
 
 - `backend/test_admin_v2.py`;
 - `backend/test_admin_actions.py`;
+- `backend/test_admin_command_idempotency.py`, `backend/test_admin_command_transactions.py`, `backend/test_admin_command_migration.py` — replay, финансовая atomicity и additive schema/restore;
 - `backend/test_admin_analytics.py`;
 - `backend/test_admin_bots_v2.py`;
 - `backend/test_admin_mail_v2.py`;
@@ -150,6 +159,9 @@ Route-level contract критичных compatibility mutations проверяе
 - `python -m pytest -q tools/test_admin_mutation_audit.py`.
 
 Frontend-проверки:
+
+- `frontend/adminCommand.test.ts` — сохранённая команда, unknown response и поздние ответы закрытых dialogs;
+- `frontend/e2e-admin-command-retry.mjs` — реальная desktop/mobile CRM с потерянным ответом и real Docker API, вызывается owned hosted workflow;
 
 - `frontend/e2e-admin-dashboard-layout.mjs` — структура и responsive dashboard;
 - `frontend/e2e-admin-model-pages.mjs` — каталоги моделей и responsive layout;
@@ -164,6 +176,8 @@ UI-контракт, но не реальную provider delivery и не produc
 Текущий `e2e-admin-crm-live.mjs` всё ещё ожидает семь верхних KPI, тогда как
 shell и dashboard-layout contract используют шесть. До исправления этой
 предпосылки его нельзя считать зелёным доказательством текущего интерфейса.
+
+Для двух entitlement commands workflow `admin-command-docker.yml` сохраняет source SHA, image id/revision, фактические состояния баланса/тарифа и row digests до и после пересоздания контейнера, browser screenshots и результат cleanup. Успешные unit tests и сам этот документ не являются результатом Docker-прогона. Приёмка опирается на PASS artifacts именно принимаемого SHA; production/provider проверка этим workflow не проводится.
 
 ## Карта документации
 

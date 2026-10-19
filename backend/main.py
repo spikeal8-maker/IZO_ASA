@@ -342,7 +342,7 @@ try:
         video_presentation,
         video_submission,
         video_download,
-        admin_analytics,
+        admin_analytics, admin_entitlement_commands,
         assistant_runtime,
         energy_telemetry,
         powerpanel,
@@ -394,7 +394,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         video_presentation,
         video_submission,
         video_download,
-        admin_analytics,
+        admin_analytics, admin_entitlement_commands,
         assistant_runtime,
         energy_telemetry,
         powerpanel,
@@ -519,8 +519,8 @@ try:
         ADMIN_NOTIFICATION_DELIVERY_MIGRATION, ADMIN_NOTIFICATIONS_MIGRATION,
         DbGuardError,
         LEGACY_BASELINE_MIGRATION,
-        PHONE_CHAT_HISTORY_MIGRATION, GENERATION_TRIAL_MIGRATION, PHONE_CHAT_REQUEST_LIFECYCLE_MIGRATION,
-        apply_account_verification_migration, apply_admin_notification_delivery_migration, apply_admin_notifications_migration, apply_phone_chat_history_migration, apply_generation_trial_migration, apply_phone_chat_request_lifecycle_migration,
+        PHONE_CHAT_HISTORY_MIGRATION, GENERATION_TRIAL_MIGRATION, PHONE_CHAT_REQUEST_LIFECYCLE_MIGRATION, ADMIN_COMMANDS_MIGRATION,
+        apply_account_verification_migration, apply_admin_notification_delivery_migration, apply_admin_notifications_migration, apply_phone_chat_history_migration, apply_generation_trial_migration, apply_phone_chat_request_lifecycle_migration, apply_admin_commands_migration,
         backfill_identity_core,
         collect_sqlite_guard_status,
         database_size_mb,
@@ -545,8 +545,8 @@ except ImportError:  # Direct `python backend/main.py` execution.
         ADMIN_NOTIFICATION_DELIVERY_MIGRATION, ADMIN_NOTIFICATIONS_MIGRATION,
         DbGuardError,
         LEGACY_BASELINE_MIGRATION,
-        PHONE_CHAT_HISTORY_MIGRATION, GENERATION_TRIAL_MIGRATION, PHONE_CHAT_REQUEST_LIFECYCLE_MIGRATION,
-        apply_account_verification_migration, apply_admin_notification_delivery_migration, apply_admin_notifications_migration, apply_phone_chat_history_migration, apply_generation_trial_migration, apply_phone_chat_request_lifecycle_migration,
+        PHONE_CHAT_HISTORY_MIGRATION, GENERATION_TRIAL_MIGRATION, PHONE_CHAT_REQUEST_LIFECYCLE_MIGRATION, ADMIN_COMMANDS_MIGRATION,
+        apply_account_verification_migration, apply_admin_notification_delivery_migration, apply_admin_notifications_migration, apply_phone_chat_history_migration, apply_generation_trial_migration, apply_phone_chat_request_lifecycle_migration, apply_admin_commands_migration,
         backfill_identity_core,
         collect_sqlite_guard_status,
         database_size_mb,
@@ -1291,6 +1291,7 @@ class AdminRoleV2Request(BaseModel):
 class AdminTokensV2Request(BaseModel):
     delta: int = 0
     reason: str = ""
+    idempotency_key: str | None = None
 
 
 class AdminDiscountV2Request(BaseModel):
@@ -1302,6 +1303,7 @@ class AdminPlanV2Request(BaseModel):
     plan: Literal["free", "mini", "plus", "pro", "business"]
     duration_days: int = Field(default=30, ge=1, le=3660)
     reason: str = ""
+    idempotency_key: str | None = None
 
 
 class AdminProfileV2Request(BaseModel):
@@ -1869,7 +1871,7 @@ def init_db() -> None:
     with db() as conn:
         ensure_migration_ledger(
             conn,
-            supported_version=PHONE_CHAT_REQUEST_LIFECYCLE_MIGRATION.version,
+            supported_version=ADMIN_COMMANDS_MIGRATION.version,
         )
         prepare_core_schema_group(conn)
         ensure_outbox_schema(conn)
@@ -1897,6 +1899,7 @@ def init_db() -> None:
         apply_phone_chat_history_migration(conn, applied_at=now)
         apply_generation_trial_migration(conn, applied_at=now)
         apply_phone_chat_request_lifecycle_migration(conn, applied_at=now)
+        apply_admin_commands_migration(conn, applied_at=now)
 
 PROVIDER_CODE_PREFIX = {"web_email": "WEB", "telegram": "TG", "max": "MAX"}
 
@@ -11621,35 +11624,11 @@ async def admin_role_v2(internal_user_id: str, req: AdminRoleV2Request, request:
 @app.post("/api/admin/users/{internal_user_id}/tokens-v2")
 async def admin_tokens_v2(internal_user_id: str, req: AdminTokensV2Request, request: Request) -> dict[str, Any]:
     admin = require_trusted_admin(request)
-    reason = (req.reason or "").strip()
-    if not reason:
-        raise HTTPException(400, "Укажите причину.")
-    if req.delta == 0:
-        raise HTTPException(400, "Изменение баланса не может быть нулевым.")
-    if abs(req.delta) > ADMIN_TOKENS_MAX_ABS:
-        raise HTTPException(400, "Слишком большое изменение баланса.")
-    now = datetime.now(timezone.utc).isoformat()
-    with db() as conn:
-        target = _admin_load_target(conn, internal_user_id)
-        old_balance = int(target["token_balance"] or 0)
-        new_balance = old_balance + req.delta
-        if new_balance < 0:
-            raise HTTPException(400, "Баланс не может стать отрицательным.")
-        conn.execute("UPDATE users SET token_balance = ? WHERE internal_user_id = ?", (new_balance, internal_user_id))
-        conn.execute(
-            "INSERT INTO token_ledger (id, user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, 'admin_adjust', ?, ?)",
-            (uuid.uuid4().hex, target["id"], req.delta,
-             json.dumps({"actor_internal_user_id": admin["internal_user_id"], "reason": reason}, ensure_ascii=False), now),
-        )
-        record_audit_log(conn, "admin_adjust_tokens", actor_internal_user_id=admin["internal_user_id"],
-                         target_internal_user_id=internal_user_id, entity_id=target["id"],
-                         before={"token_balance": old_balance}, after={"token_balance": new_balance, "delta": req.delta, "reason": reason}, request=request)
-    try:
-        record_event_log("admin_tokens_adjusted", internal_user_id=internal_user_id, platform="web",
-                         properties={"delta": req.delta, "new_balance": new_balance})
-    except Exception:
-        pass
-    return {"ok": True, "internal_user_id": internal_user_id, "old_balance": old_balance, "new_balance": new_balance, "delta": req.delta}
+    return admin_entitlement_commands.adjust_tokens(
+        internal_user_id, req, request, admin=admin, db=db,
+        load_target=_admin_load_target, audit=record_audit_log,
+        event_log=record_event_log, max_abs=ADMIN_TOKENS_MAX_ABS,
+    )
 
 
 @app.post("/api/admin/users/{internal_user_id}/discount-v2")
@@ -11686,25 +11665,11 @@ async def admin_discount_v2(internal_user_id: str, req: AdminDiscountV2Request, 
 @app.post("/api/admin/users/{internal_user_id}/plan-v2")
 async def admin_plan_v2(internal_user_id: str, req: AdminPlanV2Request, request: Request) -> dict[str, Any]:
     admin = require_trusted_admin(request)
-    reason = (req.reason or "").strip()
-    if not reason:
-        raise HTTPException(400, "Укажите причину.")
-    with db() as conn:
-        target = _admin_load_target(conn, internal_user_id)
-        activation = _activate_tariff_now(
-            conn,
-            internal_user_id=internal_user_id,
-            plan=req.plan,
-            now=datetime.now(timezone.utc),
-            source="admin",
-            source_id=uuid.uuid4().hex,
-            duration_days=req.duration_days,
-        )
-        record_audit_log(conn, "admin_change_plan", actor_internal_user_id=admin["internal_user_id"],
-                         target_internal_user_id=internal_user_id, entity_id=target["id"],
-                         before={"plan": target["plan"]},
-                         after={"plan": req.plan, "duration_days": req.duration_days, "reason": reason}, request=request)
-    return {"ok": True, "internal_user_id": internal_user_id, "plan": req.plan, "activation": activation}
+    return admin_entitlement_commands.activate_plan(
+        internal_user_id, req, request, admin=admin, db=db,
+        load_target=_admin_load_target, activate_tariff=_activate_tariff_now,
+        audit=record_audit_log,
+    )
 
 
 @app.post("/api/admin/users/{internal_user_id}/profile-v2")

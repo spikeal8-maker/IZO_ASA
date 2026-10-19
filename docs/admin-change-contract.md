@@ -2,7 +2,7 @@
 status: canonical
 document_role: admin-change-contract
 audience: coding-agents, reviewers
-updated: 2026-08-31
+updated: 2026-10-19
 verified_product_source_sha: 11b087d8441cb109b50b1d1e863fdcfa73201d07
 depends_on: docs/admin-panel-guide.md, docs/context/admin-control-center.md
 production_status_role: none
@@ -68,16 +68,16 @@ routers.
       "id": "crm",
       "label": "CRM",
       "entry_route": "/admin/crm",
-      "frontend": ["frontend/src/adminAnalytics.tsx"],
-      "backend": ["backend/main.py", "backend/app/services/admin_analytics.py"],
-      "api_examples": ["/api/admin/users-analytics-v2", "/api/admin/users/{internal_user_id}/v2", "/api/admin/users/{internal_user_id}/tokens-v2"],
+      "frontend": ["frontend/src/adminAnalytics.tsx", "frontend/src/adminCommand.ts"],
+      "backend": ["backend/main.py", "backend/app/services/admin_analytics.py", "backend/app/services/admin_commands.py", "backend/app/services/admin_entitlement_commands.py", "backend/app/database/admin_command_schema.py"],
+      "api_examples": ["/api/admin/users-analytics-v2", "/api/admin/users/{internal_user_id}/v2", "/api/admin/users/{internal_user_id}/tokens-v2", "/api/admin/users/{internal_user_id}/plan-v2"],
       "side_effects": ["user-profile", "role", "plan", "tokens", "billing", "sessions", "media"],
       "risk_floor": "standard",
       "risk_escalates_to": "high-assurance",
       "risk_escalates_when": ["меняется identity, role, tokens, billing, security, media ownership или destructive action"],
       "live_action_risk": "release-ops",
       "required_controls": ["trusted-admin", "verify-per-endpoint", "reason", "audit", "idempotency-for-finance"],
-      "tests": ["backend/test_admin_v2.py", "backend/test_admin_actions.py", "backend/test_admin_analytics.py", "backend/test_admin_password_reset.py"]
+      "tests": ["backend/test_admin_v2.py", "backend/test_admin_actions.py", "backend/test_admin_analytics.py", "backend/test_admin_password_reset.py", "backend/test_admin_command_idempotency.py", "backend/test_admin_command_transactions.py", "backend/test_admin_command_migration.py", "frontend/adminCommand.test.ts", "frontend/e2e-admin-command-retry.mjs"]
     },
     {
       "id": "models",
@@ -204,19 +204,63 @@ routers.
     }
   ],
   "model_pages": [
-    {"id": "api", "label": "OpenRouter", "path": "/admin/models/openrouter/text"},
-    {"id": "config", "label": "Config UI", "path": "/admin/models/config-ui"},
-    {"id": "energy", "label": "Энергопотребление", "path": "/admin/models/energy"},
-    {"id": "voice", "label": "Голосовой ввод", "path": "/admin/models/voice-input"},
-    {"id": "improve", "label": "Улучшение промпта", "path": "/admin/models/prompt-improvement"}
+    {
+      "id": "api",
+      "label": "OpenRouter",
+      "path": "/admin/models/openrouter/text"
+    },
+    {
+      "id": "config",
+      "label": "Config UI",
+      "path": "/admin/models/config-ui"
+    },
+    {
+      "id": "energy",
+      "label": "Энергопотребление",
+      "path": "/admin/models/energy"
+    },
+    {
+      "id": "voice",
+      "label": "Голосовой ввод",
+      "path": "/admin/models/voice-input"
+    },
+    {
+      "id": "improve",
+      "label": "Улучшение промпта",
+      "path": "/admin/models/prompt-improvement"
+    }
   ],
   "openrouter_pages": [
-    {"id": "text", "label": "Текст", "path": "/admin/models/openrouter/text"},
-    {"id": "images", "label": "Изображения", "path": "/admin/models/openrouter/images"},
-    {"id": "video", "label": "Видео", "path": "/admin/models/openrouter/video"},
-    {"id": "audio", "label": "Звук", "path": "/admin/models/openrouter/audio"},
-    {"id": "3d", "label": "3D", "path": "/admin/models/openrouter/3d"},
-    {"id": "settings", "label": "Настройки", "path": "/admin/models/openrouter/settings"}
+    {
+      "id": "text",
+      "label": "Текст",
+      "path": "/admin/models/openrouter/text"
+    },
+    {
+      "id": "images",
+      "label": "Изображения",
+      "path": "/admin/models/openrouter/images"
+    },
+    {
+      "id": "video",
+      "label": "Видео",
+      "path": "/admin/models/openrouter/video"
+    },
+    {
+      "id": "audio",
+      "label": "Звук",
+      "path": "/admin/models/openrouter/audio"
+    },
+    {
+      "id": "3d",
+      "label": "3D",
+      "path": "/admin/models/openrouter/3d"
+    },
+    {
+      "id": "settings",
+      "label": "Настройки",
+      "path": "/admin/models/openrouter/settings"
+    }
   ]
 }
 ```
@@ -271,6 +315,18 @@ reason, audit и idempotency. Если route присутствует в mutatio
 готовое покрытие. Live CRM E2E не запускать как обычный тест: он
 требует операторские QA credentials и имеет известную устаревшую 7-KPI
 предпосылку.
+
+Для `tokens-v2` и `plan-v2` используется отдельный durable command contract: обязательный key глобально уникален и связан с actor, target, operation и нормализованным payload. Проверка текущих admin permissions, изменение баланса/тарифа, audit и command receipt входят в одну transaction; retry возвращает первый результат. CRM сохраняет неподтверждённое действие до отправки, включая key и payload; проверять reload и повторное открытие dialog.
+
+```powershell
+python -m pytest -q backend/test_admin_command_idempotency.py backend/test_admin_command_transactions.py backend/test_admin_command_migration.py backend/test_admin_actions.py backend/test_product_consistency_20e2b.py
+node frontend/adminCommand.test.ts
+python -m unittest tools.test_docker_admin_commands -v
+```
+
+После repository map generators выполнить `python tools/test_admin_mutation_audit.py --refresh-fingerprints`, затем повторить audit contract test. Refresh сохраняет статусы и scope; не обновлять hashes вручную.
+
+Реальная desktop/mobile CRM проверка этих двух commands находится в `frontend/e2e-admin-command-retry.mjs` и вызывается только driver `tools/docker_admin_commands.py` в workflow `admin-command-docker.yml`. Там используется фактический uvicorn API внутри owned network-none container и искусственная потеря первого ответа после commit. Workflow допускает только GitHub hosted Linux/local Docker socket, создаёт свои synthetic admin/session/targets, повторяет команду после container recreation и сохраняет redacted state hashes/screenshots. Это воспроизводимый scoped gate, не результат старого `e2e-admin-crm-live.mjs` и не полная Д3.
 
 ### 4. Model catalog, publication или pricing
 
