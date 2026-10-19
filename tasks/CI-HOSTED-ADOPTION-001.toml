@@ -1,0 +1,62 @@
+manifestVersion = 1
+id = "CI-HOSTED-ADOPTION-001"
+baseSha = "d1ee3a0ac5114ec08f4a8daee9cf6e41e97d6a7a"
+goal = "Adopt the already validated GitHub-hosted Windows runner boundary from PR195 before publishing independent D3 repairs."
+userOutcome = "Required exact-source CI runs on an isolated GitHub VM without executing Full on the owner's shared Windows computer."
+beforeScenario = "Main CI still targets the self-hosted izo-ci Windows runner, while PR195 already proved an isolated hosted runner on exact6f43."
+afterScenario = "The same required verifier, scope, supply-chain, privacy and cleanup gates execute on windows-2022 after a fail-closed hosted-runner check and pinned Python/Node setup."
+nonGoals = [
+  "No product, Docker, production, network, secrets, dependency or guard policy changes.",
+  "No optional quality filtering, skipped application gates, scope-limit increases, or changes to PR195.",
+]
+declaredFiles = [
+  ".github/workflows/ci.yml",
+  "tools/test_ci_workflow.py",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+]
+protectedFilesTouched = [
+]
+domain = "agent-tooling"
+riskClass = "standard"
+changeClass = "ci"
+maxProductionFiles = 0
+maxChangedLines = 250
+acceptance = [
+  "Hosted-only runner admission precedes checkout.",
+  "Pinned Python3.11.9 and Node24.14.1 match repository pins.",
+  "All existing trigger, exact-head, scope, verifier, supply, outbound and cleanup guards remain.",
+  "Focused workflow tests pass and exact-head GitHub CI plus independent review are complete before merge.",
+]
+requiredEvidence = [
+  "Canonical package ownership and exact base/source SHA.",
+  "Diff provenance to PR1956f43 runner/toolchain and workflow-policy test hunks.",
+  "Focused tests, full diff, scope and secret inspection.",
+  "Independent source review and fresh GitHub-hosted run identity/results.",
+]
+targetedTests = [
+  "python -m pytest tools/test_ci_workflow.py tools/test_d0_executor_workflow.py",
+  "Official agent scope and applicable file hygiene checks.",
+  "Required exact-head GitHub CI on isolated hosted Windows.",
+]
+fileGrowthExpectations = [
+  "Only bounded runner setup/assertion hunks and their existing policy tests change; no limit increases.",
+]
+forbiddenOperations = [
+  "direct-main",
+  "force-push",
+  "deploy",
+  "production-data",
+  "host-service-change",
+  "network-change",
+  "shared-Windows-Full",
+  "docker-lifecycle",
+  "real-provider",
+]
+rollbackBoundary = "Revert this CI-only package through a reviewed PR; never trigger the shared runner as a rollback experiment."
