@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { createServer } from 'node:http'
 import { readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path'
@@ -31,22 +31,30 @@ const cli = (args, input) => {
   const docker = args[0] === 'docker'
   if (docker) assert(statSync('/var/run/docker.sock').isSocket(), 'ADMIN_BROWSER_LOCAL_DOCKER_SOCKET_MISSING')
   const actual = docker ? ['docker', '--host', dockerEndpoint, ...args.slice(1)] : args
-  return execFileSync(actual[0], actual.slice(1), { cwd: root, input, encoding: 'utf8', timeout: 30000,
-    maxBuffer: 1024 * 1024, env: docker ? dockerEnvironment : undefined }).trim()
+  return new Promise((done, reject) => {
+    let inputError
+    const child = execFile(actual[0], actual.slice(1), { cwd: root, encoding: 'utf8', timeout: 30000,
+      maxBuffer: 1024 * 1024, env: docker ? dockerEnvironment : undefined }, (error, stdout) => {
+      if (error || inputError) reject(error || inputError)
+      else done(stdout.trim())
+    })
+    child.stdin.on('error', error => { inputError = error })
+    child.stdin.end(input)
+  })
 }
-assert.equal(cli(['git', 'rev-parse', 'HEAD']), sha, 'ADMIN_BROWSER_SOURCE_SHA_MISMATCH')
-assert.equal(cli(['git', 'status', '--porcelain', '--untracked-files=all']), '', 'ADMIN_BROWSER_SOURCE_DIRTY')
+assert.equal(await cli(['git', 'rev-parse', 'HEAD']), sha, 'ADMIN_BROWSER_SOURCE_SHA_MISMATCH')
+assert.equal(await cli(['git', 'status', '--porcelain', '--untracked-files=all']), '', 'ADMIN_BROWSER_SOURCE_DIRTY')
 const plan = JSON.parse(readFileSync(resolve(output, 'resources.json'), 'utf8'))
 assert.equal(plan.sha, sha)
 assert.equal(plan.run, run)
 const containerName = `izo-admin-${sha.slice(0, 10)}-${run}-api`
 assert.equal(plan.names.api, containerName)
 const runtime = readFileSync(resolve(root, 'tools/docker_admin_commands_runtime.py'), 'utf8')
-const inspected = JSON.parse(cli(['docker', 'container', 'inspect', containerName]))[0]
+const inspected = JSON.parse(await cli(['docker', 'container', 'inspect', containerName]))[0]
 const containerId = inspected.Id
 
-function ownerCheck() {
-  const current = JSON.parse(cli(['docker', 'container', 'inspect', containerId]))[0]
+async function ownerCheck() {
+  const current = JSON.parse(await cli(['docker', 'container', 'inspect', containerId]))[0]
   assert.equal(current.Name, '/' + containerName)
   assert.equal(current.Config.Labels['io.izo.admin-proof.owner'], 'ADMIN-COMMAND-IDEMPOTENCY-001')
   assert.equal(current.Config.Labels['io.izo.admin-proof.run'], run)
@@ -56,16 +64,24 @@ function ownerCheck() {
   assert(!current.HostConfig.PortBindings || Object.keys(current.HostConfig.PortBindings).length === 0)
   assert(current.State.Running && current.Config.User === '10001:10001')
 }
-ownerCheck()
+await ownerCheck()
 
-function bridge(message) {
-  ownerCheck()
-  const raw = cli(['docker', 'exec', '--interactive', containerId, 'python', '-', 'bridge', '--request-json', JSON.stringify(message)], runtime)
+async function bridge(message) {
+  await ownerCheck()
+  const raw = await cli(['docker', 'exec', '--interactive', containerId, 'python', '-', 'bridge', '--request-json', JSON.stringify(message)], runtime)
   const lines = raw.split('\n').filter(line => line.startsWith('IZO_ADMIN_RECEIPT:'))
   assert.equal(lines.length, 1, 'ADMIN_BROWSER_BRIDGE_RECEIPT_INVALID')
   const value = JSON.parse(lines[0].slice('IZO_ADMIN_RECEIPT:'.length))
   assert(value.status === 'PASS' && value.phase === 'bridge', 'ADMIN_BROWSER_BRIDGE_REJECTED')
   return value
+}
+
+// Retain serialized fixture access without blocking Playwright's event loop.
+let bridgeQueue = Promise.resolve()
+function queuedBridge(message) {
+  const result = bridgeQueue.then(() => bridge(message))
+  bridgeQueue = result.catch(() => {})
+  return result
 }
 
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
@@ -111,11 +127,13 @@ try {
       page.setDefaultTimeout(20000)
       const errors = []
       const calls = []
+      const routeTasks = new Set()
       const internal = `admin-proof-${run}-browser-${viewport}-${kind}`
       const mutationPath = `/api/admin/users/${internal}/${kind}-v2`
       let drop = true
+      let phase = 'open-initial-confirmation'
       page.on('pageerror', error => errors.push(error.message))
-      await context.route('**/*', async route => {
+      const handleRoute = async route => {
         const request = route.request()
         const url = new URL(request.url())
         if (url.origin !== base) {
@@ -126,7 +144,7 @@ try {
         if (!url.pathname.startsWith('/api/')) { await route.continue(); return }
         try {
           const payload = request.postData() ? JSON.parse(request.postData()) : {}
-          const result = bridge({ path: url.pathname + url.search, method: request.method(), payload })
+          const result = await queuedBridge({ path: url.pathname + url.search, method: request.method(), payload })
           assert.equal(result.httpStatus, 200, 'ADMIN_BROWSER_API_NOT_SUCCESSFUL')
           if (url.pathname === mutationPath && request.method() === 'POST') {
             calls.push({ payload, bodySha256: result.bodySha256, state: result.ownedState })
@@ -137,21 +155,34 @@ try {
           errors.push(error.message)
           await route.abort('blockedbyclient')
         }
+      }
+      await context.route('**/*', route => {
+        const task = handleRoute(route)
+        routeTasks.add(task)
+        task.then(() => routeTasks.delete(task), error => { errors.push(error.message); routeTasks.delete(task) })
+        return task
       })
+      const drainRoutes = async () => {
+        while (routeTasks.size) await Promise.allSettled([...routeTasks])
+        await bridgeQueue
+      }
       try {
         await page.goto(base + '/admin/crm', { waitUntil: 'networkidle' })
         assert.equal(await page.locator('meta[name="izo-release"]').getAttribute('content'), sha)
         let dialog = await openConfirmation(page, viewport, kind)
         const reason = `Controlled ${viewport} ${kind} retry`
+        phase = 'submit-initial-command'
         if (kind === 'tokens') await dialog.getByLabel('Изменение баланса', { exact: true }).fill('25')
         else await dialog.getByRole('combobox', { name: 'Тариф', exact: true }).selectOption('pro')
         await dialog.getByLabel('Причина (обязательно)', { exact: true }).fill(reason)
         await dialog.getByRole('button', { name: 'Подтвердить', exact: true }).click()
         await dialog.locator('.crm-err').waitFor()
+        phase = 'check-lost-response'
         assert.equal(calls.length, 1)
         assert.equal(drop, false)
         assert(calls[0].state && calls[0].state.counts.commands === 1)
         await page.screenshot({ path: resolve(output, `crm-${viewport}-${kind}-lost-response.png`), fullPage: true })
+        phase = 'recover-confirmation'
         await page.reload({ waitUntil: 'networkidle' })
         dialog = await openConfirmation(page, viewport, kind)
         assert.equal(await dialog.getByLabel('Причина (обязательно)', { exact: true }).inputValue(), reason)
@@ -163,18 +194,42 @@ try {
         const bounds = await dialog.boundingBox()
         assert(bounds && bounds.x >= -1 && bounds.x + bounds.width <= dimensions.width + 1, 'ADMIN_BROWSER_CONFIRMATION_OVERFLOW')
         await page.screenshot({ path: resolve(output, `crm-${viewport}-${kind}-recovered.png`), fullPage: true })
-        await dialog.getByRole('button', { name: 'Подтвердить', exact: true }).dblclick()
-        await dialog.locator('.crm-action-ok').waitFor()
+        phase = 'observe-retry-success'
+        assert.equal(await dialog.locator('.crm-action-ok').count(), 0, 'ADMIN_BROWSER_SUCCESS_PRECEDES_RETRY')
+        // Observe the transient marker while asynchronous refresh bridges run.
+        await Promise.all([
+          dialog.locator('.crm-action-ok').waitFor({ state: 'visible' }),
+          dialog.getByRole('button', { name: 'Подтвердить', exact: true }).dblclick(),
+        ])
+        phase = 'verify-durable-retry'
         await dialog.waitFor({ state: 'hidden' })
+        await page.waitForLoadState('networkidle')
+        await drainRoutes()
+        assert.equal(await page.evaluate(path => sessionStorage.getItem('izo.admin-command.v1:' + path), mutationPath.slice(4)), null)
+        await context.close()
+        await drainRoutes()
         assert.equal(calls.length, 2, 'ADMIN_BROWSER_DUPLICATE_FINANCIAL_COMMAND')
         assert.deepEqual(calls[0], calls[1], 'ADMIN_BROWSER_RETRY_KEY_RESPONSE_OR_STATE_CHANGED')
         assert.deepEqual(calls[1].state.counts, { ledger: 1, grants: kind === 'plan' ? 1 : 0, audit: 1, commands: 1 })
-        assert.equal(await page.evaluate(path => sessionStorage.getItem('izo.admin-command.v1:' + path), mutationPath.slice(4)), null)
         assert.deepEqual(errors, [])
         report.cases.push({ viewport, kind, status: 'PASS', httpRequests: 2, lostResponseInjected: true,
           reloadedInput: true, sameKeyResponseAndState: true, commandKeySha256: createHash('sha256').update(calls[0].payload.idempotency_key).digest('hex'),
           apiBodySha256: calls[0].bodySha256, effects: calls[1].state.counts, persistedState: calls[1].state, target: internal })
-      } finally { await context.close() }
+      } catch (error) {
+        report.failedCase = { viewport, kind, phase, httpRequests: calls.length, lostResponseInjected: !drop,
+          browserErrorCount: errors.length, commands: calls.slice(0, 3).map(call => ({
+            commandKeySha256: typeof call.payload.idempotency_key === 'string'
+              ? createHash('sha256').update(call.payload.idempotency_key).digest('hex') : null,
+            apiBodySha256: call.bodySha256, persistedState: call.state,
+          })) }
+        try {
+          const confirmation = page.getByRole('dialog', { name: 'Подтверждение действия', exact: true })
+          report.failedCase.confirmationCount = await confirmation.count()
+          report.failedCase.successMarkerCount = await confirmation.locator('.crm-action-ok').count()
+          await page.screenshot({ path: resolve(output, `crm-${viewport}-${kind}-failure.png`), fullPage: true, timeout: 5000 })
+        } catch { report.failedCase.domDiagnostics = 'unavailable' }
+        throw error
+      } finally { await drainRoutes(); await context.close(); await drainRoutes() }
     }
   }
   assert.equal(report.cases.length, 4)
