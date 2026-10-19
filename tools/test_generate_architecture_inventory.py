@@ -52,14 +52,21 @@ def test_repository_inventory_is_valid_deterministic_and_semantically_complete()
     assert render_markdown(first) == render_markdown(second)
     assert first["validation"] == {"status": "ok", "error_count": 0}
     assert first["routes"]["count"] >= 200
-    assert first["routes"]["default_process_role"] == "all-dev-current-monolith"
+    assert first["routes"]["default_process_role"] == "api-server-or-combined"
     assert {item["process_role"] for item in first["routes"]["items"]} == {
-        "all-dev-current-monolith"
+        "api-server-or-combined"
     }
-    assert first["tasks"]["worker_count"] == 8
-    assert first["tasks"]["ephemeral_count"] == 4
+    assert first["tasks"]["worker_count"] == 9
+    assert first["tasks"]["ephemeral_count"] == 10
     assert {item["id"] for item in first["tasks"]["items"]} == {
         "generation-consumer",
+        "generation-lease-watchdog",
+        "generation-worker-channel",
+        "generation-executor-heartbeat",
+        "generation-executor-request",
+        "generation-completion-storage",
+        "generation-dispatcher-close",
+        "generation-combined-close",
         "bot-polling",
         "feed-video-publication",
         "avatar-cache",

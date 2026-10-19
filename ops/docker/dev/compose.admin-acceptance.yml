@@ -1,0 +1,11 @@
+{
+  "services": {
+    "backend": {
+      "environment": {
+        "ADMIN_ONE_TIME_CODE": "${IZO_ACCEPTANCE_ADMIN_CODE:?isolated admin code is required}",
+        "BILLING_SIMULATOR_ENABLED": "true",
+        "PUBLIC_SITE_URL": "http://127.0.0.1:${IZO_SHADOW_WEB_PORT:?isolated web port is required}"
+      }
+    }
+  }
+}

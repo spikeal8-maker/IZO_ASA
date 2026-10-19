@@ -1,10 +1,71 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from typing import Any, Callable
 
 import httpx
 
 from ..integrations.openrouter import OpenRouterVideoRequestError, openrouter_video_public_error
+from .ltx_video.profiles import configured_output_size
+from .video_pricing import video_size
+
+
+CONFIG_REFRESH_TIMEOUT_SECONDS = 2.0
+CATALOG_UNAVAILABLE_REASON = "Каталог облачных видеомоделей временно недоступен."
+_PUBLIC_LOCAL_VIDEO_ERRORS = frozenset({
+    "Не удалось запустить локальный LTX.",
+    "Не удалось сохранить полученное видео.",
+    "Провайдер завершил генерацию без видеофайла.",
+    "Провайдер не завершил генерацию видео.",
+    "Локальная видеогенерация была потеряна после перезапуска видеосервиса. Токены возвращены; задачу можно запустить снова.",
+})
+
+
+def output_size(settings: dict[str, Any], *, provider: str) -> tuple[int, int]:
+    if provider == "local_ltx":
+        return configured_output_size(settings) or (0, 0)
+    return video_size({"supportedSizes": []}, str(settings.get("resolution") or "720p"),
+                      str(settings.get("aspectRatio") or "16:9")) or (0, 0)
+
+
+async def config_inputs(fetch_catalog, fetch_exchange, exchange_snapshot):
+    """Bound read-only config refreshes; execution endpoints keep their policy."""
+    exchange = exchange_snapshot()
+    try:
+        async with asyncio.timeout(CONFIG_REFRESH_TIMEOUT_SECONDS):
+            catalog = await fetch_catalog()
+    except (TimeoutError, httpx.HTTPError, OpenRouterVideoRequestError, json.JSONDecodeError):
+        return [], exchange, {"status": "unavailable", "reasonCode": "VIDEO_CATALOG_UNAVAILABLE"}
+    if catalog:
+        try:
+            async with asyncio.timeout(CONFIG_REFRESH_TIMEOUT_SECONDS):
+                exchange = await fetch_exchange()
+        except (TimeoutError, httpx.HTTPError, json.JSONDecodeError):
+            pass  # Retain the already-labelled cached exchange snapshot.
+    return catalog, exchange, {"status": "available", "reasonCode": None}
+
+
+def config_mode_availability(mode, *, config, visible_count, local_count, plan,
+                             authenticated, is_admin, catalog_status):
+    enabled = (config.get("enabled") or {}).get(mode) or []
+    access = (((config.get("access") or {}).get(mode) or {}).get(plan)) or []
+    reason = (
+        CATALOG_UNAVAILABLE_REASON
+        if catalog_status == "unavailable" and not local_count
+        else "В админке не включены модели для этого режима."
+        if not enabled and not local_count
+        else ""
+        if not authenticated and visible_count
+        else f"Для тарифа {plan.title()} не назначены модели этого режима."
+        if not is_admin and not access and not local_count
+        else ""
+    )
+    return {
+        "enabled": len(enabled) + local_count,
+        "tariff": visible_count if not authenticated else len(access) + local_count,
+        "reason": reason,
+    }
 
 
 def config_viewer_context(
@@ -95,12 +156,14 @@ def video_submit_failure(error: Exception, settings: Any) -> dict[str, Any]:
     }
 
 
-def public_video_error_message(value: Any) -> str | None:
+def public_video_error_message(value: Any, *, provider: str | None = None) -> str | None:
     """Do not expose provider URLs or transport diagnostics in the video UI."""
 
     message = str(value or "").strip()
     if not message:
         return None
+    if provider == "local_ltx":
+        return message if message in _PUBLIC_LOCAL_VIDEO_ERRORS else "Не удалось завершить запрос к локальному видеосервису. Попробуйте позже."
     lowered = message.lower()
     if "openrouter" in lowered or "/api/v1/videos" in lowered or "bad request" in lowered:
         return "Модель отклонила исходное изображение или параметры. Выберите другой кадр либо измените настройки."
@@ -139,7 +202,7 @@ def job_payload(
         "status": row["status"],
         "progress": int(row["progress"] or 0),
         "prompt": row["prompt_original"] or "",
-        "error": public_video_error_message(row["error_message"]),
+        "error": public_video_error_message(row["error_message"], provider=row_get(row, "provider")),
         "createdAt": row["created_at"],
         "completedAt": row["completed_at"],
         "model": settings.get("model") or settings.get("openrouterModel"),

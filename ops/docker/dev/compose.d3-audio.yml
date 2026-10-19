@@ -1,0 +1,5 @@
+# Separate owned protocol-only audio fixture; default D1/D2 profile remains unchanged.
+services:
+  backend:
+    environment:
+      IZO_SHADOW_FIXTURE: controlled-audio-v1

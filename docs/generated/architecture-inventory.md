@@ -5,14 +5,14 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 ## Summary
 
-- Routes: 251
-- Registered workers: 8
-- Registered ephemeral tasks: 4
+- Routes: 252
+- Registered workers: 9
+- Registered ephemeral tasks: 10
 - SQLite tables: 65
 - SQLite indexes: 98
 - Foreign-key declarations: 2
 - Frontend/static API literals: 43
-- Route process role: `all-dev-current-monolith`
+- Route process role: `api-server-or-combined`
 
 ## Route authorization
 
@@ -20,7 +20,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 |---|---:|
 | REVIEW: admin route without detected gate | 8 |
 | admin | 94 |
-| public/optional/review | 89 |
+| public/optional/review | 90 |
 | session | 1 |
 | user | 57 |
 | webhook: MAX secret conditional | 1 |
@@ -30,7 +30,14 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | ID | Kind | Owner | Persistence | Recovery | Watchdog |
 |---|---|---|---|---|---|
-| generation-consumer | worker | backend.app.services.generation_queue | SQLite jobs plus an in-process asyncio queue | backend.app.services.generation_recovery | missing |
+| generation-consumer | worker | backend.app.services.generation_queue | SQLite jobs plus the legacy in-process asyncio queue in combined role | backend.app.services.generation_recovery | missing in legacy combined role; split server has its own registered lease watchdog |
+| generation-lease-watchdog | worker | backend.app.services.generation_dispatch.GenerationDispatcher | SQLite jobs private lease metadata; the API is the sole database writer | expired or abandoned execution becomes failed/refunded once; uncertain provider operations are never resubmitted | bounded expiry scan; snapshot readiness fails if task stops; shutdown cancels and awaits it |
+| generation-worker-channel | ephemeral | backend.app.integrations.generation_ipc.WorkerChannel | renewal of the current SQLite lease through the owning API | EOF, invalid/replayed response or timeout abandons the lease and fences completion without external retry | bounded read timeout; channel close cancels and awaits the task |
+| generation-executor-heartbeat | ephemeral | backend.app.generation_worker.GenerationExecutor | private process status file only; no application SQLite or media access | disconnect cancels and awaits heartbeat; idle process reconnects without repeating uncertain HTTP | bounded heartbeat/ack liveness; status health fails on stale timestamp |
+| generation-executor-request | ephemeral | backend.app.generation_worker.GenerationExecutor | provider HTTP effects under an API-owned lease; no application database writes | disconnect cancels and awaits the request; uncertain execution is not retried | HTTP request timeout and parent session lifetime; one command in flight per executor |
+| generation-completion-storage | ephemeral | backend.app.services.generation_worker_persistence.WorkerPersistence | SQLite image metadata and owned media files after durable completion | optimization failure cannot undo durable generation; cancellation waits for the storage thread to finish | shielded task is drained before dispatcher teardown may release API writer ownership |
+| generation-dispatcher-close | ephemeral | backend.app.services.generation_dispatch.GenerationDispatcher | owned SQLite writer and private socket locks until storage work has stopped | close cancels session handlers and watchdog, drains owned storage tasks, then releases only owned resources | shielded and awaited cleanup cannot release writer ownership before storage drain |
+| generation-combined-close | ephemeral | backend.app.services.generation_bootstrap | owned database writer lock until legacy consumer and storage work have stopped | stop cancels and drains the one recorded legacy consumer and startup maintenance before releasing the lock | shielded cleanup is awaited even when shutdown caller is cancelled |
 | bot-polling | worker | backend.app.services.bot_workers | SQLite bot_polling_state cursor/marker per provider on BotRuntime | cursor/marker resumes after process restart | bounded retry loop; no independent supervisor |
 | feed-video-publication | worker | backend.main | SQLite feed_publications status plus an in-process asyncio queue | startup requeues rows in preparing status | missing |
 | avatar-cache | ephemeral | backend.main | avatar file and user metadata | later request may retry | not applicable |
@@ -40,7 +47,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | unverified-account-retention | worker | backend.app.services.account_retention.AccountRetentionWorker | SQLite account_verifications deadlines and terminal status | startup and hourly bounded scans reclaim every overdue pending row idempotently | single task handle, bounded batch, exception isolation; cleanup outcomes are security events |
 | power-telemetry | worker | backend.app.services.energy_telemetry.PowerTelemetryWorker | SQLite power_samples and generation_energy_usage; CyberPower database is read-only | fresh two-second samples resume after process restart; completed generation summaries are idempotently reconciled | single task handle with isolated sample failures and bounded raw-data retention |
 | ollama-residency | worker | backend.app.services.assistant_runtime.OllamaResidencyController | Ollama selected model residency on the service-pinned RTX 4070 | request-time verification plus bounded periodic rewarm after Ollama or backend restart | single task handle, 30-second healthy check and capped five-minute failure backoff |
-| gallery-storage-optimization | ephemeral | backend.main | SQLite and media files | next startup may retry | missing |
+| gallery-storage-optimization | ephemeral | backend.app.services.generation_bootstrap | SQLite and media files | next startup may retry | tracked storage task is drained before API writer ownership is released |
 | runtime-alert | ephemeral | backend.main | external webhook only | none | none |
 
 ## Listener ownership
@@ -149,7 +156,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Owner | Category | Protected | Non-growth | Current | Maximum | Remaining |
 |---|---|---|---|---|---:|---:|---:|
-| `backend/main.py` | backend-composition | backend-hotspot | true | true | 19749 | 19750 | 1 |
+| `backend/main.py` | backend-composition | backend-hotspot | true | true | 19335 | 19750 | 415 |
 | `backend/static/feed/index.html` | feed-static | static-ui-hotspot | true | true | 2124 | 2200 | 76 |
 | `backend/test_feed_v2.py` | feed-tests | test-hotspot | true | true | 2346 | 2600 | 254 |
 | `frontend/src/LegacyApp.tsx` | frontend-legacy | frontend-legacy-hotspot | true | true | 3600 | 3700 | 100 |
@@ -163,7 +170,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Owner | Category | Protected | Functions | Maximum | Classes | Maximum | Routes | Maximum |
 |---|---|---|---|---:|---:|---:|---:|---:|---:|
-| `backend/main.py` | backend-composition | backend-hotspot | true | 683 | 725 | 77 | 83 | 189 | 238 |
+| `backend/main.py` | backend-composition | backend-hotspot | true | 677 | 725 | 77 | 83 | 188 | 238 |
 
 ## Handwritten source-size policy
 

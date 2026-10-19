@@ -17,7 +17,24 @@ def run(repo: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
-class FileHygieneContractTests(unittest.TestCase):
+def review_manifest(base: str, path: str) -> str:
+    data = {
+        "manifestVersion": 1, "id": "REVIEW-001", "baseSha": base,
+        "goal": "Bounded compatibility test", "userOutcome": "Preserved regression coverage",
+        "beforeScenario": "Existing behavior is characterized", "afterScenario": "Coverage remains explicit",
+        "domain": "test-file-policy", "riskClass": "standard", "changeClass": "test",
+        "maxProductionFiles": 0, "maxChangedLines": 1000, "nonGoals": ["Production changes"],
+        "declaredFiles": [path], "allowedPatterns": [], "forbiddenPatterns": [],
+        "protectedFilesTouched": [], "acceptance": ["Focused tests pass"],
+        "requiredEvidence": ["Exact-source test report"], "targetedTests": ["Isolated unit tests"],
+        "fileGrowthExpectations": ["Reviewed temporary compatibility scope"],
+        "forbiddenOperations": ["deploy"], "rollbackBoundary": "Revert the test-only change",
+    }
+    text = "\n".join(f"{key} = {json.dumps(value)}" for key, value in data.items())
+    return text + '\n[[sizeReviews]]\npath = ' + json.dumps(path) + '\nrationale = "Temporary compatibility module while splitting the old suite."\n'
+
+
+class RepositoryCase:
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -41,6 +58,7 @@ class FileHygieneContractTests(unittest.TestCase):
     def assess(self):
         return assess(self.root, self.base, self.commit())
 
+class FileHygieneContractTests(RepositoryCase, unittest.TestCase):
     def test_new_document_limits_both_lines_and_utf8_bytes(self) -> None:
         self.put("docs/good.md", "строка\n" * 180)
         self.assertTrue(self.assess()["passed"])
@@ -76,12 +94,12 @@ class FileHygieneContractTests(unittest.TestCase):
     def test_review_requires_scoped_task_manifest_rationale(self) -> None:
         self.put("tools/test_review.py", "assert True\n" * 501)
         self.assertEqual(self.assess()["findings"][0]["code"], "TEST_SIZE_REVIEW_REQUIRED")
-        self.put("tasks/REVIEW-001.toml", '[[sizeReviews]]\npath = "tools/test_review.py"\nrationale = "Temporary compatibility module while splitting the old suite."\n')
+        self.put("tasks/REVIEW-001.toml", review_manifest(self.base, "tools/test_review.py"))
         self.assertTrue(self.assess()["passed"])
 
     def test_test_review_byte_hard_limit(self) -> None:
         self.put("frontend/foo.test.ts", "x" * 37000)
-        self.put("tasks/REVIEW-001.toml", '[[sizeReviews]]\npath = "frontend/foo.test.ts"\nrationale = "Temporary compatibility module while splitting the old suite."\n')
+        self.put("tasks/REVIEW-001.toml", review_manifest(self.base, "frontend/foo.test.ts"))
         self.assertEqual(self.assess()["findings"][0]["code"], "FILE_SIZE_EXCEEDED")
 
     def test_existing_oversized_module_may_shrink_but_not_grow(self) -> None:
@@ -106,7 +124,7 @@ class FileHygieneContractTests(unittest.TestCase):
         self.put("docs/old.md", "[historical](missing.md)\nupdated\n")
         self.assertTrue(self.assess()["passed"])
         self.put("docs/old.md", "[historical](missing.md)\n[broken](new_missing.md)\n")
-        self.assertEqual(self.assess()["findings"][0]["code"], "BROKEN_NEW_LINK")
+        self.assertEqual(self.assess()["findings"][0]["code"], "BROKEN_LOCAL_REFERENCE")
         self.put("docs/existing.md", "ok\n")
         self.put("docs/old.md", "[historical](missing.md)\n[valid](existing.md)\n")
         self.assertTrue(self.assess()["passed"])
@@ -122,7 +140,7 @@ class FileHygieneContractTests(unittest.TestCase):
         self.put("docs/detail.md", "details\n")
         self.base = self.commit()
         (self.root / "docs/detail.md").unlink()
-        self.assertEqual(self.assess()["findings"][0]["code"], "REMOVED_LINK_TARGET")
+        self.assertEqual(self.assess()["findings"][0]["code"], "BROKEN_LOCAL_REFERENCE")
 
     def test_fenced_sample_links_do_not_trigger_false_positive(self) -> None:
         self.put("docs/help.md", "```md\n[example](not-a-file.md)\n```\n[real](valid.md)\n")
@@ -131,7 +149,7 @@ class FileHygieneContractTests(unittest.TestCase):
 
     def test_lightweight_workflow_is_hosted_read_only_and_pinned(self) -> None:
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/file-hygiene.yml").read_text(encoding="utf-8")
-        self.assertIn("runs-on: ubuntu-24.04", workflow)
+        self.assertIn("runs-on: ubuntu-22.04", workflow)
         self.assertNotIn("runs-on: [self-hosted", workflow)
         self.assertIn("permissions:\n  contents: read", workflow)
         self.assertIn("persist-credentials: false", workflow)
@@ -145,7 +163,7 @@ class FileHygieneContractTests(unittest.TestCase):
         self.assertNotIn("docker compose", workflow.lower())
         import re
         uses = [x.strip() for x in workflow.splitlines() if x.strip().startswith("uses:")]
-        self.assertEqual(len(uses), 2)
+        self.assertEqual(len(uses), 3)
         for line in uses:
             self.assertRegex(line, r"uses: actions/[A-Za-z-]+@[0-9a-f]{40}(?: #.*)?$")
 

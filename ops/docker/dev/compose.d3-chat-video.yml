@@ -1,0 +1,9 @@
+# Separate bounded D3 protocol profile, after compose.acceptance.yml; no model/GPU execution.
+services:
+  backend:
+    environment:
+      IZO_SHADOW_FIXTURE: controlled-chat-video-v1
+      OLLAMA_BASE_URL: http://127.0.0.1:48991
+      LOCAL_LTX_ENABLED: "true"
+      LOCAL_LTX_COMFYUI_BASE_URL: http://127.0.0.1:48991
+      LOCAL_LTX_WORKFLOW_API_PATH: /opt/izo/backend/workflows/ltx23_t2v_api.json

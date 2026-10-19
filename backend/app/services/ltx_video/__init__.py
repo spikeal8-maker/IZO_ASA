@@ -14,6 +14,8 @@ from .orchestration import (
     LocalLtxRequestError,
     admin_runtime_status,
     normalize_runtime_settings,
+    public_submit_failure,
+    repair_gallery_geometry,
     recover_missing_job_state,
     submit_local_ltx_job,
     validate_and_submit_local_ltx_job,
@@ -37,5 +39,7 @@ __all__ = [
     "LocalLtxRequestError",
     "admin_runtime_status",
     "normalize_runtime_settings",
+    "public_submit_failure",
+    "repair_gallery_geometry",
     "recover_missing_job_state",
 ]

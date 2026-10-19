@@ -117,16 +117,16 @@ def test_process_cancellation_still_marks_dequeued_item_done() -> None:
     assert queue.task_done_calls == 1
 
 
-def test_missing_job_fails_before_task_done_like_legacy_consumer() -> None:
+def test_missing_job_still_marks_dequeued_item_done() -> None:
     queue = FakeQueue("missing")
 
     with pytest.raises(KeyError, match="missing"):
         asyncio.run(consume_generation_queue(runtime(queue, jobs={})))
 
-    assert queue.task_done_calls == 0
+    assert queue.task_done_calls == 1
 
 
-def test_request_parse_failure_happens_before_task_done() -> None:
+def test_request_parse_failure_still_marks_dequeued_item_done() -> None:
     queue = FakeQueue("job_1")
 
     def fail_parse(_payload: dict[str, Any]) -> Any:
@@ -135,10 +135,10 @@ def test_request_parse_failure_happens_before_task_done() -> None:
     with pytest.raises(ValueError, match="invalid request"):
         asyncio.run(consume_generation_queue(runtime(queue, parse_request=fail_parse)))
 
-    assert queue.task_done_calls == 0
+    assert queue.task_done_calls == 1
 
 
-def test_runtime_build_failure_happens_before_task_done() -> None:
+def test_runtime_build_failure_still_marks_dequeued_item_done() -> None:
     queue = FakeQueue("job_1")
 
     def fail_runtime() -> Any:
@@ -147,7 +147,7 @@ def test_runtime_build_failure_happens_before_task_done() -> None:
     with pytest.raises(RuntimeError, match="runtime unavailable"):
         asyncio.run(consume_generation_queue(runtime(queue, build_worker_runtime=fail_runtime)))
 
-    assert queue.task_done_calls == 0
+    assert queue.task_done_calls == 1
 
 
 def test_start_once_schedules_consumer_and_returns_started() -> None:

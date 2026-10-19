@@ -4,6 +4,8 @@ import json
 import os
 import signal
 import socket
+import subprocess
+import sys
 import threading
 import time
 from dataclasses import replace
@@ -267,10 +269,15 @@ def test_live_pid_without_matching_lease_fails_closed(tmp_path: Path) -> None:
         json.dumps({"documentType": "environment-receipt", **active}),
         encoding="utf-8",
     )
-    with pytest.raises(
-        lifecycle.EnvironmentLifecycleError, match="FOREIGN_OR_REUSED_PROCESS"
-    ):
-        lifecycle.environment_status(worktree)
+    try:
+        with pytest.raises(
+            lifecycle.EnvironmentLifecycleError, match="FOREIGN_OR_REUSED_PROCESS"
+        ):
+            lifecycle.environment_status(worktree)
+    finally:
+        # These documents are fabricated by this test; the referenced PID is not a lease.
+        paths.environment_state_path.unlink()
+        paths.receipt_path.unlink()
 
 
 def test_two_packages_run_concurrently_and_down_is_isolated(tmp_path: Path) -> None:
@@ -316,117 +323,6 @@ def test_env_up_preserves_real_provider_credential_guard(tmp_path: Path) -> None
             production_contract=contract,
         )
     assert secret_value not in str(captured.value)
-
-class _NeverReadyProcess:
-    def __init__(self, *, pid: int = 4242, exit_code: int | None = None) -> None:
-        self.pid = pid
-        self.exit_code = exit_code
-        self.terminated = False
-        self.wait_timeouts: list[float] = []
-
-    def poll(self):
-        return self.exit_code
-
-    def terminate(self) -> None:
-        self.terminated = True
-        self.exit_code = -15
-
-    def wait(self, timeout: float):
-        self.wait_timeouts.append(timeout)
-        return 0
-
-
-def _fake_startup_clock(monkeypatch: pytest.MonkeyPatch) -> dict[str, float]:
-    clock = {"now": 0.0}
-    monkeypatch.setattr(lifecycle, "STARTUP_TIMEOUT_SECONDS", 0.15)
-    monkeypatch.setattr(lifecycle.time, "monotonic", lambda: clock["now"])
-    monkeypatch.setattr(
-        lifecycle.time,
-        "sleep",
-        lambda seconds: clock.__setitem__("now", clock["now"] + seconds),
-    )
-    return clock
-
-
-@pytest.mark.parametrize(
-    ("recorded_stage", "expected_stage"),
-    ((None, "PRE_HOLDER_ENTRY"), ("HOLDER_ENTERED", "HOLDER_ENTERED")),
-)
-def test_wait_startup_timeout_reports_bounded_stage(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    recorded_stage: str | None,
-    expected_stage: str,
-) -> None:
-    startup = tmp_path / "lease-startup-test.json"
-    diagnostic_path = lifecycle._startup_diagnostic_path(startup)
-    if recorded_stage is not None:
-        lifecycle._write_startup_diagnostic(diagnostic_path, recorded_stage, 4242)
-        assert set(json.loads(diagnostic_path.read_text(encoding="utf-8"))) == {"stage", "pid"}
-    process = _NeverReadyProcess()
-    clock = _fake_startup_clock(monkeypatch)
-
-    with pytest.raises(lifecycle.EnvironmentLifecycleError) as captured:
-        lifecycle._wait_startup(process, startup)
-
-    assert str(captured.value) == "PORT_LEASE_START_TIMEOUT"
-    stderr = capsys.readouterr().err
-    diagnostic, cleanup = stderr.strip().splitlines()
-    for field in (
-        f"stage={expected_stage}", "processAliveBeforeTerminate=true",
-        "pid=4242", "elapsedMs="
-    ):
-        assert field in diagnostic
-    assert diagnostic.startswith("PORT_LEASE_START_DIAGNOSTIC ")
-    assert cleanup == (
-        "PORT_LEASE_CLEANUP_DIAGNOSTIC processAliveAfterTerminate=false"
-    )
-    assert process.terminated is True
-    assert process.wait_timeouts == [2]
-    assert clock["now"] >= 0.15
-
-
-def test_wait_startup_child_exit_preserves_public_error_and_reports_stage(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    startup = tmp_path / "lease-startup-test.json"
-    diagnostic_path = lifecycle._startup_diagnostic_path(startup)
-    lifecycle._write_startup_diagnostic(
-        diagnostic_path, "IDENTITY_OK", 4242
-    )
-    process = _NeverReadyProcess(exit_code=17)
-
-    with pytest.raises(lifecycle.EnvironmentLifecycleError) as captured:
-        lifecycle._wait_startup(process, startup)
-
-    assert str(captured.value) == "PORT_LEASE_START_FAILED"
-    diagnostic = capsys.readouterr().err.strip()
-    assert "stage=IDENTITY_OK" in diagnostic
-    assert "processAlive=false" in diagnostic
-    assert "pid=4242" in diagnostic
-    assert "exitCode=17" in diagnostic
-    assert process.terminated is False
-
-
-def test_wait_startup_ready_removes_diagnostic_temp_file(tmp_path: Path) -> None:
-    startup = tmp_path / "lease-startup-test.json"
-    diagnostic_path = lifecycle._startup_diagnostic_path(startup)
-    startup.write_text(
-        json.dumps({"status": "READY", "pid": 4242}),
-        encoding="utf-8",
-    )
-    lifecycle._write_startup_diagnostic(
-        diagnostic_path, "READY_WRITTEN", 4242
-    )
-    process = _NeverReadyProcess()
-
-    payload = lifecycle._wait_startup(process, startup)
-
-    assert payload == {"status": "READY", "pid": 4242}
-    assert not diagnostic_path.exists()
-    assert process.terminated is False
 
 def test_internal_holder_command_uses_filesystem_path_without_repo_git_resolution(
     tmp_path: Path,

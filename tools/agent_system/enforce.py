@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -326,6 +327,36 @@ def _size_policy_findings(repo: Path, manifest: TaskManifest, evidence: Evidence
         change_class=manifest.change_class, size_reviews=reviews,
     )
 
+def _ci_source_branch(repo: Path) -> str:
+    def unresolved(reason: str) -> None:
+        raise EnforcementError("PACKAGE_MANIFEST_UNRESOLVED", detail=reason)
+    local = _run(repo, "symbolic-ref", "--quiet", "--short", "HEAD")
+    if local.returncode not in (0, 1) or (local.returncode == 0 and not local.stdout.strip()):
+        unresolved("source-branch-unavailable")
+    native = local.stdout.strip() if local.returncode == 0 else ""
+    event, head_ref, ref_name = (os.environ.get(key, "") for key in
+                               ("GITHUB_EVENT_NAME", "GITHUB_HEAD_REF", "GITHUB_REF_NAME"))
+    github, claimed = os.environ.get("GITHUB_ACTIONS") == "true", ""
+    if github or event or head_ref or ref_name:
+        if event == "pull_request" and head_ref:
+            claimed = head_ref
+        elif event in {"push", "workflow_dispatch"} and not head_ref and os.environ.get("GITHUB_REF_TYPE") == "branch":
+            claimed = ref_name
+        else:
+            unresolved("source-branch-metadata-invalid")
+        if native and native != claimed:
+            unresolved("source-branch-mismatch")
+    branch = native or claimed
+    if not re.fullmatch(r"agent/[a-z0-9][a-z0-9-]{2,79}", branch):
+        unresolved("source-branch-noncanonical")
+    if not native or github:
+        remote = _run(repo, "rev-parse", "--verify", f"refs/remotes/origin/{branch}^{{commit}}")
+        head = _git_text(repo, "rev-parse", "HEAD")
+        if remote.returncode or not SHA_RE.fullmatch(head) or remote.stdout.strip() != head:
+            unresolved("source-branch-head-mismatch")
+    return branch
+
+
 def _ci_manifest(repo: Path, target_base: str) -> tuple[TaskManifest, Evidence]:
     _ensure_commit(repo, target_base, fetch_missing=True)
     ancestor = _run(repo, "merge-base", "--is-ancestor", target_base, "HEAD")
@@ -336,13 +367,25 @@ def _ci_manifest(repo: Path, target_base: str) -> tuple[TaskManifest, Evidence]:
         path for path in evidence.paths
         if MANIFEST_RE.fullmatch(path) and (repo / Path(*PurePosixPath(path).parts)).is_file()
     )
-    if len(candidates) != 1:
+    if not candidates:
         raise EnforcementError("PACKAGE_MANIFEST_UNRESOLVED", detail=f"candidates={candidates}")
-    manifest = parse_manifest(repo / candidates[0])
+    if len(candidates) > 1:
+        for path in candidates:
+            if _escapes_repo(repo, path):
+                raise EnforcementError("PATH_ESCAPE", path=path)
+        parsed = [(path, parse_manifest(repo / path)) for path in candidates]
+        branch = _ci_source_branch(repo)
+        selected = [(path, item) for path, item in parsed if branch == f"agent/{item.id.lower()}"]
+        if len(selected) != 1:
+            raise EnforcementError("PACKAGE_MANIFEST_UNRESOLVED", detail="source-branch-contract-ambiguous")
+        path, manifest = selected[0]
+    else:
+        path = candidates[0]
+        manifest = parse_manifest(repo / path)
     if manifest.base_sha != target_base:
         raise EnforcementError(
             "BASE_SHA_TARGET_DRIFT",
-            path=candidates[0],
+            path=path,
             detail=f"manifest={manifest.base_sha} target={target_base}",
         )
     return manifest, evidence

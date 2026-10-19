@@ -7,6 +7,8 @@ from typing import Any
 
 import httpx
 
+from .generation_transport import client_options as generation_client_options
+
 
 class ComfyUIHistoryClient:
     """Reusable polling client so a generation keeps one HTTP connection pool."""
@@ -52,9 +54,7 @@ def _client_options(
     transport: httpx.AsyncBaseTransport | None,
 ) -> dict[str, Any]:
     options: dict[str, Any] = {"timeout": timeout_seconds}
-    if transport is not None:
-        options["transport"] = transport
-    return options
+    return generation_client_options(options, transport)
 
 
 async def _get_json(

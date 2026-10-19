@@ -5,6 +5,7 @@ import os
 import runpy
 import sqlite3
 import subprocess
+from contextlib import ExitStack, closing
 from pathlib import Path
 from unittest.mock import patch
 
@@ -17,6 +18,7 @@ from tools.agent_system import env_secret_store as secret_store
 from tools.agent_system import env_ready as ready
 from tools.agent_system.env import (
     CREDENTIAL_CLASSIFICATIONS,
+    derive_candidate_ports,
     derive_environment_paths,
     load_environment_identity,
 )
@@ -48,7 +50,7 @@ def test_payment_notification_outbox_exists(tmp_path: Path) -> None:
     worktree, contract, paths = _active(tmp_path, "PKG-RUNTIME-BILLING")
     try:
         _prepare(worktree, contract)
-        with sqlite3.connect(paths.database_path) as conn:
+        with closing(sqlite3.connect(paths.database_path)) as conn:
             row = conn.execute(
                 "SELECT 1 FROM sqlite_master "
                 "WHERE type='table' AND name='payment_notification_outbox'"
@@ -113,7 +115,9 @@ def test_runtime_contract_routes_package_owned_state_and_disables_bots(
 def test_runtime_contract_local_providers_and_credentials_are_non_production(
     tmp_path: Path,
 ) -> None:
-    worktree, contract, paths = _active(tmp_path, "PKG-RUNTIME-PROVIDERS")
+    worktree, contract, paths = _active(
+        tmp_path, _available_package_id("PKG-RUNTIME-PROVIDERS")
+    )
     try:
         _prepare(worktree, contract)
         _, runtime = _runtime(paths)
@@ -132,6 +136,45 @@ def test_runtime_contract_local_providers_and_credentials_are_non_production(
         assert all(child[name] == "" for name in runtime_contract.EMPTY_CREDENTIAL_KEYS)
     finally:
         _cleanup(worktree, contract)
+
+
+def test_runtime_provider_setup_preserves_an_occupied_candidate(tmp_path: Path) -> None:
+    prefix = "PKG-RUNTIME-PROVIDERS-COLLISION"
+    select, activate = _available_package_id, _active
+    occupied = select(prefix)
+    ports = derive_candidate_ports(occupied)
+    activated = []
+
+    def selected_package(requested):
+        assert requested == "PKG-RUNTIME-PROVIDERS"
+        return select(prefix)
+
+    def active_package(root, package_id):
+        # Remap the old test identity to the held pair; production binding stays real.
+        if package_id == "PKG-RUNTIME-PROVIDERS":
+            package_id = occupied
+        result = activate(root, package_id)
+        activated.append((package_id, result))
+        return result
+
+    with ExitStack() as stack:
+        listeners = [
+            stack.enter_context(closing(lifecycle._exclusive_socket(port)))
+            for port in ports.values()
+        ]
+        stack.enter_context(patch(__name__ + "._available_package_id",
+                                  side_effect=selected_package))
+        stack.enter_context(patch(__name__ + "._active", side_effect=active_package))
+        test_runtime_contract_local_providers_and_credentials_are_non_production(tmp_path)
+        assert len(activated) == 1
+        chosen, (worktree, _, _) = activated[0]
+        assert chosen != occupied
+        assert set(derive_candidate_ports(chosen).values()).isdisjoint(ports.values())
+        assert lifecycle.environment_status(worktree)["status"] == "STOPPED"
+        for listener, port in zip(listeners, ports.values()):
+            assert listener.fileno() >= 0
+            with pytest.raises(OSError):
+                lifecycle._exclusive_socket(port)
 
 
 def test_runtime_contract_never_copies_ambient_values_and_unisender_fails_closed(
@@ -416,6 +459,9 @@ def test_repeated_ready_failure_removes_ready_resources(tmp_path: Path) -> None:
         first = _agent_cli(worktree, "env-up")
         assert first.returncode == 0, first.stderr or first.stdout
         paths = derive_environment_paths(load_environment_identity(worktree))
+        active = json.loads(
+            paths.environment_state_path.read_text(encoding="utf-8")
+        )
         runtime_path, document = _runtime(paths)
         external = Path(document["environment"]["IZO_SECRET_DIR"])
         _parent, leaf, owner = secret_store.canonical_external_secret_store(
@@ -428,6 +474,7 @@ def test_repeated_ready_failure_removes_ready_resources(tmp_path: Path) -> None:
         )
         assert second.returncode == 2
         assert lifecycle.environment_status(worktree)["status"] == "STOPPED"
+        assert not lifecycle._pid_alive(active["portLease"]["pid"])
         assert not runtime_path.exists()
         assert not external.exists()
         assert not owner.exists()

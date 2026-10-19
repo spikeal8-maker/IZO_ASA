@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, Protocol
 
 from . import generation_results
+from ..generation_errors import GenerationClaimLost
 
 
 class ComfyUIWorkerResult(Protocol):
@@ -46,6 +48,10 @@ class GenerationWorkerRuntime:
     sleep: Callable[[float], Awaitable[None]]
     save_image: Callable[[dict[str, Any], str, str, Any, str], Awaitable[None]]
     register_transient_image: Callable[[dict[str, Any]], None]
+    claim_job: Callable[..., Any] = lambda _job_id, _job: nullcontext(True)
+    finalization: Callable[[], Any] = nullcontext
+    refresh_job: Callable[..., None] = lambda _job_id, _job: None
+    after_completion: Callable[[str], Awaitable[None]] | None = None
 
 
 async def process_generation_job(
@@ -56,10 +62,35 @@ async def process_generation_job(
     *,
     started_at: float,
 ) -> None:
+    completed_user = None
+    try:
+        with runtime.claim_job(job_id, job) as acquired:
+            if not acquired:
+                runtime.refresh_job(job_id, job)
+                return
+            completed_user = await _process_claimed_job(
+                job_id, job, request, runtime, started_at=started_at,
+            )
+    except GenerationClaimLost:
+        runtime.refresh_job(job_id, job)
+    if completed_user is not None and runtime.after_completion is not None:
+        await runtime.after_completion(completed_user)
+
+
+async def _process_claimed_job(
+    job_id: str,
+    job: dict[str, Any],
+    request: generation_results.GenerationRequest,
+    runtime: GenerationWorkerRuntime,
+    *,
+    started_at: float,
+) -> str | None:
+    before_finalization = None
     try:
         if job.get("status") == "cancelled":
-            runtime.refund_tokens(job_id, "cancelled_before_start")
-            runtime.persist_job(job, request)
+            with runtime.finalization():
+                runtime.refund_tokens(job_id, "cancelled_before_start")
+                runtime.persist_job(job, request)
             return
 
         if not job.get("startedAt"):
@@ -86,16 +117,6 @@ async def process_generation_job(
             openrouter_result = await runtime.send_to_openrouter(request, job)
             image_path = openrouter_result.image_path
             thumbnail_path = openrouter_result.thumbnail_path
-            settlement = runtime.settle_openrouter(job_id, job, openrouter_result)
-            job.update(
-                openrouterModel=openrouter_result.model,
-                openrouterResponseId=openrouter_result.response_id,
-                openrouterUsage=openrouter_result.usage,
-                openrouterCostUsd=openrouter_result.cost_usd,
-                openrouterBilling=settlement.billing,
-                tokenCost=int(settlement.token_adjustment.get("settled") or settlement.actual_tokens),
-                tokenAdjustment=settlement.token_adjustment,
-            )
 
         if not image_path:
             if request.provider == "comfyui" and not runtime.comfyui_mock_fallback:
@@ -111,62 +132,83 @@ async def process_generation_job(
                 await runtime.sleep(0.45)
 
         if job["status"] == "cancelled":
-            runtime.refund_tokens(job_id, "cancelled_during_generation")
-            runtime.persist_job(job, request)
+            with runtime.finalization():
+                runtime.refund_tokens(job_id, "cancelled_during_generation")
+                runtime.persist_job(job, request)
             return
 
-        if not image_path or not thumbnail_path:
-            image_path, thumbnail_path = runtime.mock_image(request, job_id)
+        before_finalization = dict(job)
+        with runtime.finalization():
+            if openrouter_result is not None:
+                settlement = runtime.settle_openrouter(job_id, job, openrouter_result)
+                job.update(
+                    openrouterModel=openrouter_result.model,
+                    openrouterResponseId=openrouter_result.response_id,
+                    openrouterUsage=openrouter_result.usage,
+                    openrouterCostUsd=openrouter_result.cost_usd,
+                    openrouterBilling=settlement.billing,
+                    tokenCost=int(settlement.token_adjustment.get("settled") or settlement.actual_tokens),
+                    tokenAdjustment=settlement.token_adjustment,
+                )
+            if not image_path or not thumbnail_path:
+                image_path, thumbnail_path = runtime.mock_image(request, job_id)
 
-        user_id = job.get("userId", "demo_user")
-        gallery_quota = runtime.gallery_quota(user_id)
-        image_id = runtime.new_image_id()
-        created_at = runtime.now_iso()
-        record = generation_results.build_generation_image_record(
-            image_id=image_id,
-            user_id=user_id,
-            image_url=runtime.public_url(image_path, user_id),
-            thumbnail_url=runtime.public_url(thumbnail_path, user_id),
-            request=request,
-            job=job,
-            created_at=created_at,
-            generation_time_ms=int((runtime.perf_counter() - started_at) * 1000),
-            comfyui_prompt_id=prompt_id,
-            comfyui_history=comfyui_history,
-            openrouter_result=openrouter_result,
-        )
+            user_id = job.get("userId", "demo_user")
+            gallery_quota = runtime.gallery_quota(user_id)
+            image_id = runtime.new_image_id()
+            created_at = runtime.now_iso()
+            record = generation_results.build_generation_image_record(
+                image_id=image_id,
+                user_id=user_id,
+                image_url=runtime.public_url(image_path, user_id),
+                thumbnail_url=runtime.public_url(thumbnail_path, user_id),
+                request=request,
+                job=job,
+                created_at=created_at,
+                generation_time_ms=int((runtime.perf_counter() - started_at) * 1000),
+                comfyui_prompt_id=prompt_id,
+                comfyui_history=comfyui_history,
+                openrouter_result=openrouter_result,
+            )
 
-        if gallery_quota["gallery_full"]:
-            evicted_count = runtime.evict_gallery(user_id, gallery_quota, created_at)
-            if evicted_count:
+            if gallery_quota["gallery_full"]:
+                evicted_count = runtime.evict_gallery(user_id, gallery_quota, created_at)
+                if evicted_count:
+                    await runtime.save_image(record, job_id, user_id, request, created_at)
+                    save_status = "saved"
+                    result_image_id = image_id
+                else:
+                    runtime.register_transient_image(record)
+                    save_status = "quota_full"
+                    result_image_id = None
+                gallery_quota = runtime.gallery_quota(user_id)
+            else:
                 await runtime.save_image(record, job_id, user_id, request, created_at)
+                gallery_quota = runtime.gallery_quota(user_id)
                 save_status = "saved"
                 result_image_id = image_id
-            else:
-                runtime.register_transient_image(record)
-                save_status = "quota_full"
-                result_image_id = None
-            gallery_quota = runtime.gallery_quota(user_id)
-        else:
-            await runtime.save_image(record, job_id, user_id, request, created_at)
-            gallery_quota = runtime.gallery_quota(user_id)
-            save_status = "saved"
-            result_image_id = image_id
 
-        generation_results.complete_generation_job(
-            job,
-            record=record,
-            result_image_id=result_image_id,
-            gallery_save_status=save_status,
-            gallery_quota=gallery_quota,
-            completed_at=created_at,
-        )
-        runtime.persist_job(job, request)
+            generation_results.complete_generation_job(
+                job,
+                record=record,
+                result_image_id=result_image_id,
+                gallery_save_status=save_status,
+                gallery_quota=gallery_quota,
+                completed_at=created_at,
+            )
+            runtime.persist_job(job, request)
+        return user_id
+    except GenerationClaimLost:
+        raise
     except Exception as exc:
-        runtime.refund_tokens(job_id, "generation_failed")
-        generation_results.fail_generation_job(
-            job,
-            error=exc,
-            completed_at=runtime.now_iso(),
-        )
-        runtime.persist_job(job, request)
+        if before_finalization is not None:
+            job.clear()
+            job.update(before_finalization)
+        with runtime.finalization():
+            runtime.refund_tokens(job_id, "generation_failed")
+            generation_results.fail_generation_job(
+                job,
+                error=exc,
+                completed_at=runtime.now_iso(),
+            )
+            runtime.persist_job(job, request)

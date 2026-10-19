@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from typing import Any, Protocol
 
 from .generation_jobs import public_generation_error_message
+from .video_presentation import public_video_error_message
 
 
 TERMINAL_STATES = frozenset({"completed", "failed", "cancelled", "expired"})
@@ -63,6 +64,7 @@ def _progress(value: Any) -> int:
 
 def normalize_phone_job(payload: Mapping[str, Any], *, modality: str | None = None) -> dict[str, Any]:
     status = str(_value(payload, "status", "queued") or "queued").casefold()
+    status = {"sent_to_comfyui": "running", "sent_to_openrouter": "running", "uploading": "processing"}.get(status, status)
     if status not in PUBLIC_STATES:
         status = "created"
     if status == "processing":
@@ -139,6 +141,8 @@ def list_phone_jobs(
             "completed_at": _value(row, "completed_at"),
             "tokenCost": settings.get("tokenCost"),
         }
+        if modality == "video" and _value(row, "provider") == "local_ltx":
+            payload["error_message"] = public_video_error_message(payload["error_message"], provider="local_ltx")
         if modality == "video" and settings.get("localFile"):
             payload.update(
                 videoUrl=f"/api/video/media/{_value(row, 'id')}",

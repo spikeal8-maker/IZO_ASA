@@ -62,6 +62,7 @@ export default function PhoneVideoWorkspace({ offline }: { offline: boolean }) {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+  const jobObserver = useRef<AbortController | null>(null)
 
   const models = useMemo(() => config?.modes?.[mode] || [], [config, mode])
   const model = models.find((item) => item.id === modelId) || models.find((item) => item.available !== false) || models[0]
@@ -72,23 +73,27 @@ export default function PhoneVideoWorkspace({ offline }: { offline: boolean }) {
     setModelId(value.id); setDuration(value.supportedDurations.includes(duration) ? duration : value.supportedDurations[0] || 4); setResolution(value.supportedResolutions.includes(resolution) ? resolution : value.supportedResolutions[0] || '480p'); setAspectRatio(value.supportedAspectRatios.includes(aspectRatio) ? aspectRatio : value.supportedAspectRatios[0] || '16:9'); if (value.generateAudio === false) setAudio(false)
   }
 
-  async function startWaiting(jobId: string) {
+  async function startWaiting(jobId: string, signal: AbortSignal) {
     try {
-      const job = await waitForPhoneJob(jobId, { intervalMs: 1800, onChange: (value) => setProgress(value.progress) })
-      const items = await loadPhoneVideoHistory(); setHistory(items); const row = items.find((item) => item.id === job.id) || null; setSelected(row)
+      const job = await waitForPhoneJob(jobId, { signal, intervalMs: 1800, onChange: (value) => setProgress(value.progress) })
+      const items = await loadPhoneVideoHistory(signal)
+      signal.throwIfAborted()
+      setHistory(items); const row = items.find((item) => item.id === job.id) || null; setSelected(row)
       if (job.status !== 'completed') throw new Error(job.message || 'Видео не создано.')
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Видео не создано.') }
-    finally { setBusy(false) }
+    } catch (caught) { if (!signal.aborted) setError(caught instanceof Error ? caught.message : 'Видео не создано.') }
+    finally { if (!signal.aborted) setBusy(false) }
   }
 
   useEffect(() => {
     const controller = new AbortController()
+    jobObserver.current = controller
     void Promise.all([loadPhoneVideoConfig(controller.signal), loadPhoneVideoHistory(controller.signal), loadPhoneVideoGalleryFrames(controller.signal)]).then(([nextConfig, items, frames]) => {
+      controller.signal.throwIfAborted()
       setConfig(nextConfig); const firstModel = nextConfig.modes?.[mode]?.find((item) => item.available !== false) || nextConfig.modes?.[mode]?.[0]; applyModel(firstModel); setHistory(items); setGalleryFrames(frames); setSelected(items.find((item) => item.status === 'completed') || null)
       const active = items.find((item) => !terminal.has(item.status))
-      if (active) { setBusy(true); setProgress(active.progress); setStartedAt(Date.parse(active.createdAt) || Date.now()); void startWaiting(active.id) }
-    }).catch((caught) => setError(caught instanceof Error ? caught.message : 'Видео временно недоступно.'))
-    return () => controller.abort()
+      if (active) { setBusy(true); setProgress(active.progress); setStartedAt(Date.parse(active.createdAt) || Date.now()); void startWaiting(active.id, controller.signal) }
+    }).catch((caught) => { if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : 'Видео временно недоступно.') })
+    return () => { controller.abort(); jobObserver.current?.abort(); jobObserver.current = null }
   // initial recovery is intentionally run once.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -110,13 +115,17 @@ export default function PhoneVideoWorkspace({ offline }: { offline: boolean }) {
     if (mode === 'image_to_video' && !firstFrame) { setError('Добавьте исходное изображение.'); return }
     if (mode === 'first_last_frame' && (!firstFrame || !lastFrame)) { setError('Добавьте начальный и конечный кадры.'); return }
     if (mode === 'reference_to_video' && !references.length) { setError('Добавьте хотя бы один референс.'); return }
+    const controller = new AbortController()
+    jobObserver.current?.abort(); jobObserver.current = controller
     try {
       setBusy(true); setError(''); setNotice(''); setProgress(5); setStartedAt(Date.now())
-      const job = await startPhoneVideo(request, (value) => setProgress(value.progress))
-      const items = await loadPhoneVideoHistory(); setHistory(items); setSelected(items.find((item) => item.id === job.id) || null)
+      const job = await startPhoneVideo(request, (value) => setProgress(value.progress), controller.signal)
+      const items = await loadPhoneVideoHistory(controller.signal)
+      controller.signal.throwIfAborted()
+      setHistory(items); setSelected(items.find((item) => item.id === job.id) || null)
       if (job.status !== 'completed') throw new Error(job.message || 'Видео не создано.')
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Видео временно недоступно.') }
-    finally { setBusy(false) }
+    } catch (caught) { if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : 'Видео временно недоступно.') }
+    finally { if (!controller.signal.aborted) setBusy(false) }
   }
 
   const openUpload = (target: 'first' | 'last' | 'reference') => { setUploadTarget(target); fileRef.current?.click() }
