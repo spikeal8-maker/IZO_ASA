@@ -121,8 +121,9 @@ export class BrowserIO {
         }
         if (url.origin === this.origin || ['data:', 'blob:'].includes(url.protocol)) return await route.continue()
         await route.abort('blockedbyclient')
-      } catch {
-        this.violation = 'D3_BROWSER_REQUEST_GUARD_FAILED'
+      } catch (error) {
+        this.violation ||= error?.message === 'D3_REQUEST_LIMIT'
+          ? 'D3_BROWSER_HTTP_REQUEST_LIMIT' : 'D3_BROWSER_REQUEST_GUARD_FAILED'
         try { await route.abort('blockedbyclient') } catch {}
       }
     })
@@ -175,6 +176,7 @@ export class BrowserIO {
   counts() {
     return { apiRequests: this.budget.directRequests + this.budget.cleanupRequests,
       browserHttpRequests: this.budget.httpRequests + this.budget.cleanupHttpRequests,
+      browserWorkHttpRequests: this.budget.httpRequests, browserCleanupHttpRequests: this.budget.cleanupHttpRequests,
       capturedResponses: this.budget.captures, capturedBytes: this.budget.bytes,
       chromiumMemoryLimit: 'NOT_VERIFIED' }
   }

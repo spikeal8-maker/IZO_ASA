@@ -125,7 +125,7 @@ try {
     failureLedgerIds: failedEntries.map((item) => item.id), chargedTokens: 0, paidSettlement: 'NOT_RUN' }
 
   let imageSubmits = 0
-  page.on('request', (r) => { if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/generate') imageSubmits++ })
+  owner.on('request', (r) => { if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/generate') imageSubmits++ })
   const imageBefore = await accounting(), imageAnswer = await send('IMAGE', threadId, true)
   const admission = await io.capture(imageAnswer.admissionResponse), jobId = id(admission.id)
   const generatedRequest = io.requestJSON(imageAnswer.admissionResponse)
@@ -178,11 +178,8 @@ try {
     chatImage: result.checks.chatImage }) + '\n', { mode: 0o600, flag: 'wx' })
   await page.screenshot({ path: path.join(output, 'chat-resumed.png'), animations: 'disabled' })
 
-  const [platformResponse] = await Promise.all([
-    page.waitForResponse((r) => new URL(r.url()).pathname === '/api/phone/v1/platform' && r.request().method() === 'GET'),
-    page.goto(target.origin + '/phone/3d', { waitUntil: 'domcontentloaded' }),
-  ])
-  const platform = await io.capture(platformResponse)
+  const platform = await api(owner, 'GET', '/api/phone/v1/platform')
+  await page.evaluate(() => { window.history.pushState({}, '', '/phone/3d'); window.dispatchEvent(new PopStateEvent('popstate')) })
   await page.locator('.phone-not-found').getByText('Такого раздела нет', { exact: true }).waitFor({ state: 'visible' })
   ensure(new URL(page.url()).pathname === '/phone/3d' && !platform.workspaces.some((w) => w.id === '3d')
     && await page.locator('[data-phone-workspace="3d"]').count() === 0, 'D3_PHONE_3D_EXPOSED')
@@ -192,19 +189,22 @@ try {
   const labels = await menu.locator('.phone-menu-grid button b').allTextContents()
   ensure(labels.length === 4 && same(labels, platform.workspaces.map((w) => w.label)), 'D3_PHONE_MENU_MANIFEST_MISMATCH')
   result.checks.phone3d = { status: 'PASS', route: '/phone/3d', workspace: 'ABSENT', menuLabels: labels }
+  await page.keyboard.press('Escape'); await menu.waitFor({ state: 'hidden' })
 
   const generationBefore3d = imageSubmits
-  await page.setViewportSize({ width: 1360, height: 900 })
-  await page.goto(target.origin + '/3d', { waitUntil: 'domcontentloaded' })
-  const placeholder = page.locator('.iv3-placeholder-card')
-  await placeholder.getByRole('heading', { name: '3D', exact: true }).waitFor({ state: 'visible' })
-  ensure(await placeholder.getByText('Создание 3D-моделей появится в этом разделе.', { exact: true }).isVisible()
-    && await placeholder.getByRole('button').count() === 1
-    && await placeholder.getByRole('button', { name: 'Перейти в «По тексту»', exact: true }).isVisible()
-    && imageSubmits === generationBefore3d, 'D3_DESKTOP_3D_NOT_PLACEHOLDER')
-  result.checks.desktop3d = { status: 'PASS', route: '/3d', createOperation: 'ABSENT',
-    presentation: 'PLACEHOLDER', generationRequests: imageSubmits - generationBefore3d }
-  await page.setViewportSize({ width: 390, height: 844 })
+  const desktop = await owner.newPage(); desktop.setDefaultTimeout(8000)
+  try {
+    await desktop.setViewportSize({ width: 1360, height: 900 })
+    await desktop.goto(target.origin + '/3d', { waitUntil: 'domcontentloaded' })
+    const placeholder = desktop.locator('.iv3-placeholder-card')
+    await placeholder.getByRole('heading', { name: '3D', exact: true }).waitFor({ state: 'visible' })
+    ensure(await placeholder.getByText('Создание 3D-моделей появится в этом разделе.', { exact: true }).isVisible()
+      && await placeholder.getByRole('button').count() === 1
+      && await placeholder.getByRole('button', { name: 'Перейти в «По тексту»', exact: true }).isVisible()
+      && imageSubmits === generationBefore3d, 'D3_DESKTOP_3D_NOT_PLACEHOLDER')
+    result.checks.desktop3d = { status: 'PASS', route: '/3d', createOperation: 'ABSENT',
+      presentation: 'PLACEHOLDER', generationRequests: imageSubmits - generationBefore3d }
+  } finally { await bounded(desktop.close(), 5000, 'D3_DESKTOP_CLOSE_TIMEOUT') }
 
   const config = await api(owner, 'GET', '/api/video/config')
   result.checks.video = { status: 'NOT_RUN', plan: config.plan, videoSlots: config.videoSlots }
@@ -235,7 +235,7 @@ try {
   ensure(item?.mediaType === 'video' && item.videoUrl === video.videoUrl && item.mode === payload.mode
     && item.provider === 'local_ltx' && item.model === payload.model && item.duration === 2 && item.aspectRatio === '16:9',
     'D3_VIDEO_GALLERY_MISSING')
-  await page.goto(target.origin + '/phone/video', { waitUntil: 'domcontentloaded' })
+  await page.locator('.phone-bottom-nav').getByRole('button', { name: 'Видео', exact: true }).click()
   const selector = '.phone-video-preview video'
   await page.locator(selector).waitFor({ state: 'visible' })
   ensure((await page.locator(selector).getAttribute('src')) === video.videoUrl, 'D3_PHONE_VIDEO_RESUME_FAILED')

@@ -132,6 +132,23 @@ test('a work guard failure still permits only the two fixed session cleanup oper
   assert.equal(io.counts().apiRequests, 2)
 })
 
+test('route failures retain the first finite code and never expose exception details', async () => {
+  for (const exhausted of [true, false]) {
+    let handler, aborted = 0
+    const client = { route: async (_, callback) => { handler = callback }, newPage: async () => ({ goto: async () => {} }) }
+    const io = new BrowserIO({ newContext: async () => client }, 'http://127.0.0.1:23456', 'owned', () => false)
+    await io.context()
+    if (exhausted) io.budget.httpRequests = LIMITS.http
+    const denied = { request: () => { throw new Error('private.invalid/secret') }, abort: async () => { aborted++ } }
+    await handler(exhausted ? { ...denied, request: () => ({ url: () => io.origin + '/api/owned' }) } : denied)
+    const code = exhausted ? 'D3_BROWSER_HTTP_REQUEST_LIMIT' : 'D3_BROWSER_REQUEST_GUARD_FAILED'
+    assert.equal(io.violation, code)
+    await handler(denied); assert.equal(io.violation, code); assert.equal(aborted, 2)
+    assert.equal(io.counts().browserWorkHttpRequests, exhausted ? LIMITS.http : 0)
+    assert.equal(io.counts().browserCleanupHttpRequests, 0)
+  }
+})
+
 function videoDOM(t, overrides = {}) {
   if (!documents.has(t)) {
     documents.add(t)
