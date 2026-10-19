@@ -47,6 +47,7 @@ declaredFiles = [
 ]
 allowedPatterns = [
   "backend/test_promo_bonus_referral_v2.py",
+  "docs/admin-entitlement-command-contract.md",
 ]
 forbiddenPatterns = [
   "ops/release/**",
@@ -129,3 +130,8 @@ rollbackBoundary = "Before deployment rollback is the ordinary code revert/branc
 path = "backend/test_promo_bonus_referral_v2.py"
 reason = "The existing referral regression calls the now-keyed token route; retain its real debit precondition with a command key and asserted HTTP200."
 recordedAtUtc = "2026-10-19T10:33:53.543241Z"
+
+[[scopeExpansions]]
+path = "docs/admin-entitlement-command-contract.md"
+reason = "Extract the reviewed token and plan command details to satisfy unchanged legacy document growth limits while preserving every open audit contract."
+recordedAtUtc = "2026-10-19T10:59:19.755673Z"

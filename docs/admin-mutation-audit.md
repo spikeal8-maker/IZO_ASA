@@ -9,70 +9,14 @@ production_status_role: none
 
 # Admin mutation audit — critical compatibility routes
 
-Назначение: дать coding-agent route-level evidence до изменения критичных
-identity/CRM/finance mutations с compatibility routes в `backend/main.py` и явно указанными service owners.
-Документ не утверждает, что вся админка прошла audit, и не разрешает live
-payment, refund, mail или provider action.
+19 identity/CRM/finance routes: **8 verified, 7 partial, 4 gap**.
+`verified` относится к указанным source controls и test nodes, не к deployment.
+AM-001/002: `implemented-with-exact-head-gates`; остальные AM-003–009 открыты,
+AM-006 разрешён лишь для двух `resolved_routes`.
 
-## Итог
-
-В bounded scope вошли 19 routes:
-
-- 8 `verified`: текущие auth/reason/audit и test evidence достаточны для
-  зафиксированного route contract;
-- 7 `partial`: базовые controls присутствуют, но replay, concurrency или
-  split-external boundary доказаны не полностью;
-- 4 `gap`: повтор запроса может создать дополнительный финансовый либо
-  entitlement effect.
-
-Общий положительный инвариант: все 19 handlers вызывают
-`require_trusted_admin`; audit выполняется в handler либо в явно связанном entitlement service внутри одной DB-транзакции. Для 16 routes непустая причина подтверждена; три payment-maintenance
-routes принимают строку из одних пробелов и отмечены `AM-008`.
-Route-level `source_fingerprint` охватывает decorator и полное тело handler;
-изменение audited source без обновления evidence останавливает contract test.
-Полные fingerprints `backend/main.py`, route map и всех заявленных test-файлов
-дополнительно связывают выводы с общими helper/model dependencies и test
-evidence, а не только с телами handlers.
-
-История и оставшиеся критические gaps:
-
-1. `AM-001` (`tokens-v2`): реализован durable command и однократный относительный `delta`; обязательны exact-head gates ниже.
-2. `AM-002` (`plan-v2`): source id, grant и исходные даты привязаны к durable command; обязательны те же gates.
-3. `invoices-v2` не имеет command/idempotency key и создаёт новый счёт при
-   повторе.
-4. Несколько финансовых routes принимают optional idempotency key, но при его
-   отсутствии `_billing_idempotency` генерирует новый случайный ключ. Это не
-   защищает retry после потерянного ответа.
-5. Maintenance/payment-notification routes имеют split DB/provider boundary;
-   существующие tests не закрывают весь replay/concurrency/live-provider риск,
-   а live-capable reconcile/email execution не имеет отдельного operator
-   authorization + redacted receipt control поверх trusted-admin.
-6. Три maintenance routes принимают whitespace-only `reason`, который после
-   `.strip()` превращается в пустую строку audit record.
-7. `role-v2` проверяет last-admin invariant только последовательно; гонка двух
-   администраторов не охарактеризована.
-8. `bonus/{bonus_id}/cancel-v2` допускает concurrent double-debit до появления
-   conditional status/transaction guard.
-9. Все три maintenance routes пишут итоговый audit после части уже выполненных
-   effects: simulate — после payment/invoice/token commit, reconcile — после
-   payment/token commit, notification processing — после send и sent/retry
-   state. У них нет общего durable pre-action audit/command boundary.
-
-`verified` описывает перечисленный source contract с проверяемыми test nodes. Исторический `source_sha` сохраняет исходный audit checkpoint; актуальное содержимое связывают fingerprints, а результаты — exact-head CI и приёмочные receipts. Статусы AM-001/002 остаются `implemented-with-exact-head-gates` до принятия этих результатов. Это не `DEPLOYED`, не `OPERATIONALLY VERIFIED` и не полная приёмка Д3.
-
-## Как использовать перед изменением
-
-1. Найти exact method/path в JSON-контракте ниже.
-2. Открыть только указанный `symbol` и `test_nodes`; проверить, что
-   `source_fingerprint` остаётся актуальным.
-3. Если `status` не `verified`, включить все `gap_ids` в Task Contract.
-4. До изменения behavior добавить characterization failing-before/fixed-after.
-5. Для money/token/entitlement/concurrency test повторить exact race/idempotency
-   node пять раз на temporary DB.
-6. Live provider, mail, payment или refund проверять только отдельным
-   owner-authorized release-ops package.
-
-## Machine-readable contract
+`source_sha` — исторический checkpoint; текущий source связан fingerprints,
+результаты — exact-head CI/receipts. Production и полная Д3 здесь не проверены.
+[Порядок работы, приоритеты и gates двух команд](admin-entitlement-command-contract.md).
 
 <!-- admin-mutation-audit-json:start -->
 ```json
@@ -424,7 +368,7 @@ evidence, а не только с телами handlers.
       "priority": "P1",
       "title": "Relative token adjustment has no durable command identity",
       "routes": ["POST /api/admin/users/{internal_user_id}/tokens-v2"],
-      "evidence": "The compatibility handler delegates to the named entitlement service. BEGIN IMMEDIATE precedes actor, command and balance reads. A globally unique command key binds actor, target, operation and normalized payload. Effect, audit and stored response commit together; replay returns the first response. CRM persists the pending key before send and keeps it after an uncertain response. Acceptance still requires exact-head backend/frontend CI, independent review and the real Docker/desktop/mobile CRM receipts; this document is not a run receipt.",
+      "evidence": "Atomic service and persisted CRM retry: docs/admin-entitlement-command-contract.md. Acceptance requires its exact-head gates.",
       "remediation": "Retain the implemented atomic contract and evaluate the versioned exact-head gates before accepting or merging this package.",
       "required_tests": ["same key returns the same result", "missing/invalid key is rejected", "concurrent same-key calls change balance once", "audit or receipt write failure rolls back all effects", "changed actor/target/operation/payload cannot reuse the global key", "real desktop/mobile CRM retries after lost response and page reload", "real HTTP replay after container recreation preserves redacted state and row digests"],
       "status": "implemented-with-exact-head-gates",
@@ -436,7 +380,7 @@ evidence, а не только с телами handlers.
       "priority": "P1",
       "title": "Plan mutation can grant tariff tokens again on retry",
       "routes": ["POST /api/admin/users/{internal_user_id}/plan-v2"],
-      "evidence": "The compatibility handler delegates to the named entitlement service. BEGIN IMMEDIATE precedes actor, command and balance reads. A globally unique command key binds actor, target, operation and normalized payload. Effect, audit and stored response commit together; replay returns the first response. CRM persists the pending key before send and keeps it after an uncertain response. Acceptance still requires exact-head backend/frontend CI, independent review and the real Docker/desktop/mobile CRM receipts; this document is not a run receipt.",
+      "evidence": "Atomic service and persisted CRM retry: docs/admin-entitlement-command-contract.md. Acceptance requires its exact-head gates.",
       "remediation": "Retain the implemented atomic contract and evaluate the versioned exact-head gates before accepting or merging this package.",
       "required_tests": ["same key grants once", "concurrent same-key calls grant once", "retry preserves original plan dates", "audit or receipt write failure rolls back all effects", "changed actor/target/operation/payload cannot reuse the global key", "real desktop/mobile CRM retries after lost response and page reload", "real HTTP replay after container recreation preserves redacted state and row digests"],
       "status": "implemented-with-exact-head-gates",
@@ -514,43 +458,3 @@ evidence, а не только с телами handlers.
 }
 ```
 <!-- admin-mutation-audit-json:end -->
-
-## Remediation order
-
-Не исправлять все gaps одним PR. Рекомендуемый порядок отдельных packages:
-
-1. `ADMIN-ROLE-LAST-ADMIN-RACE-001`: двухсессионная last-admin race
-   characterization и transactional invariant.
-2. `ADMIN-COMMAND-IDEMPOTENCY-001`: реализованный общий durable command contract для `tokens-v2` + `plan-v2`; принять только после перечисленных exact-head gates.
-3. `ADMIN-INVOICE-IDEMPOTENCY-001`: invoice creation и mandatory/conflict-safe
-   command key.
-4. `ADMIN-LOYALTY-IDEMPOTENCY-001`: bonus/promo/referral command identity.
-5. `ADMIN-PAYMENT-MAINTENANCE-001`: fake-provider replay/error/race coverage для
-   simulate/reconcile/notification processing плюс отдельный explicit operator
-   authorization и redacted receipt contract до любой live-capable ветки.
-
-Каждый package должен заново проверить overlap и читать только нужные symbols.
-
-## Verification boundary
-
-Этот audit использует source, generated route evidence и temporary/fake tests.
-Он не проверяет production DB, реальную YooKassa, SMTP или развернутую версию.
-
-## Воспроизводимые gates двух entitlement commands
-
-После изменения owned source сначала запустить repository generators для backend symbol map, architecture, frontend и context maps. Затем обновить только fingerprints:
-
-```powershell
-python tools/test_admin_mutation_audit.py --refresh-fingerprints
-python -m pytest -q tools/test_admin_mutation_audit.py
-python -m pytest -q backend/test_admin_command_idempotency.py backend/test_admin_command_transactions.py backend/test_admin_command_migration.py backend/test_admin_actions.py backend/test_product_consistency_20e2b.py
-node frontend/adminCommand.test.ts
-```
-
-Refresh не меняет классификацию routes/gaps; её сначала проверяют по исходникам и отдельному ревью. Пять повторов race встроены в параметризацию соответствующих tests. Только положительные unit results не закрывают Docker gate.
-
-Workflow `.github/workflows/admin-command-docker.yml` собирает существующий DEV Dockerfile на точном source SHA в отдельной GitHub Ubuntu VM. Driver `tools/docker_admin_commands.py` допускает только hosted Linux, чистый checkout и explicit local Unix socket; чужие contexts/TLS/builders отклоняются. Ресурсы имеют имя и три ownership labels текущего запуска, контейнеры работают без сети и опубликованных портов. Cleanup проверяет labels повторно, без global prune.
-
-Runtime driver выполняет реальные loopback HTTP handlers через uvicorn и связывает результат с одной command/ledger/audit записью, тарифным grant, балансом и точными датами. `frontend/e2e-admin-command-retry.mjs` управляет реальной CRM на desktop/mobile: первый успешный HTTP-ответ теряется намеренно после commit, затем reload и повтор подтверждения используют исходный key. API bridge передаёт только конечный список разрешённых путей в этот контейнер; успешные mutation ответы не подменяются. Повтор после пересоздания контейнера проверяет те же session, response, row digests и media marker. Redacted receipts, public persisted snapshots, screenshots и cleanup status сохраняются в workflow artifacts; секретные fixture sessions остаются только в disposable volume.
-
-Приёмка требует совпадения source SHA у CI, image revision и receipts, PASS всего этого workflow и независимого review. AM-003–009 и AM-006 вне двух объявленных routes сохраняются. Для старой версии после миграции нужен проверенный snapshot SQLite/media до обновления; понижение schema version на обновлённой БД не является rollback.

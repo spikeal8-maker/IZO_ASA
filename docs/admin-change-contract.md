@@ -10,36 +10,24 @@ production_status_role: none
 
 # Admin change contract
 
-Назначение: превратить документацию админки из справки в проверяемый контракт
-изменений. После выбора admin-области агент получает entry route, ownership,
-реальные API-примеры, side effects, минимальный риск, обязательные controls и
-targeted tests.
-
-Для 19 критичных compatibility mutations identity/CRM/finance дополнительно
-применяется route-level `docs/admin-mutation-audit.md`: его `gap_ids` входят в
-Task Contract до изменения behavior.
-
-Документ не заменяет порядок из `AI_START_HERE.md`, Task Contract или
-`docs/context/admin-control-center.md`. Он применяется после них и не разрешает
-production/provider action.
+Контракт связывает admin-область с routes, ownership, API, effects, risk,
+controls и targeted tests. Применяется после `AI_START_HERE.md`, Task Contract
+и `docs/context/admin-control-center.md`; production/provider action не разрешает.
 
 ## Как использовать
 
-1. Найти объект области в JSON-контракте по `id`.
-2. Объявить только нужные `frontend`, `backend`, `tests` и документацию.
-3. Сопоставить действие с `side_effects` и поднять риск при любом условии из
-   `risk_escalates_when` до `risk_escalates_to`.
-4. Проверить каждый `required_control` в конкретном backend route. Это
-   нормативное требование, а не blanket claim о текущем legacy-коде.
-5. Любое действие с production/provider state перевести в `live_action_risk`;
-   наличие этого поля не является разрешением на live action.
-6. Выполнить подходящий recipe и отдельно записать непроверенные live-границы.
-7. Для route из `docs/admin-mutation-audit.md` не начинать remediation, пока
-   `status`, `gap_ids` и требуемый replay/race test не перенесены в package.
+1. Найти область по `id`; объявить только нужные frontend/backend/tests/docs.
+2. Сверить `side_effects`; при `risk_escalates_when` поднять риск до
+   `risk_escalates_to`.
+3. Проверить каждый `required_control` в backend route: это требование,
+   а не blanket claim о legacy-коде.
+4. Production/provider state требует `live_action_risk`; поле не даёт разрешения.
+5. Выполнить recipe; записать непроверенные live-границы.
+6. Для 19 routes из `docs/admin-mutation-audit.md` перенести `status`, все
+   `gap_ids` и обязательный replay/race test в Task Contract до remediation.
 
-`api_examples` — проверяемые репрезентативные endpoints, а не полный API-list.
-Полный route inventory берётся точечно из `backend/SYMBOL_MAP.md` и modular
-routers.
+`api_examples` репрезентативны; полный inventory — `backend/SYMBOL_MAP.md`
+и modular routers.
 
 ## Машинно-читаемый контракт
 
@@ -204,63 +192,19 @@ routers.
     }
   ],
   "model_pages": [
-    {
-      "id": "api",
-      "label": "OpenRouter",
-      "path": "/admin/models/openrouter/text"
-    },
-    {
-      "id": "config",
-      "label": "Config UI",
-      "path": "/admin/models/config-ui"
-    },
-    {
-      "id": "energy",
-      "label": "Энергопотребление",
-      "path": "/admin/models/energy"
-    },
-    {
-      "id": "voice",
-      "label": "Голосовой ввод",
-      "path": "/admin/models/voice-input"
-    },
-    {
-      "id": "improve",
-      "label": "Улучшение промпта",
-      "path": "/admin/models/prompt-improvement"
-    }
+    {"id": "api", "label": "OpenRouter", "path": "/admin/models/openrouter/text"},
+    {"id": "config", "label": "Config UI", "path": "/admin/models/config-ui"},
+    {"id": "energy", "label": "Энергопотребление", "path": "/admin/models/energy"},
+    {"id": "voice", "label": "Голосовой ввод", "path": "/admin/models/voice-input"},
+    {"id": "improve", "label": "Улучшение промпта", "path": "/admin/models/prompt-improvement"}
   ],
   "openrouter_pages": [
-    {
-      "id": "text",
-      "label": "Текст",
-      "path": "/admin/models/openrouter/text"
-    },
-    {
-      "id": "images",
-      "label": "Изображения",
-      "path": "/admin/models/openrouter/images"
-    },
-    {
-      "id": "video",
-      "label": "Видео",
-      "path": "/admin/models/openrouter/video"
-    },
-    {
-      "id": "audio",
-      "label": "Звук",
-      "path": "/admin/models/openrouter/audio"
-    },
-    {
-      "id": "3d",
-      "label": "3D",
-      "path": "/admin/models/openrouter/3d"
-    },
-    {
-      "id": "settings",
-      "label": "Настройки",
-      "path": "/admin/models/openrouter/settings"
-    }
+    {"id": "text", "label": "Текст", "path": "/admin/models/openrouter/text"},
+    {"id": "images", "label": "Изображения", "path": "/admin/models/openrouter/images"},
+    {"id": "video", "label": "Видео", "path": "/admin/models/openrouter/video"},
+    {"id": "audio", "label": "Звук", "path": "/admin/models/openrouter/audio"},
+    {"id": "3d", "label": "3D", "path": "/admin/models/openrouter/3d"},
+    {"id": "settings", "label": "Настройки", "path": "/admin/models/openrouter/settings"}
   ]
 }
 ```
@@ -316,17 +260,9 @@ reason, audit и idempotency. Если route присутствует в mutatio
 требует операторские QA credentials и имеет известную устаревшую 7-KPI
 предпосылку.
 
-Для `tokens-v2` и `plan-v2` используется отдельный durable command contract: обязательный key глобально уникален и связан с actor, target, operation и нормализованным payload. Проверка текущих admin permissions, изменение баланса/тарифа, audit и command receipt входят в одну transaction; retry возвращает первый результат. CRM сохраняет неподтверждённое действие до отправки, включая key и payload; проверять reload и повторное открытие dialog.
-
-```powershell
-python -m pytest -q backend/test_admin_command_idempotency.py backend/test_admin_command_transactions.py backend/test_admin_command_migration.py backend/test_admin_actions.py backend/test_product_consistency_20e2b.py
-node frontend/adminCommand.test.ts
-python -m unittest tools.test_docker_admin_commands -v
-```
-
-После repository map generators выполнить `python tools/test_admin_mutation_audit.py --refresh-fingerprints`, затем повторить audit contract test. Refresh сохраняет статусы и scope; не обновлять hashes вручную.
-
-Реальная desktop/mobile CRM проверка этих двух commands находится в `frontend/e2e-admin-command-retry.mjs` и вызывается только driver `tools/docker_admin_commands.py` в workflow `admin-command-docker.yml`. Там используется фактический uvicorn API внутри owned network-none container и искусственная потеря первого ответа после commit. Workflow допускает только GitHub hosted Linux/local Docker socket, создаёт свои synthetic admin/session/targets, повторяет команду после container recreation и сохраняет redacted state hashes/screenshots. Это воспроизводимый scoped gate, не результат старого `e2e-admin-crm-live.mjs` и не полная Д3.
+Для `tokens-v2`/`plan-v2` дополнительно обязателен
+[контракт команды и приёмки](admin-entitlement-command-contract.md): atomic
+key binding, сохранённый CRM retry, targeted tests и реальный Docker/CRM gate.
 
 ### 4. Model catalog, publication или pricing
 
