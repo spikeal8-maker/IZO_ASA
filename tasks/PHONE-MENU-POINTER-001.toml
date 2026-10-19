@@ -1,0 +1,66 @@
+manifestVersion = 1
+id = "PHONE-MENU-POINTER-001"
+baseSha = "d1ee3a0ac5114ec08f4a8daee9cf6e41e97d6a7a"
+goal = "Restore mouse and touch activation of Phone menu controls without losing drag dismissal."
+userOutcome = "Users can close the Phone menu and select a destination with a normal click or tap."
+beforeScenario = "PhoneMenuSheet captures bubbled pointerdown from interactive descendants, retargeting their click to the sheet; Escape works but mouse close does not."
+afterScenario = "Only the explicit drag surface starts a drag, interactive buttons keep native clicks, cancelled pointer sequences reset safely, and real Chromium regressions pass at phone and desktop widths."
+nonGoals = [
+  "No job cancellation, billing, provider, Docker lifecycle, production, or global CI changes.",
+  "No modification of PR195 or scope/security/architecture limits.",
+]
+declaredFiles = [
+  "frontend/src/phone/PhoneApp.tsx",
+  "frontend/src/phone/phoneShell.css",
+  "frontend/e2e-phone-menu-interactions.mjs",
+  "docs/generated/frontend-map.json",
+  "docs/generated/frontend-map.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "ops/**",
+  ".github/**",
+  "architecture/**",
+]
+protectedFilesTouched = [
+]
+domain = "frontend-phone"
+riskClass = "standard"
+changeClass = "micro-ui"
+maxProductionFiles = 3
+maxChangedLines = 800
+acceptance = [
+  "Original mouse-close failure is reproduced before the patch.",
+  "Real mouse and touch close/navigation and drag/cancel sequences pass at widths 390, 430 and 1360.",
+  "Frontend lint and production build pass; no stale pointer state or click suppression.",
+  "Exact-head independent review and applicable isolated CI pass before integration.",
+]
+requiredEvidence = [
+  "Fresh main/head/origin, official package ownership and scope receipt.",
+  "Before/after browser JSON and screenshot evidence with exact source.",
+  "Complete diff and secret scan; generated frontend maps produced only by their generator.",
+  "Independent reviewer findings and exact GitHub CI URLs.",
+]
+targetedTests = [
+  "Real Chromium frontend/e2e-phone-menu-interactions.mjs on loopback with isolated fixtures.",
+  "Frontend lint and build.",
+  "Official agent scope and applicable source/file hygiene checks.",
+]
+fileGrowthExpectations = [
+  "Keep handwritten modules within existing architecture budgets and do not grow protected hotspots.",
+  "Generate maps from source; do not hand-edit generated files.",
+]
+forbiddenOperations = [
+  "deploy",
+  "restart-production",
+  "production-data",
+  "live-provider",
+  "mail",
+  "payment",
+  "docker-lifecycle",
+  "force-push",
+  "direct-main",
+]
+rollbackBoundary = "Revert only this UI package; no persisted data or schema changes."

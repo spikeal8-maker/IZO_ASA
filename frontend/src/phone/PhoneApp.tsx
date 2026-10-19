@@ -89,7 +89,9 @@ function PhoneMenuSheet({
   onSelect: (workspace: PhoneWorkspace) => void
 }) {
   const [drag, setDrag] = useState(0)
-  const startY = useRef<number | null>(null)
+  const dragStart = useRef<{ pointerId: number; y: number } | null>(null)
+
+  const resetDrag = () => { dragStart.current = null; setDrag(0) }
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -109,22 +111,31 @@ function PhoneMenuSheet({
         aria-modal="true"
         aria-label="Разделы ИЗО АСА"
         style={{ transform: `translateY(${drag}px)` }}
+      >
+        <div className="phone-menu-drag-surface"
         onPointerDown={(event) => {
-          startY.current = event.clientY
+          if (!event.isPrimary || event.button !== 0 || dragStart.current !== null
+            || !(event.target instanceof Element)
+            || event.target.closest('button, a, input, select, textarea, [role="button"]')) return
+          dragStart.current = { pointerId: event.pointerId, y: event.clientY }
           event.currentTarget.setPointerCapture(event.pointerId)
         }}
         onPointerMove={(event) => {
-          if (startY.current !== null) setDrag(Math.max(0, event.clientY - startY.current))
+          if (dragStart.current?.pointerId === event.pointerId) setDrag(Math.max(0, event.clientY - dragStart.current.y))
         }}
         onPointerUp={(event) => {
-          event.currentTarget.releasePointerCapture(event.pointerId)
-          startY.current = null
-          if (drag > 72) onClose()
-          else setDrag(0)
+          if (dragStart.current?.pointerId !== event.pointerId) return
+          const distance = event.clientY - dragStart.current.y
+          resetDrag()
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+          if (distance > 72) onClose()
         }}
+        onPointerCancel={resetDrag}
+        onLostPointerCapture={resetDrag}
       >
         <div className="phone-sheet-handle" aria-hidden="true" />
         <header><div><small>Все возможности</small><h2>Меню</h2></div><button type="button" onClick={onClose} aria-label="Закрыть меню"><X /></button></header>
+        </div>
         <div className="phone-menu-grid">
           {workspaces.map((workspace) => {
             const Icon = workspaceIcons[workspace.id]
