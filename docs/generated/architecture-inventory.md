@@ -8,7 +8,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 - Routes: 251
 - Registered workers: 8
 - Registered ephemeral tasks: 4
-- SQLite tables: 65
+- SQLite tables: 66
 - SQLite indexes: 98
 - Foreign-key declarations: 2
 - Frontend/static API literals: 43
@@ -57,7 +57,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 ### Tables
 
-`account_verifications`, `admin_notification_delivery_outbox`, `admin_notifications`, `admin_secrets`, `admin_settings`, `audit_logs`, `auth_identities`, `auth_login_attempts`, `auth_login_challenges`, `auth_otp_challenges`, `auth_passwords`, `auth_sessions`, `billing_packages`, `bonus_grants`, `bot_polling_state`, `challenge_entries`, `challenges`, `chat_billing_meters`, `device_installations`, `event_logs`, `feed_author_follows`, `feed_engagement_events`, `feed_publications`, `feed_reactions`, `feed_subscription_reads`, `feed_view_events`, `generation_energy_usage`, `generation_trial_reservations`, `image_sources`, `images`, `images_search`, `invoice_items`, `invoices`, `jobs`, `legal_acceptances`, `loras`, `model_profiles`, `password_reset_challenges`, `payment_notification_outbox`, `payment_provider_events`, `payments`, `phone_chat_messages`, `phone_chat_requests`, `phone_chat_threads`, `power_samples`, `presets`, `promo_codes`, `promo_redemptions`, `referral_links`, `referral_relations`, `referral_rewards`, `refunds`, `schema_migrations`, `security_events`, `session_events`, `social_delivery_outbox`, `tariff_token_grants`, `token_ledger`, `user_billing_profiles`, `user_consents`, `user_presence_samples`, `users`, `video_file_deletions`, `video_sources`, `videos`
+`account_verifications`, `admin_commands`, `admin_notification_delivery_outbox`, `admin_notifications`, `admin_secrets`, `admin_settings`, `audit_logs`, `auth_identities`, `auth_login_attempts`, `auth_login_challenges`, `auth_otp_challenges`, `auth_passwords`, `auth_sessions`, `billing_packages`, `bonus_grants`, `bot_polling_state`, `challenge_entries`, `challenges`, `chat_billing_meters`, `device_installations`, `event_logs`, `feed_author_follows`, `feed_engagement_events`, `feed_publications`, `feed_reactions`, `feed_subscription_reads`, `feed_view_events`, `generation_energy_usage`, `generation_trial_reservations`, `image_sources`, `images`, `images_search`, `invoice_items`, `invoices`, `jobs`, `legal_acceptances`, `loras`, `model_profiles`, `password_reset_challenges`, `payment_notification_outbox`, `payment_provider_events`, `payments`, `phone_chat_messages`, `phone_chat_requests`, `phone_chat_threads`, `power_samples`, `presets`, `promo_codes`, `promo_redemptions`, `referral_links`, `referral_relations`, `referral_rewards`, `refunds`, `schema_migrations`, `security_events`, `session_events`, `social_delivery_outbox`, `tariff_token_grants`, `token_ledger`, `user_billing_profiles`, `user_consents`, `user_presence_samples`, `users`, `video_file_deletions`, `video_sources`, `videos`
 
 ### Indexes
 
@@ -149,7 +149,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Owner | Category | Protected | Non-growth | Current | Maximum | Remaining |
 |---|---|---|---|---|---:|---:|---:|
-| `backend/main.py` | backend-composition | backend-hotspot | true | true | 19749 | 19750 | 1 |
+| `backend/main.py` | backend-composition | backend-hotspot | true | true | 19714 | 19714 | 0 |
 | `backend/static/feed/index.html` | feed-static | static-ui-hotspot | true | true | 2124 | 2200 | 76 |
 | `backend/test_feed_v2.py` | feed-tests | test-hotspot | true | true | 2346 | 2600 | 254 |
 | `frontend/src/LegacyApp.tsx` | frontend-legacy | frontend-legacy-hotspot | true | true | 3600 | 3700 | 100 |
