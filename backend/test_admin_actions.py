@@ -84,9 +84,9 @@ def test_token_adjust_and_logs(temp_db):
     tok = admin_token()
     make_user("iuid-1", "telegram_1", balance=50)
     with TestClient(main.app) as c:
-        assert c.post("/api/admin/users/iuid-1/tokens-v2", json={"delta": 50, "reason": ""}, headers=bearer(tok)).status_code == 400  # reason
-        up = c.post("/api/admin/users/iuid-1/tokens-v2", json={"delta": 50, "reason": "grant"}, headers=bearer(tok))
-        down = c.post("/api/admin/users/iuid-1/tokens-v2", json={"delta": -30, "reason": "correction"}, headers=bearer(tok))
+        assert c.post("/api/admin/users/iuid-1/tokens-v2", json={"idempotency_key": "compat-test_admin_actions-0087", "delta": 50, "reason": ""}, headers=bearer(tok)).status_code == 400  # reason
+        up = c.post("/api/admin/users/iuid-1/tokens-v2", json={"idempotency_key": "compat-test_admin_actions-0088", "delta": 50, "reason": "grant"}, headers=bearer(tok))
+        down = c.post("/api/admin/users/iuid-1/tokens-v2", json={"idempotency_key": "compat-test_admin_actions-0089", "delta": -30, "reason": "correction"}, headers=bearer(tok))
     assert up.json()["new_balance"] == 100 and down.json()["new_balance"] == 70
     with main.db() as conn:
         assert conn.execute("SELECT token_balance FROM users WHERE internal_user_id='iuid-1'").fetchone()["token_balance"] == 70
@@ -100,9 +100,9 @@ def test_token_negative_and_zero_blocked(temp_db):
     tok = admin_token()
     make_user("iuid-1", "telegram_1", balance=20)
     with TestClient(main.app) as c:
-        assert c.post("/api/admin/users/iuid-1/tokens-v2", json={"delta": -50, "reason": "x"}, headers=bearer(tok)).status_code == 400
-        assert c.post("/api/admin/users/iuid-1/tokens-v2", json={"delta": 0, "reason": "x"}, headers=bearer(tok)).status_code == 400
-        assert c.post("/api/admin/users/iuid-1/tokens-v2", json={"delta": 999999, "reason": "x"}, headers=bearer(tok)).status_code == 400
+        assert c.post("/api/admin/users/iuid-1/tokens-v2", json={"idempotency_key": "compat-test_admin_actions-0103", "delta": -50, "reason": "x"}, headers=bearer(tok)).status_code == 400
+        assert c.post("/api/admin/users/iuid-1/tokens-v2", json={"idempotency_key": "compat-test_admin_actions-0104", "delta": 0, "reason": "x"}, headers=bearer(tok)).status_code == 400
+        assert c.post("/api/admin/users/iuid-1/tokens-v2", json={"idempotency_key": "compat-test_admin_actions-0105", "delta": 999999, "reason": "x"}, headers=bearer(tok)).status_code == 400
     with main.db() as conn:
         assert conn.execute("SELECT token_balance FROM users WHERE internal_user_id='iuid-1'").fetchone()["token_balance"] == 20
 
@@ -112,8 +112,8 @@ def test_plan_change_audit(temp_db):
     tok = admin_token()
     make_user("iuid-1", "telegram_1", plan="mini")
     with TestClient(main.app) as c:
-        assert c.post("/api/admin/users/iuid-1/plan-v2", json={"plan": "pro", "reason": ""}, headers=bearer(tok)).status_code == 400
-        r = c.post("/api/admin/users/iuid-1/plan-v2", json={"plan": "pro", "reason": "upgrade"}, headers=bearer(tok))
+        assert c.post("/api/admin/users/iuid-1/plan-v2", json={"idempotency_key": "compat-test_admin_actions-0115", "plan": "pro", "reason": ""}, headers=bearer(tok)).status_code == 400
+        r = c.post("/api/admin/users/iuid-1/plan-v2", json={"idempotency_key": "compat-test_admin_actions-0116", "plan": "pro", "reason": "upgrade"}, headers=bearer(tok))
     assert r.status_code == 200 and r.json()["plan"] == "pro"
     with main.db() as conn:
         row = conn.execute("SELECT plan, gallery_enabled FROM users WHERE internal_user_id='iuid-1'").fetchone()
@@ -164,8 +164,8 @@ def test_no_hashes_in_responses(temp_db):
     with TestClient(main.app) as c:
         texts = [
             c.post("/api/admin/users/iuid-1/role-v2", json={"role": "admin", "reason": "x"}, headers=bearer(tok)).text,
-            c.post("/api/admin/users/iuid-1/tokens-v2", json={"delta": 10, "reason": "x"}, headers=bearer(tok)).text,
-            c.post("/api/admin/users/iuid-1/plan-v2", json={"plan": "pro", "reason": "x"}, headers=bearer(tok)).text,
+            c.post("/api/admin/users/iuid-1/tokens-v2", json={"idempotency_key": "compat-test_admin_actions-0167", "delta": 10, "reason": "x"}, headers=bearer(tok)).text,
+            c.post("/api/admin/users/iuid-1/plan-v2", json={"idempotency_key": "compat-test_admin_actions-0168", "plan": "pro", "reason": "x"}, headers=bearer(tok)).text,
             c.post("/api/admin/users/iuid-1/profile-v2", json={"display_name": "Y", "reason": "x"}, headers=bearer(tok)).text,
         ]
     for t in texts:
@@ -179,6 +179,6 @@ def test_users_id_unchanged(temp_db):
     make_user("iuid-1", "telegram_1")
     with TestClient(main.app) as c:
         c.post("/api/admin/users/iuid-1/role-v2", json={"role": "admin", "reason": "x"}, headers=bearer(tok))
-        c.post("/api/admin/users/iuid-1/tokens-v2", json={"delta": 5, "reason": "x"}, headers=bearer(tok))
+        c.post("/api/admin/users/iuid-1/tokens-v2", json={"idempotency_key": "compat-test_admin_actions-0182", "delta": 5, "reason": "x"}, headers=bearer(tok))
     with main.db() as conn:
         assert conn.execute("SELECT COUNT(*) AS c FROM users WHERE id='telegram_1'").fetchone()["c"] == 1

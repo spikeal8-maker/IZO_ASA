@@ -1,0 +1,80 @@
+name: Admin command Docker HTTP proof
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - '.github/workflows/admin-command-docker.yml'
+      - 'backend/**'
+      - 'frontend/src/adminAnalytics.tsx'
+      - 'frontend/src/adminCommand.ts'
+      - 'frontend/adminCommand.test.ts'
+      - 'frontend/e2e-admin-command-retry.mjs'
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+      - 'frontend/vite.config.ts'
+      - '.node-version'
+      - 'ops/docker/dev/Dockerfile.backend'
+      - '.dockerignore'
+      - 'tools/docker_admin_commands.py'
+      - 'tools/docker_admin_commands_runtime.py'
+      - 'tools/test_docker_admin_commands.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: admin-command-docker-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  admin-command-docker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PROOF_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      PROOF_OUTPUT: ${{ runner.temp }}/admin-command-proof
+    steps:
+      - name: Check out exact source without persisted credentials
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.PROOF_SOURCE_SHA }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install the repository's pinned Node runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          architecture: x64
+          package-manager-cache: false
+      - name: Verify cleanup ownership and fail-closed proof guards
+        run: python3 -m unittest tools.test_docker_admin_commands -v
+      - name: Verify pending command retry and closed-dialog races
+        run: node frontend/adminCommand.test.ts
+      - name: Build the exact CRM source and install the isolated test browser
+        working-directory: frontend
+        env:
+          FRONTEND_BUILD_LABEL: ${{ env.PROOF_SOURCE_SHA }}
+          VITE_API_BASE_URL: /api
+        run: |
+          npm ci
+          npm run build
+          npx playwright install --with-deps chromium
+      - name: Build and exercise real isolated containers
+        run: python3 tools/docker_admin_commands.py --sha "$PROOF_SOURCE_SHA" --output "$PROOF_OUTPUT"
+      - name: Final cleanup of this run's explicitly owned resources
+        if: always()
+        run: python3 tools/docker_admin_commands.py --sha "$PROOF_SOURCE_SHA" --output "$PROOF_OUTPUT" --cleanup-only
+      - name: Retain redacted source-bound proof receipts and logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: admin-command-docker-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/admin-command-proof/*.json
+            ${{ runner.temp }}/admin-command-proof/*.log
+            ${{ runner.temp }}/admin-command-proof/*.png
+          if-no-files-found: error
+          retention-days: 14

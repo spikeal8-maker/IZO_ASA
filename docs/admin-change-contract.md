@@ -2,7 +2,7 @@
 status: canonical
 document_role: admin-change-contract
 audience: coding-agents, reviewers
-updated: 2026-08-31
+updated: 2026-10-19
 verified_product_source_sha: 11b087d8441cb109b50b1d1e863fdcfa73201d07
 depends_on: docs/admin-panel-guide.md, docs/context/admin-control-center.md
 production_status_role: none
@@ -10,36 +10,24 @@ production_status_role: none
 
 # Admin change contract
 
-Назначение: превратить документацию админки из справки в проверяемый контракт
-изменений. После выбора admin-области агент получает entry route, ownership,
-реальные API-примеры, side effects, минимальный риск, обязательные controls и
-targeted tests.
-
-Для 19 критичных compatibility mutations identity/CRM/finance дополнительно
-применяется route-level `docs/admin-mutation-audit.md`: его `gap_ids` входят в
-Task Contract до изменения behavior.
-
-Документ не заменяет порядок из `AI_START_HERE.md`, Task Contract или
-`docs/context/admin-control-center.md`. Он применяется после них и не разрешает
-production/provider action.
+Контракт связывает admin-область с routes, ownership, API, effects, risk,
+controls и targeted tests. Применяется после `AI_START_HERE.md`, Task Contract
+и `docs/context/admin-control-center.md`; production/provider action не разрешает.
 
 ## Как использовать
 
-1. Найти объект области в JSON-контракте по `id`.
-2. Объявить только нужные `frontend`, `backend`, `tests` и документацию.
-3. Сопоставить действие с `side_effects` и поднять риск при любом условии из
-   `risk_escalates_when` до `risk_escalates_to`.
-4. Проверить каждый `required_control` в конкретном backend route. Это
-   нормативное требование, а не blanket claim о текущем legacy-коде.
-5. Любое действие с production/provider state перевести в `live_action_risk`;
-   наличие этого поля не является разрешением на live action.
-6. Выполнить подходящий recipe и отдельно записать непроверенные live-границы.
-7. Для route из `docs/admin-mutation-audit.md` не начинать remediation, пока
-   `status`, `gap_ids` и требуемый replay/race test не перенесены в package.
+1. Найти область по `id`; объявить только нужные frontend/backend/tests/docs.
+2. Сверить `side_effects`; при `risk_escalates_when` поднять риск до
+   `risk_escalates_to`.
+3. Проверить каждый `required_control` в backend route: это требование,
+   а не blanket claim о legacy-коде.
+4. Production/provider state требует `live_action_risk`; поле не даёт разрешения.
+5. Выполнить recipe; записать непроверенные live-границы.
+6. Для 19 routes из `docs/admin-mutation-audit.md` перенести `status`, все
+   `gap_ids` и обязательный replay/race test в Task Contract до remediation.
 
-`api_examples` — проверяемые репрезентативные endpoints, а не полный API-list.
-Полный route inventory берётся точечно из `backend/SYMBOL_MAP.md` и modular
-routers.
+`api_examples` репрезентативны; полный inventory — `backend/SYMBOL_MAP.md`
+и modular routers.
 
 ## Машинно-читаемый контракт
 
@@ -68,16 +56,16 @@ routers.
       "id": "crm",
       "label": "CRM",
       "entry_route": "/admin/crm",
-      "frontend": ["frontend/src/adminAnalytics.tsx"],
-      "backend": ["backend/main.py", "backend/app/services/admin_analytics.py"],
-      "api_examples": ["/api/admin/users-analytics-v2", "/api/admin/users/{internal_user_id}/v2", "/api/admin/users/{internal_user_id}/tokens-v2"],
+      "frontend": ["frontend/src/adminAnalytics.tsx", "frontend/src/adminCommand.ts"],
+      "backend": ["backend/main.py", "backend/app/services/admin_analytics.py", "backend/app/services/admin_commands.py", "backend/app/services/admin_entitlement_commands.py", "backend/app/database/admin_command_schema.py"],
+      "api_examples": ["/api/admin/users-analytics-v2", "/api/admin/users/{internal_user_id}/v2", "/api/admin/users/{internal_user_id}/tokens-v2", "/api/admin/users/{internal_user_id}/plan-v2"],
       "side_effects": ["user-profile", "role", "plan", "tokens", "billing", "sessions", "media"],
       "risk_floor": "standard",
       "risk_escalates_to": "high-assurance",
       "risk_escalates_when": ["меняется identity, role, tokens, billing, security, media ownership или destructive action"],
       "live_action_risk": "release-ops",
       "required_controls": ["trusted-admin", "verify-per-endpoint", "reason", "audit", "idempotency-for-finance"],
-      "tests": ["backend/test_admin_v2.py", "backend/test_admin_actions.py", "backend/test_admin_analytics.py", "backend/test_admin_password_reset.py"]
+      "tests": ["backend/test_admin_v2.py", "backend/test_admin_actions.py", "backend/test_admin_analytics.py", "backend/test_admin_password_reset.py", "backend/test_admin_command_idempotency.py", "backend/test_admin_command_transactions.py", "backend/test_admin_command_migration.py", "frontend/adminCommand.test.ts", "frontend/e2e-admin-command-retry.mjs"]
     },
     {
       "id": "models",
@@ -271,6 +259,10 @@ reason, audit и idempotency. Если route присутствует в mutatio
 готовое покрытие. Live CRM E2E не запускать как обычный тест: он
 требует операторские QA credentials и имеет известную устаревшую 7-KPI
 предпосылку.
+
+Для `tokens-v2`/`plan-v2` дополнительно обязателен
+[контракт команды и приёмки](admin-entitlement-command-contract.md): atomic
+key binding, сохранённый CRM retry, targeted tests и реальный Docker/CRM gate.
 
 ### 4. Model catalog, publication или pricing
 

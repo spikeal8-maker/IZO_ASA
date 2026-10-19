@@ -59,7 +59,24 @@ EVIDENCE_ARTIFACT_PATHS = {
     "backend/test_billing_notification_outbox.py",
     "backend/test_billing_v2.py",
     "backend/test_promo_bonus_referral_v2.py",
+    "backend/app/services/admin_commands.py",
+    "backend/app/services/admin_entitlement_commands.py",
+    "backend/app/database/admin_command_schema.py",
+    "backend/app/database/migrations.py",
+    "backend/test_admin_command_idempotency.py",
+    "backend/test_admin_command_transactions.py",
+    "backend/test_admin_command_migration.py",
+    "frontend/src/adminCommand.ts",
+    "frontend/src/adminAnalytics.tsx",
+    "frontend/adminCommand.test.ts",
+    "frontend/e2e-admin-command-retry.mjs",
+    "tools/docker_admin_commands.py",
+    "tools/docker_admin_commands_runtime.py",
+    "tools/test_docker_admin_commands.py",
+    ".github/workflows/admin-command-docker.yml",
 }
+ENTITLEMENT_OWNER = "backend/app/services/admin_entitlement_commands.py"
+ENTITLEMENT_DELEGATES = {"admin_tokens_v2": "adjust_tokens", "admin_plan_v2": "activate_plan"}
 REASON_GAP_ROUTES = {
     ("POST", "/api/admin/payments/{payment_id}/simulate-v2", "admin_simulate_payment_v2"),
     ("POST", "/api/admin/payments/reconcile-v2", "admin_reconcile_payments_v2"),
@@ -154,6 +171,38 @@ def _has_db_context(node: ast.AST) -> bool:
     return False
 
 
+def _entitlement_control_node(symbol: str, node: ast.AST) -> ast.AST:
+    delegated = ENTITLEMENT_DELEGATES[symbol]
+    calls = [child for child in ast.walk(node) if isinstance(child, ast.Call)
+             and isinstance(child.func, ast.Attribute) and isinstance(child.func.value, ast.Name)
+             and child.func.value.id == "admin_entitlement_commands" and child.func.attr == delegated]
+    assert len(calls) == 1, f"{symbol} must delegate exactly once to its named owner"
+    bindings = {item.arg: item.value.id for item in calls[0].keywords if isinstance(item.value, ast.Name)}
+    assert bindings.get("db") == "db" and bindings.get("audit") == "record_audit_log"
+    assert bindings.get("load_target") == "_admin_load_target" and bindings.get("admin") == "admin"
+    if symbol == "admin_plan_v2":
+        assert bindings.get("activate_tariff") == "_activate_tariff_now"
+    source = (ROOT / ENTITLEMENT_OWNER).read_text(encoding="utf-8")
+    control = _main_functions(source)[delegated]
+    control_calls = _call_names(control)
+    assert {"normalize_reason", "execute_local_command", "audit"} <= control_calls
+    assert not {"commit", "rollback", "executescript"} & control_calls
+    contexts = [child for child in ast.walk(control) if isinstance(child, ast.With) and len(child.items) == 2]
+    assert any(
+        isinstance(child.items[0].context_expr, ast.Call)
+        and isinstance(child.items[0].context_expr.func, ast.Name)
+        and child.items[0].context_expr.func.id == "closing"
+        and len(child.items[0].context_expr.args) == 1
+        and isinstance(child.items[0].context_expr.args[0], ast.Call)
+        and isinstance(child.items[0].context_expr.args[0].func, ast.Name)
+        and child.items[0].context_expr.args[0].func.id == "db"
+        and isinstance(child.items[0].optional_vars, ast.Name) and child.items[0].optional_vars.id == "conn"
+        and isinstance(child.items[1].context_expr, ast.Name) and child.items[1].context_expr.id == "conn"
+        for child in contexts
+    ), f"{symbol} must own closing(db()) and its commit/rollback context"
+    return control
+
+
 def _test_functions(path: Path) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     return {
@@ -211,7 +260,7 @@ def test_audit_has_exact_bounded_scope_and_summary() -> None:
         for route in routes
     )
     statuses = Counter(str(route["status"]) for route in routes)
-    assert dict(statuses) == payload["summary"] == {"verified": 6, "partial": 7, "gap": 6}
+    assert dict(statuses) == payload["summary"] == {"verified": 8, "partial": 7, "gap": 4}
 
     all_admin_mutations = {
         (method, path, symbol)
@@ -250,6 +299,13 @@ def test_every_route_keeps_trusted_admin_reason_audit_and_db_boundary() -> None:
         calls = _call_names(node)
         attrs = {child.attr for child in ast.walk(node) if isinstance(child, ast.Attribute)}
         assert route["auth"] == "verified" and "require_trusted_admin" in calls, symbol
+        if symbol in ENTITLEMENT_DELEGATES:
+            control = _entitlement_control_node(symbol, node)
+            assert route["control_owner"] == ENTITLEMENT_OWNER + "::" + ENTITLEMENT_DELEGATES[symbol]
+            assert route["reason"] == route["audit"] == route["replay"] == "verified"
+            assert route["transaction"] == "atomic-local"
+            assert "execute_local_command" in _call_names(control)
+            continue
         if _route_key(route) in REASON_GAP_ROUTES:
             assert route["reason"] == "gap-whitespace-only-accepted", symbol
             assert "reason" in attrs and "_billing_reason" not in calls, symbol
@@ -327,6 +383,16 @@ def test_gap_links_and_remediation_are_complete() -> None:
     assert any("crash after committed simulate effect" in required for required in required_tests)
     assert any("crash after committed reconcile effect" in required for required in required_tests)
     assert any("crash after notification send" in required for required in required_tests)
+    for gap_id in ("AM-001", "AM-002"):
+        assert gap_by_id[gap_id]["status"] == "implemented-with-exact-head-gates"
+        assert gap_by_id[gap_id]["resolution_package"] == "ADMIN-COMMAND-IDEMPOTENCY-001"
+    concurrency = gap_by_id["AM-006"]
+    assert concurrency["status"] == "partial"
+    assert set(concurrency["resolved_routes"]) == {
+        "POST /api/admin/users/{internal_user_id}/tokens-v2",
+        "POST /api/admin/users/{internal_user_id}/plan-v2",
+    }
+    assert not set(concurrency["resolved_routes"]) & set(concurrency["routes"])
     known_method_paths = {f"{route['method']} {route['path']}" for route in routes}
 
     for gap_id, gap in gap_by_id.items():
@@ -375,3 +441,38 @@ def test_admin_docs_route_critical_mutations_through_the_audit() -> None:
     assert "docs/admin-mutation-audit.md" in guide_text
     assert "tools/test_admin_mutation_audit.py" in guide_text
     assert "Ещё 39" in guide_text
+
+
+def refresh_fingerprints() -> None:
+    """Refresh only declared hashes after deterministic map generation and review."""
+    text = AUDIT.read_text(encoding="utf-8")
+    match = MARKER.search(text)
+    assert match is not None
+    payload = json.loads(match.group(1))
+    assert {item["path"] for item in payload["evidence_artifacts"]} == EVIDENCE_ARTIFACT_PATHS
+    assert {_route_key(route) for route in payload["routes"]} == EXPECTED_ROUTES
+    main_source = MAIN.read_text(encoding="utf-8")
+    functions = _main_functions(main_source)
+    for artifact in payload["evidence_artifacts"]:
+        artifact["fingerprint"] = _artifact_fingerprint(artifact["path"])
+    for route in payload["routes"]:
+        route["source_fingerprint"] = _source_fingerprint(main_source, functions[route["symbol"]])
+    replacement = match.group(1)
+    updates = [("path", item["path"], "fingerprint", item["fingerprint"]) for item in payload["evidence_artifacts"]]
+    updates += [("symbol", item["symbol"], "source_fingerprint", item["source_fingerprint"]) for item in payload["routes"]]
+    for identity_key, identity, field, fingerprint in updates:
+        pattern = re.compile(r'("' + identity_key + r'"\s*:\s*' + re.escape(json.dumps(identity))
+                             + r'\s*,\s*"' + field + r'"\s*:\s*")[^"]*(")')
+        replacement, count = pattern.subn(lambda found: found[1] + fingerprint + found[2], replacement)
+        assert count == 1, f"fingerprint field missing or ambiguous: {identity}"
+    assert json.loads(replacement) == payload, "fingerprint refresh changed the contract structure"
+    AUDIT.write_text(text[:match.start(1)] + replacement + text[match.end(1):], encoding="utf-8")
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Refresh reviewed admin audit fingerprints, preserving route/gap classifications.")
+    parser.add_argument("--refresh-fingerprints", action="store_true", required=True)
+    parser.parse_args()
+    refresh_fingerprints()

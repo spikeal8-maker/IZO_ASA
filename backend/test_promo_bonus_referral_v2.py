@@ -80,7 +80,9 @@ def test_bonus_cancel_blocked_when_balance_insufficient(temp_db):
     with TestClient(main.app) as c:
         r = c.post("/api/admin/users/iuid-target/bonus-v2", json={"token_amount": 100, "reason": "x", "idempotency_key": "bonus-low"}, headers=bearer(token))
         bonus_id = r.json()["bonus"]["id"]
-        c.post("/api/admin/users/iuid-target/tokens-v2", json={"delta": -100, "reason": "spent elsewhere"}, headers=bearer(token))
+        spent = c.post("/api/admin/users/iuid-target/tokens-v2", json={"delta": -100, "reason": "spent elsewhere", "idempotency_key": "bonus-low-spend-001"}, headers=bearer(token))
+        assert spent.status_code == 200, spent.text
+        assert spent.json()["new_balance"] == 0
         cancel = c.post(f"/api/admin/users/iuid-target/bonus/{bonus_id}/cancel-v2", json={"reason": "mistake"}, headers=bearer(token))
     assert cancel.status_code == 400
 

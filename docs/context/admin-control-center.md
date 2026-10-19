@@ -2,13 +2,13 @@
 status: canonical
 domain: admin-control-center
 read_when: ["admin","crm"]
-source_paths: ["frontend/src/AdminApp.tsx","frontend/src/adminApi.ts","frontend/src/adminModels.tsx","backend/main.py"]
-test_paths: ["backend/test_admin_v2.py","backend/test_admin_actions.py","backend/test_admin_bots_v2.py"]
+source_paths: ["frontend/src/AdminApp.tsx","frontend/src/adminApi.ts","frontend/src/adminModels.tsx","frontend/src/adminCommand.ts","backend/main.py","backend/app/services/admin_commands.py","backend/app/services/admin_entitlement_commands.py"]
+test_paths: ["backend/test_admin_v2.py","backend/test_admin_actions.py","backend/test_admin_bots_v2.py","backend/test_admin_command_idempotency.py","backend/test_admin_command_transactions.py","backend/test_admin_command_migration.py","frontend/adminCommand.test.ts","frontend/e2e-admin-command-retry.mjs"]
 related_domains: ["admin-models","backend-auth-bots"]
 forbidden_paths: ["unknown"]
 owner: admin-platform
 context_role: scoped-domain-map
-updated: 2026-08-31
+updated: 2026-10-19
 verified_source_sha: 11b087d8441cb109b50b1d1e863fdcfa73201d07
 ---
 # Context: админка и административные изменения
@@ -35,7 +35,7 @@ backlog.
   использует `credentials: include` и один раз повторяет запрос после успешного
   refresh при `401`. Это не сквозной инвариант всей админки:
   `adminAnalytics.tsx` держит собственные `adminGet`/`adminPost` без refresh и
-  retry, а `adminModels.tsx`, `adminEnergy.tsx` и `adminVoice.tsx` используют
+  автоматического network retry; `adminCommand.ts` сохраняет ручной retry только для tokens/plan commands. `adminModels.tsx`, `adminEnergy.tsx` и `adminVoice.tsx` используют
   отдельные локальные wrappers со своим retry после `401`. Изменение auth или
   session-refresh нужно проверять во всех этих владельцах, а не только в
   `adminApi.ts`.
@@ -49,7 +49,7 @@ backlog.
 | Область | Основной файл | Соседние файлы |
 |---|---|---|
 | Shell, navigation, dashboard, tariffs, logs | `frontend/src/AdminApp.tsx` | `frontend/src/adminApi.ts`, `frontend/src/adminModelsResponsive.css` |
-| CRM и user dossier | `frontend/src/adminAnalytics.tsx` | `frontend/src/crmDossier.css`, `frontend/src/crmViewport.css` |
+| CRM и user dossier | `frontend/src/adminAnalytics.tsx` | `frontend/src/adminCommand.ts`, `frontend/src/crmDossier.css`, `frontend/src/crmViewport.css` |
 | Models shell и OpenRouter | `frontend/src/adminModels.tsx` | `frontend/src/adminModelsNavigation.tsx`, `frontend/src/adminModelsRoutes.ts` |
 | Text catalog | `frontend/src/adminTextModelCatalog.tsx` | `frontend/src/adminTextModelCatalog.css` |
 | Image/video publication | `frontend/src/adminImageModelPublication.ts` | `frontend/src/adminVideoPublication.ts` |
@@ -72,6 +72,9 @@ backlog.
 - `backend/app/api/routers/bots_admin.py` — Telegram/MAX config, token,
   verify и webhook operations.
 - `backend/app/services/admin_analytics.py` — dashboard/CRM analytics.
+- `backend/app/services/admin_entitlement_commands.py` — tokens/plan transaction owners; main routes только связывают trusted admin и существующие callbacks.
+- `backend/app/services/admin_commands.py` — глобальная key binding, текущие permissions под write lock, durable stored response и replay.
+- `backend/app/database/admin_command_schema.py` — additive command schema и её fail-closed validation; version/ledger registry остаётся в `backend/app/database/migrations.py`.
 - `backend/app/services/admin_notifications.py` и
   `backend/app/services/admin_notification_delivery.py` — durable notification
   model и delivery.
@@ -141,6 +144,8 @@ evidence, а не proof безопасности. Если scanner помеча�
   `docs/admin-mutation-audit.md` и перенести его `gap_ids` в Task Contract.
 - Для mutation проверить trusted admin, reason, audit и rollback boundary.
 - Для role/tokens/billing/security применять high-assurance gate.
+- Для tokens/plan читать два service owners и `adminCommand.ts`; key обязателен и связан с actor/target/operation/normalized payload. Missing key, conflict и неизвестный исход — отдельные проверяемые случаи. Receipt, effect и audit атомарны; переоткрытие dialog/reload не создаёт новую pending command.
+- AM-001/002 имеют реализацию с exact-head gates; AM-006 закрывается только для двух routes. Остальные AM-003–009 требуют отдельного scope.
 
 ### Models
 
@@ -169,6 +174,9 @@ Backend core:
 
 - `backend/test_admin_v2.py` — trusted access и основные admin v2 contracts;
 - `backend/test_admin_actions.py` — CRM mutations;
+- `backend/test_admin_command_idempotency.py` — реальные HTTP handlers на temporary DB, first/replay/conflict/auth и пять повторов каждой race;
+- `backend/test_admin_command_transactions.py` — concurrent SQLite connections, global key binding, debits и rollback после audit/receipt failure;
+- `backend/test_admin_command_migration.py` — additive upgrade, immutable migration metadata, integrity и отдельное восстановление pre-upgrade snapshot;
 - `backend/test_admin_analytics.py` — dashboard/analytics;
 - `backend/test_admin_bots_v2.py` — bot config/secrets/webhook boundary;
 - `backend/test_admin_mail_v2.py` — mail admin behavior;
@@ -178,6 +186,8 @@ Backend core:
 
 Frontend:
 
+- `frontend/adminCommand.test.ts` — pending key, storage failures и late-response races;
+- `frontend/e2e-admin-command-retry.mjs` — owned desktop/mobile CRM → real isolated Docker API, lost-response/reload/retry;
 - `frontend/e2e-admin-dashboard-layout.mjs`;
 - `frontend/e2e-admin-model-pages.mjs`;
 - `frontend/e2e-admin-crm-live.mjs` — требует явные QA session token/user code;
@@ -188,6 +198,8 @@ Frontend:
 Route-mocked browser E2E доказывает layout/contract, но не live provider,
 production data или deployment. Для UI package также нужны frontend lint/build;
 для завершённого non-release package — `tools/verify.ps1` в Quick mode.
+
+Для tokens/plan реальный proof gate — `.github/workflows/admin-command-docker.yml`, host driver `tools/docker_admin_commands.py` и runtime `tools/docker_admin_commands_runtime.py`. Только hosted Linux и explicit local socket; каждый ресурс принадлежит точному run/SHA. API работает network-none, browser bridge разрешает конечный список собственных synthetic targets. До и после recreate сохраняются redacted user state и ledger/grant/audit/command digests; cleanup никогда не затрагивает ресурс с чужими labels. Unit guard `tools/test_docker_admin_commands.py` проверяет отрицательные границы, но не заменяет запуск workflow.
 
 ## Risk routing
 
@@ -209,7 +221,7 @@ production data или deployment. Для UI package также нужны front
   dashboard-layout contract — шесть; не заявлять этот live test зелёным до
   исправления precondition.
 - Для 19 critical compatibility mutations route-level auth/reason/audit evidence
-  закреплено в `docs/admin-mutation-audit.md` на указанном source SHA. Ещё 39
+  закреплено в `docs/admin-mutation-audit.md` текущими source fingerprints и exact-head gates; исходный discovery SHA сохранён как история. Ещё 39
   admin mutations находятся вне этого bounded audit; проверять конкретный route
   и не делать blanket claim.
 - Generated frontend map может перечислять не все специализированные admin E2E;
@@ -242,3 +254,6 @@ repository scripts. В отчёте раздельно указывать `IMPLE
 Если меняется одна из 19 audited mutations, в том же commit обновить также
 `docs/admin-mutation-audit.md` и его executable contract test. Расширение audit
 на route вне bounded scope является отдельным package.
+
+
+После repository generators hashes audit обновляются командой `python tools/test_admin_mutation_audit.py --refresh-fingerprints`; затем обязателен audit test. Не смешивать исторический discovery SHA с текущим CI/source receipt и не объявлять scoped admin proof полной приёмкой Д3.
