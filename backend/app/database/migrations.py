@@ -11,8 +11,6 @@ import sqlite3
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from .admin_command_schema import ADMIN_COMMAND_SCHEMA_SQL, validate_admin_command_schema
-
 
 MIGRATION_LEDGER_SQL = """
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -331,6 +329,8 @@ def apply_admin_commands_migration(conn: sqlite3.Connection, *, applied_at: str)
     Repeating an applied v8 remains valid for a future caller that supports v9;
     init_db must reject unsupported databases before invoking any migration.
     """
+    from .admin_command_schema import ADMIN_COMMAND_SCHEMA_SQL, validate_admin_command_schema
+
     conn.execute("SAVEPOINT admin_commands_migration")
     try:
         ledger = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migrations'").fetchone()

@@ -48,6 +48,8 @@ declaredFiles = [
   "docs/generated/frontend-map.md",
 ]
 allowedPatterns = [
+  "backend/test_database_modules.py",
+  "backend/test_social_account_verification.py",
 ]
 forbiddenPatterns = [
   "ops/release/**",
@@ -126,3 +128,13 @@ forbiddenOperations = [
   "Do not activate overlap with Phone ownership of generated frontend maps; use official start/finish sequencing.",
 ]
 rollbackBoundary = "Before deployment rollback is the ordinary code revert/branch disposal under ownership. The additive schema is never downgraded in place: old software requires the verified pre-upgrade SQLite/media snapshot. No installed or production database is used by this package."
+
+[[scopeExpansions]]
+path = "backend/test_database_modules.py"
+reason = "Full CI exposed an existing caller expectation that must match additive admin schema version8 without weakening assertions."
+recordedAtUtc = "2026-10-19T12:42:42.940428Z"
+
+[[scopeExpansions]]
+path = "backend/test_social_account_verification.py"
+reason = "Full CI exposed an existing caller expectation that must match additive admin schema version8 without weakening assertions."
+recordedAtUtc = "2026-10-19T12:42:43.817245Z"

@@ -39,7 +39,7 @@ AM-006 разрешён лишь для двух `resolved_routes`.
     {"path": "backend/app/services/admin_commands.py", "fingerprint": "sha256:dc26355c7f0139ac422b1f6603fbca0ff4a2da7c52757d7d77102bdf5b0441ab"},
     {"path": "backend/app/services/admin_entitlement_commands.py", "fingerprint": "sha256:bf134be3113f7b8260fde9dc7932d3586bced17fcf2e696afe9031a4a2558dcb"},
     {"path": "backend/app/database/admin_command_schema.py", "fingerprint": "sha256:8db615e240a7513bcf6b24fe4940cc29f83d9319c55b31e7116bfc51fa148e05"},
-    {"path": "backend/app/database/migrations.py", "fingerprint": "sha256:d3fd2ee87a0a98e11b6b292f50ce9f41e6bb1f4b824542af67e2aeae43090092"},
+    {"path": "backend/app/database/migrations.py", "fingerprint": "sha256:24486bc7cb22d2274243df29018efbf932cb068179f2f40beebfe92af1243da3"},
     {"path": "backend/test_admin_command_idempotency.py", "fingerprint": "sha256:33cbde40b2d4ee85d4ccddc228e93dbc07a99df966aeb87c6ec0d88e7cc4edc4"},
     {"path": "backend/test_admin_command_transactions.py", "fingerprint": "sha256:0fbddb82b776272f57e1e5d279e847f278c9ab9bd6df44f42e8e46432faf85b1"},
     {"path": "backend/test_admin_command_migration.py", "fingerprint": "sha256:5c1618f4622916905dd0c9dc4fe91c5bb519ca9957d91b80d588de367870cff0"},
