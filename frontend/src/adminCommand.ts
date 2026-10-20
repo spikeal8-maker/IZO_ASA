@@ -43,27 +43,33 @@ function read(storage: StoragePort, path: string): Pending | null {
   catch { throw new Error('Не удалось проверить сохранённое действие. Новое начисление не отправлено.') }
   if (!parsed || parsed.version !== 1 || typeof parsed.key !== 'string' || !KEY.test(parsed.key) || parsed.key !== parsed.key.trim()
       || !parsed.body || typeof parsed.body !== 'object' || Array.isArray(parsed.body)
-      || !Number.isInteger(parsed.attempts) || Number(parsed.attempts) < 1) {
+      || !Number.isSafeInteger(parsed.attempts) || Number(parsed.attempts) < 1) {
     throw new Error('Не удалось проверить сохранённое действие. Новое начисление не отправлено.')
   }
   return { version: 1, key: parsed.key, body: normalizedBody(path, parsed.body), attempts: Number(parsed.attempts) }
 }
 
-function clearConfirmed(storage: StoragePort, path: string, command: Pending, initialRejection = false): void {
+function clearConfirmed(storage: StoragePort, path: string, command: Pending): boolean {
   const current = read(storage, path)
-  if (current?.key === command.key && (!initialRejection || current.attempts === 1)) {
+  if (current?.key === command.key && current.attempts === command.attempts) {
     storage.removeItem(PREFIX + path)
+    return true
   }
+  return false
 }
 
 /** One client belongs to one confirmation dialog; a successful dialog cannot resubmit. */
 export function createAdminCommandClient(storage: StoragePort, send: Sender, newKey = operationKey) {
   const inflight = new Map<string, { body: string; promise: Promise<AdminCommandResult> }>()
   const completed = new Map<string, { body: string; result: AdminCommandResult }>()
+  const unconfirmed = new Map<string, Pending>()
 
   return {
     recover(path: string): Body | null {
-      try { return read(storage, path)?.body ?? null } catch { return null }
+      try {
+        const pending = unconfirmed.get(path) ?? read(storage, path)
+        return pending ? { ...pending.body } : null
+      } catch { return null }
     },
     submit(path: string, body: Body): Promise<AdminCommandResult> {
       let normalized: Body
@@ -72,8 +78,8 @@ export function createAdminCommandClient(storage: StoragePort, send: Sender, new
       } catch (error) {
         return Promise.resolve({ ok: false, status: 0, detail: error instanceof Error ? error.message : 'Не удалось сохранить действие.' })
       }
-      let pending: Pending | null
-      try { pending = read(storage, path) }
+      let shared: Pending | null
+      try { shared = read(storage, path) }
       catch { return Promise.resolve({ ok: false, status: 0, detail: 'Не удалось проверить сохранённое действие. Новый запрос не отправлен.' }) }
       const serialized = JSON.stringify(normalized)
       const done = completed.get(path)
@@ -84,16 +90,23 @@ export function createAdminCommandClient(storage: StoragePort, send: Sender, new
       if (active) return active.body === serialized ? active.promise : Promise.resolve({
         ok: false, status: 409, detail: 'Дождитесь результата отправленного действия.',
       })
-      if (pending && JSON.stringify(pending.body) !== serialized) return Promise.resolve({
+      const own = unconfirmed.get(path)
+      let pending = own ?? shared
+      if ((own && shared && (own.key !== shared.key || JSON.stringify(own.body) !== JSON.stringify(shared.body)))
+          || (pending && JSON.stringify(pending.body) !== serialized)) return Promise.resolve({
         ok: false, status: 409,
         detail: 'Предыдущее действие ещё не подтверждено. Повторите его с сохранёнными параметрами.',
       })
       try {
         pending = pending
-          ? { ...pending, attempts: pending.attempts + 1 }
+          ? { ...pending, attempts: Math.max(pending.attempts, shared?.attempts ?? 0) + 1 }
           : { version: 1, key: newKey(), body: normalized, attempts: 1 }
-        if (!KEY.test(pending.key) || pending.key !== pending.key.trim()) throw new Error('Не удалось создать ключ операции.')
+        if (!KEY.test(pending.key) || pending.key !== pending.key.trim() || !Number.isSafeInteger(pending.attempts)) {
+          throw new Error('Не удалось создать ключ операции.')
+        }
         storage.setItem(PREFIX + path, JSON.stringify(pending))
+        // Another dialog may acknowledge and remove the shared receipt while this response is unknown.
+        unconfirmed.set(path, pending)
       } catch {
         return Promise.resolve({ ok: false, status: 0, detail: 'Не удалось сохранить действие для безопасного повтора. Запрос не отправлен.' })
       }
@@ -107,10 +120,13 @@ export function createAdminCommandClient(storage: StoragePort, send: Sender, new
         }
         if (result.ok) {
           completed.set(path, { body: serialized, result })
+          unconfirmed.delete(path)
           try { clearConfirmed(storage, path, command) } catch { /* Keeping a receipt is safer than creating another effect. */ }
         } else if (command.attempts === 1 && result.status === 400) {
-          // These two local routes reject input before effects and roll back domain errors.
-          try { clearConfirmed(storage, path, command, true) } catch { /* Retry keeps the original command. */ }
+          // Only an unchanged first attempt proves that no other dialog has retried this rejection.
+          try {
+            if (clearConfirmed(storage, path, command)) unconfirmed.delete(path)
+          } catch { /* Retry keeps the original command. */ }
         }
         return result
       }).finally(() => { inflight.delete(path) })

@@ -2,7 +2,7 @@
 status: canonical
 document_role: admin-entitlement-command-contract
 scope: tokens-v2, plan-v2
-updated: 2026-10-19
+updated: 2026-10-20
 production_status_role: none
 ---
 
@@ -51,10 +51,12 @@ source id, grant и исходные даты с командой. Истори�
 повторно начислял тарифные токены и сбрасывал период. История исходного audit
 сохранена в его `historical_evidence` и `source_sha`.
 
-`frontend/src/adminCommand.ts` хранит pending key/payload в session storage.
-Проверять uncertain response, reload, повторное открытие dialog, двойной клик,
-ошибки storage и поздний ответ старого dialog, который не должен стирать новую
-pending command. UI integration находится в `frontend/src/adminAnalytics.tsx`.
+`frontend/src/adminCommand.ts` хранит pending key/payload в session storage и
+в отправившем клиенте до подтверждения. ACK удаляет только свою попытку;
+повтор увеличивает общий номер. Иной shared key блокирует старый pending retry.
+Первый 400 освобождает key лишь при неизменной первой попытке и успешной очистке.
+Проверять unknown response, close/reopen, reload, двойной клик и ошибки storage.
+В `frontend/src/adminAnalytics.tsx` ответ закрытого dialog не управляет новым.
 
 Additive migration 8 (`backend/app/database/admin_command_schema.py`, registry
 в `backend/app/database/migrations.py`) сохраняет прежние users/ledger/tariff
@@ -115,9 +117,10 @@ handlers через uvicorn и связывает response с одной command
 записью, grant, балансом и точными plan dates. Verifier сверяет запрошенный
 тариф/срок, ожидаемый grant и redacted row digests, а не только counts.
 
-`frontend/e2e-admin-command-retry.mjs` открывает реальную desktop/mobile CRM.
-Первый успешный HTTP-ответ намеренно теряется **после commit**; reload и повтор
-подтверждения используют исходный key. API bridge передаёт лишь конечный список
+`frontend/e2e-admin-command-retry.mjs` открывает реальную desktop/mobile CRM:
+close/reopen до ACK, поздний ACK первого запроса, потеря ответа повтора
+**после commit**, reload и двойной клик. Все три запроса имеют один key и effect.
+API bridge передаёт лишь конечный список
 разрешённых путей в owned контейнер; mutation success не подменяется.
 Recreate контейнера проверяет те же session, response, row digests и media marker.
 Workflow artifacts сохраняют source SHA, image id/revision, redacted state

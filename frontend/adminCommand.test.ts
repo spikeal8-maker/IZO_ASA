@@ -16,6 +16,12 @@ function storage() {
   }
 }
 
+function deferredResult() {
+  let release: (result: AdminCommandResult) => void = () => assert.fail('promise did not start')
+  const promise = new Promise<AdminCommandResult>(resolve => { release = resolve })
+  return { promise, release }
+}
+
 test('duplicate clicks and a late success click share a single financial request', async () => {
   const store = storage()
   let release: (result: AdminCommandResult) => void = () => assert.fail('sender did not start')
@@ -177,3 +183,141 @@ test('late initial rejection cannot erase a replay whose response is still unkno
   assert.equal(recovered.attempts, 2)
   assert.deepEqual(retry.recover(path), body)
 })
+
+for (const kind of ['tokens', 'plan'] as const) {
+  const route = `/admin/users/local-target/${kind}-v2`
+  const input = kind === 'tokens' ? body : { plan: 'pro', duration_days: 30, reason: body.reason }
+  const slot = 'izo.admin-command.v1:' + route
+
+  test(`${kind}: closing and reopening before a late ACK preserves an unknown retry through reload`, async () => {
+    const store = storage()
+    const oldResponse = deferredResult()
+    const retryResponse = deferredResult()
+    const keys: unknown[] = []
+    const first = createAdminCommandClient(store, async (_path, request) => {
+      keys.push(request.idempotency_key)
+      return oldResponse.promise
+    }, () => 'command-reopened-01')
+    const firstRequest = first.submit(route, input)
+    await Promise.resolve()
+    const reopened = createAdminCommandClient(store, async (_path, request) => {
+      keys.push(request.idempotency_key)
+      return retryResponse.promise
+    }, () => assert.fail('reopen allocated a new command'))
+    const retryRequest = reopened.submit(route, input)
+    await Promise.resolve()
+    oldResponse.release({ ok: true, status: 200 })
+    await firstRequest
+    assert.equal(JSON.parse(store.getItem(slot) ?? '{}').attempts, 2)
+    retryResponse.release({ ok: false, status: 503 })
+    await retryRequest
+    const reloaded = createAdminCommandClient(store, async (_path, request) => {
+      keys.push(request.idempotency_key)
+      return { ok: true, status: 200 }
+    }, () => assert.fail('reload allocated a new command'))
+    assert.deepEqual(reloaded.recover(route), input)
+    await reloaded.submit(route, input)
+    assert.deepEqual(keys, Array(3).fill('command-reopened-01'))
+    assert.equal(store.data.size, 0)
+  })
+
+  test(`${kind}: an unknown client retains its own command after another client confirms it`, async () => {
+    const store = storage()
+    const keys: unknown[] = []
+    const first = createAdminCommandClient(store, async (_path, request) => {
+      keys.push(request.idempotency_key)
+      return { ok: false, status: 503 }
+    }, () => 'command-retained-01')
+    await first.submit(route, input)
+    const second = createAdminCommandClient(store, async () => ({ ok: true, status: 200 }),
+      () => assert.fail('retry allocated a new command'))
+    await second.submit(route, input)
+    assert.equal(store.data.size, 0)
+    assert.deepEqual(first.recover(route), input)
+    assert.equal((await first.submit(route, { ...input, reason: 'different action' })).status, 409)
+    await first.submit(route, input)
+    assert.deepEqual(keys, ['command-retained-01', 'command-retained-01'])
+  })
+
+  test(`${kind}: overlapping clients keep attempt numbers increasing across an unknown response`, async () => {
+    const store = storage()
+    const secondResponse = deferredResult()
+    const thirdResponse = deferredResult()
+    let calls = 0
+    const first = createAdminCommandClient(store, async () => {
+      calls += 1
+      return calls === 1 ? { ok: false, status: 503 } : thirdResponse.promise
+    }, () => 'command-generation-1')
+    await first.submit(route, input)
+    const second = createAdminCommandClient(store, async () => secondResponse.promise,
+      () => assert.fail('second client allocated a new command'))
+    const secondRequest = second.submit(route, input)
+    await Promise.resolve()
+    const thirdRequest = first.submit(route, input)
+    await Promise.resolve()
+    assert.equal(JSON.parse(store.getItem(slot) ?? '{}').attempts, 3)
+    secondResponse.release({ ok: true, status: 200 })
+    await secondRequest
+    assert.equal(JSON.parse(store.getItem(slot) ?? '{}').attempts, 3)
+    thirdResponse.release({ ok: false, status: 503 })
+    await thirdRequest
+    assert.deepEqual(createAdminCommandClient(store, async () => assert.fail('recover sent')).recover(route), input)
+  })
+
+  test(`${kind}: an old unknown client cannot adopt or overwrite a different shared command`, async () => {
+    const store = storage()
+    let calls = 0
+    const old = createAdminCommandClient(store, async () => {
+      calls += 1
+      return { ok: false, status: 503 }
+    }, () => 'command-old-unknown-1')
+    await old.submit(route, input)
+    await createAdminCommandClient(store, async () => ({ ok: true, status: 200 })).submit(route, input)
+    await createAdminCommandClient(store, async () => ({ ok: false, status: 503 }),
+      () => 'command-new-pending-1').submit(route, input)
+    const before = store.getItem(slot)
+    assert.equal((await old.submit(route, input)).status, 409)
+    assert.equal(calls, 1)
+    assert.equal(store.getItem(slot), before)
+  })
+
+  test(`${kind}: a late first 400 cannot release an identity already retried by another client`, async () => {
+    const store = storage()
+    const delayed = deferredResult()
+    const keys: unknown[] = []
+    let calls = 0
+    const first = createAdminCommandClient(store, async (_path, request) => {
+      keys.push(request.idempotency_key)
+      calls += 1
+      return calls === 1 ? delayed.promise : { ok: true, status: 200 }
+    }, () => 'command-late-reject-1')
+    const firstRequest = first.submit(route, input)
+    await Promise.resolve()
+    await createAdminCommandClient(store, async () => ({ ok: true, status: 200 })).submit(route, input)
+    delayed.release({ ok: false, status: 400 })
+    await firstRequest
+    assert.equal((await first.submit(route, { ...input, reason: 'different action' })).status, 409)
+    await first.submit(route, input)
+    assert.deepEqual(keys, ['command-late-reject-1', 'command-late-reject-1'])
+  })
+
+  test(`${kind}: storage failure prevents retry and preserves the unconfirmed identity`, async () => {
+    const store = storage()
+    let blocked = false
+    let calls = 0
+    const first = createAdminCommandClient({ ...store, getItem: key => {
+      if (blocked) throw new Error('storage denied')
+      return store.getItem(key)
+    } }, async () => { calls += 1; return { ok: false, status: 503 } }, () => 'command-storage-retry')
+    await first.submit(route, input)
+    const before = store.getItem(slot)
+    blocked = true
+    assert.equal((await first.submit(route, input)).status, 0)
+    assert.equal(calls, 1)
+    assert.equal(store.getItem(slot), before)
+    blocked = false
+    await first.submit(route, input)
+    assert.equal(JSON.parse(store.getItem(slot) ?? '{}').key, 'command-storage-retry')
+    assert.equal(calls, 2)
+  })
+}

@@ -2,7 +2,7 @@
 status: canonical
 document_role: admin-current-guide
 audience: owner, operators, developers
-updated: 2026-10-19
+updated: 2026-10-20
 verified_source_sha: 11b087d8441cb109b50b1d1e863fdcfa73201d07
 production_status_role: none
 ---
@@ -104,8 +104,8 @@ identity/CRM/finance mutations сначала используется
 
 Для `tokens-v2`/`plan-v2` действуют
 [инструкция повтора и контракт приёмки](admin-entitlement-command-contract.md).
-После неизвестного ответа используйте сохранённую команду в той же вкладке;
-смена payload или очистка данных вкладки не служит способом повтора.
+Закрытие диалога и reload сохраняют повтор в той же вкладке.
+После неизвестного ответа не меняйте параметры и не очищайте данные вкладки.
 
 ## Секреты и внешние провайдеры
 

@@ -3,7 +3,7 @@
 // quick actions in every row + a compact two-column user card (actions above the fold).
 // Every risky action requires a reason and is written to audit_logs. No tokens/hashes
 // are ever requested or shown.
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactElement } from 'react'
 import { APP_BUILD_LABEL } from './diagMeta'
 import { createAdminCommandClient } from './adminCommand'
@@ -304,6 +304,15 @@ function ActionConfirm({ target, kind, preset, context, onClose, onDone }: {
   const [email, setEmail] = useState(typeof target.email === 'string' ? target.email : '')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
+  const mounted = useRef(false)
+  const closeTimer = useRef<number | undefined>(undefined)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      window.clearTimeout(closeTimer.current)
+    }
+  }, [])
   const title: Record<ActKind, string> = {
     tokens: 'Изменить токены', discount: 'Персональная скидка', role: isAdmin ? 'Снять админа' : 'Сделать админом', plan: 'Изменить тариф',
     profile: 'Изменить профиль', ban: 'Забанить / отключить', unban: 'Разбанить', reset: 'Сбросить пароль', deactivate: 'Деактивировать',
@@ -390,8 +399,13 @@ function ActionConfirm({ target, kind, preset, context, onClose, onDone }: {
       if (!tokenAmount || tokenAmount <= 0) { setBusy(false); setMsg('Укажите положительную корректировку.'); return }
       res = await adminPost(`${base}/referral-reward-v2`, { token_amount: tokenAmount, reason, idempotency_key: `ref-ui-${iuid}-${Date.now()}` })
     }
+    if (!mounted.current) return
     setBusy(false)
-    if (res.ok) { setMsg('Готово. Записано в audit log.'); onDone(); window.setTimeout(onClose, 650) }
+    if (res.ok) {
+      setMsg('Готово. Записано в audit log.'); onDone()
+      window.clearTimeout(closeTimer.current)
+      closeTimer.current = window.setTimeout(() => { if (mounted.current) onClose() }, 650)
+    }
     else setMsg(res.detail || (res.status === 403 ? 'Недостаточно прав или действие запрещено.' : 'Не удалось выполнить действие.'))
   }
 

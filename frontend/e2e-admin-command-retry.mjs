@@ -1,4 +1,4 @@
-/** Real CRM controls with lost-response injection after the real Docker API commit.
+/** Real CRM controls with overlapping dialogs and lost responses after real Docker API commits.
  * The authenticated loopback bridge keeps fixture sessions inside the volume.
  * No mutation response is mocked; every allowed API request reaches uvicorn.
  */
@@ -104,7 +104,7 @@ const base = `http://127.0.0.1:${server.address().port}`
 const browser = await chromium.launch({ headless: true })
 const report = { status: 'FAIL', sourceSha: sha, realCrm: true, realHttp: true,
   dockerEndpoint,
-  fault: 'drop first successful HTTP response after commit', transport: 'browser route → docker exec → network-none uvicorn loopback',
+  fault: 'late closed-dialog ACK, then drop the successful retry response after commit', transport: 'browser route → docker exec → network-none uvicorn loopback',
   fixtureSessions: 'volume-only', cases: [], blockedRequests: [] }
 
 async function openConfirmation(page, viewport, kind) {
@@ -119,6 +119,21 @@ async function openConfirmation(page, viewport, kind) {
   return page.getByRole('dialog', { name: 'Подтверждение действия', exact: true })
 }
 
+function gate() {
+  let release
+  const promise = new Promise(resolve => { release = resolve })
+  return { promise, release }
+}
+
+async function waitForCommit(committed) {
+  let timer
+  try {
+    await Promise.race([committed.promise, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('ADMIN_BROWSER_COMMIT_TIMEOUT')), 20000)
+    })])
+  } finally { clearTimeout(timer) }
+}
+
 try {
   for (const [viewport, dimensions] of [['desktop', { width: 1366, height: 900 }], ['mobile', { width: 390, height: 844 }]]) {
     for (const kind of ['tokens', 'plan']) {
@@ -130,6 +145,8 @@ try {
       const routeTasks = new Set()
       const internal = `admin-proof-${run}-browser-${viewport}-${kind}`
       const mutationPath = `/api/admin/users/${internal}/${kind}-v2`
+      const initialCommitted = gate(), retryCommitted = gate()
+      const initialResponse = gate(), retryResponse = gate()
       let drop = true
       let phase = 'open-initial-confirmation'
       page.on('pageerror', error => errors.push(error.message))
@@ -148,7 +165,14 @@ try {
           assert.equal(result.httpStatus, 200, 'ADMIN_BROWSER_API_NOT_SUCCESSFUL')
           if (url.pathname === mutationPath && request.method() === 'POST') {
             calls.push({ payload, bodySha256: result.bodySha256, state: result.ownedState })
-            if (drop) { drop = false; await route.abort('connectionreset'); return }
+            if (calls.length === 1) { initialCommitted.release(); await initialResponse.promise }
+            else if (calls.length === 2) {
+              retryCommitted.release()
+              await retryResponse.promise
+              drop = false
+              await route.abort('connectionreset')
+              return
+            }
           }
           await route.fulfill({ status: result.httpStatus, contentType: 'application/json', body: JSON.stringify(result.body) })
         } catch (error) {
@@ -176,9 +200,33 @@ try {
         else await dialog.getByRole('combobox', { name: 'Тариф', exact: true }).selectOption('pro')
         await dialog.getByLabel('Причина (обязательно)', { exact: true }).fill(reason)
         await dialog.getByRole('button', { name: 'Подтвердить', exact: true }).click()
+        await waitForCommit(initialCommitted)
+        phase = 'reopen-before-initial-ack'
+        // Cancel closes this confirmation only; Escape also belongs to the underlying user card.
+        await dialog.getByRole('button', { name: 'Отмена', exact: true }).click()
+        const card = page.getByRole('dialog', { name: 'Карточка пользователя', exact: true })
+        await card.getByRole('button', { name: kind === 'tokens' ? 'Своя сумма' : 'Изменить тариф', exact: true }).click()
+        dialog = page.getByRole('dialog', { name: 'Подтверждение действия', exact: true })
+        assert.equal(await dialog.getByLabel('Причина (обязательно)', { exact: true }).inputValue(), reason)
+        await dialog.getByRole('button', { name: 'Подтвердить', exact: true }).click()
+        await waitForCommit(retryCommitted)
+        phase = 'deliver-closed-dialog-ack'
+        const lateAck = page.waitForResponse(response => new URL(response.url()).pathname === mutationPath
+          && response.request().method() === 'POST' && response.status() === 200)
+        initialResponse.release()
+        await (await lateAck).finished()
+        // Exercise the former 650 ms stale auto-close while the reopened retry is still pending.
+        await page.waitForTimeout(900)
+        assert(await dialog.isVisible(), 'ADMIN_BROWSER_STALE_ACK_CLOSED_NEW_DIALOG')
+        assert.equal(await dialog.locator('.crm-action-ok').count(), 0, 'ADMIN_BROWSER_STALE_ACK_CONFIRMED_NEW_DIALOG')
+        const pending = await page.evaluate(path => JSON.parse(sessionStorage.getItem('izo.admin-command.v1:' + path)), mutationPath.slice(4))
+        assert.equal(pending?.key, calls[0].payload.idempotency_key, 'ADMIN_BROWSER_STALE_ACK_ERASED_RETRY_KEY')
+        assert.equal(pending.attempts, 2)
+        await page.screenshot({ path: resolve(output, `crm-${viewport}-${kind}-late-ack.png`), fullPage: true })
+        retryResponse.release()
         await dialog.locator('.crm-err').waitFor()
         phase = 'check-lost-response'
-        assert.equal(calls.length, 1)
+        assert.equal(calls.length, 2)
         assert.equal(drop, false)
         assert(calls[0].state && calls[0].state.counts.commands === 1)
         await page.screenshot({ path: resolve(output, `crm-${viewport}-${kind}-lost-response.png`), fullPage: true })
@@ -208,13 +256,16 @@ try {
         assert.equal(await page.evaluate(path => sessionStorage.getItem('izo.admin-command.v1:' + path), mutationPath.slice(4)), null)
         await context.close()
         await drainRoutes()
-        assert.equal(calls.length, 2, 'ADMIN_BROWSER_DUPLICATE_FINANCIAL_COMMAND')
+        assert.equal(calls.length, 3, 'ADMIN_BROWSER_DUPLICATE_FINANCIAL_COMMAND')
         assert.deepEqual(calls[0], calls[1], 'ADMIN_BROWSER_RETRY_KEY_RESPONSE_OR_STATE_CHANGED')
-        assert.deepEqual(calls[1].state.counts, { ledger: 1, grants: kind === 'plan' ? 1 : 0, audit: 1, commands: 1 })
+        const lostAndReloaded = calls.slice(1)
+        assert.equal(lostAndReloaded.length, 2, 'ADMIN_BROWSER_RELOAD_DUPLICATE_FINANCIAL_COMMAND')
+        assert.deepEqual(lostAndReloaded[0], lostAndReloaded[1], 'ADMIN_BROWSER_RELOAD_KEY_RESPONSE_OR_STATE_CHANGED')
+        assert.deepEqual(calls[2].state.counts, { ledger: 1, grants: kind === 'plan' ? 1 : 0, audit: 1, commands: 1 })
         assert.deepEqual(errors, [])
-        report.cases.push({ viewport, kind, status: 'PASS', httpRequests: 2, lostResponseInjected: true,
+        report.cases.push({ viewport, kind, status: 'PASS', httpRequests: 3, lostResponseInjected: true, closedDialogLateAck: true,
           reloadedInput: true, sameKeyResponseAndState: true, commandKeySha256: createHash('sha256').update(calls[0].payload.idempotency_key).digest('hex'),
-          apiBodySha256: calls[0].bodySha256, effects: calls[1].state.counts, persistedState: calls[1].state, target: internal })
+          apiBodySha256: calls[0].bodySha256, effects: calls[2].state.counts, persistedState: calls[2].state, target: internal })
       } catch (error) {
         report.failedCase = { viewport, kind, phase, httpRequests: calls.length, lostResponseInjected: !drop,
           browserErrorCount: errors.length, commands: calls.slice(0, 3).map(call => ({
@@ -229,7 +280,13 @@ try {
           await page.screenshot({ path: resolve(output, `crm-${viewport}-${kind}-failure.png`), fullPage: true, timeout: 5000 })
         } catch { report.failedCase.domDiagnostics = 'unavailable' }
         throw error
-      } finally { await drainRoutes(); await context.close(); await drainRoutes() }
+      } finally {
+        initialResponse.release()
+        retryResponse.release()
+        await drainRoutes()
+        await context.close()
+        await drainRoutes()
+      }
     }
   }
   assert.equal(report.cases.length, 4)

@@ -212,7 +212,8 @@ def validate_browser(value: dict, sha: str) -> None:
         raise ProofError("ADMIN_PROOF_BROWSER_EVIDENCE_INCOMPLETE")
     for item in cases:
         expected = {"ledger": 1, "grants": int(item["kind"] == "plan"), "audit": 1, "commands": 1}
-        if (item.get("status") != "PASS" or item.get("httpRequests") != 2
+        if (item.get("status") != "PASS" or item.get("httpRequests") != 3
+                or item.get("closedDialogLateAck") is not True
                 or item.get("lostResponseInjected") is not True or item.get("reloadedInput") is not True
                 or item.get("sameKeyResponseAndState") is not True or item.get("effects") != expected):
             raise ProofError("ADMIN_PROOF_BROWSER_RETRY_OR_EFFECT_FAILED")

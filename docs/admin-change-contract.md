@@ -2,7 +2,7 @@
 status: canonical
 document_role: admin-change-contract
 audience: coding-agents, reviewers
-updated: 2026-10-19
+updated: 2026-10-20
 verified_product_source_sha: 11b087d8441cb109b50b1d1e863fdcfa73201d07
 depends_on: docs/admin-panel-guide.md, docs/context/admin-control-center.md
 production_status_role: none
@@ -262,7 +262,7 @@ reason, audit и idempotency. Если route присутствует в mutatio
 
 Для `tokens-v2`/`plan-v2` дополнительно обязателен
 [контракт команды и приёмки](admin-entitlement-command-contract.md): atomic
-key binding, сохранённый CRM retry, targeted tests и реальный Docker/CRM gate.
+key binding, retry сквозь close/reload/late ACK, tests и Docker/CRM gate.
 
 ### 4. Model catalog, publication или pricing
 

@@ -171,8 +171,8 @@ Backend core:
 
 Frontend:
 
-- `frontend/adminCommand.test.ts` — pending key, storage failures и late-response races;
-- `frontend/e2e-admin-command-retry.mjs` — owned desktop/mobile CRM → real isolated Docker API, lost-response/reload/retry;
+- `frontend/adminCommand.test.ts` — pending key, attempts, storage failures, late ACK;
+- `frontend/e2e-admin-command-retry.mjs` — desktop/mobile CRM → Docker API: close/reopen/late ACK/lost response/reload;
 - `frontend/e2e-admin-dashboard-layout.mjs`;
 - `frontend/e2e-admin-model-pages.mjs`;
 - `frontend/e2e-admin-crm-live.mjs` — требует явные QA session token/user code;
