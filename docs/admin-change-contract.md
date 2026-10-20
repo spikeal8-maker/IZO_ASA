@@ -262,7 +262,7 @@ reason, audit и idempotency. Если route присутствует в mutatio
 
 Для `tokens-v2`/`plan-v2` дополнительно обязателен
 [контракт команды и приёмки](admin-entitlement-command-contract.md): atomic
-key binding, retry сквозь close/reload/late ACK, tests и Docker/CRM gate.
+key binding, recovery, ACK до/после retry и Docker/CRM gate.
 
 ### 4. Model catalog, publication или pricing
 

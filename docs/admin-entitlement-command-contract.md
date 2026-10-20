@@ -51,11 +51,13 @@ source id, grant и исходные даты с командой. Истори�
 повторно начислял тарифные токены и сбрасывал период. История исходного audit
 сохранена в его `historical_evidence` и `source_sha`.
 
-`frontend/src/adminCommand.ts` хранит pending key/payload в session storage и
-в отправившем клиенте до подтверждения. ACK удаляет только свою попытку;
-повтор увеличивает общий номер. Иной shared key блокирует старый pending retry.
-Первый 400 освобождает key лишь при неизменной первой попытке и успешной очистке.
-Проверять unknown response, close/reopen, reload, двойной клик и ошибки storage.
+`frontend/src/adminCommand.ts` хранит pending key/payload в клиенте и session
+storage. `recover()` закрепляет их **до показа формы**. `attempts` — монотонная
+ревизия квитанции: принятие другим клиентом и POST увеличивают её; повторный
+recover в том же клиенте — нет. ACK удаляет лишь свою ревизию. Иной shared key
+блокирует retry; ошибка восстановления не разрешает новую команду. Первый 400
+освобождает key лишь при неизменной ревизии 1 и успешной очистке.
+Проверять ACK до/после retry, reload, двойной клик и ошибки storage.
 В `frontend/src/adminAnalytics.tsx` ответ закрытого dialog не управляет новым.
 
 Additive migration 8 (`backend/app/database/admin_command_schema.py`, registry
@@ -118,8 +120,10 @@ handlers через uvicorn и связывает response с одной command
 тариф/срок, ожидаемый grant и redacted row digests, а не только counts.
 
 `frontend/e2e-admin-command-retry.mjs` открывает реальную desktop/mobile CRM:
-close/reopen до ACK, поздний ACK первого запроса, потеря ответа повтора
-**после commit**, reload и двойной клик. Все три запроса имеют один key и effect.
+recover → ACK до retry → reload → retry; другой ACK приходит после retry.
+Потеря ответа **после commit**, reload и двойной клик дают четыре POST, один key
+и effect. Receipt требует `ackBeforeRetrySubmit`, `ackAfterRetrySubmit`,
+`reloadedBeforeRetry`, `reloadedInput`: true; отсутствие любого — FAIL.
 API bridge передаёт лишь конечный список
 разрешённых путей в owned контейнер; mutation success не подменяется.
 Recreate контейнера проверяет те же session, response, row digests и media marker.

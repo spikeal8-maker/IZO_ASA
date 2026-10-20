@@ -3,6 +3,7 @@ export type AdminCommandResult = { ok: boolean; status: number; detail?: string 
 type Body = Record<string, unknown>
 type StoragePort = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 type Sender = (path: string, body: Body) => Promise<AdminCommandResult>
+// attempts is a durable receipt revision: adoption and each submission advance it.
 type Pending = { version: 1; key: string; body: Body; attempts: number }
 const PREFIX = 'izo.admin-command.v1:'
 const KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{11,119}$/
@@ -63,13 +64,26 @@ export function createAdminCommandClient(storage: StoragePort, send: Sender, new
   const inflight = new Map<string, { body: string; promise: Promise<AdminCommandResult> }>()
   const completed = new Map<string, { body: string; result: AdminCommandResult }>()
   const unconfirmed = new Map<string, Pending>()
+  const recoveryBlocked = new Set<string>()
 
   return {
     recover(path: string): Body | null {
       try {
-        const pending = unconfirmed.get(path) ?? read(storage, path)
-        return pending ? { ...pending.body } : null
-      } catch { return null }
+        const own = unconfirmed.get(path)
+        const shared = read(storage, path)
+        let pending = own ?? shared
+        if (!pending) return null
+        if (own && shared && (own.key !== shared.key || JSON.stringify(own.body) !== JSON.stringify(shared.body))) {
+          return { ...own.body }
+        }
+        // Adopting a restored intent advances the receipt revision before it is displayed.
+        pending = { ...pending, attempts: Math.max(pending.attempts, shared?.attempts ?? 0) + (own ? 0 : 1) }
+        if (!Number.isSafeInteger(pending.attempts)) throw new Error('Command revision exhausted')
+        unconfirmed.set(path, pending)
+        if (!shared || shared.attempts !== pending.attempts) storage.setItem(PREFIX + path, JSON.stringify(pending))
+        recoveryBlocked.delete(path)
+        return { ...pending.body }
+      } catch { recoveryBlocked.add(path); return null }
     },
     submit(path: string, body: Body): Promise<AdminCommandResult> {
       let normalized: Body
@@ -91,6 +105,9 @@ export function createAdminCommandClient(storage: StoragePort, send: Sender, new
         ok: false, status: 409, detail: 'Дождитесь результата отправленного действия.',
       })
       const own = unconfirmed.get(path)
+      if (recoveryBlocked.has(path) && !own && !shared) return Promise.resolve({
+        ok: false, status: 0, detail: 'Не удалось восстановить ключ предыдущего действия. Новый запрос не отправлен.',
+      })
       let pending = own ?? shared
       if ((own && shared && (own.key !== shared.key || JSON.stringify(own.body) !== JSON.stringify(shared.body)))
           || (pending && JSON.stringify(pending.body) !== serialized)) return Promise.resolve({

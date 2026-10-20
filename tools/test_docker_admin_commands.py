@@ -225,7 +225,8 @@ class EvidenceTests(unittest.TestCase):
 
     def test_browser_proof_needs_all_four_real_ui_http_retry_effect_pairs(self):
         value = {"status": "PASS", "sourceSha": SHA, "realCrm": True, "realHttp": True, "blockedRequests": [],
-                 "cases": [{"viewport": viewport, "kind": kind, "status": "PASS", "httpRequests": 3,
+                 "cases": [{"viewport": viewport, "kind": kind, "status": "PASS", "httpRequests": 4,
+                            "ackBeforeRetrySubmit": True, "ackAfterRetrySubmit": True, "reloadedBeforeRetry": True,
                             "closedDialogLateAck": True, "lostResponseInjected": True, "reloadedInput": True, "sameKeyResponseAndState": True,
                             "effects": {"ledger": 1, "grants": int(kind == "plan"), "audit": 1, "commands": 1}}
                            for viewport in ("desktop", "mobile") for kind in ("tokens", "plan")]}
@@ -240,7 +241,8 @@ class EvidenceTests(unittest.TestCase):
             del broken["cases"][0][key]
             with self.subTest(case_key=key), self.assertRaises(proof.ProofError):
                 proof.validate_browser(broken, SHA)
-        for key, replacement in (("closedDialogLateAck", False), ("httpRequests", 2), ("httpRequests", 4)):
+        for key, replacement in (("closedDialogLateAck", False), ("ackBeforeRetrySubmit", False), ("ackAfterRetrySubmit", False),
+                                 ("reloadedBeforeRetry", False), ("httpRequests", 2), ("httpRequests", 3), ("httpRequests", 5)):
             broken = deepcopy(value)
             broken["cases"][0][key] = replacement
             with self.subTest(case_key=key, value=replacement), self.assertRaises(proof.ProofError):

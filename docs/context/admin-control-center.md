@@ -8,7 +8,7 @@ related_domains: ["admin-models","backend-auth-bots"]
 forbidden_paths: ["unknown"]
 owner: admin-platform
 context_role: scoped-domain-map
-updated: 2026-10-19
+updated: 2026-10-20
 verified_source_sha: 11b087d8441cb109b50b1d1e863fdcfa73201d07
 ---
 # Context: админка и административные изменения
@@ -132,7 +132,7 @@ quote/reservation/settlement и пользовательского списка.
 - Для critical mutations открыть exact route в `docs/admin-mutation-audit.md` и перенести `gap_ids` в Task Contract.
 - Для mutation проверить trusted admin, reason, audit и rollback boundary.
 - Для role/tokens/billing/security применять high-assurance gate.
-- Для tokens/plan читать два service owners и `adminCommand.ts`; key обязателен и связан с actor/target/operation/normalized payload. Missing key, conflict и неизвестный исход — отдельные проверяемые случаи. Receipt, effect и audit атомарны; переоткрытие dialog/reload не создаёт новую pending command.
+- Для tokens/plan читать два service owners и `adminCommand.ts`; key обязателен и связан с actor/target/operation/normalized payload. Missing key, conflict и неизвестный исход — отдельные проверяемые случаи. Receipt, effect и audit атомарны; recover закрепляет key/body до показа формы. Монотонная ревизия защищает от ACK до/после retry; reopen/reload не создаёт новую команду.
 - AM-001/002 имеют реализацию с exact-head gates; AM-006 закрывается только для двух routes. Остальные AM-003–009 требуют отдельного scope.
 
 ### Models
@@ -171,8 +171,8 @@ Backend core:
 
 Frontend:
 
-- `frontend/adminCommand.test.ts` — pending key, attempts, storage failures, late ACK;
-- `frontend/e2e-admin-command-retry.mjs` — desktop/mobile CRM → Docker API: close/reopen/late ACK/lost response/reload;
+- `frontend/adminCommand.test.ts` — key, recovery/revision, storage failures, ACK до/после retry;
+- `frontend/e2e-admin-command-retry.mjs` — desktop/mobile CRM → Docker API: recover, ACK до/после retry, loss, reload до/после retry;
 - `frontend/e2e-admin-dashboard-layout.mjs`;
 - `frontend/e2e-admin-model-pages.mjs`;
 - `frontend/e2e-admin-crm-live.mjs` — требует явные QA session token/user code;

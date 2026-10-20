@@ -104,7 +104,7 @@ const base = `http://127.0.0.1:${server.address().port}`
 const browser = await chromium.launch({ headless: true })
 const report = { status: 'FAIL', sourceSha: sha, realCrm: true, realHttp: true,
   dockerEndpoint,
-  fault: 'late closed-dialog ACK, then drop the successful retry response after commit', transport: 'browser route → docker exec → network-none uvicorn loopback',
+  fault: 'late ACKs before and after restored retry submission, then response loss and reload', transport: 'browser route → docker exec → network-none uvicorn loopback',
   fixtureSessions: 'volume-only', cases: [], blockedRequests: [] }
 
 async function openConfirmation(page, viewport, kind) {
@@ -145,8 +145,8 @@ try {
       const routeTasks = new Set()
       const internal = `admin-proof-${run}-browser-${viewport}-${kind}`
       const mutationPath = `/api/admin/users/${internal}/${kind}-v2`
-      const initialCommitted = gate(), retryCommitted = gate()
-      const initialResponse = gate(), retryResponse = gate()
+      const initialCommitted = gate(), retryCommitted = gate(), overlappingCommitted = gate()
+      const initialResponse = gate(), retryResponse = gate(), overlappingResponse = gate()
       let drop = true
       let phase = 'open-initial-confirmation'
       page.on('pageerror', error => errors.push(error.message))
@@ -166,9 +166,10 @@ try {
           if (url.pathname === mutationPath && request.method() === 'POST') {
             calls.push({ payload, bodySha256: result.bodySha256, state: result.ownedState })
             if (calls.length === 1) { initialCommitted.release(); await initialResponse.promise }
-            else if (calls.length === 2) {
-              retryCommitted.release()
-              await retryResponse.promise
+            else if (calls.length === 2) { retryCommitted.release(); await retryResponse.promise }
+            else if (calls.length === 3) {
+              overlappingCommitted.release()
+              await overlappingResponse.promise
               drop = false
               await route.abort('connectionreset')
               return
@@ -208,14 +209,13 @@ try {
         await card.getByRole('button', { name: kind === 'tokens' ? 'Своя сумма' : 'Изменить тариф', exact: true }).click()
         dialog = page.getByRole('dialog', { name: 'Подтверждение действия', exact: true })
         assert.equal(await dialog.getByLabel('Причина (обязательно)', { exact: true }).inputValue(), reason)
-        await dialog.getByRole('button', { name: 'Подтвердить', exact: true }).click()
-        await waitForCommit(retryCommitted)
+        assert.equal(calls.length, 1, 'ADMIN_BROWSER_RECOVERY_SUBMITTED_A_REQUEST')
         phase = 'deliver-closed-dialog-ack'
         const lateAck = page.waitForResponse(response => new URL(response.url()).pathname === mutationPath
           && response.request().method() === 'POST' && response.status() === 200)
         initialResponse.release()
         await (await lateAck).finished()
-        // Exercise the former 650 ms stale auto-close while the reopened retry is still pending.
+        // Exercise the former 650 ms stale auto-close before the restored intent is submitted.
         await page.waitForTimeout(900)
         assert(await dialog.isVisible(), 'ADMIN_BROWSER_STALE_ACK_CLOSED_NEW_DIALOG')
         assert.equal(await dialog.locator('.crm-action-ok').count(), 0, 'ADMIN_BROWSER_STALE_ACK_CONFIRMED_NEW_DIALOG')
@@ -223,10 +223,44 @@ try {
         assert.equal(pending?.key, calls[0].payload.idempotency_key, 'ADMIN_BROWSER_STALE_ACK_ERASED_RETRY_KEY')
         assert.equal(pending.attempts, 2)
         await page.screenshot({ path: resolve(output, `crm-${viewport}-${kind}-late-ack.png`), fullPage: true })
+        phase = 'reload-adopted-intent-before-retry'
+        await page.reload({ waitUntil: 'networkidle' })
+        dialog = await openConfirmation(page, viewport, kind)
+        assert.equal(await dialog.getByLabel('Причина (обязательно)', { exact: true }).inputValue(), reason)
+        const adopted = await page.evaluate(path => JSON.parse(sessionStorage.getItem('izo.admin-command.v1:' + path)), mutationPath.slice(4))
+        assert.equal(adopted?.key, calls[0].payload.idempotency_key, 'ADMIN_BROWSER_RELOAD_LOST_ADOPTED_KEY')
+        assert.equal(adopted.attempts, 3)
+        assert.equal(calls.length, 1)
+        await dialog.getByRole('button', { name: 'Подтвердить', exact: true }).click()
+        await waitForCommit(retryCommitted)
+        assert.equal(await page.evaluate(path => JSON.parse(sessionStorage.getItem('izo.admin-command.v1:' + path)).attempts, mutationPath.slice(4)), 4)
+        phase = 'reopen-and-submit-before-retry-ack'
+        await dialog.getByRole('button', { name: 'Отмена', exact: true }).click()
+        await page.getByRole('dialog', { name: 'Карточка пользователя', exact: true })
+          .getByRole('button', { name: kind === 'tokens' ? 'Своя сумма' : 'Изменить тариф', exact: true }).click()
+        dialog = page.getByRole('dialog', { name: 'Подтверждение действия', exact: true })
+        assert.equal(await dialog.getByLabel('Причина (обязательно)', { exact: true }).inputValue(), reason)
+        assert.equal(await page.evaluate(path => JSON.parse(sessionStorage.getItem('izo.admin-command.v1:' + path)).attempts, mutationPath.slice(4)), 5)
+        await dialog.getByRole('button', { name: 'Подтвердить', exact: true }).click()
+        await waitForCommit(overlappingCommitted)
+        phase = 'deliver-closed-dialog-ack-after-retry-submit'
+        const overlappingAck = page.waitForResponse(response => new URL(response.url()).pathname === mutationPath
+          && response.request().method() === 'POST' && response.status() === 200)
         retryResponse.release()
+        await (await overlappingAck).finished()
+        // Preserve the existing late-ACK/timer boundary while another retry is actually in flight.
+        await page.waitForTimeout(900)
+        assert(await dialog.isVisible(), 'ADMIN_BROWSER_STALE_ACK_CLOSED_INFLIGHT_DIALOG')
+        assert.equal(await dialog.locator('.crm-action-ok').count(), 0, 'ADMIN_BROWSER_STALE_ACK_CONFIRMED_INFLIGHT_DIALOG')
+        const inflight = await page.evaluate(path => JSON.parse(sessionStorage.getItem('izo.admin-command.v1:' + path)), mutationPath.slice(4))
+        assert.equal(inflight?.key, calls[0].payload.idempotency_key, 'ADMIN_BROWSER_STALE_ACK_ERASED_INFLIGHT_KEY')
+        assert.equal(inflight.attempts, 6)
+        assert.equal(calls.length, 3)
+        await page.screenshot({ path: resolve(output, `crm-${viewport}-${kind}-late-ack-inflight.png`), fullPage: true })
+        overlappingResponse.release()
         await dialog.locator('.crm-err').waitFor()
         phase = 'check-lost-response'
-        assert.equal(calls.length, 2)
+        assert.equal(calls.length, 3)
         assert.equal(drop, false)
         assert(calls[0].state && calls[0].state.counts.commands === 1)
         await page.screenshot({ path: resolve(output, `crm-${viewport}-${kind}-lost-response.png`), fullPage: true })
@@ -234,6 +268,7 @@ try {
         await page.reload({ waitUntil: 'networkidle' })
         dialog = await openConfirmation(page, viewport, kind)
         assert.equal(await dialog.getByLabel('Причина (обязательно)', { exact: true }).inputValue(), reason)
+        assert.equal(await page.evaluate(path => JSON.parse(sessionStorage.getItem('izo.admin-command.v1:' + path)).attempts, mutationPath.slice(4)), 7)
         const restoredField = kind === 'tokens'
           ? dialog.getByLabel('Изменение баланса', { exact: true })
           : dialog.getByRole('combobox', { name: 'Тариф', exact: true })
@@ -256,19 +291,21 @@ try {
         assert.equal(await page.evaluate(path => sessionStorage.getItem('izo.admin-command.v1:' + path), mutationPath.slice(4)), null)
         await context.close()
         await drainRoutes()
-        assert.equal(calls.length, 3, 'ADMIN_BROWSER_DUPLICATE_FINANCIAL_COMMAND')
+        assert.equal(calls.length, 4, 'ADMIN_BROWSER_DUPLICATE_FINANCIAL_COMMAND')
         assert.deepEqual(calls[0], calls[1], 'ADMIN_BROWSER_RETRY_KEY_RESPONSE_OR_STATE_CHANGED')
-        const lostAndReloaded = calls.slice(1)
+        assert.deepEqual(calls[1], calls[2], 'ADMIN_BROWSER_OVERLAPPING_RETRY_KEY_RESPONSE_OR_STATE_CHANGED')
+        const lostAndReloaded = calls.slice(2)
         assert.equal(lostAndReloaded.length, 2, 'ADMIN_BROWSER_RELOAD_DUPLICATE_FINANCIAL_COMMAND')
         assert.deepEqual(lostAndReloaded[0], lostAndReloaded[1], 'ADMIN_BROWSER_RELOAD_KEY_RESPONSE_OR_STATE_CHANGED')
-        assert.deepEqual(calls[2].state.counts, { ledger: 1, grants: kind === 'plan' ? 1 : 0, audit: 1, commands: 1 })
+        assert.deepEqual(calls[3].state.counts, { ledger: 1, grants: kind === 'plan' ? 1 : 0, audit: 1, commands: 1 })
         assert.deepEqual(errors, [])
-        report.cases.push({ viewport, kind, status: 'PASS', httpRequests: 3, lostResponseInjected: true, closedDialogLateAck: true,
+        report.cases.push({ viewport, kind, status: 'PASS', httpRequests: 4, lostResponseInjected: true, closedDialogLateAck: true,
+          ackBeforeRetrySubmit: true, ackAfterRetrySubmit: true, reloadedBeforeRetry: true,
           reloadedInput: true, sameKeyResponseAndState: true, commandKeySha256: createHash('sha256').update(calls[0].payload.idempotency_key).digest('hex'),
-          apiBodySha256: calls[0].bodySha256, effects: calls[2].state.counts, persistedState: calls[2].state, target: internal })
+          apiBodySha256: calls[0].bodySha256, effects: calls[3].state.counts, persistedState: calls[3].state, target: internal })
       } catch (error) {
         report.failedCase = { viewport, kind, phase, httpRequests: calls.length, lostResponseInjected: !drop,
-          browserErrorCount: errors.length, commands: calls.slice(0, 3).map(call => ({
+          browserErrorCount: errors.length, commands: calls.slice(0, 4).map(call => ({
             commandKeySha256: typeof call.payload.idempotency_key === 'string'
               ? createHash('sha256').update(call.payload.idempotency_key).digest('hex') : null,
             apiBodySha256: call.bodySha256, persistedState: call.state,
@@ -283,6 +320,7 @@ try {
       } finally {
         initialResponse.release()
         retryResponse.release()
+        overlappingResponse.release()
         await drainRoutes()
         await context.close()
         await drainRoutes()

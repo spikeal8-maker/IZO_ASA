@@ -320,4 +320,133 @@ for (const kind of ['tokens', 'plan'] as const) {
     assert.equal(JSON.parse(store.getItem(slot) ?? '{}').key, 'command-storage-retry')
     assert.equal(calls, 2)
   })
+
+  test(`${kind}: recovering before a late ACK retains one intent across reloads before and after retry`, async () => {
+    for (const reloadBeforeRetry of [false, true]) {
+      const store = storage()
+      const initialResponse = deferredResult()
+      const keys: unknown[] = []
+      const first = createAdminCommandClient(store, async (_path, request) => {
+        keys.push(request.idempotency_key)
+        return initialResponse.promise
+      }, () => 'command-adopted-0001')
+      const initialRequest = first.submit(route, input)
+      await Promise.resolve()
+      const retry = () => createAdminCommandClient(store, async (_path, request) => {
+        keys.push(request.idempotency_key)
+        return { ok: false, status: 503 }
+      }, () => assert.fail('restored intent allocated a new key'))
+      let reopened = retry()
+      assert.deepEqual(reopened.recover(route), input)
+      const adopted = store.getItem(slot)
+      assert.equal(JSON.parse(adopted ?? '{}').attempts, 2)
+      assert.deepEqual(reopened.recover(route), input)
+      assert.equal(store.getItem(slot), adopted)
+      initialResponse.release({ ok: true, status: 200 })
+      await initialRequest
+      assert.equal(store.getItem(slot), adopted)
+      if (reloadBeforeRetry) {
+        reopened = retry()
+        assert.deepEqual(reopened.recover(route), input)
+        assert.equal(JSON.parse(store.getItem(slot) ?? '{}').attempts, 3)
+      }
+      assert.equal((await reopened.submit(route, { ...input, reason: 'changed' })).status, 409)
+      await reopened.submit(route, input)
+      assert.equal(JSON.parse(store.getItem(slot) ?? '{}').attempts, reloadBeforeRetry ? 4 : 3)
+      const reloaded = createAdminCommandClient(store, async (_path, request) => {
+        keys.push(request.idempotency_key)
+        return { ok: true, status: 200 }
+      }, () => assert.fail('reload allocated a new key'))
+      assert.deepEqual(reloaded.recover(route), input)
+      await reloaded.submit(route, input)
+      assert.deepEqual(keys, Array(3).fill('command-adopted-0001'))
+      assert.equal(store.data.size, 0)
+    }
+  })
+
+  test(`${kind}: a late first 400 cannot discard an intent adopted before retry`, async () => {
+    const store = storage()
+    const response = deferredResult()
+    const first = createAdminCommandClient(store, async () => response.promise, () => 'command-adopted-4001')
+    const firstRequest = first.submit(route, input)
+    const keys: unknown[] = []
+    const reopened = createAdminCommandClient(store, async (_path, request) => {
+      keys.push(request.idempotency_key)
+      return { ok: false, status: 400 }
+    }, () => assert.fail('adopted rejection allocated a new key'))
+    assert.deepEqual(reopened.recover(route), input)
+    response.release({ ok: false, status: 400 })
+    await firstRequest
+    assert.equal(JSON.parse(store.getItem(slot) ?? '{}').attempts, 2)
+    assert.equal((await reopened.submit(route, { ...input, reason: 'changed' })).status, 409)
+    await reopened.submit(route, input)
+    assert.deepEqual(keys, ['command-adopted-4001'])
+    assert.equal(JSON.parse(store.getItem(slot) ?? '{}').attempts, 3)
+  })
+
+  test(`${kind}: repeated recovery never adopts or overwrites a different shared command`, async () => {
+    const store = storage()
+    await createAdminCommandClient(store, async () => ({ ok: false, status: 503 }),
+      () => 'command-recover-old1').submit(route, input)
+    const reopened = createAdminCommandClient(store, async () => assert.fail('conflicting command sent'),
+      () => assert.fail('conflicting recovery allocated a key'))
+    assert.deepEqual(reopened.recover(route), input)
+    await createAdminCommandClient(store, async () => ({ ok: true, status: 200 })).submit(route, input)
+    await createAdminCommandClient(store, async () => ({ ok: false, status: 503 }),
+      () => 'command-recover-new1').submit(route, input)
+    const newer = store.getItem(slot)
+    assert.deepEqual(reopened.recover(route), input)
+    assert.equal((await reopened.submit(route, input)).status, 409)
+    assert.equal(store.getItem(slot), newer)
+  })
+
+  test(`${kind}: failed recovery storage cannot open a fresh-key path after the old ACK`, async () => {
+    for (const failure of ['read', 'write']) {
+      const store = storage()
+      const response = deferredResult()
+      const first = createAdminCommandClient(store, async () => response.promise, () => 'command-recover-io01')
+      const firstRequest = first.submit(route, input)
+      let blocked = true
+      let allocations = 0
+      const keys: unknown[] = []
+      const reopened = createAdminCommandClient({ ...store,
+        getItem: key => { if (blocked && failure === 'read') throw new Error('read denied'); return store.getItem(key) },
+        setItem: (key, value) => { if (blocked && failure === 'write') throw new Error('write denied'); store.setItem(key, value) },
+      }, async (_path, request) => {
+        keys.push(request.idempotency_key)
+        return { ok: true, status: 200 }
+      }, () => { allocations += 1; return 'command-unwanted-001' })
+      assert.equal(reopened.recover(route), null)
+      response.release({ ok: true, status: 200 })
+      await firstRequest
+      assert.equal(store.data.size, 0)
+      assert.equal((await reopened.submit(route, input)).status, 0)
+      blocked = false
+      if (failure === 'read') {
+        assert.equal(reopened.recover(route), null)
+        assert.equal((await reopened.submit(route, input)).status, 0)
+        assert.deepEqual(keys, [])
+      } else {
+        assert.deepEqual(reopened.recover(route), input)
+        assert.equal(JSON.parse(store.getItem(slot) ?? '{}').attempts, 2)
+        blocked = true
+        assert.equal((await reopened.submit(route, input)).status, 0)
+        blocked = false
+        await reopened.submit(route, input)
+        assert.deepEqual(keys, ['command-recover-io01'])
+      }
+      assert.equal(allocations, 0)
+    }
+  })
+
+  test(`${kind}: recovery and retry cannot overflow the durable receipt revision`, async () => {
+    const store = storage()
+    store.setItem(slot, JSON.stringify({ version: 1, key: 'command-revision-max1', body: input, attempts: Number.MAX_SAFE_INTEGER }))
+    const before = store.getItem(slot)
+    const client = createAdminCommandClient(store, async () => assert.fail('exhausted revision sent'),
+      () => assert.fail('exhausted revision allocated another key'))
+    assert.equal(client.recover(route), null)
+    assert.equal((await client.submit(route, input)).status, 0)
+    assert.equal(store.getItem(slot), before)
+  })
 }
