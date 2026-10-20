@@ -2,24 +2,17 @@
 status: canonical
 document_role: admin-current-guide
 audience: owner, operators, developers
-updated: 2026-08-31
+updated: 2026-10-20
 verified_source_sha: 11b087d8441cb109b50b1d1e863fdcfa73201d07
 production_status_role: none
 ---
 
 # Админка IZO_ASA — актуальное руководство
 
-Это общее описание действующей административной поверхности IZO_ASA. Оно
-объясняет, что доступно владельцу и оператору, где проходят границы безопасности
-и какие сведения нельзя считать подтверждёнными без отдельной проверки.
-
-Документ описывает source-состояние на указанном SHA. Он не подтверждает
-deployment: установленный release всегда проверяется по runtime manifest и
-`/api/version` в рамках разрешённой live-проверки.
-
-Для изменений coding-агент использует scoped-карту
-`docs/context/admin-control-center.md`. Порядок чтения репозитория остаётся только
-в `AI_START_HERE.md`.
+Руководство описывает admin surface на source SHA, доступ оператора и границы
+проверки. Deployment подтверждают runtime manifest и `/api/version` в рамках
+разрешённой live-проверки. Для изменения кода используйте scoped-карту
+`docs/context/admin-control-center.md`; порядок чтения — в `AI_START_HERE.md`.
 
 ## Доступ
 
@@ -108,6 +101,11 @@ identity/CRM/finance mutations сначала используется
 `docs/admin-mutation-audit.md`: он даёт exact symbol/test nodes, статусы
 `verified`/`partial`/`gap` и обязательные `gap_ids`. Ещё 39 mutation routes в
 эту карту не входят и не считаются проверенными автоматически.
+
+Для `tokens-v2`/`plan-v2` действуют
+[инструкция повтора и контракт приёмки](admin-entitlement-command-contract.md).
+Повторное открытие/reload закрепляет ключ до показа формы.
+Не меняйте сохранённые параметры и не очищайте данные вкладки.
 
 ## Секреты и внешние провайдеры
 

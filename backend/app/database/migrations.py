@@ -84,6 +84,13 @@ PHONE_CHAT_REQUEST_LIFECYCLE_MIGRATION = MigrationDefinition(
 )
 
 
+ADMIN_COMMANDS_MIGRATION = MigrationDefinition(
+    version=8,
+    name="admin_entitlement_commands",
+    checksum="sha256:fa612d0aea26ef55441fd8f7cba4c7c403af1b69f536d5787dc91620ca73950a",
+)
+
+
 ADMIN_NOTIFICATIONS_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS admin_notifications (
     id TEXT PRIMARY KEY,
@@ -314,6 +321,35 @@ def apply_phone_chat_request_lifecycle_migration(
         PHONE_CHAT_REQUEST_LIFECYCLE_MIGRATION,
         applied_at=applied_at,
     )
+
+
+def apply_admin_commands_migration(conn: sqlite3.Connection, *, applied_at: str) -> bool:
+    """Atomically register replay storage after the caller's latest-version guard.
+
+    Repeating an applied v8 remains valid for a future caller that supports v9;
+    init_db must reject unsupported databases before invoking any migration.
+    """
+    from .admin_command_schema import ADMIN_COMMAND_SCHEMA_SQL, validate_admin_command_schema
+
+    conn.execute("SAVEPOINT admin_commands_migration")
+    try:
+        ledger = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migrations'").fetchone()
+        applied = conn.execute("SELECT 1 FROM schema_migrations WHERE version=?", (ADMIN_COMMANDS_MIGRATION.version,)).fetchone() if ledger else None
+        if applied:
+            changed = record_applied_migration(conn, ADMIN_COMMANDS_MIGRATION, applied_at=applied_at)
+        else:
+            ensure_migration_ledger(conn, supported_version=ADMIN_COMMANDS_MIGRATION.version)
+            if conn.execute("SELECT 1 FROM sqlite_master WHERE name='admin_commands'").fetchone():
+                raise RuntimeError("ADMIN_COMMAND_SCHEMA_UNREGISTERED")
+            conn.execute(ADMIN_COMMAND_SCHEMA_SQL)
+            changed = record_applied_migration(conn, ADMIN_COMMANDS_MIGRATION, applied_at=applied_at)
+        validate_admin_command_schema(conn)
+        conn.execute("RELEASE SAVEPOINT admin_commands_migration")
+        return changed
+    except Exception:
+        conn.execute("ROLLBACK TO SAVEPOINT admin_commands_migration")
+        conn.execute("RELEASE SAVEPOINT admin_commands_migration")
+        raise
 
 
 USER_EARLY_ADDITIVE_COLUMNS = {

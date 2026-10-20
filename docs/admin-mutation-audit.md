@@ -2,80 +2,21 @@
 status: canonical
 document_role: admin-mutation-audit
 scope: critical-compatibility-identity-crm-finance-v1
-updated: 2026-08-31
-verified_source_sha: 79ae172222a70a7b15ad29383b2acc30a35544ca
+updated: 2026-10-19
+historical_discovery_sha: 79ae172222a70a7b15ad29383b2acc30a35544ca
 production_status_role: none
 ---
 
 # Admin mutation audit — critical compatibility routes
 
-Назначение: дать coding-agent route-level evidence до изменения критичных
-identity/CRM/finance mutations, которые пока остаются в `backend/main.py`.
-Документ не утверждает, что вся админка прошла audit, и не разрешает live
-payment, refund, mail или provider action.
+19 identity/CRM/finance routes: **8 verified, 7 partial, 4 gap**.
+`verified` относится к указанным source controls и test nodes, не к deployment.
+AM-001/002: `implemented-with-exact-head-gates`; остальные AM-003–009 открыты,
+AM-006 разрешён лишь для двух `resolved_routes`.
 
-## Итог
-
-В bounded scope вошли 19 routes:
-
-- 6 `verified`: текущие auth/reason/audit и test evidence достаточны для
-  зафиксированного route contract;
-- 7 `partial`: базовые controls присутствуют, но replay, concurrency или
-  split-external boundary доказаны не полностью;
-- 6 `gap`: повтор запроса может создать дополнительный финансовый либо
-  entitlement effect.
-
-Общий положительный инвариант: все 19 handlers вызывают
-`require_trusted_admin` и пишут `record_audit_log` внутри текущего evidence
-scope. Для 16 routes непустая причина подтверждена; три payment-maintenance
-routes принимают строку из одних пробелов и отмечены `AM-008`.
-Route-level `source_fingerprint` охватывает decorator и полное тело handler;
-изменение audited source без обновления evidence останавливает contract test.
-Полные fingerprints `backend/main.py`, route map и всех заявленных test-файлов
-дополнительно связывают выводы с общими helper/model dependencies и test
-evidence, а не только с телами handlers.
-
-Критические gaps:
-
-1. `tokens-v2` повторно применяет относительный `delta`.
-2. `plan-v2` на каждый вызов создаёт новый `source_id`, grant key и может снова
-   начислить тарифные токены.
-3. `invoices-v2` не имеет command/idempotency key и создаёт новый счёт при
-   повторе.
-4. Несколько финансовых routes принимают optional idempotency key, но при его
-   отсутствии `_billing_idempotency` генерирует новый случайный ключ. Это не
-   защищает retry после потерянного ответа.
-5. Maintenance/payment-notification routes имеют split DB/provider boundary;
-   существующие tests не закрывают весь replay/concurrency/live-provider риск,
-   а live-capable reconcile/email execution не имеет отдельного operator
-   authorization + redacted receipt control поверх trusted-admin.
-6. Три maintenance routes принимают whitespace-only `reason`, который после
-   `.strip()` превращается в пустую строку audit record.
-7. `role-v2` проверяет last-admin invariant только последовательно; гонка двух
-   администраторов не охарактеризована.
-8. `bonus/{bonus_id}/cancel-v2` допускает concurrent double-debit до появления
-   conditional status/transaction guard.
-9. Все три maintenance routes пишут итоговый audit после части уже выполненных
-   effects: simulate — после payment/invoice/token commit, reconcile — после
-   payment/token commit, notification processing — после send и sent/retry
-   state. У них нет общего durable pre-action audit/command boundary.
-
-`verified` означает только перечисленные controls и tests на закреплённом source
-SHA. Это не `DEPLOYED` и не `OPERATIONALLY VERIFIED`.
-
-## Как использовать перед изменением
-
-1. Найти exact method/path в JSON-контракте ниже.
-2. Открыть только указанный `symbol` и `test_nodes`; проверить, что
-   `source_fingerprint` остаётся актуальным.
-3. Если `status` не `verified`, включить все `gap_ids` в Task Contract.
-4. До изменения behavior добавить characterization failing-before/fixed-after.
-5. Для money/token/entitlement/concurrency test повторить exact race/idempotency
-   node пять раз на temporary DB.
-6. Live provider, mail, payment или refund проверять только отдельным
-   owner-authorized release-ops package.
-
-## Machine-readable contract
+`source_sha` — исторический checkpoint; текущий source связан fingerprints,
+результаты — exact-head CI/receipts. Production и полная Д3 здесь не проверены.
+[Порядок работы, приоритеты и gates двух команд](admin-entitlement-command-contract.md).
 
 <!-- admin-mutation-audit-json:start -->
 ```json
@@ -85,19 +26,34 @@ SHA. Это не `DEPLOYED` и не `OPERATIONALLY VERIFIED`.
   "source_fingerprint_algorithm": "sha256-decorated-source-v1",
   "evidence_artifact_algorithm": "sha256-normalized-text-v1",
   "evidence_artifacts": [
-    {"path": "backend/main.py", "fingerprint": "sha256:8de1431470ef71f63cf5d81839e81607f8d7bbc18524beb6a0471cdd537b5532"},
-    {"path": "backend/SYMBOL_MAP.md", "fingerprint": "sha256:5fe904946be6399ea4e3ebf25d5f36ccbc4152fc7daeac03b32e6a2043f1fd32"},
+    {"path": "backend/main.py", "fingerprint": "sha256:111c40b7d83369db2f5cd4681caed59a9cafd57bc906f96e17d41b908ff8d992"},
+    {"path": "backend/SYMBOL_MAP.md", "fingerprint": "sha256:6a2e413b764ee8993a954332aaa6cc2671f87fcb64b22d6b206bdca1612a16be"},
     {"path": "backend/test_admin_v2.py", "fingerprint": "sha256:95662d4a3f7ffc28b93bf215b0b53bde276fee4d635decb5b18fd366e88481b2"},
     {"path": "backend/test_admin_password_reset.py", "fingerprint": "sha256:42625c68b02dc766e87f50b5d063ce51c5d41afac781268e8e566c225e9f8145"},
-    {"path": "backend/test_admin_actions.py", "fingerprint": "sha256:6379e9bd7ed0c5788e830b56c1d2ba1d2707361e934ba74a62cedd48dd2f5912"},
-    {"path": "backend/test_product_consistency_20e2b.py", "fingerprint": "sha256:1d237962b0a3c458361fb7206db2f09c4a2e946563cd33602c20762d498f524a"},
+    {"path": "backend/test_admin_actions.py", "fingerprint": "sha256:ecc38ffc2f9f0d826fca517b6985aa99e26cb361966f8312d8b88195c0c773be"},
+    {"path": "backend/test_product_consistency_20e2b.py", "fingerprint": "sha256:e2bf7b51cd068dcf5a86805007569fe2e7c1b89f989752bbe4f4e02bc306d5e6"},
     {"path": "backend/test_billing_simulator_checkout_v2.py", "fingerprint": "sha256:da7881cbf71550d1de001e2aaba3816e239a05f768b9a1a8649756989fdd9946"},
     {"path": "backend/test_billing_notification_outbox.py", "fingerprint": "sha256:67b59933da8c78268b237434a870e98960b5919a34a00c0fe27b3bde5175ac4d"},
     {"path": "backend/test_billing_v2.py", "fingerprint": "sha256:92c0403dd590b87895802e540cf26b98a09d8fdb04a8298b78c9a561a62f9fc3"},
-    {"path": "backend/test_promo_bonus_referral_v2.py", "fingerprint": "sha256:0d03133b66880f19b0a197ce6b88afedb6df8d3a8398132917f8cf924d575796"}
+    {"path": "backend/test_promo_bonus_referral_v2.py", "fingerprint": "sha256:eec97035c9829a49238f55c1d5876e7a2f28fd3b71ab92078202e2cc6b512f67"},
+    {"path": "backend/app/services/admin_commands.py", "fingerprint": "sha256:dc26355c7f0139ac422b1f6603fbca0ff4a2da7c52757d7d77102bdf5b0441ab"},
+    {"path": "backend/app/services/admin_entitlement_commands.py", "fingerprint": "sha256:bf134be3113f7b8260fde9dc7932d3586bced17fcf2e696afe9031a4a2558dcb"},
+    {"path": "backend/app/database/admin_command_schema.py", "fingerprint": "sha256:8db615e240a7513bcf6b24fe4940cc29f83d9319c55b31e7116bfc51fa148e05"},
+    {"path": "backend/app/database/migrations.py", "fingerprint": "sha256:24486bc7cb22d2274243df29018efbf932cb068179f2f40beebfe92af1243da3"},
+    {"path": "backend/test_admin_command_idempotency.py", "fingerprint": "sha256:33cbde40b2d4ee85d4ccddc228e93dbc07a99df966aeb87c6ec0d88e7cc4edc4"},
+    {"path": "backend/test_admin_command_transactions.py", "fingerprint": "sha256:0fbddb82b776272f57e1e5d279e847f278c9ab9bd6df44f42e8e46432faf85b1"},
+    {"path": "backend/test_admin_command_migration.py", "fingerprint": "sha256:5c1618f4622916905dd0c9dc4fe91c5bb519ca9957d91b80d588de367870cff0"},
+    {"path": "frontend/src/adminCommand.ts", "fingerprint": "sha256:673533badbdd18963d94a7dcae01f7be34c305c8f2608679896b478306d83e6d"},
+    {"path": "frontend/src/adminAnalytics.tsx", "fingerprint": "sha256:d3e8e5447cd699e2b89cfe0fb0d649dcc4fc4d5273a70b18873f45911a7bf431"},
+    {"path": "frontend/adminCommand.test.ts", "fingerprint": "sha256:4858b3fa2ec6e8a414789aba266bc89ca77a45d52b14792daf664fd67fb61f25"},
+    {"path": "frontend/e2e-admin-command-retry.mjs", "fingerprint": "sha256:98a8dfc1bc8389f273ca9c1a2957c6b2f62f813d3436620a7a2fcca006304313"},
+    {"path": "tools/docker_admin_commands.py", "fingerprint": "sha256:1f9489277a0499f82d8ac37d1cabada9a8d350485dcd5a94f7190af234e0bd91"},
+    {"path": "tools/docker_admin_commands_runtime.py", "fingerprint": "sha256:db7b349e23ed269d49cd9956bbe36b9ead9f88775a51f59c467dce3163fe8e8f"},
+    {"path": "tools/test_docker_admin_commands.py", "fingerprint": "sha256:4eb064bcacf522ed977f15f3e8e992115380a87a41276b6952cb9e8489ef615d"},
+    {"path": ".github/workflows/admin-command-docker.yml", "fingerprint": "sha256:6c1698f7e0d084ddab46e14f438d7ded1458f14716a4099352c1fe94d338d6c3"}
   ],
   "scope": "critical-compatibility-identity-crm-finance-v1",
-  "summary": {"verified": 6, "partial": 7, "gap": 6},
+  "summary": {"verified": 8, "partial": 7, "gap": 4},
   "routes": [
     {
       "method": "POST",
@@ -167,17 +123,18 @@ SHA. Это не `DEPLOYED` и не `OPERATIONALLY VERIFIED`.
       "method": "POST",
       "path": "/api/admin/users/{internal_user_id}/tokens-v2",
       "symbol": "admin_tokens_v2",
-      "source_fingerprint": "sha256:7486787280ee31163cf378da70292bbc59e1703beca900ef0d8dce88bcec1668",
+      "source_fingerprint": "sha256:f5bebd3d2eea0b8463c328bf2d3bc7b56162d7dd58ccf1645b2e3b24719f97e1",
       "risk": "financial-entitlement",
       "auth": "verified",
       "reason": "verified",
       "audit": "verified",
       "transaction": "atomic-local",
-      "replay": "gap",
-      "test_evidence": "partial",
-      "status": "gap",
-      "test_nodes": ["backend/test_admin_actions.py::test_token_adjust_and_logs", "backend/test_admin_actions.py::test_token_negative_and_zero_blocked"],
-      "gap_ids": ["AM-001", "AM-006"]
+      "replay": "verified",
+      "test_evidence": "verified",
+      "status": "verified",
+      "test_nodes": ["backend/test_admin_actions.py::test_token_adjust_and_logs", "backend/test_admin_actions.py::test_token_negative_and_zero_blocked", "backend/test_admin_command_idempotency.py::test_same_key_replays_first_response_and_preserves_business_state", "backend/test_admin_command_idempotency.py::test_concurrent_same_key_has_one_entitlement_ledger_and_audit", "backend/test_admin_command_idempotency.py::test_conflicting_reuse_is_rejected_without_a_second_effect", "backend/test_admin_command_idempotency.py::test_missing_or_invalid_key_is_rejected_before_a_financial_effect", "backend/test_admin_command_idempotency.py::test_each_route_requires_current_trusted_admin", "backend/test_admin_command_idempotency.py::test_audit_failure_is_atomic_and_retry_can_succeed"],
+      "gap_ids": [],
+      "control_owner": "backend/app/services/admin_entitlement_commands.py::adjust_tokens"
     },
     {
       "method": "POST",
@@ -199,17 +156,18 @@ SHA. Это не `DEPLOYED` и не `OPERATIONALLY VERIFIED`.
       "method": "POST",
       "path": "/api/admin/users/{internal_user_id}/plan-v2",
       "symbol": "admin_plan_v2",
-      "source_fingerprint": "sha256:92f072d146e6284c76c7281436de6c3e99a8051c22098caf614631f3f9aae919",
+      "source_fingerprint": "sha256:09433d69197798ba820d61985103681523be4e9adc9b7d771525ea7a5a79163e",
       "risk": "financial-entitlement",
       "auth": "verified",
       "reason": "verified",
       "audit": "verified",
       "transaction": "atomic-local",
-      "replay": "gap",
-      "test_evidence": "partial",
-      "status": "gap",
-      "test_nodes": ["backend/test_admin_actions.py::test_plan_change_audit", "backend/test_product_consistency_20e2b.py::test_plan_v2_updates_canonical_field_and_analytics_reads_it"],
-      "gap_ids": ["AM-002", "AM-006"]
+      "replay": "verified",
+      "test_evidence": "verified",
+      "status": "verified",
+      "test_nodes": ["backend/test_admin_actions.py::test_plan_change_audit", "backend/test_product_consistency_20e2b.py::test_plan_v2_updates_canonical_field_and_analytics_reads_it", "backend/test_admin_command_idempotency.py::test_same_key_replays_first_response_and_preserves_business_state", "backend/test_admin_command_idempotency.py::test_concurrent_same_key_has_one_entitlement_ledger_and_audit", "backend/test_admin_command_idempotency.py::test_conflicting_reuse_is_rejected_without_a_second_effect", "backend/test_admin_command_idempotency.py::test_missing_or_invalid_key_is_rejected_before_a_financial_effect", "backend/test_admin_command_idempotency.py::test_each_route_requires_current_trusted_admin", "backend/test_admin_command_idempotency.py::test_audit_failure_is_atomic_and_retry_can_succeed"],
+      "gap_ids": [],
+      "control_owner": "backend/app/services/admin_entitlement_commands.py::activate_plan"
     },
     {
       "method": "POST",
@@ -410,18 +368,24 @@ SHA. Это не `DEPLOYED` и не `OPERATIONALLY VERIFIED`.
       "priority": "P1",
       "title": "Relative token adjustment has no durable command identity",
       "routes": ["POST /api/admin/users/{internal_user_id}/tokens-v2"],
-      "evidence": "AdminTokensV2Request has delta and reason only; admin_tokens_v2 writes a new token_ledger row on every accepted call.",
-      "remediation": "Require a bounded idempotency key, persist a unique admin-command record in the same transaction, and return the stored result on replay.",
-      "required_tests": ["same key returns the same result", "missing/invalid key is rejected", "concurrent same-key calls change balance once"]
+      "evidence": "Atomic service and persisted CRM retry: docs/admin-entitlement-command-contract.md. Acceptance requires its exact-head gates.",
+      "remediation": "Keep atomic command/recovery contracts; accept or merge only when all exact-head gates pass.",
+      "required_tests": ["same key returns the same result", "missing/invalid key is rejected", "concurrent same-key calls change balance once", "audit or receipt write failure rolls back all effects", "changed actor/target/operation/payload cannot reuse the global key", "real desktop/mobile CRM: ACK before/after retry, response loss, reload before/after retry", "real HTTP replay after container recreation preserves redacted state and row digests"],
+      "status": "implemented-with-exact-head-gates",
+      "resolution_package": "ADMIN-COMMAND-IDEMPOTENCY-001",
+      "historical_evidence": "AdminTokensV2Request has delta and reason only; admin_tokens_v2 writes a new token_ledger row on every accepted call."
     },
     {
       "id": "AM-002",
       "priority": "P1",
       "title": "Plan mutation can grant tariff tokens again on retry",
       "routes": ["POST /api/admin/users/{internal_user_id}/plan-v2"],
-      "evidence": "admin_plan_v2 creates uuid source_id per call; _activate_tariff_now derives a new grant_key and resets the plan period.",
-      "remediation": "Bind plan activation and grant_key to a durable admin command id and replay the first response without a second grant or period reset.",
-      "required_tests": ["same key grants once", "concurrent same-key calls grant once", "retry preserves original plan dates"]
+      "evidence": "Atomic service and persisted CRM retry: docs/admin-entitlement-command-contract.md. Acceptance requires its exact-head gates.",
+      "remediation": "Keep atomic command/recovery contracts; accept or merge only when all exact-head gates pass.",
+      "required_tests": ["same key grants once", "concurrent same-key calls grant once", "retry preserves original plan dates", "audit or receipt write failure rolls back all effects", "changed actor/target/operation/payload cannot reuse the global key", "real desktop/mobile CRM: ACK before/after retry, response loss, reload before/after retry", "real HTTP replay after container recreation preserves redacted state and row digests"],
+      "status": "implemented-with-exact-head-gates",
+      "resolution_package": "ADMIN-COMMAND-IDEMPOTENCY-001",
+      "historical_evidence": "admin_plan_v2 creates uuid source_id per call; _activate_tariff_now derives a new grant_key and resets the plan period."
     },
     {
       "id": "AM-003",
@@ -454,10 +418,12 @@ SHA. Это не `DEPLOYED` и не `OPERATIONALLY VERIFIED`.
       "id": "AM-006",
       "priority": "P1",
       "title": "Critical mutations lack focused concurrent command tests",
-      "routes": ["POST /api/admin/users/{internal_user_id}/tokens-v2", "POST /api/admin/users/{internal_user_id}/plan-v2", "POST /api/admin/users/{internal_user_id}/invoices-v2", "POST /api/admin/invoices/{invoice_id}/mark-paid-v2", "POST /api/admin/payments/{payment_id}/refund-v2", "POST /api/admin/users/{internal_user_id}/bonus-v2", "POST /api/admin/users/{internal_user_id}/bonus/{bonus_id}/cancel-v2", "POST /api/admin/users/{internal_user_id}/apply-promo-v2", "POST /api/admin/users/{internal_user_id}/referral-reward-v2", "POST /api/admin/payments/{payment_id}/simulate-v2", "POST /api/admin/payments/reconcile-v2", "POST /api/admin/payments/notifications/process-v2"],
-      "evidence": "Current focused suites assert sequential behavior; no listed node races two same-command requests against one temporary SQLite database. Bonus cancellation reads granted status and balance before unconditional ledger/status writes, so concurrent requests can both debit.",
+      "routes": ["POST /api/admin/users/{internal_user_id}/invoices-v2", "POST /api/admin/invoices/{invoice_id}/mark-paid-v2", "POST /api/admin/payments/{payment_id}/refund-v2", "POST /api/admin/users/{internal_user_id}/bonus-v2", "POST /api/admin/users/{internal_user_id}/bonus/{bonus_id}/cancel-v2", "POST /api/admin/users/{internal_user_id}/apply-promo-v2", "POST /api/admin/users/{internal_user_id}/referral-reward-v2", "POST /api/admin/payments/{payment_id}/simulate-v2", "POST /api/admin/payments/reconcile-v2", "POST /api/admin/payments/notifications/process-v2"],
+      "evidence": "The two declared entitlement routes have five-repeat same-command HTTP races, distinct-debit and conflict transaction tests and a versioned real-container proof gate. Those cases do not close the remaining routes listed here. Bonus cancellation still reads granted status and balance before unconditional ledger/status writes, so concurrent requests can both debit.",
       "remediation": "Add exact concurrent characterization per changed invariant and repeat that node five times; do not repeat the whole Full suite.",
-      "required_tests": ["two concurrent same-key calls", "single ledger/obligation/delivery outcome", "deterministic stored response or documented conflict"]
+      "required_tests": ["two concurrent same-key calls", "single ledger/obligation/delivery outcome", "deterministic stored response or documented conflict"],
+      "status": "partial",
+      "resolved_routes": ["POST /api/admin/users/{internal_user_id}/tokens-v2", "POST /api/admin/users/{internal_user_id}/plan-v2"]
     },
     {
       "id": "AM-007",
@@ -486,29 +452,9 @@ SHA. Это не `DEPLOYED` и не `OPERATIONALLY VERIFIED`.
       "remediation": "Characterize two independent admin sessions racing reciprocal demotions, then enforce a transactional last-admin invariant with a deterministic loser outcome and audit record.",
       "required_tests": ["two admin sessions race reciprocal demotions", "at least one admin remains after every outcome", "loser result and audit record are deterministic", "repeat the exact race test five times"]
     }
-  ]
+  ],
+  "source_sha_role": "historical-discovery-checkpoint; current code is bound by fingerprints and exact-head CI receipts",
+  "resolution_package": "ADMIN-COMMAND-IDEMPOTENCY-001"
 }
 ```
 <!-- admin-mutation-audit-json:end -->
-
-## Remediation order
-
-Не исправлять все gaps одним PR. Рекомендуемый порядок отдельных packages:
-
-1. `ADMIN-ROLE-LAST-ADMIN-RACE-001`: двухсессионная last-admin race
-   characterization и transactional invariant.
-2. `ADMIN-COMMAND-IDEMPOTENCY-001`: общий durable command contract и
-   `tokens-v2` + `plan-v2` characterization.
-3. `ADMIN-INVOICE-IDEMPOTENCY-001`: invoice creation и mandatory/conflict-safe
-   command key.
-4. `ADMIN-LOYALTY-IDEMPOTENCY-001`: bonus/promo/referral command identity.
-5. `ADMIN-PAYMENT-MAINTENANCE-001`: fake-provider replay/error/race coverage для
-   simulate/reconcile/notification processing плюс отдельный explicit operator
-   authorization и redacted receipt contract до любой live-capable ветки.
-
-Каждый package должен заново проверить overlap и читать только нужные symbols.
-
-## Verification boundary
-
-Этот audit использует source, generated route evidence и temporary/fake tests.
-Он не проверяет production DB, реальную YooKassa, SMTP или развернутую версию.

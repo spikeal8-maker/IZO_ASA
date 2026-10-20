@@ -11,6 +11,7 @@ import main
 
 from app.database import (
     ACCOUNT_VERIFICATION_MIGRATION,
+    ADMIN_COMMANDS_MIGRATION,
     ADMIN_NOTIFICATION_DELIVERY_MIGRATION,
     ADMIN_NOTIFICATIONS_MIGRATION,
     BASE_SCHEMA_SQL,
@@ -577,47 +578,21 @@ def test_init_db_records_legacy_baseline_once(tmp_path, monkeypatch):
         rows = conn.execute(
             "SELECT version, name, checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert [dict(row) for row in rows] == [
-            {
-                "version": LEGACY_BASELINE_MIGRATION.version,
-                "name": LEGACY_BASELINE_MIGRATION.name,
-                "checksum": LEGACY_BASELINE_MIGRATION.checksum,
-            },
-            {
-                "version": ADMIN_NOTIFICATIONS_MIGRATION.version,
-                "name": ADMIN_NOTIFICATIONS_MIGRATION.name,
-                "checksum": ADMIN_NOTIFICATIONS_MIGRATION.checksum,
-            },
-            {
-                "version": ADMIN_NOTIFICATION_DELIVERY_MIGRATION.version,
-                "name": ADMIN_NOTIFICATION_DELIVERY_MIGRATION.name,
-                "checksum": ADMIN_NOTIFICATION_DELIVERY_MIGRATION.checksum,
-            },
-            {
-                "version": ACCOUNT_VERIFICATION_MIGRATION.version,
-                "name": ACCOUNT_VERIFICATION_MIGRATION.name,
-                "checksum": ACCOUNT_VERIFICATION_MIGRATION.checksum,
-            },
-            {
-                "version": PHONE_CHAT_HISTORY_MIGRATION.version,
-                "name": PHONE_CHAT_HISTORY_MIGRATION.name,
-                "checksum": PHONE_CHAT_HISTORY_MIGRATION.checksum,
-            },
-            {
-                "version": GENERATION_TRIAL_MIGRATION.version,
-                "name": GENERATION_TRIAL_MIGRATION.name,
-                "checksum": GENERATION_TRIAL_MIGRATION.checksum,
-            },
-            {
-                "version": PHONE_CHAT_REQUEST_LIFECYCLE_MIGRATION.version,
-                "name": PHONE_CHAT_REQUEST_LIFECYCLE_MIGRATION.name,
-                "checksum": PHONE_CHAT_REQUEST_LIFECYCLE_MIGRATION.checksum,
-            },
-        ]
-        assert (
-            sqlite_user_version(conn)
-            == PHONE_CHAT_REQUEST_LIFECYCLE_MIGRATION.version
+        expected_migrations = (
+            LEGACY_BASELINE_MIGRATION,
+            ADMIN_NOTIFICATIONS_MIGRATION,
+            ADMIN_NOTIFICATION_DELIVERY_MIGRATION,
+            ACCOUNT_VERIFICATION_MIGRATION,
+            PHONE_CHAT_HISTORY_MIGRATION,
+            GENERATION_TRIAL_MIGRATION,
+            PHONE_CHAT_REQUEST_LIFECYCLE_MIGRATION,
+            ADMIN_COMMANDS_MIGRATION,
         )
+        assert [dict(row) for row in rows] == [
+            {"version": migration.version, "name": migration.name, "checksum": migration.checksum}
+            for migration in expected_migrations
+        ]
+        assert sqlite_user_version(conn) == ADMIN_COMMANDS_MIGRATION.version
         assert conn.execute(
             "SELECT COUNT(*) FROM admin_notifications"
         ).fetchone()[0] == 0
@@ -626,7 +601,7 @@ def test_init_db_records_legacy_baseline_once(tmp_path, monkeypatch):
 def test_init_db_rejects_newer_database_before_schema_mutation(tmp_path, monkeypatch):
     path = tmp_path / "newer-init.sqlite3"
     with open_sqlite(path) as conn:
-        conn.execute("PRAGMA user_version = 8")
+        conn.execute("PRAGMA user_version = 9")
     monkeypatch.setattr(main, "DB_PATH", path)
 
     with pytest.raises(RuntimeError, match="DATABASE_SCHEMA_VERSION_UNSUPPORTED"):
@@ -639,4 +614,4 @@ def test_init_db_rejects_newer_database_before_schema_mutation(tmp_path, monkeyp
         }
         assert "schema_migrations" not in tables
         assert "users" not in tables
-        assert sqlite_user_version(conn) == 8
+        assert sqlite_user_version(conn) == 9

@@ -3,9 +3,10 @@
 // quick actions in every row + a compact two-column user card (actions above the fold).
 // Every risky action requires a reason and is written to audit_logs. No tokens/hashes
 // are ever requested or shown.
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactElement } from 'react'
 import { APP_BUILD_LABEL } from './diagMeta'
+import { createAdminCommandClient } from './adminCommand'
 import { avatarPresets } from './profileSupport'
 import './crmViewport.css'
 import './crmDossier.css'
@@ -286,14 +287,32 @@ function ActionConfirm({ target, kind, preset, context, onClose, onDone }: {
   target: CrmUserRow; kind: ActKind; preset?: string; context?: AnyRec; onClose: () => void; onDone: () => void
 }): ReactElement {
   const isAdmin = target.role === 'admin'
-  const [reason, setReason] = useState('')
-  const [value, setValue] = useState(preset ?? (kind === 'profile' ? String(target.display_name ?? '') : ''))
+  const iuid = target.internal_user_id
+  const [commandClient] = useState(() => createAdminCommandClient({
+    getItem: key => window.sessionStorage.getItem(key),
+    setItem: (key, value) => window.sessionStorage.setItem(key, value),
+    removeItem: key => window.sessionStorage.removeItem(key),
+  }, adminPost))
+  const [recoveredCommand] = useState(() => iuid && (kind === 'tokens' || kind === 'plan')
+    ? commandClient.recover(`/admin/users/${encodeURIComponent(iuid)}/${kind}-v2`) : null)
+  const [reason, setReason] = useState(String(recoveredCommand?.reason ?? ''))
+  const [value, setValue] = useState(recoveredCommand
+    ? String(kind === 'tokens' ? recoveredCommand.delta : recoveredCommand.plan)
+    : preset ?? (kind === 'profile' ? String(target.display_name ?? '') : ''))
   const [tokens, setTokens] = useState(kind === 'invoice' ? '0' : '')
   const [bonusType, setBonusType] = useState('manual')
   const [email, setEmail] = useState(typeof target.email === 'string' ? target.email : '')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
-  const iuid = target.internal_user_id
+  const mounted = useRef(false)
+  const closeTimer = useRef<number | undefined>(undefined)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      window.clearTimeout(closeTimer.current)
+    }
+  }, [])
   const title: Record<ActKind, string> = {
     tokens: 'Изменить токены', discount: 'Персональная скидка', role: isAdmin ? 'Снять админа' : 'Сделать админом', plan: 'Изменить тариф',
     profile: 'Изменить профиль', ban: 'Забанить / отключить', unban: 'Разбанить', reset: 'Сбросить пароль', deactivate: 'Деактивировать',
@@ -330,10 +349,10 @@ function ActionConfirm({ target, kind, preset, context, onClose, onDone }: {
     setBusy(true); setMsg('')
     const base = `/admin/users/${encodeURIComponent(iuid)}`
     let res: { ok: boolean; status: number; detail?: string } = { ok: false, status: 0 }
-    if (kind === 'tokens') { const d = Number(value); if (!d) { setBusy(false); setMsg('Введите ненулевое число.'); return } res = await adminPost(`${base}/tokens-v2`, { delta: d, reason }) }
+    if (kind === 'tokens') { const d = Number(value); if (!d) { setBusy(false); setMsg('Введите ненулевое число.'); return } res = await commandClient.submit(`${base}/tokens-v2`, { delta: d, reason }) }
     else if (kind === 'discount') { const percent = Number(value); if (!Number.isInteger(percent) || percent < 0 || percent > 90) { setBusy(false); setMsg('Скидка должна быть целым числом от 0 до 90%.'); return } res = await adminPost(`${base}/discount-v2`, { percent, reason }) }
     else if (kind === 'role') res = await adminPost(`${base}/role-v2`, { role: isAdmin ? 'user' : 'admin', reason })
-    else if (kind === 'plan') { if (!value) { setBusy(false); setMsg('Выберите тариф.'); return } res = await adminPost(`${base}/plan-v2`, { plan: value, reason }) }
+    else if (kind === 'plan') { if (!value) { setBusy(false); setMsg('Выберите тариф.'); return } res = await commandClient.submit(`${base}/plan-v2`, { plan: value, duration_days: recoveredCommand?.duration_days ?? 30, reason }) }
     else if (kind === 'profile') { const body: Record<string, unknown> = { reason }; if (value.trim()) body.display_name = value.trim(); if (email.trim()) body.email = email.trim(); if (!body.display_name && !body.email) { setBusy(false); setMsg('Нет полей для изменения.'); return } res = await adminPost(`${base}/profile-v2`, body) }
     else if (kind === 'ban') res = await adminPost(`${base}/block-v2`, { reason })
     else if (kind === 'deactivate') res = await adminPost(`${base}/block-v2`, { reason })
@@ -380,8 +399,13 @@ function ActionConfirm({ target, kind, preset, context, onClose, onDone }: {
       if (!tokenAmount || tokenAmount <= 0) { setBusy(false); setMsg('Укажите положительную корректировку.'); return }
       res = await adminPost(`${base}/referral-reward-v2`, { token_amount: tokenAmount, reason, idempotency_key: `ref-ui-${iuid}-${Date.now()}` })
     }
+    if (!mounted.current) return
     setBusy(false)
-    if (res.ok) { setMsg('Готово. Записано в audit log.'); onDone(); window.setTimeout(onClose, 650) }
+    if (res.ok) {
+      setMsg('Готово. Записано в audit log.'); onDone()
+      window.clearTimeout(closeTimer.current)
+      closeTimer.current = window.setTimeout(() => { if (mounted.current) onClose() }, 650)
+    }
     else setMsg(res.detail || (res.status === 403 ? 'Недостаточно прав или действие запрещено.' : 'Не удалось выполнить действие.'))
   }
 

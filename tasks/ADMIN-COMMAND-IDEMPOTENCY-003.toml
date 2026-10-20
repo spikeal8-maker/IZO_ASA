@@ -1,0 +1,140 @@
+manifestVersion = 1
+id = "ADMIN-COMMAND-IDEMPOTENCY-003"
+baseSha = "51543df2b6a559d693e3ed75b11baeacdb9033d3"
+goal = "Close AM-001, AM-002 and the corresponding AM-006 races for trusted admin token adjustments and plan activation through one durable atomic command contract."
+userOutcome = "An administrator can safely retry an interrupted token or tariff change: the first result, balance and plan dates are preserved, and a changed command cannot reuse the original key."
+beforeScenario = "Continue the reviewed bounded source from finished checkpoints d096600385ab1395823ff3103b7e96a1e920da17 and 57a739d94bab5c41b952f8e0e3b9403bdd00de32, then failed PR198 head4062dccbbe2ab4adba653e6d810ea5245069dad0. Fresh main51543df2b6a559d693e3ed75b11baeacdb9033d3 retains the accepted hosted CI prerequisite. PR198 stays historical: its Docker workflow had invalid job-level runner context and its history-scoped secret gate identified a constant test command key. Transfer identical product source, apply independently reviewed step-env and runtime-UUID corrections, refresh existing fingerprints, and run every actual gate on new003. No scanner exception or history rewrite."
+afterScenario = "One persistent command row, ledger or tariff effect and audit record commit in the same SQLite transaction. Repeated or concurrent requests with the same command return the stored response; missing/invalid keys and conflicting reuse are rejected. CRM keeps a pending command key across uncertain retries; production remains unchanged."
+nonGoals = [
+  "Do not implement invoice/loyalty/payment-maintenance or live mail/provider commands; AM003-AM008 outside the two declared routes remain open.",
+  "Do not alter role mutation, generation leases, worker ownership, Phone media cancellation or the accepted D1/D2 assertions.",
+  "Do not merge or extend PR195, raise its36000 scope limit, or replace its historical exact-SHA evidence.",
+  "No production data/secrets/network/services, real payments or messages, shared Docker lifecycle, deployment or binary downgrade on a newer schema.",
+]
+declaredFiles = [
+  "backend/main.py",
+  "backend/app/services/admin_commands.py",
+  "backend/app/services/admin_entitlement_commands.py",
+  "backend/app/database/admin_command_schema.py",
+  "backend/app/database/migrations.py",
+  "backend/app/database/__init__.py",
+  "architecture/contract.json",
+  "backend/test_admin_command_idempotency.py",
+  "backend/test_admin_command_transactions.py",
+  "backend/test_admin_command_migration.py",
+  "backend/test_admin_actions.py",
+  "backend/test_product_consistency_20e2b.py",
+  "backend/test_promo_bonus_referral_v2.py",
+  "frontend/src/adminCommand.ts",
+  "frontend/src/adminAnalytics.tsx",
+  "frontend/adminCommand.test.ts",
+  "frontend/e2e-admin-command-retry.mjs",
+  "tools/test_admin_mutation_audit.py",
+  "tools/docker_admin_commands.py",
+  "tools/docker_admin_commands_runtime.py",
+  "tools/test_docker_admin_commands.py",
+  ".github/workflows/admin-command-docker.yml",
+  "docs/admin-mutation-audit.md",
+  "docs/admin-entitlement-command-contract.md",
+  "docs/admin-change-contract.md",
+  "docs/admin-panel-guide.md",
+  "docs/context/admin-control-center.md",
+  "backend/SYMBOL_MAP.md",
+  "docs/generated/architecture-inventory.json",
+  "docs/generated/architecture-inventory.md",
+  "docs/generated/context-index.json",
+  "docs/generated/context-index.md",
+  "docs/generated/frontend-map.json",
+  "docs/generated/frontend-map.md",
+]
+allowedPatterns = [
+  "backend/test_database_modules.py",
+  "backend/test_social_account_verification.py",
+]
+forbiddenPatterns = [
+  "ops/release/**",
+  "architecture/security-policy.json",
+  "architecture/test-health-policy.json",
+  "backend/app/services/generation_claims.py",
+  "backend/app/services/generation_leases.py",
+  "backend/app/services/generation_dispatch.py",
+  "backend/app/services/ltx_video/**",
+  "frontend/src/phone/**",
+  ".github/workflows/ci.yml",
+  ".github/workflows/file-hygiene.yml",
+]
+protectedFilesTouched = [
+  "backend/main.py",
+  "architecture/contract.json",
+]
+domain = "admin-control-center"
+riskClass = "high-assurance"
+changeClass = "implementation"
+maxProductionFiles = 12
+maxChangedLines = 8000
+acceptance = [
+  "AM001 and AM002 reject missing/invalid command keys without financial effects, require a current trusted admin, and normalize a nonempty bounded reason before mutation.",
+  "Replay after lost response/restart returns the first exact response without another token ledger entry, tariff grant, period reset or audit mutation.",
+  "Command keys are globally unique within admin_commands and strictly bound to actor, target, operation and normalized payload; current trusted-admin checks precede replay. Concurrent same-key requests commit one command/effect/audit; any conflicting binding produces a generic409.",
+  "Distinct concurrent debits cannot overwrite balances or violate the nonnegative invariant. Failure after any command/effect/audit write rolls the whole transaction back.",
+  "CRM generates one key per logical action, persists an uncertain pending attempt before sending, retains it on network/server errors, and does not create a new financial command for retry or duplicate click.",
+  "The additive migration preserves users/ledger/tariff records, is repeatable, rejects mismatched applied metadata and is exercised on a disposable v7 database; older software uses a restored pre-upgrade snapshot.",
+  "Existing controls for the remaining17 audited routes and AM003-AM009 evidence are retained; delegated route evidence includes both new service sources and the targeted tests.",
+  "Actual isolated Docker evidence on the code SHA proves authenticated concurrent requests, single effects and response replay after container recreation; no unit-only full Docker acceptance claim.",
+]
+requiredEvidence = [
+  "Fresh main/source identity, canonical003 start after clean002 finish at4062, and measured bounded scope. Use official ownership registration without modifying existing Task bases. Preserve PR198, its failed artifacts and all001/002 branches and receipts; corrections have patch SHA849af181fbae4c5d3c98e9bf789a2150550f9a52dbda748764ca4292d624f6a7.",
+  "Characterization failing before the fix and passing after it on temporary SQLite; exact focused race/replay cases repeat five times.",
+  "Migration upgrade/rollback tests, negative auth/input/key conflict tests and regression results for admin actions and tariff consistency.",
+  "Browser helper tests for lost response/retry, conflict and success/duplicate-click, plus real desktop/mobile CRM evidence in an owned isolated environment.",
+  "Generator-owned backend, architecture, frontend and context maps; reduce the backend/main.py file/symbol budgets by the measured extraction, preserving every unrelated limit.",
+  "Exact-head safe GitHub CI after the separate hosted-runner prerequisite is accepted, independent review and source-bound Docker receipt. No self-hosted production runner execution.",
+]
+targetedTests = [
+  "backend/test_admin_command_idempotency.py",
+  "backend/test_admin_command_transactions.py",
+  "backend/test_admin_command_migration.py",
+  "backend/test_admin_actions.py",
+  "backend/test_product_consistency_20e2b.py",
+  "backend/test_promo_bonus_referral_v2.py",
+  "tools/test_admin_mutation_audit.py",
+  "tools/test_admin_docs_contract.py",
+  "frontend/adminCommand.test.ts",
+  "frontend/e2e-admin-command-retry.mjs",
+  "tools/test_docker_admin_commands.py",
+  "Focused frontend typecheck/lint/build and owned desktop/mobile CRM retry browser proof.",
+  "Source-bound isolated Docker command concurrency, recreation/replay and unchanged ledger/audit evidence.",
+]
+fileGrowthExpectations = [
+  "backend/main.py loses the two mutation bodies to cohesive services; imports/models/startup wiring cannot exceed the removed lines/bytes or add net route/symbol count. Lower its corresponding architecture/contract.json budgets by the measured extraction in the same package.",
+  "Each new handwritten module/test stays below500 lines and tests below24KiB. Three existing legacy admin documents must not grow in lines or bytes; the extracted command contract remains within200 lines and12KiB. Do not raise thresholds.",
+  "New migration SQL lives in a small module; the version is allocated only after a fresh registry/branch check in the active official worktree.",
+  "The8000 whole-main cap bounds eight application files, a narrow hosted-only Docker workflow and two finite drivers/tests plus deterministic generated-map churn; no inherited PR195 scope is part of this main-based task.",
+]
+forbiddenOperations = [
+  "direct-main-write",
+  "force-push",
+  "production-mutation",
+  "production-data",
+  "production-secrets",
+  "real-provider-call",
+  "paid-resource",
+  "host-network-settings-change",
+  "foreign-resource-delete",
+  "global-prune",
+  "shared-docker-restart",
+  "merge-before-gates",
+  "Do not publish a product branch before the independent hosted-only CI prerequisite is accepted.",
+  "Do not activate overlap with Phone ownership of generated frontend maps; use official start/finish sequencing.",
+]
+rollbackBoundary = "Before deployment rollback is the ordinary code revert/branch disposal under ownership. The additive schema is never downgraded in place: old software requires the verified pre-upgrade SQLite/media snapshot. No installed or production database is used by this package."
+
+[[scopeExpansions]]
+path = "backend/test_database_modules.py"
+reason = "Full CI exposed an existing caller expectation that must match additive admin schema version8 without weakening assertions."
+recordedAtUtc = "2026-10-19T12:42:42.940428Z"
+
+[[scopeExpansions]]
+path = "backend/test_social_account_verification.py"
+reason = "Full CI exposed an existing caller expectation that must match additive admin schema version8 without weakening assertions."
+recordedAtUtc = "2026-10-19T12:42:43.817245Z"
