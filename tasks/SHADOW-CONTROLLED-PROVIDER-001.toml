@@ -1,0 +1,76 @@
+manifestVersion = 1
+id = "SHADOW-CONTROLLED-PROVIDER-001"
+baseSha = "9acd9df0e8f375b8711e6b4cc63d349aa7b4a70e"
+goal = "Provide a bounded loopback-only controllable fake Comfy HTTP fixture matching observed application wire contracts."
+userOutcome = "Isolated Shadow tests can observe provider acceptance, held completion and response loss without real model services."
+beforeScenario = "No independently controlled HTTP fixture proves the real application Comfy client wire contract or exposes acceptance separately from a lost response."
+afterScenario = "An owned bounded test HTTP fixture supports the proven client discovery, submission, history, upload and PNG result contracts with redacted counters and controlled outcomes."
+nonGoals = [
+  "application auth, job, queue or billing changes",
+  "application exactly-once claims",
+  "production",
+  "real model execution",
+  "Docker or VM lifecycle",
+  "CI changes",
+  "external requests",
+  "all Comfy features",
+]
+declaredFiles = [
+  "tools/docker_shadow_provider.py",
+  "tools/test_docker_shadow_provider.py",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "docs/**",
+  ".github/**",
+  "architecture/**",
+]
+protectedFilesTouched = [
+]
+domain = "container-shadow"
+riskClass = "high-assurance"
+changeClass = "tooling"
+maxProductionFiles = 0
+maxChangedLines = 1000
+acceptance = [
+  "Only explicit numeric loopback addresses and unoccupied ports from 20000 through 65535 are permitted; provider and token-controlled control listener are distinct.",
+  "HTTP request line, headers, body, absolute read deadline, concurrency, retained jobs/events, lifetime and shutdown are bounded; secrets and request bodies never enter receipts or logs.",
+  "Only observed Comfy discovery, workflow, prompt, history, view, upload, interrupt and free contracts are served without outbound requests or subprocesses.",
+  "Generated prompt IDs and acceptance counts distinguish accepted/held/completed/expired outcomes; duplicate client identity is not falsely deduplicated.",
+  "Accepted-then-disconnect and bounded accepted-then-silence are separately observable scenarios, without claiming transport errors are equivalent.",
+  "Real import-safe application HTTP client tests use owned local HTTP listeners and validate fixed PNG result bytes and resource cleanup.",
+  "No application authentication, job/queue, billing, production or Docker behavior is bypassed or accepted by this fixture.",
+]
+requiredEvidence = [
+  "observed application client wire contract",
+  "focused actual HTTP tests and owned listener cleanup",
+  "deadline/body/header/concurrency/retention/control-auth/redaction tests",
+  "package enforcement",
+  "git diff --check",
+  "gitleaks",
+  "independent source review before commit or push",
+]
+targetedTests = [
+  "python -m pytest tools/test_docker_shadow_provider.py -q",
+]
+fileGrowthExpectations = [
+  "Two cohesive fixture/test modules only; source remains below the reviewed size budget and avoids product changes.",
+]
+forbiddenOperations = [
+  "production",
+  "real-provider-call",
+  "external-network-call",
+  "docker-lifecycle",
+  "vm-lifecycle",
+  "CI-run",
+  "auth-bypass",
+  "billing-bypass",
+  "merge",
+  "force-push",
+  "commit-before-independent-review",
+]
+rollbackBoundary = "Stop only owned fixture listeners, join owned bounded workers and discard only in-memory test state; no foreign resource mutation."
