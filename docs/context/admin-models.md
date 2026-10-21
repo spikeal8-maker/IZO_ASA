@@ -22,7 +22,7 @@ updated: 2026-09-16
 - OpenRouter pages: text, images, video, audio, 3D, settings.
 - Ollama: `/admin/models/ollama`, `frontend/src/adminOllamaPage.tsx`. Этот UI использует существующие защищённые `/api/admin/assistants`, `/api/admin/assistants/test` и `/api/admin/settings/assistant_models`.
 - `frontend/src/adminModels.tsx` — большой shell/hotspot; не читать целиком.
-- Config UI > Text сохраняет прежние настройки; новая вкладка повторно использует тот же выделенный компонент без второго источника настроек.
+- Config UI > Text сохраняет прежние настройки; новая вкладка повторно использует тот же выделенный компонент без второго источника настроек. Сохранение только локальных параметров Ollama не расширяет массив `chat.enabledApiModels` до всего `chat.publishedApiModels`, чтобы не включить отключённые платные модели.
 - Адрес Ollama показывается из backend-ответа, но не редактируется через браузер. Текущий Shadow запрещает внешний выход; вкладка не разрешает сеть и не доказывает inference из контейнера.
 - `frontend/src/adminTextModelCatalog.tsx` — text-model catalog/economics leaf.
 

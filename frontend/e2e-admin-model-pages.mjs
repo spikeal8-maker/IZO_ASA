@@ -68,6 +68,7 @@ async function mockAdmin(page) {
       videoUsage: { modes: [], models: [], shadowEconomics: {} },
     },
   })))
+  await page.route('**/api/admin/assistants/test', (route) => route.fulfill(json({ ok: true, provider: 'local', model: 'ornith-1.5:9b', improvedPrompt: 'Тестовый локальный ответ', latencyMs: 20 })))
   await page.route('**/api/admin/settings/assistant_models', (route) => {
     const settings = JSON.parse(route.request().postData() || '{}').settings
     return route.fulfill(json({ ok: true, settings }))
@@ -78,7 +79,7 @@ async function mockAdmin(page) {
     config: {
       voice: { localModel: 'gemma4:12b', qwenModel: '', qwenBaseUrl: '', apiModel: '', route: 'local', queueTimeoutSeconds: 1, requestTimeoutSeconds: 45, minRecordingSeconds: 1 },
       improve: { route: 'local', localModel: 'gemma4:12b', apiModel: '', localTimeoutSeconds: 30, apiTimeoutSeconds: 10, systemPrompt: '', modePrompts: {} },
-      chat: { enabled: true, localEnabled: true, localModel: 'gemma4:12b', localLabel: 'ИЗО Чат', localTokenCost: 0, defaultModel: 'provider/chat', publishedApiModels: ['provider/chat'], enabledApiModels: ['provider/chat'], apiTokenCosts: { 'provider/chat': 0.2 }, apiTierAccess: { mini: ['provider/chat'], plus: [], pro: ['provider/chat'], business: [] }, contextChars: 60000, localNumCtx: 16384, localTimeoutSeconds: 60, apiTimeoutSeconds: 60 },
+      chat: { enabled: true, localEnabled: true, localModel: 'gemma4:12b', localLabel: 'ИЗО Чат', localTokenCost: 0, defaultModel: 'provider/chat', publishedApiModels: ['provider/chat', 'provider/disabled'], enabledApiModels: ['provider/chat'], apiTokenCosts: { 'provider/chat': 0.2 }, apiTierAccess: { mini: ['provider/chat'], plus: [], pro: ['provider/chat'], business: [] }, contextChars: 60000, localNumCtx: 16384, localTimeoutSeconds: 60, apiTimeoutSeconds: 60 },
     },
     ollama: { ok: true, baseUrl: 'http://ollama.test:11434', models: [{ name: 'gemma4:12b', size: 8021618941, details: { parameter_size: '12B', quantization_level: 'Q4' } }, { name: 'ornith-1.5:9b', size: 6550813657, details: { parameter_size: '9B', quantization_level: 'Q4' } }] },
     ollamaResidency: { ok: true, models: [{ name: 'gemma4:12b', size_vram: 4294967296 }] }, openrouterConfigured: true,
@@ -180,10 +181,16 @@ async function verify(viewport) {
       assert((await page.locator('body').innerText()).includes('4.00 ГиБ'), 'resident GPU VRAM was not displayed')
       assert((await page.locator('body').innerText()).includes('http://ollama.test:11434'), 'server URL was not displayed')
       await page.getByLabel('Основная модель Ollama').selectOption('ornith-1.5:9b')
+      const localTest = page.waitForRequest((req) => req.url().includes('/api/admin/assistants/test') && req.method() === 'POST')
+      await page.getByRole('button', { name: 'Проверить Ollama' }).click()
+      const testBody = JSON.parse((await localTest).postData())
+      assert(testBody.provider === 'local' && testBody.config.localModel === 'ornith-1.5:9b', 'Ollama test must use only the selected local model')
       const request = page.waitForRequest((req) => req.url().includes('/api/admin/settings/assistant_models') && req.method() === 'POST')
       await page.getByRole('button', { name: 'Сохранить настройки Ollama' }).click()
       const saved = JSON.parse((await request).postData())
       assert(saved.settings?.chat?.localModel === 'ornith-1.5:9b', 'model selection was not submitted through existing admin settings API')
+      assert(JSON.stringify(saved.settings.chat.publishedApiModels) === JSON.stringify(['provider/chat', 'provider/disabled']), 'Ollama edit changed published cloud models')
+      assert(JSON.stringify(saved.settings.chat.enabledApiModels) === JSON.stringify(['provider/chat']), 'Ollama edit implicitly enabled a disabled paid cloud model')
       assert(!(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1)), `Ollama overflows at ${viewport.width}px`)
       await page.screenshot({ path: `${outDir}/admin-ollama-${viewport.width}.png`, fullPage: true })
       const onlineSnapshot = await page.evaluate(async () => (await fetch('/api/admin/assistants')).json())

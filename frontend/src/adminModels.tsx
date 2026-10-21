@@ -1134,11 +1134,12 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
   }, [assistantData, loadAssistants, pageTab])
 
   const updateAssistantConfig = (next: AssistantConfig) => setAssistantData((current) => current ? { ...current, config: next } : current)
-  const saveAssistantConfig = async () => {
+  const saveAssistantConfig = async (scope: 'general' | 'ollama' = 'general') => {
     if (!assistantData) return
     setAssistantBusy(true)
     const publishedApiModels = assistantData.config.chat.publishedApiModels || assistantData.config.chat.enabledApiModels
-    const normalizedConfig = {
+    // A local-only edit must not implicitly enable any published paid/cloud model.
+    const normalizedConfig = scope === 'ollama' ? assistantData.config : {
       ...assistantData.config,
       chat: {
         ...assistantData.config.chat,
@@ -1588,7 +1589,7 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
     onChangeChat={(patch) => {
       if (assistantData) updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, ...patch } })
     }}
-    onSave={() => void saveAssistantConfig()}
+    onSave={() => void saveAssistantConfig('ollama')}
     onRefresh={() => void loadAssistants()}
     onTest={() => void testPromptAssistant('local', assistantData?.config.chat.localModel)}
   />
