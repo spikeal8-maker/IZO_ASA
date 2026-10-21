@@ -42,7 +42,7 @@ ComfyUI, Ollama и Qwen ASR — отдельные host-native GPU/ASR-серв�
 
 ## Как найти правильный документ
 
-- **Единственная точка входа бота:** [AI_START_HERE.md](../AI_START_HERE.md) → [AGENTS.md](../AGENTS.md) → [docs/NOW.md](NOW.md) согласно порядку чтения.
+- **Порядок входа бота:** только [AI_START_HERE.md](../AI_START_HERE.md); здесь он не дублируется.
 - **Актуальный фронтенд:** [frontend map](generated/frontend-map.md) и [context/frontend-studio.md](context/frontend-studio.md).
 - **API, сервисы, хранение:** [architecture inventory](generated/architecture-inventory.md) и `backend/SYMBOL_MAP.md`.
 - **Критические пользовательские цепочки:** [product-flow map](generated/product-flow-map.md).

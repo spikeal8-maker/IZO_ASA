@@ -18,6 +18,8 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
+from ...integrations.phone_speech_http import load_settings, synthesize as synthesize_http
+
 
 class PhoneSpeechRequest(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
@@ -114,6 +116,10 @@ def resolve_phone_speech_provider(
         return PhoneSpeechProvider("windows_speech", _synthesize_windows_speech)
     if configured == "fake":
         return PhoneSpeechProvider("fake_speech", _synthesize_fake_speech)
+    if configured == "http":
+        settings = load_settings(source)
+        return PhoneSpeechProvider("windows_speech_http", lambda text, voice, rate, path:
+                                   synthesize_http(settings, text, voice, rate, path))
     raise PhoneSpeechProviderError("unsupported phone speech provider")
 
 

@@ -8,6 +8,12 @@ from collections.abc import Callable, Mapping
 from typing import Any, Protocol
 
 from ..security.trial_access import settle_trial_generation
+from . import generation_claims
+
+
+ADMISSION_JOB_PREFIX = "job_request_"
+ADMISSION_METADATA_KEY = "_generationAdmission"
+WORKER_CLAIM_METADATA_KEY = generation_claims.METADATA_KEY
 
 
 PERSISTED_JOB_SETTINGS_KEYS = (
@@ -156,6 +162,30 @@ def get_persisted_job_response(
     return job_response_from_row(row, image_row, model_display_name=model_display_name)
 
 
+def _runtime_settings(conn, job_id: str, settings: dict[str, Any], metadata):
+    """Preserve trusted private state; request payload cannot supply it."""
+    if metadata is not None and not job_id.startswith(ADMISSION_JOB_PREFIX):
+        raise ValueError("GENERATION_ADMISSION_JOB_ID_REQUIRED")
+    row = conn.execute("SELECT settings_json FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    previous = _safe_json_load(row["settings_json"]) if row is not None else {}
+    previous = previous if isinstance(previous, dict) else {}
+    private = {}
+    if job_id.startswith(ADMISSION_JOB_PREFIX):
+        if row is None and metadata is not None:
+            private[ADMISSION_METADATA_KEY] = metadata
+        elif ADMISSION_METADATA_KEY in previous:
+            private[ADMISSION_METADATA_KEY] = previous[ADMISSION_METADATA_KEY]
+    if WORKER_CLAIM_METADATA_KEY in previous:
+        private[WORKER_CLAIM_METADATA_KEY] = previous[WORKER_CLAIM_METADATA_KEY]
+    reserved = (ADMISSION_METADATA_KEY, WORKER_CLAIM_METADATA_KEY)
+    if private or any(key in settings for key in reserved):
+        settings = dict(settings)
+        for key in reserved:
+            settings.pop(key, None)
+        settings.update(private)
+    return settings
+
+
 def persist_job(
     conn: JobConnection,
     job: dict[str, Any],
@@ -165,11 +195,14 @@ def persist_job(
     request_provider: str,
     request_prompt: str,
     now_iso: str,
+    admission_metadata: dict[str, Any] | None = None,
 ) -> None:
+    generation_claims.check_persist(conn, str(job["id"]), str(job.get("status", "queued")))
     settings = request_data
     for key in PERSISTED_JOB_SETTINGS_KEYS:
         if key in job:
             settings[key] = job.get(key)
+    settings = _runtime_settings(conn, str(job["id"]), settings, admission_metadata)
     if str(job.get("status") or "").lower() in COMPACTABLE_JOB_STATUSES:
         settings = _compact_terminal_media(dict(settings))
     conn.execute(
@@ -203,18 +236,22 @@ def persist_job(
             job.get("completedAt"),
         ),
     )
+
+
 def persist_runtime_job(
     conn: JobConnection,
     job: dict[str, Any],
     *,
     request_data: dict[str, Any],
     now_iso: str,
+    admission_metadata: dict[str, Any] | None = None,
 ) -> None:
     persist_job(
         conn, job, request_data=request_data,
         request_mode=str(request_data.get("mode") or ""),
         request_provider=str(request_data.get("provider") or ""),
         request_prompt=str(request_data.get("prompt") or ""), now_iso=now_iso,
+        admission_metadata=admission_metadata,
     )
     settle_trial_generation(
         conn, str(job["id"]), job_status=str(job.get("status") or ""), now=now_iso,

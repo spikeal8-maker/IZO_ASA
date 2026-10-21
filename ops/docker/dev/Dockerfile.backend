@@ -7,7 +7,8 @@ LABEL org.opencontainers.image.revision="${IZO_SOURCE_SHA}" \
       org.opencontainers.image.source="spikeal8-maker/IZO_ASA"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/opt/izo/backend
 
 WORKDIR /opt/izo/backend
 
@@ -20,6 +21,8 @@ RUN python -m pip install --no-cache-dir --disable-pip-version-check -r /tmp/req
     && rm /tmp/requirements.txt
 
 COPY --chown=10001:10001 backend/ /opt/izo/backend/
+
+COPY --chown=10001:10001 tools/docker_shadow_provider.py tools/docker_shadow_fixture.py /opt/izo/fixtures/
 
 USER 10001:10001
 
