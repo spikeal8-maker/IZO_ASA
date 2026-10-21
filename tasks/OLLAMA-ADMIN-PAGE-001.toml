@@ -1,0 +1,65 @@
+manifestVersion = 1
+id = "OLLAMA-ADMIN-PAGE-001"
+baseSha = "51543df2b6a559d693e3ed75b11baeacdb9033d3"
+goal = "Give Ollama its own admin Models navigation page, reusing existing trusted server-side assistant status and settings without opening provider egress."
+userOutcome = "Administrators can open /admin/models/ollama, see backend-reported availability, installed and GPU-resident models, choose the local chat model, timeout and context and save via existing protected settings; failure is visible, not a fake success."
+beforeScenario = "Ollama chat controls are hidden under Config UI > Text and prompt improvement; no dedicated Models navigation entry exists. The default Shadow denies outbound Ollama requests."
+afterScenario = "A standalone Ollama page and preserved Config UI Text share one reusable component. Admin-only server responses feed status; settings reuse existing authenticated persistence. Tests verify desktop/mobile routing, unloaded/offline statuses and no browser-side Ollama API calls."
+nonGoals = [
+  "No host, Docker, DNS, firewall, VPN, proxy, FRP or provider-network changes.",
+  "No changes to production, demo Shadow, databases, authentication, payment or secrets.",
+  "No new Ollama HTTP endpoint, remote URL management, multi-node ComfyUI or cloud failover.",
+  "Do not remove or weaken Config UI image, video, FLUX Klein, LoRA or Text configuration.",
+]
+declaredFiles = [
+  "frontend/src/adminModelsRoutes.ts",
+  "frontend/src/adminModels.tsx",
+  "frontend/src/adminOllamaPage.tsx",
+  "frontend/e2e-admin-model-pages.mjs",
+  "docs/context/admin-models.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "ops/**",
+  "frontend/src/newUi.tsx",
+  "frontend/src/LegacyApp.tsx",
+]
+protectedFilesTouched = [
+  "frontend/src/adminModels.tsx",
+]
+domain = "admin-models"
+riskClass = "standard"
+changeClass = "feature"
+maxProductionFiles = 3
+maxChangedLines = 1000
+acceptance = [
+  "Separate Ollama link in admin Models navigation and /admin/models/ollama across desktop/mobile.",
+  "Status, installed models, resident model VRAM, local primary model, context, timeout and user-access switches use trusted existing backend data.",
+  "Admin changes persist only via the existing authenticated settings endpoint; local model test cannot route to paid providers.",
+  "Config UI existing image/video/Text/FLUX Klein/LoRA controls remain functional and untouched in behavior.",
+  "Offline Shadow shows unavailable instead of claiming model inference; browser never contacts Ollama directly.",
+]
+requiredEvidence = [
+  "Exact source SHA, clean diff, reviewed source and scoped Task Contract.",
+  "Frontend typecheck/lint and Vite build; six viewport admin navigation/browser checks with fake admin status only.",
+  "No production or Shadow mutation, no personal or paid provider secrets.",
+]
+targetedTests = [
+  "Existing frontend/e2e-admin-model-pages.mjs",
+  "Frontend lint and TypeScript/Vite build",
+  "Local navigation, status, persistence and disabled-provider negative assertions",
+]
+fileGrowthExpectations = [
+  "Extract repeated Ollama Text panel from protected adminModels.tsx into a bounded leaf; no protected-hotspot growth.",
+  "No changes to backend schema, settings contracts or generated maps without reason and scope approval.",
+]
+forbiddenOperations = [
+  "production deployment",
+  "direct main push",
+  "Docker network/daemon or service mutations",
+  "billing or provider paid calls",
+  "credential or role changes",
+]
+rollbackBoundary = "Revert the one source PR; original Config UI text panel and canonical backend settings remain available without data migration."
