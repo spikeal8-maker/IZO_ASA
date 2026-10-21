@@ -7,6 +7,7 @@ import socket
 import sqlite3
 import subprocess
 import sys
+from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
 
@@ -41,16 +42,21 @@ def _active(tmp_path: Path, package_id: str):
 
 
 def _cleanup(worktree: Path, contract) -> None:
-    try:
-        status = lifecycle.environment_status(worktree)["status"]
-        if status == "ACTIVE":
-            lifecycle.env_down(worktree, production_contract=contract)
-        elif status == "STALE":
-            lifecycle.env_down(
-                worktree, recover_stale=True, production_contract=contract
-            )
-    except Exception:
-        pass
+    paths = derive_environment_paths(load_environment_identity(worktree))
+    state = json.loads(paths.environment_state_path.read_text(encoding="utf-8"))
+    status = lifecycle.environment_status(worktree)["status"]
+    lifecycle.env_down(
+        worktree, recover_stale=status == "STALE", production_contract=contract
+    )
+    assert lifecycle.environment_status(worktree)["status"] == "STOPPED"
+    receipt = json.loads(paths.receipt_path.read_text(encoding="utf-8"))
+    assert receipt["state"] == "stopped" and receipt["cleanup"] == "PASS"
+    assert not (paths.environment_root / "db").exists()
+    assert not paths.media_root.exists()
+    assert not paths.secret_root.exists()
+    assert not lifecycle._pid_alive(state["portLease"]["pid"])
+    for name in ("backend", "frontend"):
+        assert not lifecycle._port_open(state["ports"][name])
 
 
 def _prepare(worktree: Path, contract, **kwargs):
@@ -70,7 +76,7 @@ def test_prepare_creates_initialized_sqlite_fixture(tmp_path: Path) -> None:
         assert result["applicationReady"] == "PASS"
         assert result["databaseInitialization"] == "READY"
         assert paths.database_path.is_file()
-        with sqlite3.connect(paths.database_path) as conn:
+        with closing(sqlite3.connect(paths.database_path)) as conn:
             assert conn.execute("SELECT 1").fetchone()[0] == 1
     finally:
         _cleanup(worktree, contract)
@@ -80,7 +86,7 @@ def test_database_integrity_and_required_tables(tmp_path: Path) -> None:
     worktree, contract, paths = _active(tmp_path, "PKG-READY-TABLES")
     try:
         _prepare(worktree, contract)
-        with sqlite3.connect(paths.database_path) as conn:
+        with closing(sqlite3.connect(paths.database_path)) as conn:
             assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
             tables = {
                 row[0]
@@ -97,12 +103,12 @@ def test_database_initialization_is_idempotent(tmp_path: Path) -> None:
     worktree, contract, paths = _active(tmp_path, "PKG-READY-IDEMPOTENT")
     try:
         first = _prepare(worktree, contract)
-        with sqlite3.connect(paths.database_path) as conn:
+        with closing(sqlite3.connect(paths.database_path)) as conn:
             before = conn.execute(
                 "SELECT version, name, checksum FROM schema_migrations ORDER BY version"
             ).fetchall()
         second = _prepare(worktree, contract)
-        with sqlite3.connect(paths.database_path) as conn:
+        with closing(sqlite3.connect(paths.database_path)) as conn:
             after = conn.execute(
                 "SELECT version, name, checksum FROM schema_migrations ORDER BY version"
             ).fetchall()
@@ -111,6 +117,59 @@ def test_database_initialization_is_idempotent(tmp_path: Path) -> None:
         assert second["applicationReady"] == "PASS"
     finally:
         _cleanup(worktree, contract)
+
+
+@pytest.mark.parametrize("scenario", ("fixture", "tables", "idempotent", "query-error"))
+def test_sqlite_connections_close_before_owned_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scenario: str,
+) -> None:
+    connect, down = sqlite3.connect, lifecycle.env_down
+    connections: list[sqlite3.Connection] = []
+    cleanup_calls: list[Path] = []
+
+    class QueryFailureConnection(sqlite3.Connection):
+        def execute(self, statement, *args, **kwargs):
+            if statement == "SELECT 1":
+                raise RuntimeError("synthetic query failure")
+            return super().execute(statement, *args, **kwargs)
+
+    def tracked_connect(*args, **kwargs):
+        if scenario == "query-error":
+            kwargs["factory"] = QueryFailureConnection
+        connection = connect(*args, **kwargs)
+        connections.append(connection)
+        return connection
+
+    def checked_down(worktree, **kwargs):
+        cleanup_calls.append(worktree)
+        try:
+            assert connections
+            for connection in connections:
+                with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+                    connection.cursor()
+        finally:
+            for connection in connections:
+                connection.close()
+            result = down(worktree, **kwargs)
+        return result
+
+    monkeypatch.setattr(sqlite3, "connect", tracked_connect)
+    monkeypatch.setattr(lifecycle, "env_down", checked_down)
+    scenarios = {
+        "fixture": test_prepare_creates_initialized_sqlite_fixture,
+        "tables": test_database_integrity_and_required_tables,
+        "idempotent": test_database_initialization_is_idempotent,
+        "query-error": test_prepare_creates_initialized_sqlite_fixture,
+    }
+    if scenario == "query-error":
+        with pytest.raises(RuntimeError, match="synthetic query failure"):
+            scenarios[scenario](tmp_path)
+    else:
+        scenarios[scenario](tmp_path)
+    assert len(cleanup_calls) == 1
+    assert not list(tmp_path.rglob("*.sqlite3"))
+    for receipt in tmp_path.rglob("environment-receipt.json"):
+        assert json.loads(receipt.read_text(encoding="utf-8"))["state"] == "stopped"
 
 
 def test_fake_secret_material_is_test_only_and_values_absent_from_receipt(

@@ -2,13 +2,13 @@
 status: canonical
 domain: audio
 read_when: ["audio","speech","transcription","text-to-speech","speech-to-text"]
-source_paths: ["backend/app/api/routers/phone_audio.py","backend/app/integrations/qwen_asr.py","frontend/src/phone/features/audio/PhoneAudioWorkspace.tsx","frontend/src/phone/features/audio/api.ts","frontend/src/DesktopAudioWorkspace.tsx"]
-test_paths: ["backend/test_phone_audio.py","frontend/phoneAudio.test.ts"]
+source_paths: ["backend/app/api/routers/phone_audio.py","backend/app/integrations/phone_speech_http.py","tools/phone_speech_host.py","backend/app/integrations/qwen_asr.py","frontend/src/phone/features/audio/PhoneAudioWorkspace.tsx","frontend/src/phone/features/audio/api.ts","frontend/src/DesktopAudioWorkspace.tsx"]
+test_paths: ["backend/test_phone_audio.py","tools/test_phone_speech_host.py","frontend/phoneAudio.test.ts"]
 related_domains: ["admin-models"]
 forbidden_paths: ["unknown"]
 owner: audio-platform
 context_role: scoped-domain-map
-updated: 2026-09-19
+updated: 2026-10-11
 ---
 # Context: audio
 
@@ -63,6 +63,22 @@ Backend использует Windows `System.Speech` и локальные Micro
 Desktop UI прямо описывает эти голоса как локальные, без внешнего API.
 Не документировать внешний production TTS provider без отдельного source evidence.
 Speech publication может быть отключена server-side config.
+
+An opt-in `IZO_PHONE_TTS_PROVIDER=http` preserves the Windows voice boundary for
+the Linux application. `IZO_PHONE_TTS_HTTP_URL` names an explicit private host
+origin on a dedicated port; `IZO_PHONE_TTS_HTTP_TOKEN_FILE` names an external
+secret file mounted read-only into the application. The authenticated host
+helper `tools/phone_speech_host.py` reuses the existing System.Speech function.
+It defaults to loopback, requires an explicit token/work directory, bounds
+requests, synthesis concurrency and audio responses, and logs no speech text.
+Redirects and ambient proxies are disabled. Missing configuration or unavailable
+host speech fails closed with the existing public 503, without fake fallback.
+
+This is a source integration boundary. Fake-only protocol tests do not prove
+installed voices, container-to-host reachability or production voice parity.
+Starting the helper, choosing its private interface and allowing the exact
+provider endpoint require the owned runtime/release scope; no system service,
+host firewall or public route is installed by this module.
 
 ## Session-local UI audio
 

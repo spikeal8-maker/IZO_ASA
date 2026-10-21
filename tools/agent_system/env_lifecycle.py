@@ -37,14 +37,43 @@ class EnvironmentLifecycleError(RuntimeError):
     pass
 def _render(payload: Mapping[str, object]) -> str:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
-def _read_json(path: Path) -> dict[str, Any]:
+def _read_json(path: Path, *, startup_process: subprocess.Popen[Any] | None = None) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
+        if not isinstance(payload, dict):
+            raise ValueError("JSON_OBJECT_REQUIRED")
+    except (OSError, UnicodeError, ValueError) as exc:
+        if startup_process is not None:
+            _report_startup_read_error(path, startup_process, exc)
         raise EnvironmentLifecycleError("ENVIRONMENT_STATE_INVALID") from None
-    if not isinstance(payload, dict):
-        raise EnvironmentLifecycleError("ENVIRONMENT_STATE_INVALID")
     return payload
+
+def _report_startup_read_error(path: Path, process: subprocess.Popen[Any], exc: Exception) -> None:
+    exists, size, stage, alive = None, None, None, None
+    try:
+        size, exists = path.stat().st_size, True
+    except FileNotFoundError:
+        exists = False
+    except OSError:
+        pass
+    try:
+        observed_stage, observed_pid = _read_startup_diagnostic(_startup_diagnostic_path(path))
+        if observed_pid == process.pid and observed_stage in STARTUP_DIAGNOSTIC_STAGES:
+            stage = observed_stage
+    except (OSError, ValueError, AttributeError, TypeError):
+        pass
+    try:
+        alive = process.poll() is None
+    except OSError:
+        pass
+    fields = dict(exception_type=type(exc).__name__, errno=getattr(exc, "errno", None),
+                  winerror=getattr(exc, "winerror", None), file_exists=exists, file_size=size,
+                  holder_pid=process.pid, holder_alive=alive, startup_stage=stage)
+    try:
+        print("PORT_LEASE_STARTUP_READ_DIAGNOSTIC " + json.dumps(fields, sort_keys=True),
+              file=sys.stderr, flush=True)
+    except OSError:
+        pass
 def _identity_matches(document: Mapping[str, object], identity: EnvironmentIdentity) -> bool:
     return (
         document.get("packageId") == identity.package_id
@@ -255,7 +284,7 @@ def _wait_startup(process: subprocess.Popen[Any], startup: Path) -> dict[str, An
     diagnostic = _startup_diagnostic_path(startup)
     while time.monotonic() < deadline:
         if startup.exists():
-            payload = _read_json(startup)
+            payload = _read_json(startup, startup_process=process)
             if payload.get("status") == "READY":
                 diagnostic.unlink(missing_ok=True)
                 return payload

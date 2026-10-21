@@ -327,6 +327,7 @@ try:
         comfyui_watchdog,
         comfyui_workflows,
         generation_jobs,
+        generation_accounting,
         generation_recovery,
         generation_results,
         generation_worker,
@@ -379,6 +380,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         comfyui_watchdog,
         comfyui_workflows,
         generation_jobs,
+        generation_accounting,
         generation_recovery,
         generation_results,
         generation_worker,
@@ -4785,103 +4787,7 @@ def charge_generation_tokens(conn: sqlite3.Connection, user_id: str, token_cost:
 
 
 def refund_generation_tokens(conn: sqlite3.Connection, job_id: str, *, reason: str) -> bool:
-    """Idempotently reverse a generation charge for failed/cancelled jobs."""
-    existing_refund = conn.execute(
-        "SELECT 1 FROM token_ledger WHERE reason IN ('generation_refund', 'daily_generation_refund', 'openrouter_monthly_generation_refund') AND meta_json LIKE ?",
-        (f'%"jobId": "{job_id}"%',),
-    ).fetchone()
-    if existing_refund is not None:
-        return False
-    charge = conn.execute(
-        """
-        SELECT * FROM token_ledger
-        WHERE reason IN ('generation', 'daily_generation', 'openrouter_monthly_generation') AND meta_json LIKE ?
-        ORDER BY created_at DESC LIMIT 1
-        """,
-        (f'%"jobId": "{job_id}"%',),
-    ).fetchone()
-    if charge is None:
-        return False
-    meta = safe_json_load(charge["meta_json"]) or {}
-    user_id = charge["user_id"]
-    token_cost = int(meta.get("token_cost") or abs(int(charge["delta"] or 0)) or 0)
-    now = datetime.now(timezone.utc)
-    now_iso = now.isoformat()
-    today = now.strftime("%Y-%m-%d")
-    month_key = now.strftime("%Y-%m")
-    if "daily_part" in meta or "balance_part" in meta:
-        daily_part = max(0, int(meta.get("daily_part") or 0))
-        balance_part = max(0, int(meta.get("balance_part") or 0))
-        user_row = conn.execute(
-            "SELECT daily_tokens_used, last_daily_reset FROM users WHERE id = ?",
-            (user_id,),
-        ).fetchone()
-        if user_row is not None and user_row["last_daily_reset"] == today and daily_part > 0:
-            conn.execute(
-                "UPDATE users SET daily_tokens_used = MAX(0, daily_tokens_used - ?) WHERE id = ?",
-                (daily_part, user_id),
-            )
-        if balance_part > 0:
-            conn.execute(
-                "UPDATE users SET token_balance = token_balance + ? WHERE id = ?",
-                (balance_part, user_id),
-            )
-        refund_delta = balance_part
-        refund_reason = "generation_refund" if balance_part > 0 else "daily_generation_refund"
-    elif charge["reason"] == "daily_generation":
-        user_row = conn.execute("SELECT daily_tokens_used, last_daily_reset FROM users WHERE id = ?", (user_id,)).fetchone()
-        if user_row is not None and user_row["last_daily_reset"] == today and token_cost > 0:
-            new_daily = max(0, int(user_row["daily_tokens_used"] or 0) - token_cost)
-            conn.execute("UPDATE users SET daily_tokens_used = ? WHERE id = ?", (new_daily, user_id))
-        refund_delta = 0
-        refund_reason = "daily_generation_refund"
-    elif charge["reason"] == "openrouter_monthly_generation":
-        monthly_part = max(0, int(meta.get("openrouter_monthly_used_after") or 0) - int(meta.get("openrouter_monthly_used_before") or 0))
-        user_row = conn.execute("SELECT openrouter_monthly_tokens_used, last_openrouter_month_reset FROM users WHERE id = ?", (user_id,)).fetchone()
-        if user_row is not None and user_row["last_openrouter_month_reset"] == month_key and monthly_part > 0:
-            new_monthly = max(0, int(user_row["openrouter_monthly_tokens_used"] or 0) - monthly_part)
-            conn.execute("UPDATE users SET openrouter_monthly_tokens_used = ? WHERE id = ?", (new_monthly, user_id))
-        refund_delta = abs(int(charge["delta"] or 0))
-        refund_reason = "openrouter_monthly_generation_refund"
-        if refund_delta > 0:
-            conn.execute("UPDATE users SET token_balance = token_balance + ? WHERE id = ?", (refund_delta, user_id))
-    else:
-        refund_delta = abs(int(charge["delta"] or 0))
-        refund_reason = "generation_refund"
-        if refund_delta > 0:
-            conn.execute("UPDATE users SET token_balance = token_balance + ? WHERE id = ?", (refund_delta, user_id))
-    if token_cost > 0:
-        conn.execute(
-            """
-            UPDATE users
-            SET tokens_used = MAX(0, tokens_used - ?),
-                generation_count = MAX(0, generation_count - 1)
-            WHERE id = ?
-            """,
-            (token_cost, user_id),
-        )
-    conn.execute(
-        "INSERT INTO token_ledger (id, user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (
-            str(uuid.uuid4()),
-            user_id,
-            refund_delta,
-            refund_reason,
-            json.dumps(
-                {
-                    "jobId": job_id,
-                    "reason": reason,
-                    "refunded_ledger_id": charge["id"],
-                    "token_cost": token_cost,
-                    "daily_part": max(0, int(meta.get("daily_part") or 0)),
-                    "balance_part": refund_delta,
-                },
-                ensure_ascii=False,
-            ),
-            now_iso,
-        ),
-    )
-    return True
+    return generation_accounting.refund_generation_tokens(conn, job_id, reason=reason)
 
 
 mini_app_url = mini_app_public_url
@@ -15411,55 +15317,7 @@ async def free_comfyui_models() -> bool:
 
 
 def reconcile_openrouter_token_charge(conn: sqlite3.Connection, job_id: str, actual_tokens: int) -> dict[str, int | bool]:
-    """Idempotently refund an OpenRouter estimate that exceeded actual token cost."""
-    existing = conn.execute(
-        "SELECT meta_json FROM token_ledger WHERE reason = 'openrouter_generation_adjustment' AND meta_json LIKE ? ORDER BY created_at DESC LIMIT 1",
-        (f'%"jobId": "{job_id}"%',),
-    ).fetchone()
-    if existing is not None:
-        meta = safe_json_load(existing["meta_json"]) or {}
-        actual = int(meta.get("actual_tokens") or actual_tokens)
-        return {"adjusted": False, "refund": int(meta.get("refund_tokens") or 0), "actual": actual, "settled": int(meta.get("settled_tokens") or actual)}
-    charge = conn.execute(
-        "SELECT * FROM token_ledger WHERE reason IN ('generation', 'openrouter_monthly_generation') AND meta_json LIKE ? ORDER BY created_at DESC LIMIT 1",
-        (f'%"jobId": "{job_id}"%',),
-    ).fetchone()
-    if charge is None:
-        actual = max(1, int(actual_tokens))
-        return {"adjusted": False, "refund": 0, "actual": actual, "settled": actual}
-    meta = safe_json_load(charge["meta_json"]) or {}
-    charged = max(0, int(meta.get("token_cost") or 0))
-    actual = max(1, int(actual_tokens))
-    refund = max(0, charged - actual)
-    balance_charged = abs(int(charge["delta"] or 0))
-    balance_refund = min(refund, balance_charged)
-    monthly_refund = max(0, refund - balance_refund)
-    user_id = str(charge["user_id"])
-    if balance_refund:
-        conn.execute("UPDATE users SET token_balance = token_balance + ? WHERE id = ?", (balance_refund, user_id))
-    if monthly_refund:
-        conn.execute(
-            "UPDATE users SET openrouter_monthly_tokens_used = MAX(0, openrouter_monthly_tokens_used - ?) WHERE id = ?",
-            (monthly_refund, user_id),
-        )
-    if refund:
-        conn.execute("UPDATE users SET tokens_used = MAX(0, tokens_used - ?) WHERE id = ?", (refund, user_id))
-    adjustment_meta = {
-        "jobId": job_id,
-        "charged_tokens": charged,
-        "actual_tokens": actual,
-        "settled_tokens": min(charged, actual),
-        "refund_tokens": refund,
-        "balance_refund": balance_refund,
-        "monthly_refund": monthly_refund,
-        "underestimated_tokens": max(0, actual - charged),
-        "charged_ledger_id": charge["id"],
-    }
-    conn.execute(
-        "INSERT INTO token_ledger (id, user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, 'openrouter_generation_adjustment', ?, ?)",
-        (str(uuid.uuid4()), user_id, balance_refund, json.dumps(adjustment_meta, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
-    )
-    return {"adjusted": True, "refund": refund, "actual": actual, "settled": min(charged, actual)}
+    return generation_accounting.reconcile_openrouter_token_charge(conn, job_id, actual_tokens)
 
 
 def _save_setting(key: str, value: dict[str, Any]) -> None:
