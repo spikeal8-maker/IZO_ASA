@@ -1,0 +1,102 @@
+manifestVersion = 1
+id = "STUDIO-DRAFT-OPT-001"
+baseSha = "51543df2b6a559d693e3ed75b11baeacdb9033d3"
+goal = "Restore unsent Studio prompts after F5 and extract isolated composer/draft ownership from newUi.tsx."
+userOutcome = "Guest and authenticated prompts survive reload, never cross accounts and never auto-submit; newUi.tsx is measurably smaller."
+beforeScenario = "Guest enters 54 characters, presses F5 and sees an empty composer because autosave is delayed and shared storage is unscoped."
+afterScenario = "Composer saves promptly per guest/user scope, hydrates only after trusted auth resolution, clears on success/logout and is verified on desktop/mobile."
+nonGoals = [
+  "Admin pages or CRM",
+  "Providers or API keys",
+  "Backend authentication",
+  "Docker Shadow or networking",
+  "UI redesign",
+  "Payment and billing",
+]
+declaredFiles = [
+  "tasks/STUDIO-DRAFT-OPT-001.toml",
+  "frontend/src/newUi.tsx",
+  "frontend/src/studio/studioDraft.ts",
+  "frontend/src/studio/useStudioState.ts",
+  "frontend/src/studio/useStudioPromptDraft.ts",
+  "frontend/src/studio/studioDraft.test.ts",
+  "frontend/e2e-studio-draft.mjs",
+  "architecture/contract.json",
+  "docs/generated/frontend-map.md",
+  "docs/generated/frontend-map.json",
+  "docs/generated/architecture-inventory.md",
+  "docs/generated/architecture-inventory.json",
+]
+allowedPatterns = [
+  "frontend/e2e-studio-resilience.mjs",
+  "frontend/studioDraft.test.ts",
+]
+forbiddenPatterns = [
+  "frontend/src/adminModelsRoutes.ts",
+  "frontend/src/adminModels.tsx",
+  "frontend/src/AdminApp.tsx",
+  "backend/**",
+  "ops/**",
+  ".github/**",
+  "frontend/src/authV2.tsx",
+  "frontend/src/LegacyApp.tsx",
+  "frontend/package.json",
+  "frontend/package-lock.json",
+]
+protectedFilesTouched = [
+  "frontend/src/newUi.tsx",
+]
+domain = "frontend-studio"
+riskClass = "standard"
+changeClass = "architecture"
+maxProductionFiles = 4
+maxChangedLines = 850
+acceptance = [
+  "Guest draft survives immediate F5 in Chromium at 1366x900 and 390x844.",
+  "Authenticated drafts scoped by trusted internal_user_id; no guest/user/account cross-read.",
+  "Successful generation clears only the submitted mode; errors preserve prompts; reload never triggers POST.",
+  "Logout clears current draft without affecting other user-scoped drafts.",
+  "Storage disabled, corrupt values and TTL expiry degrade safely.",
+  "newUi.tsx line count and architecture limit decrease; no unrelated behavior or visual changes.",
+  "Unit, lint, build and scoped Studio E2E tests pass on exact SHA.",
+]
+requiredEvidence = [
+  "before/after exact line counts",
+  "desktop/mobile Chromium tests and screenshots",
+  "focused storage negative tests",
+  "npm build and eslint",
+  "generated frontend/architecture maps",
+  "independent review and separate PR",
+  "git diff --check and changed-file scope",
+]
+targetedTests = [
+  "frontend/src/studio/studioDraft.test.ts",
+  "frontend/e2e-studio-draft.mjs",
+  "frontend/e2e-studio-resilience.mjs",
+]
+fileGrowthExpectations = [
+  "newUi.tsx shrinks by moving bounded composer and draft state logic into a small feature hook.",
+  "studioDraft.ts gains identity-scoped, TTL-bound persistence without private media or secrets.",
+  "architecture/contract.json lowers newUi.tsx max_lines.",
+]
+forbiddenOperations = [
+  "direct-main",
+  "deploy",
+  "restart",
+  "production-data",
+  "provider-call",
+  "docker-mutation",
+  "network-change",
+  "payment",
+]
+rollbackBoundary = "Revert the bounded Studio feature PR; no backend schema, secrets or containers change."
+
+[[scopeExpansions]]
+path = "frontend/e2e-studio-resilience.mjs"
+reason = "Existing Studio resilience test directly seeds legacy unscoped draft; must update test fixture to identity-scoped v2 storage without weakening cross-account privacy."
+recordedAtUtc = "2026-10-21T22:31:56.791714Z"
+
+[[scopeExpansions]]
+path = "frontend/studioDraft.test.ts"
+reason = "Node-only storage unit tests need to live outside tsconfig.app src tree, which intentionally does not include Node typings."
+recordedAtUtc = "2026-10-21T22:41:58.404331Z"

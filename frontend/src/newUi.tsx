@@ -43,7 +43,6 @@ import { accountInfo } from './topbarUtils'
 import ProfilePage, { type PublicProfileLink } from './ProfilePage'
 import { DEFAULT_TARIFFS, avatarPresets, modelAccessOption, modelPublicInfo, type ModelModeKey, type ModelOption, type QualityPreset, type TariffKey } from './profileSupport'
 import { imageTokenVisualKind, tokenVisualClass, tokenVisualLabel } from './tokenVisual'
-import { normalizeResolutionId } from './resolutionPolicy'
 import type { PaintDrawMode, PaintLine, PaintOutpaintPlacement, PaintSubMode, PaintTool } from './paintTypes'
 import type { PaintWorkbenchHandle } from './PaintWorkbench'
 import { applyClientSeo } from './seo'
@@ -72,7 +71,6 @@ import {
   coreModeFromTab,
   DEFAULT_FACE_STRENGTH,
   emptyPreview,
-  EMPTY_EDIT_SLOTS,
   FALLBACK_LORA_OPTIONS,
   faceStrengthPrompt,
   FEED_I18N,
@@ -93,7 +91,7 @@ import {
   shapeFromSize,
   STYLE_PREFIX,
 } from './studio/studioHelpers'
-import { readStudioDraft } from './studio/studioDraft'
+import { studioPromptComposer, useStudioDraftState } from './studio/useStudioPromptDraft'
 import {
   comfySafeGenerationSize,
   composeI2IEditPrompt,
@@ -129,14 +127,13 @@ import type {
   N2View,
   PreviewShape,
   PublicFormatId,
-  StudioDraft,
   StudioMode,
   StudioModelSort,
   StudioPreviewState,
   UploadedSourceImage,
   UploadTarget,
 } from './studio/studioTypes'
-import { useModelPreferences, useStudioBackendData, useStudioDraftAutosave } from './studio/useStudioState'
+import { useModelPreferences, useStudioBackendData } from './studio/useStudioState'
 const PaintWorkbench = lazy(() => import('./PaintWorkbench'))
 const VideoStudio = lazy(() => import('./VideoStudio'))
 const DesktopChatWorkspace = lazy(() => import('./desktopChat/DesktopChatWorkspace'))
@@ -297,6 +294,7 @@ export default function NewStudio(): ReactElement {
     }
   }
   const onLogout = async () => {
+    forgetCurrentDraft()
     await logoutV2()
     await refreshAuthStateV2()
   }
@@ -381,37 +379,30 @@ export default function NewStudio(): ReactElement {
   const topbarDailyRemaining = Math.max(0, Number(me?.account?.daily_tokens_remaining ?? topbarDailyLimit - Number(me?.account?.daily_tokens_used ?? 0)))
   const topbarTokenBalance = Math.max(0, Number(me?.account?.token_balance ?? 0))
 
-  const [initialStudioDraft] = useState<StudioDraft>(readStudioDraft)
-  const [prompts, setPrompts] = useState<Record<StudioMode, string>>({
-    text: initialStudioDraft.prompts?.text || '',
-    i2i: initialStudioDraft.prompts?.i2i || '',
-    edit: initialStudioDraft.prompts?.edit || '',
-    paint: initialStudioDraft.prompts?.paint || '',
-  })
-  const [styleId, setStyleId] = useState<string>(initialStudioDraft.styleId || '')
+  const {
+    prompts, setPrompts,
+    styleId, setStyleId,
+    resolutionId, setResolutionId,
+    quality, setQuality,
+    seed, setSeed,
+    strengthPct, setStrengthPct,
+    sourceImage, setSourceImage,
+    editSlots, setEditSlots,
+    editFaceStrengthPct, setEditFaceStrengthPct,
+    clearSubmittedPrompt, forgetCurrentDraft,
+  } = useStudioDraftState(authStatus, me?.internal_user_id)
   // Временный предпросмотр стиля при наведении на карточку (не выбирает стиль).
   const [hoverStyle, setHoverStyle] = useState<StylePreset | null>(null)
   // Разрешение = конкретный системный пресет; формат-кнопки переключают тип.
-  const [resolutionId, setResolutionId] = useState(() => normalizeResolutionId(initialStudioDraft.resolutionId || 'sq-hd'))
   const [formatAutoNotice, setFormatAutoNotice] = useState('')
   const [formatOpen, setFormatOpen] = useState(false)
   const formatRef = useRef<HTMLDivElement>(null)
-  const [quality, setQuality] = useState(initialStudioDraft.quality || 'fast')
   const [proMode, setProMode] = useState(false)
   const [proModelChoices, setProModelChoices] = useState<Partial<Record<ModelModeKey, string>>>({})
   const [proModelDetails, setProModelDetails] = useState<Partial<Record<ModelModeKey, string>>>({})
   const [studioModelSort, setStudioModelSort] = useState<StudioModelSort>('tokens-asc')
-  const [seed, setSeed] = useState(initialStudioDraft.seed || 0)
   const [guidance] = useState(3.5)
-  const [strengthPct, setStrengthPct] = useState(initialStudioDraft.strengthPct ?? 75)
-  const [sourceImage, setSourceImage] = useState<string | undefined>(initialStudioDraft.sourceImage)
-  const [editSlots, setEditSlots] = useState<EditSlot[]>(() => (
-    Array.isArray(initialStudioDraft.editSlots) && initialStudioDraft.editSlots.length === EDIT_SLOT_COUNT
-      ? initialStudioDraft.editSlots.map((slot) => ({ ...slot }))
-      : EMPTY_EDIT_SLOTS.map((slot) => ({ ...slot }))
-  ))
   const [editExtraOpen, setEditExtraOpen] = useState(false)
-  const [editFaceStrengthPct, setEditFaceStrengthPct] = useState(initialStudioDraft.editFaceStrengthPct ?? DEFAULT_FACE_STRENGTH)
   const [profileTab, setProfileTab] = useState<'profile' | 'tariffs' | 'earn' | 'models'>(initialProfileTabFromPath)
   const { modelsPayload, tariffs, tariffsState, tokenRub, modelAccess, openrouterPricing } = useStudioBackendData(me)
   const activeTariffKey = (String(me?.account?.plan || 'mini').toLowerCase() in tariffs ? String(me?.account?.plan || 'mini').toLowerCase() : 'mini') as TariffKey
@@ -635,7 +626,7 @@ export default function NewStudio(): ReactElement {
     }
     void applyDraft()
     return () => { cancelled = true }
-  }, [setTab])
+  }, [setTab, setEditSlots, setPrompts, setSourceImage])
   const [gallery, setGallery] = useState<N2GalleryImage[]>([])
   const [galleryItem, setGalleryItem] = useState<N2GalleryImage>()
   const [historyVideoPreview, setHistoryVideoPreview] = useState<N2GalleryImage | null>(null)
@@ -688,8 +679,6 @@ export default function NewStudio(): ReactElement {
   useEffect(() => {
     document.title = 'ИЗО АСА — новый интерфейс'
   }, [])
-
-  useStudioDraftAutosave({ prompts, styleId, resolutionId, quality, seed, strengthPct, sourceImage, editSlots, editFaceStrengthPct })
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -880,7 +869,7 @@ export default function NewStudio(): ReactElement {
   const promptKey: StudioMode = tab === 'i2i' ? 'i2i' : tab === 'edit' ? 'edit' : tab === 'paint' ? 'paint' : 'text'
   const setPrompt = useCallback(
     (value: string) => setPrompts((cur) => ({ ...cur, [promptKey]: value })),
-    [promptKey],
+    [promptKey, setPrompts],
   )
 
   useEffect(() => {
@@ -1250,6 +1239,9 @@ export default function NewStudio(): ReactElement {
         setNotice('Сервер не подтвердил создание задачи. Токены не списываются без подтверждённой задачи.')
         return
       }
+      // Only acknowledged jobs consume the submitted draft. A simultaneous edit
+      // remains intact, and restoring a draft never sends a request.
+      clearSubmittedPrompt(mode, mode === 'text' ? textPrompt : mode === 'i2i' ? i2iPrompt : mode === 'edit' ? editPrompt : prompts.paint.trim())
       if (trialPending) void refreshAuthStateV2()
       if (mode === 'text') {
         lastTextSubmittedRef.current = { prompt: textPrompt, model: selectedModel.id, width: requestSize.width, height: requestSize.height }
@@ -1506,47 +1498,13 @@ export default function NewStudio(): ReactElement {
     }
   }, [previewJobActive, visibleResultSource, visibleResultUrl])
   const studioTitle = isI2IStudio ? 'По фото' : isEditStudio ? 'Сборка' : isPaintStudio ? 'Редактор' : 'По тексту'
-  const promptTitle = isI2IStudio ? 'Как преобразовать?' : isPaintStudio ? 'Что визуализируем?' : isEditStudio ? 'Дополнительные пожелания' : 'Что хотите увидеть?'
-  const promptPlaceholder = isI2IStudio
-    ? 'Опишите, как преобразовать исходное изображение...'
-    : isPaintStudio
-      ? paintMode === 'sketch'
-        ? 'Опишите сцену, которую нужно получить из эскиза...'
-        : paintMode === 'mask'
-          ? 'Опишите, что должно появиться или измениться внутри маски...'
-          : paintMode === 'outpaint'
-            ? 'Опишите, что дорисовать в пустых краях кадра: фон, свет, детали, продолжение сцены...'
-            : 'Опишите, что важно сохранить после удаления фона...'
-    : isEditStudio
-      ? 'Например: сохранить лицо, заменить одежду, взять фон или цвет из референса...'
-    : 'Опишите идею своими словами — получите изображение...'
-  const promptLimit = isI2IStudio || isEditStudio || isPaintStudio ? 1000 : 2000
-  const promptValue = prompts[studioMode]
-  const paintPromptDisplayValue = isPaintStudio && paintTechPromptOpen
-    ? `${prompts.paint}${prompts.paint.trim() ? '\n\n' : ''}${paintTechPrompts[paintMode]}`
-    : promptValue
-  const promptTextareaValue = isPaintStudio ? paintPromptDisplayValue : promptValue
-  const promptTextareaLimit = isPaintStudio && paintTechPromptOpen ? 2800 : promptLimit
-  const promptCounterValue = promptTextareaValue.length
-
-  function updatePromptTextarea(value: string) {
-    if (isPaintStudio && paintTechPromptOpen) {
-      const currentUserPrompt = prompts.paint
-      if (!currentUserPrompt) {
-        setPaintTechPrompts((cur) => ({ ...cur, [paintMode]: value }))
-        return
-      }
-      if (value.startsWith(currentUserPrompt)) {
-        setPaintTechPrompts((cur) => ({ ...cur, [paintMode]: value.slice(currentUserPrompt.length).replace(/^\n+/, '') }))
-        return
-      }
-      const [nextUserPrompt = '', ...nextTechPrompt] = value.split(/\n{2,}/)
-      setPrompt(nextUserPrompt)
-      setPaintTechPrompts((cur) => ({ ...cur, [paintMode]: nextTechPrompt.join('\n\n') }))
-      return
-    }
-    setPrompt(value)
-  }
+  const {
+    promptTitle, promptPlaceholder, promptLimit, promptValue,
+    promptTextareaValue, promptTextareaLimit, promptCounterValue, updatePromptTextarea,
+  } = studioPromptComposer({
+    studioMode, paintMode, paintTechPromptOpen, paintTechPrompts,
+    setPaintTechPrompts, prompts, setPrompt,
+  })
 
   async function improveCurrentPrompt() {
     const original = promptValue.trim()
@@ -1841,7 +1799,7 @@ export default function NewStudio(): ReactElement {
       setFormatAutoNotice(`Формат изменен: ${formatName(nextFormat)}`)
     })
     return () => { cancelled = true }
-  }, [currentFormatPricingId, currentSupportedFormatsKey, currentSupportedResolutionsKey, resolutionId])
+  }, [currentFormatPricingId, currentSupportedFormatsKey, currentSupportedResolutionsKey, resolutionId, setResolutionId])
   const generateLabel = isI2IStudio ? 'Преобразовать' : isEditStudio ? 'Создать изображение' : isPaintStudio ? paintMode === 'remove_bg' ? 'Удалить фон' : paintMode === 'outpaint' ? 'Расширить' : 'Создать по рисунку' : 'Сгенерировать'
   const generatingLabel = isI2IStudio ? 'Преобразуем...' : isEditStudio ? 'Создаём...' : isPaintStudio ? 'Готовим рисунок...' : 'Генерируем...'
   const influenceStyle = { '--i2i-range-progress': `${strengthPct}%` } as CSSProperties
