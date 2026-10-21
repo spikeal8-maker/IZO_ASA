@@ -126,7 +126,7 @@ const browser = await chromium.launch({ headless: true })
 try {
   const { context, page } = await openStudio(browser, 'mixed')
   await context.addInitScript((draft) => {
-    window.sessionStorage.setItem('izo:studio-draft-v1', JSON.stringify(draft))
+    window.sessionStorage.setItem('izo:studio-draft-v2:guest', JSON.stringify({ version: 2, savedAt: Date.now(), draft }))
   }, {
     prompts: { text: 'Черновик должен сохраниться', i2i: '', edit: '', paint: '' },
     styleId: '',
@@ -140,7 +140,7 @@ try {
   await page.reload({ waitUntil: 'domcontentloaded' })
   const textarea = page.locator('.prompt-section textarea')
   await textarea.waitFor({ state: 'visible' })
-  assert(await textarea.inputValue() === 'Черновик должен сохраниться', 'prompt draft was not restored')
+  await page.waitForFunction(() => document.querySelector('.prompt-section textarea')?.value === 'Черновик должен сохраниться', null, { timeout: 10000 })
 
   const activeQuality = page.locator('.quality-button.active')
   assert(await activeQuality.count() === 1, 'exactly one quality button must be active')

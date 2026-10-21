@@ -389,7 +389,7 @@
   "file_limits": [
     {"path": "backend/main.py", "max_lines": 19750, "protected": true, "non_growth": true, "owner": "backend-composition", "category": "backend-hotspot"},
     {"path": "frontend/src/newStudioV3.css", "max_lines": 6400, "protected": true, "non_growth": true, "owner": "frontend-studio", "category": "frontend-style-hotspot"},
-    {"path": "frontend/src/newUi.tsx", "max_lines": 3950, "protected": true, "non_growth": true, "owner": "frontend-studio", "category": "frontend-ui-hotspot"},
+    {"path": "frontend/src/newUi.tsx", "max_lines": 3688, "protected": true, "non_growth": true, "owner": "frontend-studio", "category": "frontend-ui-hotspot"},
     {"path": "frontend/src/LegacyApp.tsx", "max_lines": 3700, "protected": true, "non_growth": true, "owner": "frontend-legacy", "category": "frontend-legacy-hotspot"},
     {"path": "frontend/src/newUi.css", "max_lines": 3400, "protected": true, "non_growth": true, "owner": "frontend-studio", "category": "frontend-style-hotspot"},
     {"path": "frontend/src/index.css", "max_lines": 2650, "protected": true, "non_growth": true, "owner": "frontend-shell", "category": "frontend-style-hotspot"},

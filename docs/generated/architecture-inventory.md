@@ -157,7 +157,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | `frontend/src/index.css` | frontend-shell | frontend-style-hotspot | true | true | 2501 | 2650 | 149 |
 | `frontend/src/newStudioV3.css` | frontend-studio | frontend-style-hotspot | true | true | 6071 | 6400 | 329 |
 | `frontend/src/newUi.css` | frontend-studio | frontend-style-hotspot | true | true | 3143 | 3400 | 257 |
-| `frontend/src/newUi.tsx` | frontend-studio | frontend-ui-hotspot | true | true | 3695 | 3950 | 255 |
+| `frontend/src/newUi.tsx` | frontend-studio | frontend-ui-hotspot | true | true | 3653 | 3688 | 35 |
 
 ## Symbol budgets
 
