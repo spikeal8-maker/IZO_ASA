@@ -91,7 +91,7 @@ def test_dockerfile_exists_and_pins_python_3119() -> None:
     )
 
 
-def test_copy_boundary_is_backend_only() -> None:
+def test_copy_boundary_is_backend_and_explicit_fixtures_only() -> None:
     text = _dockerfile()
     assert "COPY . ." not in text
     assert "COPY ./ ./" not in text
@@ -101,6 +101,8 @@ def test_copy_boundary_is_backend_only() -> None:
     assert copy_lines == [
         "COPY backend/requirements.txt /tmp/requirements.txt",
         "COPY --chown=10001:10001 backend/ /opt/izo/backend/",
+        "COPY --chown=10001:10001 tools/docker_shadow_provider.py "
+        "tools/docker_shadow_fixture.py /opt/izo/fixtures/",
     ]
     assert "ops/docker/agent-sandbox" not in text
 

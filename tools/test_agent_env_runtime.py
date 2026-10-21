@@ -5,6 +5,7 @@ import os
 import runpy
 import sqlite3
 import subprocess
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
@@ -48,7 +49,7 @@ def test_payment_notification_outbox_exists(tmp_path: Path) -> None:
     worktree, contract, paths = _active(tmp_path, "PKG-RUNTIME-BILLING")
     try:
         _prepare(worktree, contract)
-        with sqlite3.connect(paths.database_path) as conn:
+        with closing(sqlite3.connect(paths.database_path)) as conn:
             row = conn.execute(
                 "SELECT 1 FROM sqlite_master "
                 "WHERE type='table' AND name='payment_notification_outbox'"
@@ -416,6 +417,9 @@ def test_repeated_ready_failure_removes_ready_resources(tmp_path: Path) -> None:
         first = _agent_cli(worktree, "env-up")
         assert first.returncode == 0, first.stderr or first.stdout
         paths = derive_environment_paths(load_environment_identity(worktree))
+        active = json.loads(
+            paths.environment_state_path.read_text(encoding="utf-8")
+        )
         runtime_path, document = _runtime(paths)
         external = Path(document["environment"]["IZO_SECRET_DIR"])
         _parent, leaf, owner = secret_store.canonical_external_secret_store(
@@ -428,6 +432,7 @@ def test_repeated_ready_failure_removes_ready_resources(tmp_path: Path) -> None:
         )
         assert second.returncode == 2
         assert lifecycle.environment_status(worktree)["status"] == "STOPPED"
+        assert not lifecycle._pid_alive(active["portLease"]["pid"])
         assert not runtime_path.exists()
         assert not external.exists()
         assert not owner.exists()

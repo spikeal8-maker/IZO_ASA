@@ -1,0 +1,405 @@
+"""Measured crash, duplicate request and duplicate queue delivery on an owned fixture.
+
+Only the provider is simulated. Auth, jobs, queue, worker and accounting remain
+the application implementation. Failed contracts remain failed in the receipt.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import re
+import time
+import uuid
+
+from tools.docker_shadow import Shadow
+from tools.docker_shadow_executor import compare_isolated
+from tools.docker_shadow_product import ProductFlow, path_id, validate_target
+
+ACTIVE = {"queued", "running", "uploading", "sent_to_comfyui", "sent_to_openrouter"}
+TERMINAL = {"completed", "failed", "cancelled"}
+CHARGES = {"generation", "daily_generation", "openrouter_monthly_generation"}
+REFUNDS = {"generation_refund", "daily_generation_refund", "openrouter_monthly_generation_refund"}
+PAYLOAD = {"mode": "text_to_image", "provider": "comfyui", "prompt": "A blue ceramic cup",
+           "width": 704, "height": 704, "steps": 4, "seed": 18731}
+PROVIDER_READ = "from pathlib import Path; print(Path('/tmp/izo-shadow-provider-receipt.json').read_text())"
+DATABASE_READ = r'''
+import json,sqlite3,sys
+users,job_ids=json.loads(sys.argv[1])
+conn=sqlite3.connect('file:/home/izo/data/app.sqlite3?mode=ro',uri=True,timeout=5)
+conn.row_factory=sqlite3.Row
+conn.execute('PRAGMA query_only=ON')
+conn.execute('BEGIN')
+u=','.join('?' for _ in users)
+j=','.join('?' for _ in job_ids) or 'NULL'
+accounts={r['id']:dict(r) for r in conn.execute(
+    'SELECT id,token_balance,daily_tokens_used,tokens_used,generation_count,last_daily_reset '
+    'FROM users WHERE id IN ('+u+')',users)}
+jobs=[dict(r) for r in conn.execute(
+    'SELECT id,user_id,status,progress,result_image_id,completed_at FROM jobs '
+    'WHERE id IN ('+j+') AND user_id IN ('+u+') ORDER BY id',[*job_ids,*users])]
+images=[dict(r) for r in conn.execute(
+    'SELECT id,job_id FROM images WHERE job_id IN ('+j+') AND user_id IN ('+u+') '
+    'AND deleted_at IS NULL ORDER BY id',[*job_ids,*users])]
+rows=conn.execute('SELECT id,user_id,delta,reason,meta_json FROM token_ledger '
+    'WHERE user_id IN ('+u+') ORDER BY id LIMIT 501',users).fetchall()
+if len(rows)>500:
+    raise RuntimeError('RECOVERY_LEDGER_LIMIT')
+ledger=[]
+for row in rows:
+    meta=json.loads(row['meta_json'] or '{}')
+    if not isinstance(meta,dict) or meta.get('jobId') not in job_ids:
+        continue
+    item={key:row[key] for key in ('id','user_id','delta','reason')}
+    item.update({key:meta.get(key) for key in ('jobId','token_cost','refund_tokens','daily_part','balance_part','monthly_part')})
+    item['cause']=meta.get('reason') if meta.get('reason') in {
+        'startup_reconciliation','user_cancelled','generation_failed',
+        'cancelled_before_start','cancelled_during_generation'} else None
+    ledger.append(item)
+conn.rollback()
+conn.close()
+print(json.dumps({'users':accounts,'jobs':jobs,'images':images,'ledger':ledger}))
+'''
+
+
+class RecoveryError(RuntimeError):
+    """Fixed diagnostic codes only; raw application errors never enter evidence."""
+
+
+def require(condition, code):
+    if not condition:
+        raise RecoveryError(code)
+
+
+def error_code(error):
+    code = str(error)
+    return code if re.fullmatch(r"[A-Z][A-Z0-9_]{2,100}", code) else "RECOVERY_OPERATION_FAILED"
+
+
+def save(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temporary.chmod(0o600)
+    temporary.replace(path)
+
+
+def wait_for(probe, *, seconds=20, code="RECOVERY_OBSERVATION_TIMEOUT"):
+    deadline = time.monotonic() + seconds
+    while True:
+        value = probe()
+        if value:
+            return value
+        require(time.monotonic() < deadline, code)
+        time.sleep(.2)
+
+
+def keyed_post(client, path, payload, key):
+    previous = list(client.opener.addheaders)
+    client.opener.addheaders = [*previous, ("Idempotency-Key", key)]
+    try:
+        return client.request("POST", path, payload)
+    finally:
+        client.opener.addheaders = previous
+
+
+def accounting(snapshot, ids, *, refunded):
+    """Verify per-job rows, including a daily refund whose cash delta is zero."""
+    for job_id in ids:
+        rows = [row for row in snapshot["ledger"] if row["jobId"] == job_id]
+        charges = [row for row in rows if row["reason"] in CHARGES]
+        returns = [row for row in rows if row["reason"] in REFUNDS]
+        require(len(charges) == 1 and int(charges[0]["token_cost"] or 0) > 0,
+                "RECOVERY_CHARGE_COUNT_INVALID")
+        require(len(returns) == int(refunded), "RECOVERY_REFUND_COUNT_INVALID")
+        if refunded:
+            charge, returned = charges[0], returns[0]
+            require(returned["delta"] == -charge["delta"]
+                    and returned["refund_tokens"] == charge["token_cost"]
+                    and int(returned["daily_part"] or 0) == int(charge["daily_part"] or 0),
+                    "RECOVERY_REFUND_AMOUNT_INVALID")
+
+
+def same_accounts(before, after):
+    fields = ("token_balance", "daily_tokens_used", "tokens_used", "generation_count")
+    values = lambda snapshot: {key: tuple(int(row[field] or 0) for field in fields)
+                               for key, row in snapshot["users"].items()}
+    return values(before) == values(after)
+
+
+class RecoveryRun:
+    def __init__(self, shadow, flow, checkpoint):
+        self.shadow, self.flow, self.checkpoint = shadow, flow, checkpoint
+        self.user_ids, self.job_ids, self.images = [], [], None
+
+    def guard(self):
+        shadow = self.shadow
+        require(shadow.fixture is True and shadow.executor is not None, "RECOVERY_ISOLATED_FIXTURE_REQUIRED")
+        shadow.source_guard()
+        images = shadow.image_guard(shadow.config())
+        require(self.images is None or images == self.images, "RECOVERY_IMAGE_CHANGED")
+        self.images = images
+        shadow.ownership_guard()
+
+    def backend(self, *, running=True):
+        self.shadow.ownership_guard()
+        rows = [row for row in self.shadow.containers()
+                if row["Config"]["Labels"].get("com.docker.compose.service") == "backend"]
+        require(len(rows) == 1 and (not running or rows[0]["State"]["Running"]), "RECOVERY_BACKEND_UNAVAILABLE")
+        require(rows[0]["Image"] == self.images["backend"], "RECOVERY_BACKEND_IMAGE_CHANGED")
+        return rows[0]
+
+    def inside(self, code, *args):
+        raw = self.shadow.docker("exec", self.backend()["Id"], "python", "-c", code, *args, timeout=15)
+        require(len(raw) <= 100000, "RECOVERY_EVIDENCE_TOO_LARGE")
+        value = json.loads(raw)
+        require(isinstance(value, dict), "RECOVERY_EVIDENCE_INVALID")
+        return value
+
+    def provider(self):
+        value = self.inside(PROVIDER_READ)
+        require(value.get("fixture") == "controlled-comfyui-v1"
+                and re.fullmatch(r"[0-9a-f]{32}", str(value.get("instanceId", "")))
+                and value["provider"].get("model_execution") is False, "RECOVERY_FIXTURE_RECEIPT_INVALID")
+        return value
+
+    def snapshot(self):
+        value = self.inside(DATABASE_READ, json.dumps([self.user_ids, self.job_ids]))
+        require(set(value["users"]) == set(self.user_ids), "RECOVERY_USERS_MISSING")
+        require({job["id"] for job in value["jobs"]} == set(self.job_ids), "RECOVERY_JOBS_MISSING")
+        return value
+
+    def signal(self, action):
+        before = self.provider()
+        self.guard()
+        number = {"hold": "SIGUSR1", "release": "SIGUSR2", "duplicate": "SIGWINCH"}[action]
+        self.shadow.compose("kill", "--signal", number, "backend", timeout=20)
+
+        def acknowledged():
+            value = self.provider()
+            require(value["instanceId"] == before["instanceId"], "RECOVERY_SIGNAL_RESTARTED_FIXTURE")
+            control = value["control"]
+            if control["sequence"] <= before["control"]["sequence"]:
+                return None
+            require(control["sequence"] == before["control"]["sequence"] + 1
+                    and control["action"] == action and control["status"] == "ACK", "RECOVERY_CONTROL_FAILED")
+            return value
+
+        return wait_for(acknowledged, seconds=10)
+
+    def submit(self, key):
+        result = keyed_post(self.flow.owner, "/api/generate", PAYLOAD, key)
+        job_id = path_id(result.get("id"))
+        require(result.get("status") in ACTIVE and type(result.get("tokenCost")) is int
+                and result["tokenCost"] > 0, "RECOVERY_GENERATION_CONTRACT_INVALID")
+        if job_id not in self.job_ids:
+            self.job_ids.append(job_id)
+        self.flow.other.request("GET", f"/api/jobs/{job_id}", expected=(404,))
+        return {"id": job_id, "status": result["status"], "tokenCost": result["tokenCost"]}
+
+    def held_job(self, case, key=None):
+        before = self.signal("hold")
+        started = self.submit(key or uuid.uuid4().hex)
+        case["submitted"] = started
+
+        def held():
+            provider = self.provider()
+            previous = {job["prompt_id"] for job in before["provider"]["jobs"]}
+            new = [job for job in provider["provider"]["jobs"] if job["prompt_id"] not in previous]
+            require(provider["instanceId"] == before["instanceId"], "RECOVERY_PROVIDER_RESTARTED")
+            if len(new) != 1 or new[0]["state"] != "held":
+                return None
+            durable = self.snapshot()
+            if next(job for job in durable["jobs"] if job["id"] == started["id"])["status"] not in ACTIVE:
+                return None
+            accounting(durable, [started["id"]], refunded=False)
+            return {"provider": provider, "database": durable}
+
+        case["acceptedBeforeAction"] = wait_for(held)
+        self.checkpoint()
+        return started["id"]
+
+    def recreate(self):
+        self.guard()
+        before = self.backend(running=False)
+        volumes = sorted(mount["Name"] for mount in before["Mounts"] if mount["Type"] == "volume")
+        require(len(volumes) == 2, "RECOVERY_VOLUMES_INVALID")
+        self.shadow.up(build=False, recreate=True)
+        after = self.backend()
+        require(after["Id"] != before["Id"] and volumes == sorted(
+            mount["Name"] for mount in after["Mounts"] if mount["Type"] == "volume"), "RECOVERY_VOLUMES_CHANGED")
+        self.flow.guest.request("GET", "/api/health")
+        provider = self.provider()
+        require(provider["provider"]["counts"].get("accepted", 0) == 0, "RECOVERY_JOB_REPLAYED")
+        return {"beforeContainer": before["Id"], "afterContainer": after["Id"],
+                "image": after["Image"], "volumes": volumes, "provider": provider}
+
+    def cancel(self, ids, key):
+        observations = []
+        for job_id in ids:
+            pair = []
+            for _ in range(2):
+                result = keyed_post(self.flow.owner, f"/api/jobs/{job_id}/cancel", {}, key)
+                require(result.get("id") == job_id and result.get("status") in TERMINAL,
+                        "RECOVERY_CANCEL_RESPONSE_INVALID")
+                pair.append({"id": result.get("id"), "status": result.get("status")})
+            observations.append(pair)
+
+        def settled():
+            snapshot = self.snapshot()
+            selected = [job for job in snapshot["jobs"] if job["id"] in ids]
+            if any(job["status"] not in {"failed", "cancelled"} for job in selected):
+                return None
+            accounting(snapshot, ids, refunded=True)
+            return snapshot
+
+        return {"responses": observations, "database": wait_for(settled)}
+
+    def crash(self, case):
+        baseline = self.snapshot()
+        job_id = self.held_job(case)
+        killed = self.backend()
+        self.guard()
+        self.shadow.compose("kill", "--signal", "SIGKILL", "backend", timeout=20)
+        stopped = self.backend(running=False)
+        require(stopped["Id"] == killed["Id"] and not stopped["State"]["Running"]
+                and stopped["State"]["ExitCode"] == 137, "RECOVERY_CRASH_NOT_OBSERVED")
+        case["crash"] = {"container": stopped["Id"], "exitCode": 137}
+        self.checkpoint()
+        case["restart"] = self.recreate()
+        after = self.snapshot()
+        api = self.flow.owner.request("GET", f"/api/jobs/{job_id}")
+        row = next(job for job in after["jobs"] if job["id"] == job_id)
+        require(api.get("status") == row["status"] == "failed" and row["completed_at"]
+                and row["result_image_id"] is None and not after["images"], "RECOVERY_JOB_OUTCOME_INVALID")
+        accounting(after, [job_id], refunded=True)
+        require(any(row["jobId"] == job_id and row["reason"] in REFUNDS
+                    and row["cause"] == "startup_reconciliation" for row in after["ledger"]),
+                "RECOVERY_STARTUP_REFUND_NOT_OBSERVED")
+        require(same_accounts(after, baseline), "RECOVERY_ACCOUNT_NOT_RESTORED")
+        case["afterRecovery"] = after
+        case["secondRestart"] = self.recreate()
+        case["afterSecondRestart"] = self.snapshot()
+        require(case["afterSecondRestart"] == after, "RECOVERY_SECOND_RESTART_CHANGED_STATE")
+        case["status"] = "PASS"
+
+    def repeated(self, case):
+        baseline = self.snapshot()
+        key = uuid.uuid4().hex
+        self.held_job(case, key)
+        first, second = case["submitted"], self.submit(key)
+        ids = list(dict.fromkeys((first["id"], second["id"])))
+        case.update(requestKeySha256=hashlib.sha256(key.encode()).hexdigest(), responses=[first, second],
+                    beforeCancel=self.snapshot())
+        accounting(case["beforeCancel"], ids, refunded=False)
+        self.checkpoint()
+        case["cancel"] = self.cancel(ids, key)
+        require(same_accounts(case["cancel"]["database"], baseline), "RECOVERY_CANCEL_ACCOUNT_NOT_RESTORED")
+        case["cancelReplay"] = "PASS"
+        case["status"] = "PASS" if len(ids) == 1 else "FAIL"
+        if len(ids) != 1:
+            case["errorCode"] = "RECOVERY_DUPLICATE_GENERATION_CHARGED"
+
+    def concurrent(self, case):
+        baseline = self.snapshot()
+        job_id = self.held_job(case)
+        client = case["acceptedBeforeAction"]["provider"]["provider"]["jobs"][-1]["client_sha256"]
+        self.signal("hold")
+        case["delivery"] = self.signal("duplicate")
+        require(case["delivery"]["race"].get("jobId") == job_id, "RECOVERY_WRONG_DUPLICATE_JOB")
+
+        def attempted():
+            value = self.provider()
+            submitted = [job for job in value["provider"]["jobs"] if job["client_sha256"] == client]
+            if len(submitted) >= 2 or value["race"].get("active") is False:
+                return value
+            return None
+
+        case["concurrentProvider"] = wait_for(attempted, seconds=20)
+        require(case["concurrentProvider"]["race"].get("dequeuedJobId") == job_id,
+                "RECOVERY_DUPLICATE_DELIVERY_NOT_OBSERVED")
+        case["cancel"] = self.cancel([job_id], uuid.uuid4().hex)
+        case["consumerStopped"] = wait_for(lambda: (value if not value["race"]["active"] else None)
+            if (value := self.provider()) else None, seconds=20)
+        require(case["consumerStopped"]["race"]["status"] == "STOPPED", "RECOVERY_EXTRA_CONSUMER_FAILED")
+        require(same_accounts(case["cancel"]["database"], baseline), "RECOVERY_RACE_ACCOUNT_NOT_RESTORED")
+        submissions = [job for job in case["concurrentProvider"]["provider"]["jobs"] if job["client_sha256"] == client]
+        case["providerSubmissionsForSameJob"] = len(submissions)
+        case["status"] = "FAIL" if len(submissions) > 1 else "PARTIAL"
+        case["errorCode"] = ("RECOVERY_DUPLICATE_PROVIDER_OPERATION" if len(submissions) > 1
+                             else "RECOVERY_CROSS_PROCESS_ROLE_NOT_EXERCISED")
+        case["probeScope"] = "SAME_PROCESS_DUPLICATE_QUEUE_DELIVERY"
+
+
+def prove_recovery(shadow: Shadow, attestation: dict, receipt: Path) -> dict:
+    require(not receipt.exists(), "RECOVERY_RECEIPT_ALREADY_EXISTS")
+    report = {"status": "FAIL", "sourceSha": shadow.sha, "project": shadow.project, "checks": {}}
+    flow = run = foreign = None
+    admitted = False
+    try:
+        origin = validate_target(attestation)
+        require(origin == f"http://127.0.0.1:{shadow.web_port}" and attestation["sourceSha"] == shadow.sha
+                and attestation["project"] == shadow.project, "RECOVERY_TARGET_MISMATCH")
+        run = RecoveryRun(shadow, None, lambda: save(receipt, report))
+        run.guard()
+        run.provider()
+        foreign = shadow.executor.foreign_snapshot(shadow.project)
+        admitted = True
+        flow = run.flow = ProductFlow(attestation)
+        run.user_ids = [flow.register(client, number)["legacy_user_id"]
+                        for number, client in enumerate((flow.owner, flow.other), 41)]
+        require(len(set(run.user_ids)) == 2, "RECOVERY_TWO_USERS_REQUIRED")
+        flow.credentials.clear()
+        for name, action in (("D2-01", run.crash), ("D2-02", run.repeated), ("D2-03", run.concurrent)):
+            case = report["checks"][name] = {"status": "FAIL"}
+            try:
+                action(case)
+            except Exception as error:
+                case["errorCode"] = error_code(error)
+            finally:
+                save(receipt, report)
+            try:
+                case["cleanupRestart"] = run.recreate()
+            except Exception as error:
+                case.update(status="FAIL", cleanupError=error_code(error))
+                break
+        if len(report["checks"]) == 3 and all(case["status"] == "PASS" for case in report["checks"].values()):
+            report["status"] = "PASS"
+    except Exception as error:
+        report["errorCode"] = error_code(error)
+    finally:
+        if flow is not None:
+            try:
+                report["sessionCleanup"] = flow.close()
+                require(report["sessionCleanup"].get("sessionCleanup") == "PASS", "RECOVERY_SESSION_CLEANUP_FAILED")
+            except Exception as error:
+                report.update(status="FAIL", sessionCleanupError=error_code(error))
+        if admitted:
+            try:
+                report["foreignResources"] = compare_isolated(foreign, shadow.executor.foreign_snapshot(shadow.project))
+                require(report["foreignResources"]["status"] == "PASS", "RECOVERY_FOREIGN_RESOURCE_CHANGED")
+            except Exception as error:
+                report.update(status="FAIL", cleanupError=error_code(error))
+        save(receipt, report)
+    return report
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    for name in ("project", "source-sha", "executor-context", "engine-id", "machine-sha256"):
+        parser.add_argument("--" + name, required=True)
+    parser.add_argument("--web-port", type=int, required=True)
+    parser.add_argument("--api-port", type=int, required=True)
+    parser.add_argument("--attestation", type=Path, required=True)
+    parser.add_argument("--receipt", type=Path, required=True)
+    args = parser.parse_args()
+    shadow = Shadow(args.project, args.source_sha, args.web_port, args.api_port, fixture=True,
+                    executor_context=args.executor_context, engine_id=args.engine_id, machine_sha256=args.machine_sha256)
+    result = prove_recovery(shadow, json.loads(args.attestation.read_text()), args.receipt)
+    print("DOCKER_RECOVERY_" + result["status"])
+    return 0 if result["status"] == "PASS" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
