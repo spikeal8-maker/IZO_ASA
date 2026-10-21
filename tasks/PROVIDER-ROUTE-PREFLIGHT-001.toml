@@ -1,0 +1,62 @@
+manifestVersion = 1
+id = "PROVIDER-ROUTE-PREFLIGHT-001"
+baseSha = "51543df2b6a559d693e3ed75b11baeacdb9033d3"
+goal = "Implement an isolated, deterministic, fail-closed provider capability and price preflight for future backend registry routing without any runtime/network/financial side effects."
+userOutcome = "A compatible ordered route can be identified from trusted backend state while disabled, unverified, unavailable, unauthorized, overpriced, or stale provider/model choices are rejected before dispatch."
+beforeScenario = "The project has provider-specific routing but no shared pure, bounded compatibility gate for Ollama, OpenRouter, direct DeepSeek and ComfyUI; paid automatic failover must not be enabled before durable receipt reconciliation."
+afterScenario = "An import-safe backend module returns a classified list of eligible and rejected candidates, using only verified capabilities, fresh health, explicit tariff permission, price quote and request budget; tests demonstrate fail-closed behavior and stable order. No provider receives a request."
+nonGoals = [
+  "No actual provider invocation, registration or dispatch; no automatic free/paid fallback.",
+  "No backend API, secrets, SQLite/schema, settlement/ledger or runtime routing changes.",
+  "No network/host/Docker/proxy/firewall/production changes, no update of active Shadow.",
+  "No changes to PR 195, PR 199 or PR 200 or their Task ownership.",
+]
+declaredFiles = [
+  "backend/app/services/provider_route_preflight.py",
+  "backend/test_provider_route_preflight.py",
+  "docs/provider-route-preflight.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/main.py",
+  "backend/app/billing/**",
+  "backend/app/integrations/**",
+  "frontend/**",
+  "ops/**",
+]
+protectedFilesTouched = [
+]
+domain = "chat"
+riskClass = "high-assurance"
+changeClass = "feature"
+maxProductionFiles = 1
+maxChangedLines = 650
+acceptance = [
+  "Explicit model/operation/allowed-list capability match; no implicit expansion of modality.",
+  "Preserves configured preference order; records stable rejection reasons.",
+  "Offline, stale, disabled, unverified, missing price, forbidden tier and over-budget candidates fail closed.",
+  "A paid model is never declared admissible without a positive verified quote and explicit entitlement.",
+  "Pure gate never sends requests, stores credentials, changes billing, or grants permission to retry an accepted/unknown command.",
+]
+requiredEvidence = [
+  "Commit SHA, fresh base, clean scope and ownership proof.",
+  "Offline unit tests including positive/negative/race-adjacent decision cases and immutable result.",
+  "Independent reviewer for safety, supported operation sets, fail-closed semantics and evidence; hosted CI remains a separate gate.",
+]
+targetedTests = [
+  "python -m unittest -v backend.test_provider_route_preflight",
+  "python -m tools.agent_system.enforce --repo-root . local",
+  "git diff --check",
+]
+fileGrowthExpectations = [
+  "Small dependency-free module under source size policy, bounded unit test file, standalone explanation with no second status router.",
+]
+forbiddenOperations = [
+  "production deployment",
+  "host network mutation",
+  "paid provider calls",
+  "real financial updates",
+  "forced merge or branch protection bypass",
+]
+rollbackBoundary = "Revert the independent source PR; no migration, runtime adapter, billing, data or network state changes."
