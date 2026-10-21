@@ -1,0 +1,82 @@
+manifestVersion = 1
+id = "SHADOW-GENERATION-RECOVERY-001"
+baseSha = "9acd9df0e8f375b8711e6b4cc63d349aa7b4a70e"
+goal = "Prevent repeated generation refunds and late OpenRouter settlement over-refunds, and recover orphaned image jobs without excluding them as video."
+userOutcome = "Cancelled or failed generation restores at most its original charged amounts and active image jobs are reconciled after restart."
+beforeScenario = "Both cancellation/settlement orders over-refund; concurrent refund connections can both issue a full refund; all OpenRouter jobs are excluded from image recovery."
+afterScenario = "Serialized ledger transitions compose to one effective refund and mode-aware image recovery preserves resumable video jobs."
+nonGoals = [
+  "New workers or services",
+  "Image request idempotency",
+  "Docker runtime",
+  "Real providers",
+  "Production operations",
+  "Schema changes",
+  "Cancel API redesign",
+]
+declaredFiles = [
+  "backend/main.py",
+  "backend/app/services/generation_accounting.py",
+  "backend/app/services/generation_recovery.py",
+  "backend/test_services_generation_accounting_module.py",
+  "backend/test_services_generation_recovery_module.py",
+  "backend/test_openrouter_token_reconciliation.py",
+  "backend/test_generation_recovery_wiring.py",
+  "backend/SYMBOL_MAP.md",
+  "docs/generated/architecture-inventory.json",
+  "docs/generated/architecture-inventory.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "frontend/**",
+  "ops/**",
+  ".github/**",
+]
+protectedFilesTouched = [
+  "backend/main.py",
+]
+domain = "image-generation"
+riskClass = "high-assurance"
+changeClass = "repair"
+maxProductionFiles = 3
+maxChangedLines = 1500
+acceptance = [
+  "Cancellation and settlement in either order never refund more than charged balance or quota.",
+  "Three fresh independent-connection WAL race repetitions issue only one effective refund.",
+  "BEGIN IMMEDIATE precedes the first accounting read; existing write transactions remain caller-owned.",
+  "Image OpenRouter orphans are failed and refunded while resumable video modes survive.",
+  "Unknown external outcomes are never automatically retried.",
+  "Connections and owned temporary SQLite resources are cleaned.",
+]
+requiredEvidence = [
+  "Exact-source characterization",
+  "Focused repeated accounting races",
+  "Video accounting compatibility",
+  "Mode-aware recovery regressions",
+  "Package enforcement",
+  "Generated evidence",
+  "Independent review before commit",
+  "Exact-head CI before merge",
+]
+targetedTests = [
+  "backend/test_services_generation_accounting_module.py",
+  "backend/test_services_generation_recovery_module.py",
+  "backend/test_openrouter_token_reconciliation.py",
+  "backend/test_generation_recovery_wiring.py",
+  "backend/test_generation_protection.py",
+  "backend/test_video_generation_api.py",
+]
+fileGrowthExpectations = [
+  "Frozen main.py shrinks by extracting the affected financial functions.",
+  "New handwritten modules remain below 500 lines.",
+]
+forbiddenOperations = [
+  "docker-lifecycle",
+  "production-data",
+  "provider-call",
+  "host-settings",
+  "merge",
+  "commit-before-independent-review",
+]
+rollbackBoundary = "Revert only this accounting extraction/repair and mode-aware recovery package; no database migration is introduced."
