@@ -1,0 +1,104 @@
+manifestVersion = 1
+id = "DEMO-ADMIN-OPENAI-001"
+baseSha = "51543df2b6a559d693e3ed75b11baeacdb9033d3"
+goal = "Provide a separately administered direct OpenAI Responses provider in IZO_ASA"
+userOutcome = "Owner sees OpenAI settings and can use a permitted model in the real authenticated chat"
+beforeScenario = "Admin has no native OpenAI key panel and chat only invokes existing routes"
+afterScenario = "Admin can securely manage OpenAI and an explicitly selected OpenAI model returns durable chat text through trusted sessions"
+nonGoals = [
+  "Change Studio or drafts",
+  "Rotate production secrets",
+  "Modify global network configuration",
+  "Automatic paid fallback",
+  "Grant admin without verified owner identity",
+]
+declaredFiles = [
+  "backend/app/api/routers/admin_openai.py",
+  "backend/app/integrations/openai.py",
+  "backend/app/api/routers/admin_operations.py",
+  "backend/app/api/routers/phone_chat.py",
+  "backend/main.py",
+  "backend/test_admin_openai.py",
+  "backend/test_phone_chat_openai.py",
+  "frontend/src/AdminApp.tsx",
+  "frontend/src/adminModelsRoutes.ts",
+  "frontend/src/adminOpenAISettings.tsx",
+  "frontend/src/adminOpenAISettings.css",
+  "frontend/e2e-admin-openai.mjs",
+  "docs/context/admin-control-center.md",
+  "docs/context/admin-models.md",
+  "docs/context/chat.md",
+  "docs/admin-panel-guide.md",
+  "docs/admin-change-contract.md",
+]
+allowedPatterns = [
+  "backend/app/security/openai_secrets.py",
+  "backend/requirements.txt",
+  "backend/test_openai_secrets.py",
+]
+forbiddenPatterns = [
+  "frontend/src/newUi.tsx",
+  "frontend/src/newUi.css",
+  "frontend/src/newStudioV3.css",
+  "frontend/src/studio/**",
+  "frontend/src/phone/features/studio/**",
+]
+protectedFilesTouched = [
+  "backend/main.py",
+]
+domain = "admin-models-chat"
+riskClass = "high-assurance"
+changeClass = "provider-integration"
+maxProductionFiles = 9
+maxChangedLines = 1550
+acceptance = [
+  "Trusted admin can view status, save, verify, disable and delete an OpenAI project API key",
+  "Provider key persists only in secure server store",
+  "Explicit admin-only OpenAI chat selection uses Responses API and request lifecycle history",
+  "Disabled, invalid, timeout, rate limited and repeated requests are safely handled",
+  "Existing Shadow is unchanged and stacked Draft PR is independently reviewed",
+]
+requiredEvidence = [
+  "Exact base/head and file ownership",
+  "Focused isolated backend tests",
+  "Frontend build/lint and browser desktop/mobile test",
+  "No secret leaks in logs or responses",
+  "Live request only with owner key and egress permission",
+  "Independent review and CI",
+]
+targetedTests = [
+  "backend/test_admin_openai.py",
+  "backend/test_phone_chat_openai.py",
+  "frontend/e2e-admin-openai.mjs",
+  "frontend lint/build",
+  "package scope and hygiene",
+]
+fileGrowthExpectations = [
+  "Keep backend/main.py changes minimal and protected budget non-growing",
+  "Do not modify frontend/src/adminModels.tsx",
+  "Use small leaf modules",
+]
+forbiddenOperations = [
+  "production deploy",
+  "production database mutation",
+  "unapproved live provider requests",
+  "global Docker/network changes",
+  "Studio modifications",
+  "changing another agent's branch",
+]
+rollbackBoundary = "Revert feature commit and delete only the isolated candidate; preserve current Shadow and existing keys"
+
+[[scopeExpansions]]
+path = "backend/app/security/openai_secrets.py"
+reason = "Required Linux and Windows secure provider secret store"
+recordedAtUtc = "2026-10-21T22:34:09.728930Z"
+
+[[scopeExpansions]]
+path = "backend/requirements.txt"
+reason = "Pin cryptography dependency for encrypted Linux secret storage"
+recordedAtUtc = "2026-10-21T22:34:10.681079Z"
+
+[[scopeExpansions]]
+path = "backend/test_openai_secrets.py"
+reason = "Test encrypted secret persistence and permission rejection"
+recordedAtUtc = "2026-10-21T22:34:11.647411Z"

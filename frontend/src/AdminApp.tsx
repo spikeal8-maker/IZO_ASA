@@ -19,6 +19,7 @@ import './adminModelsResponsive.css'
 
 const AdminAnalyticsV2 = lazy(() => import('./adminAnalytics').then((module) => ({ default: module.AdminAnalyticsV2 })))
 const AdminModelsV2 = lazy(() => import('./adminModels'))
+const AdminOpenAISettings = lazy(() => import('./adminOpenAISettings'))
 const AdminMail = lazy(() => import('./adminMail'))
 const AdminPayments = lazy(() => import('./adminPayments'))
 const AdminBots = lazy(() => import('./adminBots'))
@@ -693,7 +694,7 @@ export default function AdminApp() {
             <section className="admin-page admin-content-page">
               {tab === 'dashboard' && <AdminDashboard summary={summary} range={dashboardRange} />}
               {tab === 'crm' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем CRM...</div>}><AdminAnalyticsV2 /></Suspense></div>}
-              {tab === 'models' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем модели...</div>}><AdminModelsV2 embeddedInSidebar /></Suspense></div>}
+              {tab === 'models' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем модели...</div>}>{pathname === '/admin/models/openai' ? <AdminOpenAISettings /> : <AdminModelsV2 embeddedInSidebar />}</Suspense></div>}
               {tab === 'notifications' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем уведомления...</div>}><AdminNotifications /></Suspense></div>}
               {tab === 'social' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем соцсети...</div>}><AdminSocial /></Suspense></div>}
               {tab === 'tariffs' && <AdminTokens />}

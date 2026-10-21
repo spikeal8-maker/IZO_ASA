@@ -578,6 +578,15 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
             )
         return {"ok": True, "messageId": post_id}
 
+    from .admin_openai import AdminOpenAIDependencies, create_admin_openai_router
+
+    router.include_router(create_admin_openai_router(AdminOpenAIDependencies(
+        require_admin=deps.require_admin,
+        get_settings=lambda: deps.saved_setting("openai_provider"),
+        save_settings=lambda value: deps.save_setting("openai_provider", value),
+        db=deps.db,
+        audit=deps.record_audit,
+    )))
     return router
 
 

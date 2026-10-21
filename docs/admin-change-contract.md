@@ -370,3 +370,23 @@ pwsh -File tools/verify.ps1 -Mode Quick
   их contract.
 - Состояния `IMPLEMENTED`, `TESTED`, `COMMITTED`, `PUSHED/PR`, `MERGED`,
   `DEPLOYED`, `OPERATIONALLY VERIFIED` разделены.
+
+## OpenAI API: cross-domain high-assurance package (#206)
+
+- Entry route: `/admin/models/openai`; leaf:
+  `frontend/src/adminOpenAISettings.tsx`.
+- Backend routes: `GET /api/admin/openai`,
+  `PUT /api/admin/openai/key`, `DELETE /api/admin/openai/key`,
+  `PUT /api/admin/openai/settings`, `POST /api/admin/openai/verify`.
+- Change ownership: `admin_openai.py`, `openai.py`, `openai_secrets.py`;
+  `phone_chat.py` for explicit selection and lifecycle integration.
+- Controls: trusted-admin per request; audit for every mutation; no plaintext
+  secrets in SQLite, repository, Docker image, browser storage, or API result;
+  fake-provider tests; no default paid fallback or automatic timeout retry.
+- Minimum risk: `high-assurance`. Any live key/provider request, new
+  production egress, or deploy requires separately authorized `release-ops`.
+- Tests: `test_admin_openai.py`, `test_openai_secrets.py`,
+  `test_phone_chat_openai.py`, `e2e-admin-openai.mjs`,
+  existing chat/session tests, frontend build and lint.
+- No new provider publication/economics contract is claimed for ordinary
+  users; OpenAI preview remains administrator-only.

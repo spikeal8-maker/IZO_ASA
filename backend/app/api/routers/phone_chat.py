@@ -7,6 +7,7 @@ import json
 import math
 import os
 import re
+import sqlite3
 import time
 import uuid
 from collections.abc import Callable
@@ -20,6 +21,10 @@ from pydantic import BaseModel, Field
 
 from ...config import load_provider_endpoint_policy
 from ...integrations.ollama import request_ollama_chat_message
+from ...integrations.openai import (
+    OpenAIProviderError, normalize_openai_settings, request_openai_response,
+)
+from ...security.openai_secrets import OpenAISecretStoreError, get_openai_key
 from ...integrations.openrouter import (
     extract_openrouter_generation_cost,
     format_openrouter_public_error,
@@ -131,11 +136,21 @@ class PhoneChatDependencies:
     connect_db: Callable[[], Any] | None = None
     usd_rub_snapshot: Callable[[], dict[str, Any]] | None = None
     openrouter_economy: Callable[[], dict[str, float]] | None = None
+    openai_key: Callable[[], str] = get_openai_key
 
 
 def _chat_config(deps: PhoneChatDependencies) -> dict[str, Any]:
     config = deps.assistant_models_config()
-    return config.get("chat") if isinstance(config.get("chat"), dict) else config["improve"]
+    chat = config.get("chat") if isinstance(config.get("chat"), dict) else config["improve"]
+    openai_saved: dict[str, Any] = {}
+    if deps.connect_db is not None:
+        try:
+            with deps.connect_db() as conn:
+                row = conn.execute("SELECT value_json FROM admin_settings WHERE key='openai_provider'").fetchone()
+            openai_saved = json.loads(row["value_json"] or "{}") if row else {}
+        except (ValueError, KeyError, TypeError, OSError, sqlite3.Error):
+            openai_saved = {}
+    return {**chat, "_openai": normalize_openai_settings(openai_saved)}
 
 
 def _resolve_phone_chat_model(req: PhoneChatRequest, config: dict[str, Any], plan: str | None = None) -> tuple[str, str, str, float, str]:
@@ -152,6 +167,15 @@ def _resolve_phone_chat_model(req: PhoneChatRequest, config: dict[str, Any], pla
             selected = enabled_api[0] if enabled_api else str(config.get("apiModel") or "")
         else:
             selected = str(config.get("defaultModel") or "local:izo-chat")
+    if selected.startswith("openai:"):
+        openai_settings = config.get("_openai") or {}
+        model = selected.removeprefix("openai:")
+        if (config.get("enabled") is False or not openai_settings.get("enabled")
+                or model != openai_settings.get("model")):
+            raise ValueError("Модель OpenAI отключена или недоступна.")
+        if plan is not None and plan != "admin":
+            raise ValueError("OpenAI пока доступен только администратору для проверки стоимости.")
+        return selected, "openai", model, 0.1, "main"
     if selected == "local:izo-chat":
         if config.get("enabled") is False or config.get("localEnabled") is False:
             raise ValueError("Локальная модель чата сейчас отключена.")
@@ -642,6 +666,26 @@ async def phone_chat_openrouter(
     raise RuntimeError("Чат превысил допустимое число вызовов инструментов.")
 
 
+async def phone_chat_openai(
+    req: PhoneChatRequest,
+    deps: PhoneChatDependencies,
+    config: dict[str, Any],
+) -> tuple[str, dict[str, Any], str]:
+    if req.images or req.toolChoice != "auto":
+        raise ValueError("В текущем режиме OpenAI поддерживает только текст без инструментов.")
+    model = str((config.get("_openai") or {}).get("model") or "")
+    try:
+        key = deps.openai_key()
+    except OpenAISecretStoreError as exc:
+        raise OpenAIProviderError(503, "secret_store", "Хранилище ключей OpenAI недоступно.") from exc
+    reply, payload = await request_openai_response(
+        key=key, model=model, messages=_phone_chat_history(req),
+        instructions=_system_prompt() + " На этом маршруте нет доступных инструментов: не утверждай, что выполнял веб-поиск или генерацию.",
+        timeout_seconds=min(90, max(10, int(config.get("apiTimeoutSeconds") or 45))),
+    )
+    return reply, payload, model
+
+
 async def route_phone_chat(
     req: PhoneChatRequest,
     deps: PhoneChatDependencies,
@@ -656,6 +700,8 @@ async def route_phone_chat(
     async with _phone_chat_semaphore:
         if provider == "local":
             reply, payload, model = await phone_chat_ollama(req, deps, selected_config)
+        elif provider == "openai":
+            reply, payload, model = await phone_chat_openai(req, deps, selected_config)
         else:
             reply, payload, model = await phone_chat_openrouter(req, deps, selected_config)
     return reply, payload, provider, model, public_model_id, token_cost, token_kind
@@ -847,6 +893,21 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
                 "economics": pricing,
                 "contextChars": min(int(config.get("contextChars") or 60000), max(4000, int(item.get("contextLength") or 15000) * 4)),
             })
+        openai_settings = config.get("_openai") or {}
+        if plan == "admin" and openai_settings.get("enabled"):
+            try:
+                ready = bool(deps.openai_key())
+            except OpenAISecretStoreError:
+                ready = False
+            if ready:
+                model_id = str(openai_settings["model"])
+                models.append({
+                    "id": f"openai:{model_id}", "name": f"OpenAI · {model_id}",
+                    "provider": "openai", "available": True,
+                    "tokenCost": 0.1, "tokenKind": "main", "usageBased": False,
+                    "description": "Прямое API · экспериментальный платный маршрут только для администратора",
+                    "contextChars": int(config.get("contextChars") or 60000),
+                })
         default_model = str(config.get("defaultModel") or "local:izo-chat")
         available_ids = {str(item["id"]) for item in models if item.get("available", True)}
         if default_model not in available_ids:
@@ -895,6 +956,14 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
             _public_id, selected_provider, selected_model, selected_cost, selected_kind = _resolve_phone_chat_model(routed_req, config, plan)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
+        if selected_provider == "openai":
+            if routed_req.images or routed_req.toolChoice != "auto":
+                raise HTTPException(400, "OpenAI пока поддерживает только текст без инструментов.")
+            try:
+                if not deps.openai_key():
+                    raise HTTPException(503, "Ключ OpenAI не сохранён.")
+            except OpenAISecretStoreError as exc:
+                raise HTTPException(503, "Хранилище OpenAI недоступно.") from exc
         reservation_quote: dict[str, Any] | None = None
         if selected_provider == "api" and config.get("usageBillingEnabled", True):
             try:
@@ -977,7 +1046,9 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
             if isinstance(exc, ValueError):
                 status, detail, error_code = 400, str(exc), "invalid_provider_result"
             elif isinstance(exc, asyncio.TimeoutError):
-                status, detail, error_code = 504, "Чат отвечает слишком долго. Повторите запрос.", "timeout"
+                status, detail, error_code = 504, "Чат отвечает слишком долго. Исход платного запроса может быть неизвестен; не повторяйте автоматически.", "timeout"
+            elif isinstance(exc, OpenAIProviderError):
+                status, detail, error_code = exc.status, str(exc), "openai_" + exc.code
             elif isinstance(exc, HTTPException):
                 status = int(exc.status_code)
                 detail = str(exc.detail)
