@@ -1,0 +1,52 @@
+# Explicit CPU acceptance fixture. Loaded only by the launcher's --fixture option.
+# API and two separate workers share only owned IPC and the guarded namespace.
+x-worker: &worker
+  image: izo-asa-dev-backend:${IZO_SOURCE_SHA:?IZO_SOURCE_SHA is required}
+  command: [python, -m, app.generation_worker]
+  user: "10001:10001"
+  restart: "no"
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=16m,uid=10001,gid=10001,mode=0700
+  cpus: 0.5
+  mem_limit: 256m
+  pids_limit: 64
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  network_mode: service:guard
+  depends_on:
+    guard:
+      condition: service_healthy
+    backend:
+      condition: service_started
+  labels:
+    io.izo.owner: SHADOW-TOPOLOGY-01
+  environment:
+    IZO_PROCESS_ROLE: worker
+    IZO_WORKER_SOCKET: /home/izo/worker/generation.sock
+  volumes:
+    - worker_ipc:/home/izo/worker
+  healthcheck:
+    test: [CMD, python, -m, app.generation_worker, --health]
+    interval: 5s
+    timeout: 4s
+    retries: 30
+    start_period: 15s
+  stop_grace_period: 10s
+services:
+  backend:
+    command: [python, /opt/izo/fixtures/docker_shadow_fixture.py]
+    environment:
+      IZO_PROCESS_ROLE: server
+      IZO_WORKER_SOCKET: /home/izo/worker/generation.sock
+      IZO_SHADOW_FIXTURE: controlled-comfyui-v1
+      COMFYUI_BASE_URL: http://127.0.0.1:48991
+      COMFYUI_MOCK_FALLBACK: "false"
+    volumes:
+      - worker_ipc:/home/izo/worker
+  worker: *worker
+  worker_peer: *worker
+volumes:
+  worker_ipc:
+    labels:
+      io.izo.owner: SHADOW-TOPOLOGY-01

@@ -63,6 +63,7 @@ def _progress(value: Any) -> int:
 
 def normalize_phone_job(payload: Mapping[str, Any], *, modality: str | None = None) -> dict[str, Any]:
     status = str(_value(payload, "status", "queued") or "queued").casefold()
+    status = {"sent_to_comfyui": "running", "sent_to_openrouter": "running", "uploading": "processing"}.get(status, status)
     if status not in PUBLIC_STATES:
         status = "created"
     if status == "processing":

@@ -8,6 +8,8 @@ from urllib.parse import urljoin
 
 import httpx
 
+from .generation_transport import client_options as generation_options
+
 
 OPENROUTER_VIDEO_MODES = ("text_to_video", "image_to_video", "first_last_frame", "reference_to_video")
 OPENROUTER_VIDEO_TIERS = ("mini", "plus", "pro", "business")
@@ -465,8 +467,7 @@ async def fetch_openrouter_text_models(
     """Fetch and parse OpenRouter's text-capable model catalog."""
 
     client_options: dict[str, Any] = {"timeout": timeout_seconds}
-    if transport is not None:
-        client_options["transport"] = transport
+    client_options = generation_options(client_options, transport)
     async with httpx.AsyncClient(**client_options) as client:
         response = await client.get(
             f"{base_url.rstrip('/')}/models?output_modalities=text",
@@ -487,8 +488,7 @@ async def fetch_openrouter_audio_input_models(
     """Fetch the OpenRouter catalog restricted to audio-input, text-output models."""
 
     client_options: dict[str, Any] = {"timeout": timeout_seconds}
-    if transport is not None:
-        client_options["transport"] = transport
+    client_options = generation_options(client_options, transport)
     async with httpx.AsyncClient(**client_options) as client:
         response = await client.get(
             f"{base_url.rstrip('/')}/models?input_modalities=audio&output_modalities=text",
@@ -509,8 +509,7 @@ async def fetch_openrouter_video_models(
     """Fetch the first-party OpenRouter video-model catalog."""
 
     client_options: dict[str, Any] = {"timeout": timeout_seconds}
-    if transport is not None:
-        client_options["transport"] = transport
+    client_options = generation_options(client_options, transport)
     async with httpx.AsyncClient(**client_options) as client:
         response = await client.get(
             f"{base_url.rstrip('/')}/videos/models",
@@ -532,8 +531,7 @@ async def submit_openrouter_video(
     """Submit one asynchronous video job using OpenRouter's native endpoint."""
 
     client_options: dict[str, Any] = {"timeout": timeout_seconds}
-    if transport is not None:
-        client_options["transport"] = transport
+    client_options = generation_options(client_options, transport)
     async with httpx.AsyncClient(**client_options) as client:
         response = await client.post(f"{base_url.rstrip('/')}/videos", headers=headers, json=payload)
     if response.is_error:
@@ -567,8 +565,7 @@ async def poll_openrouter_video(
     if not target.startswith(("http://", "https://")):
         target = urljoin(f"{base_url.rstrip('/')}/", target) if target else f"{base_url.rstrip('/')}/videos/{job_id}"
     client_options: dict[str, Any] = {"timeout": timeout_seconds}
-    if transport is not None:
-        client_options["transport"] = transport
+    client_options = generation_options(client_options, transport)
     async with httpx.AsyncClient(**client_options) as client:
         response = await client.get(target, headers=headers)
     response.raise_for_status()
@@ -589,8 +586,7 @@ async def fetch_openrouter_key_details(
     """Fetch the legacy read-only key and credits status payload."""
 
     client_options: dict[str, Any] = {"timeout": timeout_seconds}
-    if transport is not None:
-        client_options["transport"] = transport
+    client_options = generation_options(client_options, transport)
     resolved_base_url = base_url.rstrip("/")
     async with httpx.AsyncClient(**client_options) as client:
         response = await client.get(f"{resolved_base_url}/key", headers=key_headers)
@@ -639,8 +635,7 @@ async def request_openrouter_chat_completion(
     """POST a chat completion and return its status plus parsed JSON payload."""
 
     client_options: dict[str, Any] = {"timeout": timeout_seconds}
-    if transport is not None:
-        client_options["transport"] = transport
+    client_options = generation_options(client_options, transport)
     async with httpx.AsyncClient(**client_options) as client:
         response = await client.post(
             f"{base_url.rstrip('/')}/chat/completions",
@@ -666,8 +661,7 @@ async def fetch_openrouter_image_model_documents(
         "timeout": timeout_seconds,
         "follow_redirects": True,
     }
-    if transport is not None:
-        client_options["transport"] = transport
+    client_options = generation_options(client_options, transport)
     async with httpx.AsyncClient(**client_options) as client:
         response = await client.get(f"{base_url.rstrip('/')}/images/models", headers=headers)
         response.raise_for_status()

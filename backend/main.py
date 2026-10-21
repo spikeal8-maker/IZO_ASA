@@ -327,10 +327,12 @@ try:
         comfyui_watchdog,
         comfyui_workflows,
         generation_jobs,
+        generation_admission, generation_admin_probe,
+        generation_accounting,
         generation_recovery,
         generation_results,
-        generation_worker,
-        generation_queue, image_model_publication, openrouter_availability, openrouter_image_economics, cloud_quote,
+        generation_worker, generation_claims, generation_worker_persistence,
+        generation_queue, generation_bootstrap, image_model_publication, openrouter_availability, openrouter_image_economics, cloud_quote,
         gallery_policy,
         gallery_eviction,
         gallery_query,
@@ -379,10 +381,12 @@ except ImportError:  # Direct `python backend/main.py` execution.
         comfyui_watchdog,
         comfyui_workflows,
         generation_jobs,
+        generation_admission, generation_admin_probe,
+        generation_accounting,
         generation_recovery,
         generation_results,
-        generation_worker,
-        generation_queue, image_model_publication, openrouter_availability, openrouter_image_economics, cloud_quote,
+        generation_worker, generation_claims, generation_worker_persistence,
+        generation_queue, generation_bootstrap, image_model_publication, openrouter_availability, openrouter_image_economics, cloud_quote,
         gallery_policy,
         gallery_eviction,
         gallery_query,
@@ -459,6 +463,7 @@ try:
     from .app.api.routers.phone_audio import PhoneAudioDependencies, create_phone_audio_router
     from .app.api.routers.phone_platform import PhonePlatformDependencies, create_phone_platform_router
     from .app.api.routers.phone_jobs import PhoneJobDependencies, create_phone_jobs_router
+    from .app.api.routers.health import HealthDependencies, create_health_router
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.services.platform_status import (
         mini_app_public_url,
@@ -497,6 +502,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
     from app.api.routers.phone_audio import PhoneAudioDependencies, create_phone_audio_router
     from app.api.routers.phone_platform import PhonePlatformDependencies, create_phone_platform_router
     from app.api.routers.phone_jobs import PhoneJobDependencies, create_phone_jobs_router
+    from app.api.routers.health import HealthDependencies, create_health_router
 
 try:
     from .app.services.bot_admin import (
@@ -827,6 +833,7 @@ SOURCE_THUMB_WEBP_QUALITY = MEDIA_PROCESSING_POLICY.source_thumb_webp_quality
 
 
 load_local_env(ROOT)
+generation_bootstrap.api_role(os.environ)
 mimetypes.add_type("image/webp", ".webp")
 STORAGE_PATH_POLICY = load_storage_path_policy(ROOT)
 MEDIA = STORAGE_PATH_POLICY.media_dir
@@ -1634,6 +1641,7 @@ jobs: dict[str, dict[str, Any]] = {}
 images: dict[str, dict[str, Any]] = {}
 queue: asyncio.Queue[str] = asyncio.Queue()
 worker_started = False
+generation_dispatcher = None
 # bot_polling_started / bot_polling_tasks are worker-owned mutable state on
 # BOT_RUNTIME.polling_started / .polling_tasks (ARCH-BE-BOTS-001).
 
@@ -1863,7 +1871,7 @@ def enforce_db_guard_after_migrations() -> None:
         db_guard_fail(str(status.get("reason") or "DB guard failed after migrations."))
 
 def db() -> sqlite3.Connection:
-    return open_sqlite(DB_PATH)
+    return generation_claims.connection(lambda: open_sqlite(DB_PATH))
 
 def init_db() -> None:
     with db() as conn:
@@ -3363,11 +3371,9 @@ def evict_gallery_images_for_new_save(
         ),
         # Public feed variants are independent from the private gallery source.
         # Quota eviction must not silently unpublish an explicitly posted work.
-        delete_files=lambda url, thumbnail_url: delete_image_files_from_disk(
-            url=url,
-            thumbnail_url=thumbnail_url,
-        ),
-        drop_cached_image=lambda image_id: images.pop(image_id) if image_id in images else None,
+        delete_files=lambda url, thumbnail_url: generation_claims.after_commit(
+            lambda: delete_image_files_from_disk(url=url, thumbnail_url=thumbnail_url)),
+        drop_cached_image=lambda image_id: generation_claims.after_commit(lambda: images.pop(image_id, None)),
     )
     return gallery_eviction.apply_gallery_evictions(runtime, rows)
 
@@ -4236,6 +4242,8 @@ def recover_gallery_index_from_media(conn: sqlite3.Connection) -> int:
         user_id = str(row["user_id"] or "").strip()
         if not job_id.startswith("job_") or not user_id or job_id in existing:
             continue
+        if not generation_claims.can_recover_media(conn, job_id):
+            continue
         image_path = next(
             (MEDIA / f"{job_id}_comfyui{ext}" for ext in (".png", ".jpg", ".jpeg", ".webp") if (MEDIA / f"{job_id}_comfyui{ext}").exists()),
             None,
@@ -4328,6 +4336,7 @@ def reconcile_stale_generation_state() -> dict[str, int]:
             conn,
             completed_at=completed_at,
             refund_job=refund_generation_tokens,
+            preserve_queued=generation_bootstrap.role(os.environ) == "server",
         )
     return report.as_dict()
 
@@ -4785,103 +4794,7 @@ def charge_generation_tokens(conn: sqlite3.Connection, user_id: str, token_cost:
 
 
 def refund_generation_tokens(conn: sqlite3.Connection, job_id: str, *, reason: str) -> bool:
-    """Idempotently reverse a generation charge for failed/cancelled jobs."""
-    existing_refund = conn.execute(
-        "SELECT 1 FROM token_ledger WHERE reason IN ('generation_refund', 'daily_generation_refund', 'openrouter_monthly_generation_refund') AND meta_json LIKE ?",
-        (f'%"jobId": "{job_id}"%',),
-    ).fetchone()
-    if existing_refund is not None:
-        return False
-    charge = conn.execute(
-        """
-        SELECT * FROM token_ledger
-        WHERE reason IN ('generation', 'daily_generation', 'openrouter_monthly_generation') AND meta_json LIKE ?
-        ORDER BY created_at DESC LIMIT 1
-        """,
-        (f'%"jobId": "{job_id}"%',),
-    ).fetchone()
-    if charge is None:
-        return False
-    meta = safe_json_load(charge["meta_json"]) or {}
-    user_id = charge["user_id"]
-    token_cost = int(meta.get("token_cost") or abs(int(charge["delta"] or 0)) or 0)
-    now = datetime.now(timezone.utc)
-    now_iso = now.isoformat()
-    today = now.strftime("%Y-%m-%d")
-    month_key = now.strftime("%Y-%m")
-    if "daily_part" in meta or "balance_part" in meta:
-        daily_part = max(0, int(meta.get("daily_part") or 0))
-        balance_part = max(0, int(meta.get("balance_part") or 0))
-        user_row = conn.execute(
-            "SELECT daily_tokens_used, last_daily_reset FROM users WHERE id = ?",
-            (user_id,),
-        ).fetchone()
-        if user_row is not None and user_row["last_daily_reset"] == today and daily_part > 0:
-            conn.execute(
-                "UPDATE users SET daily_tokens_used = MAX(0, daily_tokens_used - ?) WHERE id = ?",
-                (daily_part, user_id),
-            )
-        if balance_part > 0:
-            conn.execute(
-                "UPDATE users SET token_balance = token_balance + ? WHERE id = ?",
-                (balance_part, user_id),
-            )
-        refund_delta = balance_part
-        refund_reason = "generation_refund" if balance_part > 0 else "daily_generation_refund"
-    elif charge["reason"] == "daily_generation":
-        user_row = conn.execute("SELECT daily_tokens_used, last_daily_reset FROM users WHERE id = ?", (user_id,)).fetchone()
-        if user_row is not None and user_row["last_daily_reset"] == today and token_cost > 0:
-            new_daily = max(0, int(user_row["daily_tokens_used"] or 0) - token_cost)
-            conn.execute("UPDATE users SET daily_tokens_used = ? WHERE id = ?", (new_daily, user_id))
-        refund_delta = 0
-        refund_reason = "daily_generation_refund"
-    elif charge["reason"] == "openrouter_monthly_generation":
-        monthly_part = max(0, int(meta.get("openrouter_monthly_used_after") or 0) - int(meta.get("openrouter_monthly_used_before") or 0))
-        user_row = conn.execute("SELECT openrouter_monthly_tokens_used, last_openrouter_month_reset FROM users WHERE id = ?", (user_id,)).fetchone()
-        if user_row is not None and user_row["last_openrouter_month_reset"] == month_key and monthly_part > 0:
-            new_monthly = max(0, int(user_row["openrouter_monthly_tokens_used"] or 0) - monthly_part)
-            conn.execute("UPDATE users SET openrouter_monthly_tokens_used = ? WHERE id = ?", (new_monthly, user_id))
-        refund_delta = abs(int(charge["delta"] or 0))
-        refund_reason = "openrouter_monthly_generation_refund"
-        if refund_delta > 0:
-            conn.execute("UPDATE users SET token_balance = token_balance + ? WHERE id = ?", (refund_delta, user_id))
-    else:
-        refund_delta = abs(int(charge["delta"] or 0))
-        refund_reason = "generation_refund"
-        if refund_delta > 0:
-            conn.execute("UPDATE users SET token_balance = token_balance + ? WHERE id = ?", (refund_delta, user_id))
-    if token_cost > 0:
-        conn.execute(
-            """
-            UPDATE users
-            SET tokens_used = MAX(0, tokens_used - ?),
-                generation_count = MAX(0, generation_count - 1)
-            WHERE id = ?
-            """,
-            (token_cost, user_id),
-        )
-    conn.execute(
-        "INSERT INTO token_ledger (id, user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (
-            str(uuid.uuid4()),
-            user_id,
-            refund_delta,
-            refund_reason,
-            json.dumps(
-                {
-                    "jobId": job_id,
-                    "reason": reason,
-                    "refunded_ledger_id": charge["id"],
-                    "token_cost": token_cost,
-                    "daily_part": max(0, int(meta.get("daily_part") or 0)),
-                    "balance_part": refund_delta,
-                },
-                ensure_ascii=False,
-            ),
-            now_iso,
-        ),
-    )
-    return True
+    return generation_accounting.refund_generation_tokens(conn, job_id, reason=reason)
 
 
 mini_app_url = mini_app_public_url
@@ -6853,6 +6766,7 @@ async def fetch_openrouter_key_status(force: bool = False) -> dict[str, Any]:
 
 
 async def send_to_openrouter(payload: GenerateRequest, job: dict[str, Any]) -> OpenRouterResult:
+    generation_bootstrap.require_executor(os.environ)
     if not openrouter_api_key():
         raise RuntimeError("OPENROUTER_API_KEY не задан. Добавьте ключ перед включением OpenRouter.")
     model = resolve_openrouter_model(payload)
@@ -6883,22 +6797,23 @@ async def send_to_openrouter(payload: GenerateRequest, job: dict[str, Any]) -> O
         raise RuntimeError(_openrouter_public_error(status_code, data))
     image_payload = _openrouter_first_image(data)
     with await _openrouter_image_to_pil(image_payload) as opened:
-        image_path = save_gallery_original(opened, f"{job['id']}_openrouter")
-    with Image.open(image_path) as saved:
-        saved_width, saved_height = saved.size
-    metadata = normalize_openrouter_image_response_metadata(data)
-    OPENROUTER_AVAILABILITY.record(200)
-    return OpenRouterResult(
-        image_path=image_path,
-        thumbnail_path=create_thumbnail(image_path),
-        response_id=metadata["response_id"],
-        model=model,
-        usage=metadata["usage"],
-        cost_usd=metadata["cost_usd"],
-        width=saved_width,
-        height=saved_height,
-        raw=metadata["raw"],
-    )
+        with generation_claims.transaction(db):
+            image_path = save_gallery_original(opened, f"{job['id']}_openrouter")
+            with Image.open(image_path) as saved:
+                saved_width, saved_height = saved.size
+            metadata = normalize_openrouter_image_response_metadata(data)
+            OPENROUTER_AVAILABILITY.record(200)
+            return OpenRouterResult(
+                image_path=image_path,
+                thumbnail_path=create_thumbnail(image_path),
+                response_id=metadata["response_id"],
+                model=model,
+                usage=metadata["usage"],
+                cost_usd=metadata["cost_usd"],
+                width=saved_width,
+                height=saved_height,
+                raw=metadata["raw"],
+            )
 
 
 def feed_media_dir() -> Path:
@@ -7329,6 +7244,8 @@ def patch_mode_nodes(
 
 
 async def submit_workflow(workflow: dict[str, Any], job: dict[str, Any]) -> tuple[str, dict[str, Any], list[dict[str, str]]]:
+    with generation_claims.transaction(db):
+        pass  # Check current ownership immediately before provider submission.
     data = await integration_submit_comfyui_workflow(
         base_url=COMFYUI_BASE_URL,
         workflow=workflow,
@@ -7394,15 +7311,17 @@ async def wait_for_history(prompt_id: str, job: dict[str, Any]) -> dict[str, Any
 
 async def download_comfyui_image(image: dict[str, str], job_id: str) -> tuple[Path, Path]:
     content = await integration_fetch_comfyui_image_bytes(base_url=COMFYUI_BASE_URL, image=image)
-    return comfyui_results.persist_downloaded_image(
-        content,
-        job_id,
-        save_original=save_gallery_original,
-        create_thumbnail=create_thumbnail,
-    )
+    with generation_claims.transaction(db):
+        return comfyui_results.persist_downloaded_image(
+            content,
+            job_id,
+            save_original=save_gallery_original,
+            create_thumbnail=create_thumbnail,
+        )
 
 
 async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> ComfyUIResult | None:
+    generation_bootstrap.require_executor(os.environ)
     if _saved_setting("config_ui_runtime").get("imageEnabled") is False:
         raise RuntimeError("Локальная генерация изображений отключена администратором.")
     await wait_for_comfyui_recovery_gate()
@@ -7561,6 +7480,8 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
         )
     try:
         prompt_id, history, output_images = await submit_workflow(workflow, job)
+    except generation_worker.GenerationClaimLost:
+        raise
     except Exception as exc:
         if payload.mode == "faceswap":
             raise RuntimeError(f"FaceSwap workflow failed: {exc}") from exc
@@ -7577,6 +7498,8 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
             fallback_req = payload.model_copy(update={"mode": "edit"})
             patch_mode_nodes(fallback, fallback_req, uploads, model, text_encoder, vae)
             prompt_id, history, output_images = await submit_workflow(fallback, job)
+        except generation_worker.GenerationClaimLost:
+            raise
         except Exception as exc:
             history = {"fallback": "edit_workflow_error", "error": str(exc)}
             output_images = []
@@ -7591,17 +7514,19 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
             )
             patch_mode_nodes(fallback, fallback_req, {}, model, text_encoder, vae)
             prompt_id, history, output_images = await submit_workflow(fallback, job)
+        except generation_worker.GenerationClaimLost:
+            raise
         except Exception as exc:
             history = {"fallback": "text_to_image_workflow_error", "error": str(exc)}
             output_images = []
     if COMFYUI_MOCK_FALLBACK and not output_images and payload.mode in {"inpaint", "outpaint", "remove_background", "try_on", "texture_transfer"}:
-        image_path, thumb_path = mock_image(payload, job["id"])
+        with generation_claims.transaction(db):
+            image_path, thumb_path = mock_image(payload, job["id"])
         return ComfyUIResult(prompt_id=prompt_id, image_path=image_path, thumbnail_path=thumb_path, history={"fallback": "no_comfyui_output_image", **history})
     if not output_images:
         raise RuntimeError("ComfyUI завершил задачу, но не вернул изображения в history.")
     image_path, thumb_path = await download_comfyui_image(output_images[-1], job["id"])
     return ComfyUIResult(prompt_id=prompt_id, image_path=image_path, thumbnail_path=thumb_path, history=history)
-
 
 def save_data_url(data_url: str | None, prefix: str) -> Path | None:
     if not data_url or not data_url.startswith("data:image"):
@@ -7647,93 +7572,12 @@ def mock_image(req: GenerateRequest, job_id: str) -> tuple[Path, Path]:
     return out, create_thumbnail(out)
 
 
-def _worker_refund_tokens(job_id: str, reason: str) -> bool:
-    with db() as conn:
-        return refund_generation_tokens(conn, job_id, reason=reason)
-
-
-def _worker_settle_openrouter(
-    job_id: str,
-    job: dict[str, Any],
-    result: OpenRouterResult,
-) -> generation_worker.OpenRouterSettlement:
-    billing = finalize_openrouter_billing_snapshot(job.get("openrouterBilling") or {}, result.cost_usd)
-    actual_tokens = int(
-        billing.get("actualTokens")
-        or billing.get("chargedTokens")
-        or job.get("tokenCost")
-        or 1
-    )
-    with db() as conn:
-        token_adjustment = reconcile_openrouter_token_charge(conn, job_id, actual_tokens)
-    return generation_worker.OpenRouterSettlement(
-        billing=billing,
-        actual_tokens=actual_tokens,
-        token_adjustment=token_adjustment,
-    )
-
-
-def _worker_gallery_quota(user_id: str) -> dict[str, Any]:
-    with db() as conn:
-        user_row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-        return gallery_quota_for_user(conn, user_row, user_id)
-
-
-def _worker_evict_gallery(user_id: str, quota: dict[str, Any], created_at: str) -> int:
-    with db() as conn:
-        return evict_gallery_images_for_new_save(conn, user_id, quota, created_at)
-
-
-async def _worker_save_image(
-    record: dict[str, Any],
-    job_id: str,
-    user_id: str,
-    request: GenerateRequest,
-    created_at: str,
-) -> None:
-    image_id = record["id"]
-    images[image_id] = record
-    persist_image(record, job_id)
-    sources = persist_image_sources(image_id, user_id, request, created_at)
-    if sources:
-        images[image_id]["sources"] = sources
-    await asyncio.to_thread(optimize_gallery_storage_for_user, user_id, limit=2)
-
-
-def _worker_register_transient_image(record: dict[str, Any]) -> None:
-    images[record["id"]] = record
-
-
 def _generation_worker_runtime() -> generation_worker.GenerationWorkerRuntime:
-    return generation_worker.GenerationWorkerRuntime(
-        comfyui_mock_fallback=COMFYUI_MOCK_FALLBACK,
-        persist_job=persist_job,
-        refund_tokens=_worker_refund_tokens,
-        send_to_comfyui=send_to_comfyui,
-        send_to_openrouter=send_to_openrouter,
-        settle_openrouter=_worker_settle_openrouter,
-        mock_image=mock_image,
-        gallery_quota=_worker_gallery_quota,
-        evict_gallery=_worker_evict_gallery,
-        public_url=public_url,
-        new_image_id=lambda: f"img_{uuid.uuid4().hex[:12]}",
-        now_iso=lambda: datetime.now(timezone.utc).isoformat(),
-        perf_counter=time.perf_counter,
-        sleep=asyncio.sleep,
-        save_image=_worker_save_image,
-        register_transient_image=_worker_register_transient_image,
-    )
+    return generation_bootstrap.worker_runtime(sys.modules[__name__])
 
 
 def _generation_queue_runtime() -> generation_queue.GenerationQueueRuntime:
-    return generation_queue.GenerationQueueRuntime(
-        queue=queue,
-        jobs=jobs,
-        parse_request=lambda payload: GenerateRequest(**payload),
-        perf_counter=time.perf_counter,
-        build_worker_runtime=_generation_worker_runtime,
-        process_job=generation_worker.process_generation_job,
-    )
+    return generation_bootstrap.queue_runtime(sys.modules[__name__])
 
 
 async def worker() -> None:
@@ -7743,94 +7587,90 @@ async def worker() -> None:
 @app.on_event("startup")
 async def startup() -> None:
     global worker_started
-    validate_config_production_configuration(
-        runtime=RUNTIME_ENVIRONMENT_POLICY,
-        http_security=_HTTP_SECURITY_POLICY,
-        providers=PROVIDER_ENDPOINT_POLICY,
-        storage=STORAGE_PATH_POLICY,
-    )
-    validate_telegram_webhook_secret(BOT_UPDATES_MODE, TELEGRAM_WEBHOOK_SECRET)
-    validate_max_webhook_secret(MAX_UPDATES_MODE, MAX_WEBHOOK_SECRET)
-    db_guard_preflight()
-    if RELEASE_IDENTITY.managed:
-        with db() as conn:
-            schema_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
-        assert_release_schema_compatible(RELEASE_IDENTITY, schema_version)
-    validate_session_crypto_config()
-    init_db()
-    video_cleanup = drain_video_file_deletions(limit=200)
-    if video_cleanup["checked"]:
-        print(f"video file deletion queue: {video_cleanup}")
-    bot_runtime = apply_saved_bot_runtime_configuration()
-    validate_telegram_webhook_secret(BOT_UPDATES_MODE, TELEGRAM_WEBHOOK_SECRET)
-    validate_max_webhook_secret(MAX_UPDATES_MODE, MAX_WEBHOOK_SECRET)
-    print(
-        "bot runtime configuration "
-        f"source={bot_runtime['source']} "
-        f"telegramMode={bot_runtime['telegramMode']} "
-        f"maxMode={bot_runtime['maxMode']}"
-    )
-    openrouter_secret_migration = migrate_openrouter_secret_from_sqlite()
-    if openrouter_secret_migration != "not_configured":
-        print(f"OpenRouter secret store status={openrouter_secret_migration} source={openrouter_api_key_source()}")
-    ADMIN_NOTIFICATION_DELIVERY_WORKER.start(connection_factory=db, send_telegram=send_admin_telegram_notification, send_email=send_admin_email_notification)
-    SOCIAL_DELIVERY_WORKER.start(
-        connection_factory=db,
-        send_telegram=send_social_telegram_publication,
-        send_max=send_social_max_publication,
-        send_vk=send_social_vk_publication, send_vk_story=send_social_vk_story, delete_social=delete_social_publication,
-    )
-    enforce_db_guard_after_migrations()
-    if is_production_like_env():
-        ACCOUNT_RETENTION_WORKER.start_with_cleanup(connect=db, record_security_event=record_security_event)
-    generation_recovery_report = reconcile_stale_generation_state()
-    if generation_recovery_report["checked"]:
-        print(f"generation startup reconciliation: {generation_recovery_report}")
-    storage_maintenance_enabled = startup_storage_maintenance_allowed(os.environ)
-    if storage_maintenance_enabled:
-        recovered_gallery = recover_missing_optimized_gallery_files()
-        if any(value for key, value in recovered_gallery.items() if key != "checked"):
-            print(f"gallery storage recovery: {recovered_gallery}")
-        repaired_thumbnails = repair_missing_gallery_thumbnails()
-        if any(value for key, value in repaired_thumbnails.items() if key != "checked"):
-            print(f"gallery thumbnail repair: {repaired_thumbnails}")
-        repaired_avatars = repair_missing_user_avatars()
-        if repaired_avatars["repaired"]:
-            print(f"user avatar repair: {repaired_avatars}")
-        source_cleanup = cleanup_orphan_image_sources()
-        if any(source_cleanup.values()):
-            print(f"image source cleanup: {source_cleanup}")
-        source_availability = reconcile_image_source_availability()
-        if source_availability["missing"]:
-            print(f"image source availability: {source_availability}")
-        repaired_sources = repair_unavailable_image_sources_from_jobs()
-        if repaired_sources["repaired"] or repaired_sources["errors"]:
-            print(f"image source repair: {repaired_sources}")
-    else:
-        print("startup storage maintenance skipped by runtime safety policy")
-    backfilled_feed = backfill_feed_generation_snapshots()
-    if backfilled_feed:
-        print(f"feed generation snapshots backfilled: {backfilled_feed}")
-    recovered_feed_videos = start_feed_video_publication_worker()
-    if recovered_feed_videos:
-        print(f"feed video publications requeued: {recovered_feed_videos}")
-    load_db_state()
-    energy_telemetry.POWER_TELEMETRY_WORKER.start(connect=db)
-    if is_production_like_env():
-        assistant_runtime.OLLAMA_RESIDENCY.start(assistant_models_config)
-    if storage_maintenance_enabled:
-        asyncio.create_task(asyncio.to_thread(optimize_existing_gallery_storage))
-    worker_started = generation_queue.start_generation_consumer_once(
-        already_started=worker_started,
-        create_task=asyncio.create_task,
-        consumer=worker,
-    )
-    start_bot_workers(
-        BOT_RUNTIME,
-        telegram_poll=telegram_poll_once_from_api,
-        max_poll=max_poll_once_from_api,
-    )
-
+    async with generation_bootstrap.prepared_api(sys.modules[__name__]):
+        validate_config_production_configuration(
+            runtime=RUNTIME_ENVIRONMENT_POLICY,
+            http_security=_HTTP_SECURITY_POLICY,
+            providers=PROVIDER_ENDPOINT_POLICY,
+            storage=STORAGE_PATH_POLICY,
+        )
+        validate_telegram_webhook_secret(BOT_UPDATES_MODE, TELEGRAM_WEBHOOK_SECRET)
+        validate_max_webhook_secret(MAX_UPDATES_MODE, MAX_WEBHOOK_SECRET)
+        db_guard_preflight()
+        if RELEASE_IDENTITY.managed:
+            with db() as conn:
+                schema_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+            assert_release_schema_compatible(RELEASE_IDENTITY, schema_version)
+        validate_session_crypto_config()
+        init_db()
+        video_cleanup = drain_video_file_deletions(limit=200)
+        if video_cleanup["checked"]:
+            print(f"video file deletion queue: {video_cleanup}")
+        bot_runtime = apply_saved_bot_runtime_configuration()
+        validate_telegram_webhook_secret(BOT_UPDATES_MODE, TELEGRAM_WEBHOOK_SECRET)
+        validate_max_webhook_secret(MAX_UPDATES_MODE, MAX_WEBHOOK_SECRET)
+        print(
+            "bot runtime configuration "
+            f"source={bot_runtime['source']} "
+            f"telegramMode={bot_runtime['telegramMode']} "
+            f"maxMode={bot_runtime['maxMode']}"
+        )
+        openrouter_secret_migration = migrate_openrouter_secret_from_sqlite()
+        if openrouter_secret_migration != "not_configured":
+            print(f"OpenRouter secret store status={openrouter_secret_migration} source={openrouter_api_key_source()}")
+        ADMIN_NOTIFICATION_DELIVERY_WORKER.start(connection_factory=db, send_telegram=send_admin_telegram_notification, send_email=send_admin_email_notification)
+        SOCIAL_DELIVERY_WORKER.start(
+            connection_factory=db,
+            send_telegram=send_social_telegram_publication,
+            send_max=send_social_max_publication,
+            send_vk=send_social_vk_publication, send_vk_story=send_social_vk_story, delete_social=delete_social_publication,
+        )
+        enforce_db_guard_after_migrations()
+        if is_production_like_env():
+            ACCOUNT_RETENTION_WORKER.start_with_cleanup(connect=db, record_security_event=record_security_event)
+        generation_recovery_report = reconcile_stale_generation_state()
+        if generation_recovery_report["checked"]:
+            print(f"generation startup reconciliation: {generation_recovery_report}")
+        storage_maintenance_enabled = startup_storage_maintenance_allowed(os.environ)
+        if storage_maintenance_enabled:
+            recovered_gallery = recover_missing_optimized_gallery_files()
+            if any(value for key, value in recovered_gallery.items() if key != "checked"):
+                print(f"gallery storage recovery: {recovered_gallery}")
+            repaired_thumbnails = repair_missing_gallery_thumbnails()
+            if any(value for key, value in repaired_thumbnails.items() if key != "checked"):
+                print(f"gallery thumbnail repair: {repaired_thumbnails}")
+            repaired_avatars = repair_missing_user_avatars()
+            if repaired_avatars["repaired"]:
+                print(f"user avatar repair: {repaired_avatars}")
+            source_cleanup = cleanup_orphan_image_sources()
+            if any(source_cleanup.values()):
+                print(f"image source cleanup: {source_cleanup}")
+            source_availability = reconcile_image_source_availability()
+            if source_availability["missing"]:
+                print(f"image source availability: {source_availability}")
+            repaired_sources = repair_unavailable_image_sources_from_jobs()
+            if repaired_sources["repaired"] or repaired_sources["errors"]:
+                print(f"image source repair: {repaired_sources}")
+        else:
+            print("startup storage maintenance skipped by runtime safety policy")
+        backfilled_feed = backfill_feed_generation_snapshots()
+        if backfilled_feed:
+            print(f"feed generation snapshots backfilled: {backfilled_feed}")
+        recovered_feed_videos = start_feed_video_publication_worker()
+        if recovered_feed_videos:
+            print(f"feed video publications requeued: {recovered_feed_videos}")
+        load_db_state()
+        energy_telemetry.POWER_TELEMETRY_WORKER.start(connect=db)
+        if is_production_like_env():
+            assistant_runtime.OLLAMA_RESIDENCY.start(assistant_models_config)
+        if storage_maintenance_enabled:
+            generation_bootstrap.start_storage_maintenance(sys.modules[__name__])
+        worker_started = await generation_bootstrap.start(sys.modules[__name__])
+        start_bot_workers(
+            BOT_RUNTIME,
+            telegram_poll=telegram_poll_once_from_api,
+            max_poll=max_poll_once_from_api,
+        )
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
@@ -7841,18 +7681,14 @@ async def shutdown() -> None:
     await SOCIAL_DELIVERY_WORKER.stop()
     await stop_feed_video_publication_worker()
     await stop_bot_workers(BOT_RUNTIME)
+    await generation_bootstrap.stop(sys.modules[__name__])
 
 
-@app.get("/api/health")
-async def health() -> dict[str, Any]:
-    guard = collect_db_guard_status()
-    DB_GUARD_STATUS.update(guard)
-    return {
-        "ok": True,
-        "app": "izo-asa",
-        "release_id": RELEASE_IDENTITY.release_id,
-        "ready": bool(guard.get("ok")),
-    }
+app.include_router(create_health_router(HealthDependencies(
+    media_dir=lambda: MEDIA, release_id=lambda: RELEASE_IDENTITY.release_id,
+    collect_db_guard=lambda: collect_db_guard_status(), update_db_guard=lambda guard: DB_GUARD_STATUS.update(guard),
+    worker_ready=lambda: generation_bootstrap.worker_ready(sys.modules[__name__]),
+)))
 
 
 _runtime_error_rate: dict[str, list[float]] = {}
@@ -8180,136 +8016,44 @@ async def transcribe_audio(
         "actualCostUsd": actual_cost_usd,
     }
 
+def _generation_admission_runtime() -> generation_admission.AdmissionRuntime:
+    return generation_admission.AdmissionRuntime(
+        connect=db,
+        jobs=jobs,
+        queue=queue,
+        require_generation_social_verification=require_generation_social_verification,
+        plan_order=PLAN_ORDER,
+        resolution_id_for_size=resolution_id_for_size,
+        normalize_resolution_ids=normalize_resolution_ids,
+        get_tariff_config=get_tariff_config,
+        config_ui_resolution_ids=CONFIG_UI_RESOLUTION_IDS,
+        openrouter_generation_modes=OPENROUTER_GENERATION_MODES,
+        fetch_openrouter_image_capabilities=fetch_openrouter_image_capabilities,
+        resolve_openrouter_model=resolve_openrouter_model,
+        get_openrouter_config=get_openrouter_config,
+        openrouter_model_allowed=openrouter_model_allowed,
+        supported_resolution_ids_from_capability=supported_resolution_ids_from_capability,
+        estimate_openrouter_billing=estimate_openrouter_billing,
+        estimate_token_cost=estimate_token_cost,
+        validate_edit_request=validate_edit_request,
+        outpaint_padding=comfyui_inputs.outpaint_padding,
+        validate_generation_media_inputs=validate_generation_media_inputs,
+        ensure_rate_limit=ensure_rate_limit,
+        charge_generation_tokens=charge_generation_tokens,
+        record_event_log=record_event_log,
+    )
+
+
 @app.post("/api/generate")
 async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
     req = normalize_generation_request(req)
     trusted = require_trusted_user(request)
-    require_generation_social_verification(trusted, req)
-    user_id = trusted["legacy_user_id"]
-    internal_user_id = trusted["internal_user_id"]
-    session_id = trusted.get("session_id")
-    openrouter_billing: dict[str, Any] | None = None
-    with db() as conn:
-        user_row = conn.execute("SELECT id, plan FROM users WHERE id = ?", (user_id,)).fetchone()
-        if user_row is None:
-            raise HTTPException(404, "User not found.")
-    plan = str(user_row["plan"] or "mini").lower()
-    if plan not in PLAN_ORDER:
-        plan = "mini"
-    requested_resolution_id = resolution_id_for_size(req.width, req.height)
-    dynamic_local_editor_size = (
-        req.provider == "comfyui"
-        and req.mode in {"outpaint", "inpaint", "remove_background"}
-        and requested_resolution_id is None
-    )
-    if dynamic_local_editor_size:
-        normalized_base_ids = normalize_resolution_ids([req.resolutionId] if req.resolutionId else [])
-        requested_resolution_id = normalized_base_ids[0] if normalized_base_ids else None
-        safe_dynamic_size = (
-            req.width % 16 == 0
-            and req.height % 16 == 0
-            and 512 <= req.width <= 1792
-            and 512 <= req.height <= 1792
-            and req.width * req.height <= 2_050_000
-        )
-        if not safe_dynamic_size:
-            raise HTTPException(422, "Размер изображения редактора выходит за безопасные пределы локальной модели.")
-    if requested_resolution_id is None:
-        raise HTTPException(422, "Выбран нестандартный размер изображения. Выберите доступное разрешение в интерфейсе.")
-    if requested_resolution_id not in get_tariff_config()[plan]["allowed_resolutions"]:
-        raise HTTPException(403, "Это разрешение недоступно на вашем тарифе.")
-    if req.provider == "comfyui":
-        if requested_resolution_id not in CONFIG_UI_RESOLUTION_IDS:
-            raise HTTPException(422, "Это разрешение ещё не подтверждено для серверной модели.")
-    if req.provider == "openrouter":
-        if req.mode not in OPENROUTER_GENERATION_MODES:
-            raise HTTPException(501, "OpenRouter для этой вкладки пока не подключён.")
-        if req.mode == "image_to_image" and not req.inputImage1:
-            raise HTTPException(400, "Для режима «По фото» требуется исходное изображение.")
-        if req.mode == "edit":
-            references = [item for item in req.inputImages if item.image]
-            capabilities = await fetch_openrouter_image_capabilities()
-            resolved_model = resolve_openrouter_model(req)
-            capability = next((item for item in capabilities if item.get("id") == resolved_model), None)
-            if capability is None or "edit" not in (capability.get("modes") or []):
-                raise HTTPException(400, "Выбранная модель не поддерживает «Сборку» из нескольких изображений.")
-            reference_limit = min(4, int(capability.get("maxInputReferences") or 0))
-            if len(references) < 2:
-                raise HTTPException(400, "Для «Сборки» нужны основа и хотя бы один референс.")
-            if len(references) > reference_limit:
-                raise HTTPException(400, f"Выбранная модель принимает не больше {reference_limit} изображений.")
-        openrouter_config = get_openrouter_config()
-        if not openrouter_model_allowed(openrouter_config, req.mode, plan, req.modelProfile):
-            raise HTTPException(403, "This OpenRouter model is not available for this mode and tariff.")
-        capabilities = await fetch_openrouter_image_capabilities()
-        resolved_model = resolve_openrouter_model(req)
-        capability = next((item for item in capabilities if item.get("id") == resolved_model), None)
-        if req.mode != "text_to_image" and (
-            capability is None or req.mode not in (capability.get("modes") or [])
-        ):
-            raise HTTPException(400, "Выбранная модель не поддерживает этот режим генерации.")
-        if requested_resolution_id not in supported_resolution_ids_from_capability(capability):
-            raise HTTPException(422, "Выбранное разрешение не поддерживается этой моделью.")
-        openrouter_billing = await estimate_openrouter_billing(req, capability)
-        token_cost = int(openrouter_billing["chargedTokens"])
-    else:
-        token_cost = estimate_token_cost(req)
-    # FaceSwap lora auto-selection is handled by choose_faceswap_lora() inside
-    # send_to_comfyui (worker). Early validation here is redundant and breaks
-    # the flow when frontend sends an empty loras list — the worker always
-    # resolves the correct face lora from ComfyUI's available models.
-    if req.mode == "edit":
-        validate_edit_request(req)
-    if req.mode == "outpaint" and not any(comfyui_inputs.outpaint_padding(req.outpaint or {}).values()):
-        raise HTTPException(422, "Задайте ненулевое поле расширения слева, справа, сверху или снизу.")
-    validate_generation_media_inputs(req, user_id)
-    ensure_rate_limit(user_id)
-    job_id = f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
-    job = {
-        "id": job_id,
-        "userId": user_id,
-        "mode": req.mode,
-        "provider": req.provider,
-        "status": "queued",
-        "progress": 0,
-        "message": "В очереди",
-        "request": req.model_dump(),
-        "tokenCost": token_cost,
-        "openrouterBilling": openrouter_billing,
-        "createdAt": datetime.now(timezone.utc).isoformat(),
-    }
-    with db() as conn:
-        token_charge = reserve_or_charge_generation(
-            conn, internal_user_id, job_id, now=datetime.now(timezone.utc).isoformat(), job=job,
-            charge=lambda: charge_generation_tokens(conn, user_id, token_cost, job_id, req, openrouter_billing),
-            denied=lambda detail: HTTPException(403, detail=detail),
-        )
-        persist_job(job, req, conn=conn)
-    jobs[job_id] = job
-    await queue.put(job_id)
     try:
-        record_event_log(
-            "generation_started",
-            internal_user_id=internal_user_id,
-            legacy_user_id=user_id,
-            session_id=session_id,
-            platform=trusted.get("platform", "web"),
-            properties={"mode": req.mode, "provider": req.provider, "size": f"{req.width}x{req.height}", "token_cost": token_cost, "openrouter_billing": openrouter_billing},
+        return await generation_admission.admit(
+            req, trusted, request.headers.get("Idempotency-Key"), _generation_admission_runtime(),
         )
-    except Exception:
-        pass
-    return {k: v for k, v in job.items() if k != "request"} | {
-        "queuePosition": queue.qsize(),
-        "tokenCost": token_cost,
-        "usedDailyBudget": token_charge["used_daily"],
-        "tokenBalance": token_charge["new_balance"],
-        "mainBalanceTokens": token_charge["new_balance"],
-        "dailyTokenPart": token_charge["daily_part"],
-        "mainBalanceTokenPart": token_charge["balance_part"],
-        "dailyTokensUsed": token_charge["daily_tokens_used"],
-        "dailyTokensLimit": token_charge["daily_tokens_limit"],
-        "dailyTokensRemaining": token_charge["daily_tokens_remaining"],
-    }
+    except generation_admission.AdmissionError as exc:
+        raise HTTPException(exc.status_code, detail=exc.detail) from None
 
 
 @app.get("/api/jobs/{job_id}")
@@ -8335,20 +8079,16 @@ async def get_job(job_id: str, request: Request) -> dict[str, Any]:
 
 @app.post("/api/jobs/{job_id}/cancel")
 async def cancel_job(job_id: str, request: Request) -> dict[str, Any]:
-    if job_id not in jobs:
-        raise HTTPException(404, "Job not found")
     trusted = require_trusted_user(request)
-    user_id = trusted["legacy_user_id"]
-    if jobs[job_id].get("userId") != user_id:
-        raise HTTPException(404, "Job not found")
-    if jobs[job_id].get("status") in {"completed", "failed", "cancelled"}:
-        return {k: v for k, v in jobs[job_id].items() if k != "request"}
-    with db() as conn:
-        refund_generation_tokens(conn, job_id, reason="user_cancelled")
-    jobs[job_id].update(status="cancelled", progress=100, message="Отменено")
-    persist_job(jobs[job_id])
-    await interrupt_comfyui_prompt()
-    return {k: v for k, v in jobs[job_id].items() if k != "request"}
+    try:
+        return await generation_worker_persistence.cancel_job(
+            job_id, trusted["legacy_user_id"], connect=db, jobs=jobs, persist_job=persist_job,
+            refund=refund_generation_tokens, read_job=get_persisted_job_response,
+            interrupt=interrupt_comfyui_prompt, now_iso=datetime.now(timezone.utc).isoformat(),
+            admission_lock=generation_dispatcher.admission_lock if generation_dispatcher else None,
+        )
+    except LookupError:
+        raise HTTPException(404, "Job not found") from None
 
 
 @app.get("/api/models")
@@ -11908,6 +11648,8 @@ async def billing_checkout_v2(req: BillingCheckoutV2Request, request: Request) -
         _sync_tariff_billing_packages(conn)
         existing = conn.execute("SELECT * FROM payments WHERE idempotency_key = ?", (req.idempotency_key,)).fetchone()
         if existing is not None:
+            if existing["internal_user_id"] != trusted["internal_user_id"]:
+                raise HTTPException(409, "Idempotency-Key is unavailable.")
             return {
                 "ok": True,
                 "payment_id": existing["id"],
@@ -13189,7 +12931,7 @@ def _complete_provider_payment(
         expected_amount = f"{int(payment['amount'] or 0):.2f}"
         if verified_amount != expected_amount or verified_currency != payment["currency"]:
             raise HTTPException(409, "YooKassa payment amount does not match the invoice.")
-        if payment["status"] == "paid":
+        if payment["status"] in {"paid", "refunded", "partially_refunded"}:
             user = conn.execute("SELECT token_balance FROM users WHERE internal_user_id = ?", (payment["internal_user_id"],)).fetchone()
             return {"payment": _billing_payment_dict(payment), "invoice": _billing_invoice_dict(invoice), "new_token_balance": int(_row_get(user, "token_balance") or 0), "idempotent": True}
         target = _admin_load_target(conn, payment["internal_user_id"])
@@ -15411,55 +15153,7 @@ async def free_comfyui_models() -> bool:
 
 
 def reconcile_openrouter_token_charge(conn: sqlite3.Connection, job_id: str, actual_tokens: int) -> dict[str, int | bool]:
-    """Idempotently refund an OpenRouter estimate that exceeded actual token cost."""
-    existing = conn.execute(
-        "SELECT meta_json FROM token_ledger WHERE reason = 'openrouter_generation_adjustment' AND meta_json LIKE ? ORDER BY created_at DESC LIMIT 1",
-        (f'%"jobId": "{job_id}"%',),
-    ).fetchone()
-    if existing is not None:
-        meta = safe_json_load(existing["meta_json"]) or {}
-        actual = int(meta.get("actual_tokens") or actual_tokens)
-        return {"adjusted": False, "refund": int(meta.get("refund_tokens") or 0), "actual": actual, "settled": int(meta.get("settled_tokens") or actual)}
-    charge = conn.execute(
-        "SELECT * FROM token_ledger WHERE reason IN ('generation', 'openrouter_monthly_generation') AND meta_json LIKE ? ORDER BY created_at DESC LIMIT 1",
-        (f'%"jobId": "{job_id}"%',),
-    ).fetchone()
-    if charge is None:
-        actual = max(1, int(actual_tokens))
-        return {"adjusted": False, "refund": 0, "actual": actual, "settled": actual}
-    meta = safe_json_load(charge["meta_json"]) or {}
-    charged = max(0, int(meta.get("token_cost") or 0))
-    actual = max(1, int(actual_tokens))
-    refund = max(0, charged - actual)
-    balance_charged = abs(int(charge["delta"] or 0))
-    balance_refund = min(refund, balance_charged)
-    monthly_refund = max(0, refund - balance_refund)
-    user_id = str(charge["user_id"])
-    if balance_refund:
-        conn.execute("UPDATE users SET token_balance = token_balance + ? WHERE id = ?", (balance_refund, user_id))
-    if monthly_refund:
-        conn.execute(
-            "UPDATE users SET openrouter_monthly_tokens_used = MAX(0, openrouter_monthly_tokens_used - ?) WHERE id = ?",
-            (monthly_refund, user_id),
-        )
-    if refund:
-        conn.execute("UPDATE users SET tokens_used = MAX(0, tokens_used - ?) WHERE id = ?", (refund, user_id))
-    adjustment_meta = {
-        "jobId": job_id,
-        "charged_tokens": charged,
-        "actual_tokens": actual,
-        "settled_tokens": min(charged, actual),
-        "refund_tokens": refund,
-        "balance_refund": balance_refund,
-        "monthly_refund": monthly_refund,
-        "underestimated_tokens": max(0, actual - charged),
-        "charged_ledger_id": charge["id"],
-    }
-    conn.execute(
-        "INSERT INTO token_ledger (id, user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, 'openrouter_generation_adjustment', ?, ?)",
-        (str(uuid.uuid4()), user_id, balance_refund, json.dumps(adjustment_meta, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
-    )
-    return {"adjusted": True, "refund": refund, "actual": actual, "settled": min(charged, actual)}
+    return generation_accounting.reconcile_openrouter_token_charge(conn, job_id, actual_tokens)
 
 
 def _save_setting(key: str, value: dict[str, Any]) -> None:
@@ -16303,9 +15997,10 @@ async def video_generation_config(request: Request) -> dict[str, Any]:
         storage_state_for_user=video_storage.storage_state, row_get=_row_get,
     )
     trusted, plan, is_admin = viewer["trusted"], viewer["plan"], viewer["is_admin"]
-    catalog = await fetch_openrouter_video_catalog()
+    catalog, exchange, catalog_status = await video_presentation.config_inputs(
+        fetch_openrouter_video_catalog, fetch_usd_rub_rate, usd_rub_rate_snapshot,
+    )
     config = normalize_openrouter_video_config(_saved_setting("openrouter_video_models"), catalog)
-    exchange = await fetch_usd_rub_rate()
     exchange_rate = exchange.get("rate") if isinstance(exchange.get("rate"), (int, float)) else None
     economy = openrouter_economy_settings()
     pricing_history = video_pricing.load_actual_pricing_samples(db, safe_json_load)
@@ -16335,24 +16030,14 @@ async def video_generation_config(request: Request) -> dict[str, Any]:
         "videoSlots": viewer["video_slots"],
         "feedPublicationEnabled": FEED_VIDEO_PUBLICATION_ENABLED,
         "videoStorage": viewer["storage"],
+        "catalog": catalog_status,
         "availability": {
-            mode: {
-                "enabled": len((config.get("enabled") or {}).get(mode) or []) + len(ltx_video.catalog_for_mode(mode, enabled=local_video_enabled, profile_model_id=local_video_profile)),
-                "tariff": (
-                    len(modes[mode])
-                    if trusted is None
-                    else len((((config.get("access") or {}).get(mode) or {}).get(plan)) or []) + len(ltx_video.catalog_for_mode(mode, enabled=local_video_enabled, profile_model_id=local_video_profile))
-                ),
-                "reason": (
-                    "В админке не включены модели для этого режима."
-                    if not (config.get("enabled") or {}).get(mode) and not ltx_video.catalog_for_mode(mode, enabled=local_video_enabled, profile_model_id=local_video_profile)
-                    else ""
-                    if trusted is None and modes[mode]
-                    else f"Для тарифа {plan.title()} не назначены модели этого режима."
-                    if not is_admin and not (((config.get("access") or {}).get(mode) or {}).get(plan)) and not ltx_video.catalog_for_mode(mode, enabled=local_video_enabled, profile_model_id=local_video_profile)
-                    else ""
-                ),
-            }
+            mode: video_presentation.config_mode_availability(
+                mode, config=config, visible_count=len(modes[mode]),
+                local_count=len(ltx_video.catalog_for_mode(mode, enabled=local_video_enabled, profile_model_id=local_video_profile)),
+                plan=plan, authenticated=trusted is not None, is_admin=is_admin,
+                catalog_status=catalog_status["status"],
+            )
             for mode in OPENROUTER_VIDEO_MODES
         },
         "economy": economy,
@@ -17067,74 +16752,8 @@ async def admin_delete_openrouter_key(request: Request) -> dict[str, Any]:
 
 @app.post("/api/admin/openrouter/test-generate")
 async def admin_openrouter_test_generate(req: AdminOpenRouterTestRequest, request: Request) -> dict[str, Any]:
-    admin = require_trusted_admin(request)
-    if "/" not in req.model:
-        raise HTTPException(400, "model должен быть OpenRouter id вида provider/model")
-    job_id = f"admin_or_test_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
-    gen_req = GenerateRequest(
-        mode="text_to_image",
-        provider="openrouter",
-        prompt=req.prompt,
-        width=req.width,
-        height=req.height,
-        steps=4,
-        modelProfile=req.model,
-    )
-    job = {
-        "id": job_id,
-        "userId": admin["legacy_user_id"],
-        "mode": gen_req.mode,
-        "provider": gen_req.provider,
-        "status": "queued",
-        "progress": 0,
-        "message": "Admin OpenRouter test",
-        "request": gen_req.model_dump(),
-        "createdAt": datetime.now(timezone.utc).isoformat(),
-    }
-    result = await send_to_openrouter(gen_req, job)
-    created_at = datetime.now(timezone.utc).isoformat()
-    with Image.open(result.image_path) as opened:
-        width, height = opened.size
-    image_id = f"img_{uuid.uuid4().hex[:12]}"
-    record = {
-        "id": image_id,
-        "userId": admin["legacy_user_id"],
-        "url": public_url(result.image_path, admin["legacy_user_id"]),
-        "thumbnailUrl": public_url(result.thumbnail_path, admin["legacy_user_id"]),
-        "mode": gen_req.mode,
-        "provider": gen_req.provider,
-        "promptOriginal": gen_req.prompt,
-        "promptTranslated": gen_req.prompt,
-        "seed": gen_req.seed,
-        "width": width,
-        "height": height,
-        "modelProfile": gen_req.modelProfile,
-        "loras": [],
-        "preset": "admin_openrouter_test",
-        "generationTimeMs": 0,
-        "isFavorite": False,
-        "createdAt": created_at,
-        "openrouterModel": result.model,
-        "openrouterResponseId": result.response_id,
-        "openrouterUsage": result.usage,
-        "openrouterCostUsd": result.cost_usd,
-    }
-    images[image_id] = record
-    persist_image(record, job_id)
-    job.update(
-        status="completed",
-        progress=100,
-        message="OpenRouter test completed",
-        resultImageId=image_id,
-        resultUrl=record["url"],
-        openrouterModel=result.model,
-        openrouterResponseId=result.response_id,
-        openrouterUsage=result.usage,
-        openrouterCostUsd=result.cost_usd,
-        completedAt=created_at,
-    )
-    persist_job(job, gen_req)
-    return {"ok": True, "image": record, "costUsd": result.cost_usd, "model": result.model, "usage": result.usage, "stats": openrouter_usage_stats()}
+    require_trusted_admin(request)
+    return await generation_admin_probe.generate(sys.modules[__name__], req, request)
 
 
 def default_routes(model_status: dict[str, Any]) -> list[dict[str, Any]]:
