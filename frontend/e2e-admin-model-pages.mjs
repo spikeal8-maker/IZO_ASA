@@ -6,6 +6,7 @@ const outDir = process.env.QA_ARTIFACT_DIR || 'visual-out'
 mkdirSync(outDir, { recursive: true })
 const pages = [
   ['OpenRouter', '/admin/models/openrouter/text', 'Текстовые модели OpenRouter'],
+  ['Ollama', '/admin/models/ollama', 'Локальные текстовые модели Ollama'],
   ['Config UI', '/admin/models/config-ui', 'Локальные модели Config UI'],
   ['Энергопотребление', '/admin/models/energy', 'Энергопотребление'],
   ['Голосовой ввод', '/admin/models/voice-input', 'Голосовой ввод'],
@@ -67,6 +68,10 @@ async function mockAdmin(page) {
       videoUsage: { modes: [], models: [], shadowEconomics: {} },
     },
   })))
+  await page.route('**/api/admin/settings/assistant_models', (route) => {
+    const settings = JSON.parse(route.request().postData() || '{}').settings
+    return route.fulfill(json({ ok: true, settings }))
+  })
   await page.route('**/api/admin/energy**', (route) => route.fulfill(json({ detail: 'isolated navigation test' }, 503)))
   await page.route('**/api/admin/voice**', (route) => route.fulfill(json({ detail: 'isolated navigation test' }, 503)))
   await page.route('**/api/admin/assistants', (route) => route.fulfill(json({
@@ -75,7 +80,8 @@ async function mockAdmin(page) {
       improve: { route: 'local', localModel: 'gemma4:12b', apiModel: '', localTimeoutSeconds: 30, apiTimeoutSeconds: 10, systemPrompt: '', modePrompts: {} },
       chat: { enabled: true, localEnabled: true, localModel: 'gemma4:12b', localLabel: 'ИЗО Чат', localTokenCost: 0, defaultModel: 'provider/chat', publishedApiModels: ['provider/chat'], enabledApiModels: ['provider/chat'], apiTokenCosts: { 'provider/chat': 0.2 }, apiTierAccess: { mini: ['provider/chat'], plus: [], pro: ['provider/chat'], business: [] }, contextChars: 60000, localNumCtx: 16384, localTimeoutSeconds: 60, apiTimeoutSeconds: 60 },
     },
-    ollama: { ok: true, baseUrl: '', models: [] }, ollamaResidency: { ok: true, models: [] }, openrouterConfigured: true,
+    ollama: { ok: true, baseUrl: 'http://ollama.test:11434', models: [{ name: 'gemma4:12b', size: 8021618941, details: { parameter_size: '12B', quantization_level: 'Q4' } }, { name: 'ornith-1.5:9b', size: 6550813657, details: { parameter_size: '9B', quantization_level: 'Q4' } }] },
+    ollamaResidency: { ok: true, models: [{ name: 'gemma4:12b', size_vram: 4294967296 }] }, openrouterConfigured: true,
     usage: { periodDays: 30, totals: { successful: 0, failed: 0, fallbacks: 0, cost_usd: 0, cost_rub: 0, energy_wh: 0, energy_cost_rub: 0 }, recent: [] },
     openrouterModels: [{
       id: 'provider/chat', name: 'Test Chat Model', provider: 'Provider', created: 1700000000,
@@ -96,6 +102,10 @@ async function mockAdmin(page) {
 
 async function verify(viewport) {
   const page = await browser.newPage({ viewport })
+  const unexpectedOllamaRequests = []
+  page.on('request', (request) => {
+    if (new URL(request.url()).port === '11434') unexpectedOllamaRequests.push(request.url())
+  })
   await mockAdmin(page)
   if (viewport.width <= 980) {
     await page.addInitScript(() => window.localStorage.setItem('admin.sidebar.collapsed', '1'))
@@ -165,6 +175,31 @@ async function verify(viewport) {
     await page.getByRole('heading', { name: heading, exact: true }).first().waitFor()
     assert(new URL(page.url()).pathname === path, `${label} did not open its own URL`)
     if (viewport.width > 980) assert(await page.getByRole('link', { name: label, exact: true }).getAttribute('aria-current') === 'page', `${label} is not selected`)
+    if (label === 'Ollama') {
+      assert(await page.getByLabel('Основная модель Ollama').inputValue() === 'gemma4:12b', 'initial Ollama chat model differs from backend data')
+      assert((await page.locator('body').innerText()).includes('4.00 ГиБ'), 'resident GPU VRAM was not displayed')
+      assert((await page.locator('body').innerText()).includes('http://ollama.test:11434'), 'server URL was not displayed')
+      await page.getByLabel('Основная модель Ollama').selectOption('ornith-1.5:9b')
+      const request = page.waitForRequest((req) => req.url().includes('/api/admin/settings/assistant_models') && req.method() === 'POST')
+      await page.getByRole('button', { name: 'Сохранить настройки Ollama' }).click()
+      const saved = JSON.parse((await request).postData())
+      assert(saved.settings?.chat?.localModel === 'ornith-1.5:9b', 'model selection was not submitted through existing admin settings API')
+      assert(!(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1)), `Ollama overflows at ${viewport.width}px`)
+      await page.screenshot({ path: `${outDir}/admin-ollama-${viewport.width}.png`, fullPage: true })
+      const onlineSnapshot = await page.evaluate(async () => (await fetch('/api/admin/assistants')).json())
+      const offlineHandler = (route) => route.fulfill(json({
+        ...onlineSnapshot,
+        ollama: { ok: false, baseUrl: 'http://127.0.0.1:1', models: [], error: 'ConnectError' },
+        ollamaResidency: { ok: false, models: [] },
+      }))
+      await page.route('**/api/admin/assistants', offlineHandler)
+      await page.getByRole('button', { name: 'Обновить состояние' }).click()
+      await page.getByText('Недоступно', { exact: true }).first().waitFor()
+      assert(await page.getByRole('button', { name: 'Проверить Ollama' }).isDisabled(), 'offline Ollama must not allow a test request')
+      await page.unroute('**/api/admin/assistants', offlineHandler)
+      await page.getByRole('button', { name: 'Обновить состояние' }).click()
+      await page.getByText('Доступно', { exact: true }).first().waitFor()
+    }
   }
 
   await page.goBack()
@@ -184,6 +219,7 @@ async function verify(viewport) {
   }
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1)
   assert(!overflow, `models navigation overflows at ${viewport.width}px`)
+  assert(unexpectedOllamaRequests.length === 0, `Browser connected directly to Ollama: ${unexpectedOllamaRequests.join(', ')}`)
   await page.close()
 }
 

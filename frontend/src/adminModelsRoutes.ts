@@ -1,4 +1,4 @@
-export type AdminModelsPage = 'api' | 'config' | 'energy' | 'voice' | 'improve'
+export type AdminModelsPage = 'api' | 'ollama' | 'config' | 'energy' | 'voice' | 'improve'
 export type AdminOpenRouterPage = 'text' | 'images' | 'video' | 'audio' | '3d' | 'settings'
 
 export const ADMIN_OPENROUTER_PAGES: Array<{
@@ -29,6 +29,13 @@ export const ADMIN_MODELS_PAGES: Array<{
     path: '/admin/models/openrouter/text',
     title: 'Модели OpenRouter',
     description: 'Каталог облачных моделей, доступность по тарифам, цены и проверка API.',
+  },
+  {
+    id: 'ollama',
+    label: 'Ollama',
+    path: '/admin/models/ollama',
+    title: 'Локальные текстовые модели Ollama',
+    description: 'Состояние сервера, модели в памяти GPU, основная модель и безопасная проверка через backend.',
   },
   {
     id: 'config',
