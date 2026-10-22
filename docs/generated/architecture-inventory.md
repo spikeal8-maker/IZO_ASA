@@ -5,7 +5,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 ## Summary
 
-- Routes: 252
+- Routes: 257
 - Registered workers: 9
 - Registered ephemeral tasks: 10
 - SQLite tables: 65
@@ -20,7 +20,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 |---|---:|
 | REVIEW: admin route without detected gate | 8 |
 | admin | 94 |
-| public/optional/review | 90 |
+| public/optional/review | 95 |
 | session | 1 |
 | user | 57 |
 | webhook: MAX secret conditional | 1 |

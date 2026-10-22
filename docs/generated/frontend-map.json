@@ -219,6 +219,7 @@
         "frontend/src/adminModelsNavigation.tsx",
         "frontend/src/adminModelsRoutes.ts",
         "frontend/src/adminNotifications.tsx",
+        "frontend/src/adminOpenAISettings.tsx",
         "frontend/src/adminOpenRouterAuxPages.tsx",
         "frontend/src/adminPayments.tsx",
         "frontend/src/adminSocial.tsx",
@@ -248,6 +249,7 @@
       ],
       "css": [
         "frontend/src/adminModelsResponsive.css",
+        "frontend/src/adminOpenAISettings.css",
         "frontend/src/adminTextModelCatalog.css",
         "frontend/src/authV2.css",
         "frontend/src/crmDossier.css",

@@ -85,11 +85,11 @@ routers.
       "entry_route": "/admin/models/openrouter/text",
       "frontend": ["frontend/src/adminModels.tsx", "frontend/src/adminModelsRoutes.ts", "frontend/src/adminTextModelCatalog.tsx"],
       "backend": ["backend/main.py", "backend/app/api/routers/admin_operations.py"],
-      "api_examples": ["/api/admin/models-page", "/api/admin/openrouter/catalog/status-v2", "/api/admin/config-ui/status-v2", "/api/admin/config-ui/reload-v2", "/api/admin/config-ui/switch-v2", "/api/admin/config-ui/interrupt-v2"],
+      "api_examples": ["/api/admin/models-page", "/api/admin/openai", "/api/admin/openrouter/catalog/status-v2", "/api/admin/config-ui/status-v2", "/api/admin/config-ui/reload-v2", "/api/admin/config-ui/switch-v2", "/api/admin/config-ui/interrupt-v2"],
       "side_effects": ["catalog-publication", "tariff-access", "pricing", "provider-secret", "local-runtime"],
       "risk_floor": "standard",
       "risk_escalates_to": "high-assurance",
-      "risk_escalates_when": ["меняется публикация, цена, quote/reservation/settlement, API key или provider call"],
+      "risk_escalates_when": ["публикация/цена, quote/reservation/settlement, ключ/API"],
       "live_action_risk": "release-ops",
       "required_controls": ["trusted-admin", "verify-per-endpoint", "audit", "publication-access-settlement-consistency", "fake-provider-tests"],
       "tests": ["backend/test_admin_v2.py", "backend/test_openrouter_admin_cache_v2.py", "backend/test_phone_chat_model_catalog.py", "backend/test_tariff_model_counts.py", "frontend/e2e-admin-model-pages.mjs", "frontend/adminImageModelPublication.test.ts", "frontend/adminVideoPublication.test.ts"]
@@ -370,23 +370,3 @@ pwsh -File tools/verify.ps1 -Mode Quick
   их contract.
 - Состояния `IMPLEMENTED`, `TESTED`, `COMMITTED`, `PUSHED/PR`, `MERGED`,
   `DEPLOYED`, `OPERATIONALLY VERIFIED` разделены.
-
-## OpenAI API: cross-domain high-assurance package (#206)
-
-- Entry route: `/admin/models/openai`; leaf:
-  `frontend/src/adminOpenAISettings.tsx`.
-- Backend routes: `GET /api/admin/openai`,
-  `PUT /api/admin/openai/key`, `DELETE /api/admin/openai/key`,
-  `PUT /api/admin/openai/settings`, `POST /api/admin/openai/verify`.
-- Change ownership: `admin_openai.py`, `openai.py`, `openai_secrets.py`;
-  `phone_chat.py` for explicit selection and lifecycle integration.
-- Controls: trusted-admin per request; audit for every mutation; no plaintext
-  secrets in SQLite, repository, Docker image, browser storage, or API result;
-  fake-provider tests; no default paid fallback or automatic timeout retry.
-- Minimum risk: `high-assurance`. Any live key/provider request, new
-  production egress, or deploy requires separately authorized `release-ops`.
-- Tests: `test_admin_openai.py`, `test_openai_secrets.py`,
-  `test_phone_chat_openai.py`, `e2e-admin-openai.mjs`,
-  existing chat/session tests, frontend build and lint.
-- No new provider publication/economics contract is claimed for ordinary
-  users; OpenAI preview remains administrator-only.

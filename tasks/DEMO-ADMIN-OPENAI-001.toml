@@ -30,6 +30,11 @@ declaredFiles = [
   "docs/context/chat.md",
   "docs/admin-panel-guide.md",
   "docs/admin-change-contract.md",
+  "backend/requirements.txt",
+  "docs/generated/frontend-map.json",
+  "docs/generated/frontend-map.md",
+  "docs/generated/architecture-inventory.json",
+  "docs/generated/architecture-inventory.md",
 ]
 allowedPatterns = [
   "backend/app/security/openai_secrets.py",
@@ -102,3 +107,28 @@ recordedAtUtc = "2026-10-21T22:34:10.681079Z"
 path = "backend/test_openai_secrets.py"
 reason = "Test encrypted secret persistence and permission rejection"
 recordedAtUtc = "2026-10-21T22:34:11.647411Z"
+
+[[scopeExpansions]]
+path = "backend/requirements.txt"
+reason = "Direct OpenAI encrypted volume needs cryptography dependency pinned"
+recordedAtUtc = "2026-10-21T22:56:10.674649Z"
+
+[[scopeExpansions]]
+path = "docs/generated/frontend-map.json"
+reason = "Generated evidence for new OpenAI admin and backend modules"
+recordedAtUtc = "2026-10-22T05:46:50.443107Z"
+
+[[scopeExpansions]]
+path = "docs/generated/frontend-map.md"
+reason = "Generated evidence for new OpenAI admin and backend modules"
+recordedAtUtc = "2026-10-22T05:46:51.390044Z"
+
+[[scopeExpansions]]
+path = "docs/generated/architecture-inventory.json"
+reason = "Generated evidence for new OpenAI admin and backend modules"
+recordedAtUtc = "2026-10-22T05:46:52.354273Z"
+
+[[scopeExpansions]]
+path = "docs/generated/architecture-inventory.md"
+reason = "Generated evidence for new OpenAI admin and backend modules"
+recordedAtUtc = "2026-10-22T05:46:53.312231Z"
