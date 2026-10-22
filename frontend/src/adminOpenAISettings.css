@@ -1,0 +1,23 @@
+.openai-admin { width: 100%; max-width: 1200px; margin: 0 auto; color: var(--text-primary, #e8edf4); }
+.openai-admin-heading { display: flex; gap: 18px; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; }
+.openai-admin-heading h2 { margin: 0 0 7px; font-size: 1.4rem; }
+.openai-admin-heading p, .openai-admin-card p { line-height: 1.5; color: var(--text-secondary, #a8b0c0); }
+.openai-admin-state { white-space: nowrap; border: 1px solid #788190; border-radius: 20px; padding: 7px 12px; font-size: .8rem; }
+.openai-admin-state.is-on { border-color: #2e9477; color: #56d7ad; }
+.openai-admin-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.openai-admin-card { padding: 22px; border: 1px solid var(--border-color, #3b4051); border-radius: 12px; background: var(--card-bg, #202431); }
+.openai-admin-card h3 { margin: 0 0 18px; }
+.openai-admin-card > label:not(.openai-admin-switch) { display: block; font-weight: 600; margin: 16px 0 8px; }
+.openai-admin-card > input, .openai-admin-card > select { display: block; width: 100%; min-width: 0; box-sizing: border-box; padding: 11px 12px; border-radius: 8px; border: 1px solid #747d8a; background: #141a24; color: #f4f6fa; }
+.openai-admin-card small { display: block; margin-top: 12px; color: var(--text-secondary, #a8b0c0); line-height: 1.45; }
+.openai-admin-buttons { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 18px; }
+.openai-admin-card button { padding: 10px 14px; border: 1px solid #568abf; border-radius: 8px; background: #245b91; color: white; cursor: pointer; }
+.openai-admin-card button.secondary { background: transparent; border-color: #637689; }
+.openai-admin-card button.danger { background: transparent; border-color: #a65d5d; color: #fca5a5; }
+.openai-admin-card button:disabled { opacity: .45; cursor: not-allowed; }
+.openai-admin-switch { display: flex; align-items: center; gap: 10px; margin: 18px 0; }
+.openai-admin-switch input { width: 19px; height: 19px; }
+.openai-admin-warning { color: #fbbf24 !important; }
+.openai-admin-error { margin-top: 17px; color: #fda4af; }
+.openai-admin-success { margin-top: 17px; color: #77d6ac; }
+@media (max-width: 900px) { .openai-admin-grid { grid-template-columns: minmax(0, 1fr); } .openai-admin-heading { flex-direction: column; } }

@@ -98,3 +98,14 @@ they are not proof that economics or security invariants are satisfied.
 - 3D model routing remains a product boundary that must not be described as
   operational solely because an admin route exists.
 - Live catalog refresh/provider tests are operator actions, not unit fixtures.
+
+## Direct OpenAI Responses provider (#206)
+
+OpenAI is not an OpenRouter alias. The dedicated admin leaf component
+`frontend/src/adminOpenAISettings.tsx` is routed by `adminModelsRoutes.ts`;
+the large `adminModels.tsx` is intentionally unchanged.
+`backend/app/api/routers/admin_openai.py` handles trusted admin operations,
+`backend/app/integrations/openai.py` owns exact HTTPS Responses API traffic,
+and `backend/app/security/openai_secrets.py` owns encrypted external storage.
+The fixed server allowlist controls selectable text models. Verify performs
+GET /v1/models/{model}, not a paid response. No automatic fallback is enabled.

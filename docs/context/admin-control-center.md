@@ -242,3 +242,16 @@ repository scripts. В отчёте раздельно указывать `IMPLE
 Если меняется одна из 19 audited mutations, в том же commit обновить также
 `docs/admin-mutation-audit.md` и его executable contract test. Расширение audit
 на route вне bounded scope является отдельным package.
+
+## Native OpenAI API candidate (#206)
+
+The separate route `/admin/models/openai` and server endpoints under
+`/api/admin/openai` belong to the Admin Control Center. They require trusted
+admin identity. Key save/delete, model/enable mutations, and explicit access
+verification write audit entries without secret values. The server never
+returns an API key. Linux requires a private external encrypted secret volume
+plus a separately mounted private master key; Windows uses CurrentUser DPAPI.
+The old OpenRouter routes remain independent. The live provider is not
+considered available until secure network egress and owner authorization are
+verified. Targeted tests: `test_admin_openai.py`,
+`test_openai_secrets.py`, and `e2e-admin-openai.mjs`.

@@ -85,11 +85,11 @@ routers.
       "entry_route": "/admin/models/openrouter/text",
       "frontend": ["frontend/src/adminModels.tsx", "frontend/src/adminModelsRoutes.ts", "frontend/src/adminTextModelCatalog.tsx"],
       "backend": ["backend/main.py", "backend/app/api/routers/admin_operations.py"],
-      "api_examples": ["/api/admin/models-page", "/api/admin/openrouter/catalog/status-v2", "/api/admin/config-ui/status-v2", "/api/admin/config-ui/reload-v2", "/api/admin/config-ui/switch-v2", "/api/admin/config-ui/interrupt-v2"],
+      "api_examples": ["/api/admin/models-page", "/api/admin/openai", "/api/admin/openrouter/catalog/status-v2", "/api/admin/config-ui/status-v2", "/api/admin/config-ui/reload-v2", "/api/admin/config-ui/switch-v2", "/api/admin/config-ui/interrupt-v2"],
       "side_effects": ["catalog-publication", "tariff-access", "pricing", "provider-secret", "local-runtime"],
       "risk_floor": "standard",
       "risk_escalates_to": "high-assurance",
-      "risk_escalates_when": ["меняется публикация, цена, quote/reservation/settlement, API key или provider call"],
+      "risk_escalates_when": ["публикация/цена, quote/reservation/settlement, ключ/API"],
       "live_action_risk": "release-ops",
       "required_controls": ["trusted-admin", "verify-per-endpoint", "audit", "publication-access-settlement-consistency", "fake-provider-tests"],
       "tests": ["backend/test_admin_v2.py", "backend/test_openrouter_admin_cache_v2.py", "backend/test_phone_chat_model_catalog.py", "backend/test_tariff_model_counts.py", "frontend/e2e-admin-model-pages.mjs", "frontend/adminImageModelPublication.test.ts", "frontend/adminVideoPublication.test.ts"]

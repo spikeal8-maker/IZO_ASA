@@ -1,4 +1,4 @@
-export type AdminModelsPage = 'api' | 'config' | 'energy' | 'voice' | 'improve'
+export type AdminModelsPage = 'api' | 'openai' | 'config' | 'energy' | 'voice' | 'improve'
 export type AdminOpenRouterPage = 'text' | 'images' | 'video' | 'audio' | '3d' | 'settings'
 
 export const ADMIN_OPENROUTER_PAGES: Array<{
@@ -29,6 +29,13 @@ export const ADMIN_MODELS_PAGES: Array<{
     path: '/admin/models/openrouter/text',
     title: 'Модели OpenRouter',
     description: 'Каталог облачных моделей, доступность по тарифам, цены и проверка API.',
+  },
+  {
+    id: 'openai',
+    label: 'OpenAI API',
+    path: '/admin/models/openai',
+    title: 'OpenAI API',
+    description: 'Прямой API OpenAI: безопасный ключ, доступная модель и проверка соединения.',
   },
   {
     id: 'config',

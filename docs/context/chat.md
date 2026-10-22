@@ -104,3 +104,16 @@ expanding this routing card into another master specification.
 - A visual symptom does not prove whether ownership is desktop-only or shared.
 - Live provider/model availability is runtime evidence, not source truth.
 - Generated maps guide discovery but do not replace focused source/test checks.
+
+## Admin-only OpenAI preview (#206)
+
+An explicit model id `openai:<model>` selects direct OpenAI Responses API
+through the existing authenticated `/api/phone/chat` endpoint and
+`ChatRequestLifecycle`, which persists history and prevents reprocessing an
+identical requestId. The model is exposed only to the administrator when
+the separately configured OpenAI provider is enabled and its key is present.
+No implicit fallback from OpenRouter/Ollama is introduced. Initial scope:
+text-only, no images and no tool execution; cost is not dynamically quoted
+from OpenRouter. The model should not be published to paid end users before
+a reviewed provider-specific billing policy is implemented. The provider
+uses `store=false` and never retries an ambiguous paid request automatically.
