@@ -1,0 +1,16 @@
+**
+!ops/
+!ops/docker/
+!ops/docker/dev/
+!ops/docker/dev/comfyui_bridge_server.py
+!backend/
+!backend/app/
+!backend/app/services/
+!backend/app/services/comfyui_native4b.py
+**/__pycache__
+**/*.pyc
+**/.env
+**/secrets/**
+**/media/**
+**/.git/**
+**/.runtime/**

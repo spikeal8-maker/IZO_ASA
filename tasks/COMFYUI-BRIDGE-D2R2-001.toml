@@ -17,6 +17,7 @@ declaredFiles = [
   "ops/docker/dev/compose.comfy214.yml",
   "ops/docker/dev/comfyui_bridge_server.py",
   "ops/docker/dev/Dockerfile.comfy214",
+  "ops/docker/dev/Dockerfile.comfy214.dockerignore",
   "ops/windows/comfyui_bridge_agent.py",
   "ops/windows/start-comfyui-bridge-agent.ps1",
   "docs/comfyui-bridge-214-security.md",
