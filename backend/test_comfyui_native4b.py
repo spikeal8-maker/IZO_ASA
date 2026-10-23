@@ -56,6 +56,19 @@ class Native4BTests(unittest.TestCase):
             with self.assertRaises(native.Native4BError):
                 native.check_request(**params)
 
+    def test_studio_publishes_only_native_4b_compatible_resolutions(self):
+        presets = [
+            {"id": "sq-sd", "width": 704, "height": 704},
+            {"id": "sq-hd", "width": 1024, "height": 1024},
+            {"id": "h-sd", "width": 1024, "height": 576},
+            {"id": "v-sd", "width": 576, "height": 1024},
+            {"id": "small-valid", "width": 512, "height": 512},
+            {"id": "large-valid", "width": 768, "height": 768},
+            {"id": "unaligned", "width": 701, "height": 704},
+        ]
+        self.assertEqual(native.supported_resolution_ids(presets),
+                         ["sq-sd", "small-valid", "large-valid"])
+
     def test_inventory_requirements(self):
         data = {"diffusion_models": [native.MODEL],
                 "text_encoders": [native.ENCODER],

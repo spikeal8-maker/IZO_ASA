@@ -8,6 +8,8 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import os
+import re
 import subprocess
 import sys
 import time
@@ -20,6 +22,55 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend" / "app" /
 from comfyui_native4b import CORE_NODES, validate_bridge_route  # noqa: E402
 
 MAX_RESULT = 9_000_000
+_STATE_LIMIT = 262_144
+_PROMPT_RE = re.compile(r"^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$")
+_IMAGE_RE = re.compile(r"^local4b_[0-9]{5}_.png$")
+
+
+def restore_memory(token_file: Path) -> dict:
+    """Reclaim only previously accepted prompt/image ownership after agent restart."""
+    path = token_file.with_name("bridge-agent-state.json")
+    memory = {"owned": set(), "images": set(), "active": None, "state_path": path}
+    if not path.exists():
+        return memory
+    if path.stat().st_size > _STATE_LIMIT:
+        raise RuntimeError("HOST_BRIDGE_STATE_TOO_LARGE")
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+        ids, names, active = state["owned"], state["images"], state["active"]
+        if (not isinstance(ids, list) or not isinstance(names, list)
+                or len(ids) > 2048 or len(names) > 2048
+                or any(not isinstance(i, str) or not _PROMPT_RE.fullmatch(i) for i in ids)
+                or any(not isinstance(n, str) or not _IMAGE_RE.fullmatch(n) for n in names)
+                or (active is not None and (not isinstance(active, str) or active not in ids))):
+            raise ValueError("HOST_BRIDGE_STATE_INVALID")
+        memory["owned"] = set(ids)
+        memory["images"] = {(n, "Comfy214") for n in names}
+        memory["active"] = active
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError("HOST_BRIDGE_STATE_INVALID") from exc
+    return memory
+
+
+def save_memory(memory: dict) -> None:
+    """Atomic, bounded metadata journal next to the off-repo bridge token."""
+    path = memory.get("state_path")
+    if not isinstance(path, Path):
+        return
+    data = {
+        "owned": sorted(memory["owned"]),
+        "images": sorted(name for name, folder in memory["images"] if folder == "Comfy214"),
+        "active": memory["active"],
+    }
+    encoded = json.dumps(data, separators=(",", ":"), sort_keys=True)
+    if len(encoded.encode("utf-8")) > _STATE_LIMIT:
+        raise RuntimeError("HOST_BRIDGE_STATE_TOO_LARGE")
+    temp = path.with_name("bridge-agent-state.tmp")
+    with temp.open("w", encoding="utf-8") as handle:
+        handle.write(encoded)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temp, path)
 
 
 def fetch(opener, url, *, method="GET", body=None, headers=None, timeout=20):
@@ -66,7 +117,8 @@ def process_task(opener, task, comfy, memory):
     if not isinstance(ident, str) or not validate_bridge_route(method, path, body):
         return 403, b'{"detail":"HOST_BRIDGE_ROUTE_DENIED"}'
     if method == "POST":
-        if not gpu_available() or not local_queue_idle(opener, comfy) or memory["active"]:
+        if (len(memory["owned"]) >= 2048 or not gpu_available()
+                or not local_queue_idle(opener, comfy) or memory["active"]):
             return 409, b'{"detail":"GPU_BUSY_OR_COMFY_QUEUE_ACTIVE"}'
     if path.startswith("/history/"):
         if path.split("/")[-1] not in memory["owned"]:
@@ -97,10 +149,11 @@ def process_task(opener, task, comfy, memory):
         try:
             result = json.loads(response)
             ident = result["prompt_id"]
-            if not isinstance(ident, str):
+            if not isinstance(ident, str) or not _PROMPT_RE.fullmatch(ident):
                 raise ValueError
             memory["owned"].add(ident)
             memory["active"] = ident
+            save_memory(memory)
         except (ValueError, KeyError, TypeError):
             return 502, b'{"detail":"HOST_COMFY_SUBMISSION_INVALID"}'
     if status == 200 and path.startswith("/history/"):
@@ -110,8 +163,15 @@ def process_task(opener, task, comfy, memory):
             for output in item.get("outputs", {}).values():
                 for img in output.get("images", []):
                     key = (img.get("filename"), img.get("subfolder", ""))
-                    if key[1] == "Comfy214" and key[0].startswith("local4b_"):
+                    if (key[1] == "Comfy214" and isinstance(key[0], str)
+                            and _IMAGE_RE.fullmatch(key[0])):
                         memory["images"].add(key)
+            # A definite GPU execution failure frees the local single-flight slot.
+            # Missing/partial history is uncertain and MUST NOT free it or resubmit.
+            if (item.get("status", {}).get("status_str") == "error"
+                    and memory["active"] == pid):
+                memory["active"] = None
+            save_memory(memory)
         except (ValueError, AttributeError, TypeError):
             return 502, b'{"detail":"HOST_COMFY_HISTORY_INVALID"}'
     if status == 200 and path.startswith("/view?"):
@@ -126,6 +186,7 @@ def process_task(opener, task, comfy, memory):
             except (OSError, TimeoutError):
                 pass
             memory["active"] = None
+            save_memory(memory)
     return status, response
 
 
@@ -137,7 +198,7 @@ def run(bridge: str, comfy: str, token_file: Path) -> None:
         raise RuntimeError("HOST_ENDPOINT_NOT_LOOPBACK_ALLOWLIST")
     headers = {"X-Comfy214-Token": token}
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    owned = {"owned": set(), "images": set(), "active": None}
+    owned = restore_memory(token_file)
     print("COMFY214_HOST_AGENT_STARTED local-only, strict 4B t2i", flush=True)
     while True:
         try:

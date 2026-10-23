@@ -108,6 +108,21 @@ def validate_submitted_graph(request: Any) -> bool:
         return False
 
 
+def supported_resolution_ids(presets: list[dict[str, Any]]) -> list[str]:
+    """Publish only exact Studio presets that the native 4B adapter accepts."""
+    supported = []
+    for item in presets:
+        try:
+            check_request(mode="text_to_image", profile="flux_klein_4b",
+                          width=item["width"], height=item["height"],
+                          prompt="compatibility probe", steps=4)
+        except (KeyError, Native4BError):
+            continue
+        if isinstance(item.get("id"), str):
+            supported.append(item["id"])
+    return supported
+
+
 def validate_model_inventory(data: dict[str, Any]) -> bool:
     return (MODEL in data.get("diffusion_models", [])
             and ENCODER in data.get("text_encoders", [])

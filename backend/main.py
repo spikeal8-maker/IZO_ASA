@@ -6899,7 +6899,7 @@ def server_lora_enabled(file_name: str) -> bool:
 
 SERVER_MODEL_PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
     "flux_klein_9b": {"width": 1024, "height": 1024, "steps": 4, "sampler": "er_sde", "seedMode": "random", "seed": 42},
-    "flux_klein_4b": {"width": 1024, "height": 1024, "steps": 4, "sampler": "er_sde", "seedMode": "random", "seed": 42},
+    "flux_klein_4b": {"width": 704 if COMFYUI_NATIVE4B_ONLY else 1024, "height": 704 if COMFYUI_NATIVE4B_ONLY else 1024, "steps": 4, "sampler": "er_sde", "seedMode": "random", "seed": 42},
 }
 
 
@@ -16545,11 +16545,15 @@ def _public_model_option(model_id: str, capability: dict[str, Any] | None = None
     if model_id == "server:local_flux_klein":
         return {
             "id": "server:local_flux_klein",
-            "label": "ИЗО Base",
+            "label": "FLUX.2 Klein 4B (локально)" if COMFYUI_NATIVE4B_ONLY else "ИЗО Base",
             "provider": "comfyui",
             "modelProfile": "local_flux_klein",
             "tokenHint": 1,
-            "supportedResolutionIds": [item["id"] for item in IMAGE_RESOLUTIONS if item["tier"] != "four_k"],
+            "supportedResolutionIds": (
+                comfyui_native4b.supported_resolution_ids(IMAGE_RESOLUTIONS)
+                if COMFYUI_NATIVE4B_ONLY
+                else [item["id"] for item in IMAGE_RESOLUTIONS if item["tier"] != "four_k"]
+            ),
             "generation": {
                 "fixedSteps": LOCAL_TEXT_TO_IMAGE_STEPS,
                 "allowsExactRepeat": False,
