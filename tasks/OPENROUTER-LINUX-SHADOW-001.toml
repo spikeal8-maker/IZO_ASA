@@ -1,6 +1,6 @@
 manifestVersion = 1
 id = "OPENROUTER-LINUX-SHADOW-001"
-baseSha = "445bf08b24758c8b93dc4132226bf9b2b14fa075"
+baseSha = "51543df2b6a559d693e3ed75b11baeacdb9033d3"
 goal = "Restore OpenRouter as primary cloud provider through secure Linux credentials and verified admin UX"
 userOutcome = "Owner can safely save, verify and manage a personal sk-or key in real admin and select catalog models for existing chat and Studio"
 beforeScenario = "Linux Docker DPAPI secret persistence fails; OpenRouter status conflates credentials and credits with egress blocked"
@@ -48,6 +48,7 @@ declaredFiles = [
   "docs/generated/frontend-map.md",
   "architecture/contract.json",
   "backend/SYMBOL_MAP.md",
+  "frontend/src/adminModelsResponsive.css",
 ]
 allowedPatterns = [
 ]
@@ -67,8 +68,8 @@ protectedFilesTouched = [
 domain = "admin-models-chat"
 riskClass = "high-assurance"
 changeClass = "provider-integration"
-maxProductionFiles = 12
-maxChangedLines = 3500
+maxProductionFiles = 7
+maxChangedLines = 1600
 acceptance = [
   "OpenRouter sk-or encrypted persist succeeds on Linux and Windows DPAPI stays compatible",
   "Admin key save readback is separate from live verification and credits management-only",
@@ -203,3 +204,8 @@ recordedAtUtc = "2026-10-23T05:56:44.249266Z"
 path = "backend/SYMBOL_MAP.md"
 reason = "Generated backend route map after explicit reviewed OpenRouter admin routes"
 recordedAtUtc = "2026-10-23T05:58:17.259311Z"
+
+[[scopeExpansions]]
+path = "frontend/src/adminModelsResponsive.css"
+reason = "Mobile OpenRouter status badges and key controls clip at 390px in real Chromium evidence"
+recordedAtUtc = "2026-10-23T17:27:50.445070Z"
