@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
 import httpx
 
 from .generation_transport import client_options as generation_client_options
+from ..services import comfyui_native4b
 
 
 class ComfyUIHistoryClient:
@@ -73,6 +75,32 @@ async def _get_json(
         return response.json()
 
 
+def native4b_enabled() -> bool:
+    return os.environ.get("COMFYUI_NATIVE4B_ONLY", "").lower() == "true"
+
+
+async def native4b_models(*, base_url: str, timeout_seconds: float,
+                         transport: httpx.AsyncBaseTransport | None = None) -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {"diffusion_models": [], "text_encoders": [],
+                                    "vaes": [], "loras": []}
+    for node_name, field, dest in (
+        ("UNETLoader", "unet_name", "diffusion_models"),
+        ("CLIPLoader", "clip_name", "text_encoders"),
+        ("VAELoader", "vae_name", "vaes"),
+    ):
+        item = await _get_json(base_url=base_url, path=f"/object_info/{node_name}",
+                               timeout_seconds=timeout_seconds, transport=transport)
+        source = item[node_name]["input"]["required"][field][0]
+        if not isinstance(source, list):
+            raise RuntimeError("NATIVE4B_MODEL_INVENTORY_INVALID")
+        result[dest] = [name for name in source if isinstance(name, str)
+                        and name in {
+                            comfyui_native4b.MODEL, comfyui_native4b.ENCODER,
+                            comfyui_native4b.VAE,
+                        }]
+    return result
+
+
 async def comfyui_flux_klein_available(
     *,
     base_url: str,
@@ -81,6 +109,17 @@ async def comfyui_flux_klein_available(
 ) -> bool:
     """Return whether the required custom node is registered."""
 
+    if native4b_enabled():
+        try:
+            stats = await _get_json(base_url=base_url, path="/system_stats",
+                                    timeout_seconds=timeout_seconds, transport=transport)
+            if not stats.get("devices") or stats.get("system", {}).get("comfyui_version") != "0.42.1":
+                return False
+            return comfyui_native4b.validate_model_inventory(
+                await native4b_models(base_url=base_url, timeout_seconds=timeout_seconds,
+                                     transport=transport))
+        except (httpx.HTTPError, KeyError, TypeError, ValueError, RuntimeError):
+            return False
     try:
         payload = await _get_json(
             base_url=base_url,
@@ -119,6 +158,9 @@ async def fetch_comfyui_models(
     timeout_seconds: float = 10,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> dict[str, list[str]]:
+    if native4b_enabled():
+        return await native4b_models(base_url=base_url, timeout_seconds=timeout_seconds,
+                                    transport=transport)
     payload = await _get_json(
         base_url=base_url,
         path="/flux_klein/models",
@@ -139,6 +181,32 @@ async def fetch_flux_klein_config(
     timeout_seconds: float = 10,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> dict[str, Any]:
+    if native4b_enabled():
+        model_lists = await native4b_models(base_url=base_url,
+                                            timeout_seconds=timeout_seconds, transport=transport)
+        queue = await _get_json(base_url=base_url, path="/queue",
+                                timeout_seconds=timeout_seconds, transport=transport)
+        stats = await _get_json(base_url=base_url, path="/system_stats",
+                                timeout_seconds=timeout_seconds, transport=transport)
+        devices = stats.get("devices") or []
+        healthy = (comfyui_native4b.validate_model_inventory(model_lists)
+                   and stats.get("system", {}).get("comfyui_version") == "0.42.1"
+                   and bool(devices))
+        native = {
+            "enabled": True,
+            "available": bool(healthy),
+            "model": comfyui_native4b.MODEL,
+            "encoder": comfyui_native4b.ENCODER,
+            "vae": comfyui_native4b.VAE,
+            "nineBAvailable": False,
+            "queue": {"running": len(queue.get("queue_running", [])),
+                      "pending": len(queue.get("queue_pending", []))},
+            "gpu": {"name": str(devices[0].get("name") or "")[:100],
+                    "vramTotal": int(devices[0].get("vram_total") or 0),
+                    "vramFree": int(devices[0].get("vram_free") or 0)} if devices else {},
+        }
+        return {"autofill_prompts": {}, "lora_triggers_custom": {},
+                "t2i_templates": [], "discover_prompts": {}, "native4b": native}
     payload = await _get_json(
         base_url=base_url,
         path="/flux_klein/config",
@@ -211,6 +279,8 @@ async def fetch_comfyui_workflow(
     timeout_seconds: float = 20,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> dict[str, Any]:
+    if native4b_enabled():
+        raise RuntimeError("NATIVE4B_LEGACY_CUSTOM_WORKFLOW_DISABLED")
     return await _get_json(
         base_url=base_url,
         path=f"/flux_klein/{endpoint}",
@@ -249,7 +319,8 @@ async def interrupt_comfyui(
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> None:
     """Request interruption without changing the legacy non-raising HTTP contract."""
-
+    if native4b_enabled():
+        return  # Never interrupt another host-native ComfyUI user's work.
     async with httpx.AsyncClient(
         **_client_options(timeout_seconds=timeout_seconds, transport=transport)
     ) as client:
@@ -282,6 +353,8 @@ async def free_comfyui_memory(
     timeout_seconds: float = 10,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> bool:
+    if native4b_enabled():
+        return False  # Windows owner handles idle free; no global memory mutation from Docker.
     async with httpx.AsyncClient(
         **_client_options(timeout_seconds=timeout_seconds, transport=transport)
     ) as client:

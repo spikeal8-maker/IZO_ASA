@@ -1,3 +1,4 @@
+import Comfy214StatusOverview from './adminComfy214Status'
 // Админ → Модели v2. Provider-aware страница управления моделями/маршрутами/тарифами,
 // OpenRouter и серверной моделью. Структура по референсу admin-models-v2.html.
 // Реальные данные приходят из GET /api/admin/models-page (см. backend). Тарифная матрица,
@@ -142,7 +143,11 @@ type ConfigStatus = {
   checked_at?: string
   duration_ms?: number
   comfyui?: { available?: boolean; base_url?: string }
-  config_api?: { ok?: boolean; error?: string; sections?: Record<string, number> }
+  config_api?: { ok?: boolean; error?: string; sections?: Record<string, number>; native4b?: {
+    enabled?: boolean; available?: boolean; model?: string; encoder?: string; vae?: string
+    nineBAvailable?: boolean; queue?: { running?: number; pending?: number }
+    gpu?: { name?: string; vramTotal?: number; vramFree?: number }
+  } }
   models_api?: { ok?: boolean; error?: string; counts?: Record<string, number> }
   nodes?: { ok?: boolean; count?: number; required?: Record<string, boolean>; error?: string }
   active_jobs?: Array<{ id?: string; status?: string; mode?: string; provider?: string; progress?: number; message?: string }>
@@ -1717,24 +1722,17 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
       </label>
       <span className={`state ${configStatus?.status === 'ready' ? 'ok' : 'warn'}`}>{configErr ? 'статус недоступен' : configStatus?.status === 'ready' ? 'сервер готов' : configStatus?.status || 'проверка'}</span>
       <div className="profile-switch" aria-label="Глобальная серверная модель">
-        <button disabled={opsBusy} className={globalLocalProfile === 'flux_klein_9b' ? 'active' : ''} onClick={() => void setGlobalLocalProfile('flux_klein_9b')}>Klein 9B</button>
+        <button disabled={opsBusy || !!configStatus?.config_api?.native4b?.enabled} title={configStatus?.config_api?.native4b?.enabled ? 'FLUX Klein 9B: недоступна для коммерческой генерации' : undefined} className={globalLocalProfile === 'flux_klein_9b'  ? 'active' : ''} onClick={() => void setGlobalLocalProfile('flux_klein_9b')}>Klein 9B</button>
         <button disabled={opsBusy} className={globalLocalProfile === 'flux_klein_4b' ? 'active' : ''} onClick={() => void setGlobalLocalProfile('flux_klein_4b')}>Klein 4B</button>
       </div>
-      <button className="primary server-restart" disabled={opsBusy} onClick={() => void configAction('reload')}>Перезапустить Config UI</button>
-      <button className="danger server-stop" disabled={opsBusy || !(configStatus?.active_jobs || []).length} onClick={() => void configAction('interrupt')}>Остановить задачу{(configStatus?.active_jobs || []).length ? ` · ${configStatus?.active_jobs?.length}` : ''}</button>
+      <button className="primary server-restart" disabled={opsBusy || !!configStatus?.config_api?.native4b?.enabled} onClick={() => void configAction('reload')}>Перезапустить Config UI</button>
+      <button className="danger server-stop" disabled={opsBusy || !!configStatus?.config_api?.native4b?.enabled || !(configStatus?.active_jobs || []).length} onClick={() => void configAction('interrupt')}>Остановить задачу{(configStatus?.active_jobs || []).length ? ` · ${configStatus?.active_jobs?.length}` : ''}</button>
     </section>
-
     {configErr && <p className="hint" style={{ margin: '0 0 12px', color: 'var(--red)' }}>Состояние сервера не загружено: {configErr}</p>}
-
     <section className="server-layout">
       <article className="card">
         <div className="card-head"><div><h2 className="card-title">Состояние сервера</h2><p className="card-note">Проверка ComfyUI, API, очереди и зависимостей.</p></div><button className="ghost" disabled={opsBusy} onClick={() => void loadConfigStatus()}>Обновить</button></div>
-        <div className="server-overview">
-          <div className="server-metric"><span>ComfyUI</span><strong style={{ color: statusColor(configStatus?.comfyui?.available) }}>{configErr ? '—' : configStatus?.comfyui?.available ? 'В сети' : 'Не отвечает'}</strong><small>{configStatus?.comfyui?.base_url || 'адрес не получен'}</small></div>
-          <div className="server-metric"><span>Config API</span><strong style={{ color: statusColor(configStatus?.config_api?.ok) }}>{fmtState(configStatus?.config_api?.ok)}</strong><small>{configStatus?.config_api?.error || 'конфигурация workflow'}</small></div>
-          <div className="server-metric"><span>Models API</span><strong style={{ color: statusColor(configStatus?.models_api?.ok) }}>{fmtState(configStatus?.models_api?.ok)}</strong><small>{configStatus?.models_api?.error || 'модели и LoRA'}</small></div>
-          <div className="server-metric"><span>Активные задачи</span><strong>{configStatus?.active_jobs?.length ?? '—'}</strong><small>проверено {fmtTime(configStatus?.checked_at)}</small></div>
-        </div>
+        <Comfy214StatusOverview status={configStatus} error={configErr} fmtState={fmtState} statusColor={statusColor} fmtTime={fmtTime} />
         <div className="route-strip">{routes.filter((route) => route.provider === 'local').map((route) => <span className="route-chip" key={route.routeId}><b>{route.icon}</b>{route.displayName}<span>·</span><strong>{globalLocalProfile.endsWith('9b') ? '9B' : '4B'}</strong></span>)}</div>
         {(configStatus?.active_jobs || []).length > 0 && <div className="job-list">{(configStatus?.active_jobs || []).map((job) => <div className="job-row" key={job.id}><strong>{job.id}</strong><span>{job.status}</span><span>{job.progress ?? 0}%</span><small>{job.mode} · {job.message || '—'}</small></div>)}</div>}
       </article>

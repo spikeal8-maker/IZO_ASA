@@ -1,0 +1,44 @@
+manifestVersion = 1
+id = "COMFYUI-BRIDGE-D2R2-001"
+baseSha = "3f041ca8c2989e53cbd469dfbe29131a63279ae2"
+goal = "Connect existing Windows host-native FLUX.2 Klein 4B through an authenticated candidate-only reverse transport to IZO_ASA Studio, with real GPU image and gallery persistence."
+userOutcome = "The owner can use a separate localhost Studio preview to generate an actual local RTX 4070 PNG, see the job and gallery, and verify Config UI without touching existing Shadows."
+beforeScenario = "ComfyUI on Windows works at 127.0.0.1:8188 but Docker backend uses disabled 127.0.0.1:1 and requires unsafe FluxKleinOneNode endpoints; new Studio cannot generate on host GPU."
+afterScenario = "A candidate-local fail-closed reverse bridge carries a strict allowlist of standard ComfyUI calls to one Windows agent; a native 4B adapter safely persists a genuine generated PNG through existing durable job and gallery machinery."
+nonGoals = ["Install/modify ComfyUI program, Python, models or CUDA drivers", "Add any third-party custom nodes", "Run 9B/noncommercial weights", "Alter existing Shadows 48145, 48135 or 48125", "Modify real Yandex restored user database/volumes", "Open Windows LAN ports", "Alter global networking/DNS/VPN/firewall/Docker Desktop", "Change OpenRouter cloud credential or provider routes", "Production deployment"]
+declaredFiles = [
+  "tasks/COMFYUI-BRIDGE-D2R2-001.toml",
+  "backend/main.py",
+  "backend/app/integrations/comfyui_client.py",
+  "backend/app/services/comfyui_native4b.py",
+  "backend/app/services/comfyui_workflows.py",
+  "backend/test_comfyui_native4b.py",
+  "backend/test_comfyui_bridge_security.py",
+  "ops/docker/dev/compose.comfy214.yml",
+  "ops/docker/dev/comfyui_bridge_server.py",
+  "ops/docker/dev/Dockerfile.comfy214",
+  "ops/windows/comfyui_bridge_agent.py",
+  "ops/windows/start-comfyui-bridge-agent.ps1",
+  "docs/comfyui-bridge-214-security.md",
+  "frontend/src/adminModels.tsx",
+  "frontend/src/adminComfy214Status.tsx",
+  "frontend/e2e-comfy214.mjs",
+  "docs/generated/frontend-map.md",
+  "docs/generated/frontend-map.json",
+  "docs/generated/architecture-inventory.md",
+  "docs/generated/architecture-inventory.json"
+]
+allowedPatterns = []
+forbiddenPatterns = ["frontend/src/newUi.tsx", "frontend/src/LegacyApp.tsx", "frontend/src/AdminApp.tsx", "backend/app/security/**", "backend/app/services/generation_accounting.py", "backend/app/services/generation_claims.py", "backend/app/services/generation_admission.py", "ops/docker/dev/compose.openrouter-shadow.yml", "ops/docker/dev/openrouter_network_guard.py", "ops/docker/dev/openrouter_https_proxy.py", "ops/docker/dev/compose.shadow.yml", "ops/docker/dev/compose.yml", ".github/**", "frontend/package.json", "backend/requirements.txt"]
+protectedFilesTouched = ["backend/main.py", "frontend/src/adminModels.tsx"]
+domain = "image-generation"
+riskClass = "high-assurance"
+changeClass = "architecture"
+maxProductionFiles = 7
+maxChangedLines = 2300
+acceptance = ["Worktree remains stacked from verified PR211 3f041ca8c2989e53cbd469dfbe29131a63279ae2; never write upstream PR211/main.", "ComfyUI remains Windows-host local only; existing models/paths untouched.", "Only one strict native 4B text-to-image graph allowed; 9B, custom nodes, uploads and arbitrary Comfy endpoints denied.", "Host outbound-polling relay with random secret, allowlisted routes, bounded payloads and only candidate loopback port; no general Docker egress.", "Backend imageEnabled disabled rejects before provider submission; OpenRouter paths unchanged.", "Candidate-only isolated fresh volumes, no Yandex data or OpenRouter key reuse; exact images labeled commit SHA.", "Real desktop/mobile Chromium Studio generation through durable API and verified saved PNG/one billing effect.", "Negative tests reject unknown endpoint, malformed graph, wrong token, missing models, transport loss, duplicate submit and cancellation.", "Git scope/hygiene, targeted unit/lint/build, independent review and Draft PR with true CI status."]
+requiredEvidence = ["exact base and head commit", "strict bridge allowlist and security test", "fresh candidate source image IDs, network guard verified", "Comfy /prompt ID, /history success, /view PNG SHA256", "isolated job, gallery, token balance before/after", "desktop and mobile screenshots", "Ollama and original Shadows before/after", "independent review report separate from implementer"]
+targetedTests = ["backend/test_comfyui_native4b.py", "backend/test_comfyui_bridge_security.py", "backend/test_comfyui_adapter.py", "backend/test_integrations_comfyui_client.py", "frontend/e2e-comfy214.mjs"]
+fileGrowthExpectations = ["Small bounded native 4B adapter; no monolith growth without offsetting extraction.", "Isolated candidate-only reverse polling service and companion host agent; no global Docker settings.", "Config UI adds real queue/installed models/readiness within existing page."]
+forbiddenOperations = ["direct-main", "production-deploy", "owner-data-mount", "real-financial-call", "comfy-reinstall", "model-download", "global-network-change", "shadow-210-mutation", "shadow-209-mutation", "shadow-1021-mutation"]
+rollbackBoundary = "Stop candidate-only bridge/agent and remove only owned new candidate containers/volumes after receipt; no changes to ComfyUI or any earlier Shadows."

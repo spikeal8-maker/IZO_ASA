@@ -325,7 +325,7 @@ try:
         comfyui_results,
         comfyui_inputs,
         comfyui_watchdog,
-        comfyui_workflows,
+        comfyui_workflows, comfyui_native4b,
         generation_jobs,
         generation_admission, generation_admin_probe,
         generation_accounting,
@@ -379,7 +379,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         comfyui_results,
         comfyui_inputs,
         comfyui_watchdog,
-        comfyui_workflows,
+        comfyui_workflows, comfyui_native4b,
         generation_jobs,
         generation_admission, generation_admin_probe,
         generation_accounting,
@@ -894,6 +894,7 @@ DB_PATH = STORAGE_PATH_POLICY.database_path
 
 PROVIDER_ENDPOINT_POLICY = load_provider_endpoint_policy()
 COMFYUI_BASE_URL = PROVIDER_ENDPOINT_POLICY.comfyui_base_url
+COMFYUI_NATIVE4B_ONLY = os.environ.get("COMFYUI_NATIVE4B_ONLY", "").lower() == "true"
 COMFYUI_REQUIRED = PROVIDER_ENDPOINT_POLICY.comfyui_required
 COMFYUI_MOCK_FALLBACK = PROVIDER_ENDPOINT_POLICY.comfyui_mock_fallback
 COMFYUI_TIMEOUT_SECONDS = PROVIDER_ENDPOINT_POLICY.comfyui_timeout_seconds
@@ -6856,7 +6857,7 @@ def resolve_profile_model(requested: str) -> str:
 def get_model_settings() -> dict[str, Any]:
     """Admin-configured model selection. editModelProfile is the default for all modes;
     poseModelProfile is used for the Pose role and falls back to the edit model."""
-    defaults = {"editModelProfile": "flux_klein_9b", "poseModelProfile": ""}
+    defaults = {"editModelProfile": "flux_klein_4b" if COMFYUI_NATIVE4B_ONLY else "flux_klein_9b", "poseModelProfile": ""}
     try:
         with db() as conn:
             row = conn.execute("SELECT value_json FROM admin_settings WHERE key = 'models'").fetchone()
@@ -6977,31 +6978,7 @@ def build_outpaint_workflow(graph: dict[str, Any], models: dict[str, list[str]],
 
 
 def choose_model(models: dict[str, list[str]], requested: str) -> tuple[str, str, str]:
-    diffusion = models.get("diffusion_models", [])
-    text_encoders = models.get("text_encoders", [])
-    vaes = models.get("vaes", [])
-
-    requested = resolve_profile_model(requested)
-    model = requested if requested in diffusion else ""
-    if not model:
-        model = next((item for item in diffusion if "klein-9b" in item and "fp8" in item), "")
-    if not model:
-        model = next((item for item in diffusion if "klein" in item), "")
-    if not model and diffusion:
-        model = diffusion[0]
-
-    is_4b = "4b" in model.lower()
-    preferred_te = "qwen_3_4b" if is_4b else "qwen_3_8b"
-    text_encoder = next((item for item in text_encoders if preferred_te in item), "")
-    if not text_encoder:
-        text_encoder = next((item for item in text_encoders if "qwen_3" in item), "")
-    if not text_encoder and text_encoders:
-        text_encoder = text_encoders[0]
-
-    vae = "flux2-vae.safetensors" if "flux2-vae.safetensors" in vaes else (vaes[0] if vaes else "")
-    if not model or not text_encoder or not vae:
-        raise RuntimeError("Модель, text encoder или VAE не найдены в ComfyUI. Откройте настройки модели.")
-    return model, text_encoder, vae
+    return comfyui_workflows.choose_model(models, resolve_profile_model(requested))
 
 
 def choose_faceswap_lora(available_loras: list[str], requested: Lora | None, model: str) -> Lora:
@@ -7304,6 +7281,12 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
     if _saved_setting("config_ui_runtime").get("imageEnabled") is False:
         raise RuntimeError("Локальная генерация изображений отключена администратором.")
     await wait_for_comfyui_recovery_gate()
+    if COMFYUI_NATIVE4B_ONLY:
+        return await comfyui_native4b.execute_request(
+            payload, job, available=comfyui_available, inventory=get_comfyui_models,
+            enabled=lambda: _saved_setting("config_ui_runtime").get("imageEnabled") is not False,
+            submit=submit_workflow, download=download_comfyui_image,
+            result_factory=ComfyUIResult)
     if not await comfyui_available():
         if COMFYUI_REQUIRED:
             raise RuntimeError("FluxKleinOneNode не найден или ComfyUI недоступен. Проверьте установку custom node.")
@@ -8027,6 +8010,16 @@ def _generation_admission_runtime() -> generation_admission.AdmissionRuntime:
 async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
     req = normalize_generation_request(req)
     trusted = require_trusted_user(request)
+    if COMFYUI_NATIVE4B_ONLY and req.provider == "comfyui":
+        if _saved_setting("config_ui_runtime").get("imageEnabled") is False:
+            raise HTTPException(503, "NATIVE4B_IMAGE_GENERATION_DISABLED")
+        try:
+            comfyui_native4b.check_request(
+                mode=req.mode, profile=req.modelProfile or "",
+                width=req.width, height=req.height, prompt=req.prompt,
+                steps=req.steps, loras=len(req.loras or []))
+        except comfyui_native4b.Native4BError as exc:
+            raise HTTPException(422, str(exc)) from None
     try:
         return await generation_admission.admit(
             req, trusted, request.headers.get("Idempotency-Key"), _generation_admission_runtime(),
@@ -14885,6 +14878,7 @@ async def compute_config_ui_status() -> dict[str, Any]:
                 "t2i_templates": len(config.get("t2i_templates") or []),
                 "discover_prompts": len(config.get("discover_prompts") or {}),
             },
+            "native4b": config.get("native4b") if COMFYUI_NATIVE4B_ONLY else None,
         }
     except Exception as exc:
         config_status = {"ok": False, "error": truncate_admin_text(str(exc), 180)}
@@ -14904,10 +14898,13 @@ async def compute_config_ui_status() -> dict[str, Any]:
         nodes_status = {
             "ok": bool(nodes) or bool(models_status.get("ok")),
             "count": len(nodes),
-            "required": {
+            "required": ({
+                "Native FLUX.2 Klein 4B": comfy_up and bool(models_status.get("ok")),
+                "No third-party custom node": "FluxKleinOneNode" not in nodes,
+            } if COMFYUI_NATIVE4B_ONLY else {
                 "Flux Klein API": bool(models_status.get("ok")),
                 "DWPose (только для позы)": dwpose_ready,
-            },
+            }),
         }
     except Exception as exc:
         nodes_status = {"ok": False, "error": truncate_admin_text(str(exc), 180)}
