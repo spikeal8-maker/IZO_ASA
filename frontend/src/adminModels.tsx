@@ -168,6 +168,7 @@ type PageData = {
     keyConfigured: boolean
     status?: { ok?: boolean; ready?: boolean | null; configured?: boolean; source?: string; status_code?: number; error?: unknown; data?: Record<string, unknown>; credits?: Record<string, unknown>; availability?: OpenRouterAvailability }
     usage?: {
+      tokens?: number
       pricedImages?: number
       totalCostUsd?: number
       avgCostUsd?: number | null
@@ -1560,7 +1561,9 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
   const effectiveRateText = usdRubBase === null || usdRubEffective === null
     ? 'курс ЦБ не загрузился'
     : `$1 ${usdRubBase.toFixed(2)} ₽ + ${Math.round(USD_FEE_RATE * 100)}% = ${usdRubEffective.toFixed(2)} ₽`
-  const spentTokensText = tokensText(data.openrouter.usage?.totalCostUsd, usdRubEffective, tokenRub)
+  const spentTokensText = typeof data.openrouter.usage?.tokens === 'number'
+    ? `${data.openrouter.usage.tokens.toLocaleString('ru-RU')} ток.`
+    : tokensText(data.openrouter.usage?.totalCostUsd, usdRubEffective, tokenRub)
   const exchangeCache = data.openrouter.exchange?.cache || ''
   const exchangeStateClass = usdRubBase === null ? 'rate-bad' : exchangeCache === 'stale' ? 'rate-stale' : 'rate-ok'
   const exchangeStateText = usdRubBase === null ? 'курс не загружен' : exchangeCache === 'stale' ? 'курс из последнего кэша' : 'курс загружен'
