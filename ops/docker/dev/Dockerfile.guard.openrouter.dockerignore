@@ -1,0 +1,5 @@
+**
+!ops/
+!ops/docker/
+!ops/docker/dev/
+!ops/docker/dev/openrouter_network_guard.py

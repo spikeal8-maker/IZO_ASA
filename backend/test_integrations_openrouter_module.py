@@ -340,188 +340,107 @@ def test_main_text_model_wrapper_uses_fresh_cache_without_http(monkeypatch):
     assert asyncio.run(main.openrouter_text_models()) == expected
 
 
-def test_key_details_preserve_paths_headers_data_and_calculated_balance():
-    seen: list[httpx.Request] = []
-
+def test_key_details_use_normal_key_only_without_management_api():
+    urls = []
     async def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        if request.url.path.endswith("/key"):
-            return httpx.Response(200, json={"data": {"limit": 10, "usage": 2}})
-        return httpx.Response(200, json={"data": {"total_credits": 10.125, "total_usage": 2.1}})
+        urls.append(request.url.path)
+        return httpx.Response(200, json={"data": {"limit": 10, "usage": 2, "label": "ok"}})
 
     result = asyncio.run(fetch_openrouter_key_details(
         base_url="https://openrouter.test/api/v1/",
-        key_headers={"Authorization": "Bearer key-request"},
-        credits_headers={"Authorization": "Bearer credits-request"},
-        timeout_seconds=15,
-        transport=httpx.MockTransport(handler),
+        key_headers={"Authorization": "Bearer sk-or-unit-key"},
+        credits_headers={"Authorization": "Bearer management-not-supplied"},
+        timeout_seconds=15, transport=httpx.MockTransport(handler),
     ))
-
-    assert result == {
-        "ok": True,
-        "status_code": 200,
-        "data": {"limit": 10, "usage": 2},
-        "credits": {
-            "ok": True,
-            "status_code": 200,
-            "data": {"total_credits": 10.125, "total_usage": 2.1},
-            "calculated_balance": 8.025,
-        },
-    }
-    assert [request.url.path for request in seen] == ["/api/v1/key", "/api/v1/credits"]
-    assert seen[0].headers["Authorization"] == "Bearer key-request"
-    assert seen[1].headers["Authorization"] == "Bearer credits-request"
-
-
-def test_key_details_preserve_key_error_after_both_requests():
-    seen: list[str] = []
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request.url.path)
-        if request.url.path.endswith("/key"):
-            return httpx.Response(401, json={"error": {"message": "invalid key"}})
-        return httpx.Response(200, json={"data": {"total_credits": 100, "total_usage": 1}})
-
-    result = asyncio.run(fetch_openrouter_key_details(
-        base_url="https://openrouter.test/api/v1",
-        key_headers={},
-        credits_headers={},
-        transport=httpx.MockTransport(handler),
-    ))
-
-    assert seen == ["/api/v1/key", "/api/v1/credits"]
-    assert result == {
-        "ok": False,
-        "status_code": 401,
-        "error": {"message": "invalid key"},
-    }
-
-
-def test_key_details_preserve_nested_credits_error():
-    async def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path.endswith("/key"):
-            return httpx.Response(200, json={"data": {"limit": 10}})
-        return httpx.Response(503, json={"error": "credits unavailable"})
-
-    result = asyncio.run(fetch_openrouter_key_details(
-        base_url="https://openrouter.test/api/v1",
-        key_headers={},
-        credits_headers={},
-        transport=httpx.MockTransport(handler),
-    ))
-
     assert result["ok"] is True
-    assert result["credits"] == {
-        "ok": False,
-        "status_code": 503,
-        "error": "credits unavailable",
-    }
+    assert result["data"]["limit"] == 10
+    assert result["credits"]["skipped"] is True
+    assert urls == ["/api/v1/key"]
 
 
-def test_key_details_preserve_invalid_json_exception():
+def test_key_details_rejects_normal_key_without_provider_secret_echo():
+    urls = []
     async def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path.endswith("/key"):
-            return httpx.Response(200, content=b"not-json")
-        return httpx.Response(200, json={})
+        urls.append(request.url.path)
+        return httpx.Response(401, json={"error": {"message": "SECRET_ECHO_LEAK"}})
+    result = asyncio.run(fetch_openrouter_key_details(
+        base_url="https://openrouter.test/api/v1",
+        key_headers={}, credits_headers={}, transport=httpx.MockTransport(handler),
+    ))
+    assert urls == ["/api/v1/key"]
+    assert result["status_code"] == 401
+    assert result["error"] == "OPENROUTER_KEY_INVALID"
+    assert "SECRET_ECHO_LEAK" not in repr(result)
 
-    with pytest.raises(json.JSONDecodeError):
-        asyncio.run(fetch_openrouter_key_details(
-            base_url="https://openrouter.test/api/v1",
-            key_headers={},
-            credits_headers={},
-            transport=httpx.MockTransport(handler),
-        ))
+
+def test_key_details_skips_management_credits():
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v1/key"
+        return httpx.Response(200, json={"data": {"limit": 10}})
+    result = asyncio.run(fetch_openrouter_key_details(
+        base_url="https://openrouter.test/api/v1",
+        key_headers={}, credits_headers={}, transport=httpx.MockTransport(handler),
+    ))
+    assert result["ok"] is True
+    assert result["credits"] == {"ok": False, "skipped": True, "error": "MANAGEMENT_KEY_REQUIRED"}
+
+
+def test_key_details_handles_invalid_json_without_provider_leak():
+    async def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"not-json")
+    result = asyncio.run(fetch_openrouter_key_details(
+        base_url="https://openrouter.test/api/v1",
+        key_headers={}, credits_headers={}, transport=httpx.MockTransport(handler),
+    ))
+    assert result["ok"] is False
+    assert result["error"] == "OPENROUTER_RESPONSE_INVALID"
 
 
 def test_main_key_status_without_key_skips_integration(monkeypatch):
     async def unexpected_fetch(**_kwargs):
-        raise AssertionError("OpenRouter HTTP must not run without a key")
-
+        raise AssertionError("No key must not call provider")
     monkeypatch.setattr(main, "openrouter_api_key", lambda: "")
     monkeypatch.setattr(main, "fetch_openrouter_key_details", unexpected_fetch)
-
-    assert asyncio.run(main.fetch_openrouter_key_status()) == {
-        "configured": False,
-        "ok": False,
-        "error": "OPENROUTER_API_KEY не задан",
-        "availability": {
-            "state": "unknown",
-            "ready": None,
-            "lastStatusCode": None,
-            "lastFailureAt": None,
-            "lastSuccessAt": None,
-        },
-        "ready": False,
-    }
+    main._openrouter_key_status_cache.clear()
+    result = asyncio.run(main.fetch_openrouter_key_status())
+    assert result["configured"] is False
+    assert result["ok"] is False
+    assert result["liveVerified"] is False
+    assert result["error"] == "OPENROUTER_KEY_NOT_CONFIGURED"
 
 
-def test_main_key_status_preserves_header_calls_source_and_shape(monkeypatch):
-    captured: dict[str, object] = {}
-    header_calls = 0
-
-    def fake_headers():
-        nonlocal header_calls
-        header_calls += 1
-        return {"X-Request": str(header_calls)}
-
+def test_main_key_status_requires_explicit_live_force(monkeypatch):
+    captured = {}
     async def fake_fetch(**kwargs):
         captured.update(kwargs)
-        return {"ok": True, "status_code": 200, "data": {"limit": 10}, "credits": {"ok": True}}
-
-    monkeypatch.setattr(main, "openrouter_api_key", lambda: "configured-secret")
+        return {"ok": True, "status_code": 200, "data": {"limit": 10},
+                "credits": {"ok": False, "skipped": True}}
+    monkeypatch.setattr(main, "openrouter_api_key", lambda: "sk-or-unit-fake")
     monkeypatch.setattr(main, "openrouter_api_key_source", lambda: "admin_ui")
-    monkeypatch.setattr(main, "openrouter_headers", fake_headers)
+    monkeypatch.setattr(main, "openrouter_headers", lambda: {"X-Request": "fake"})
     monkeypatch.setattr(main, "fetch_openrouter_key_details", fake_fetch)
-
-    result = asyncio.run(main.fetch_openrouter_key_status())
-
-    assert result == {
-        "configured": True,
-        "source": "admin_ui",
-        "ok": True,
-        "status_code": 200,
-        "data": {"limit": 10},
-        "credits": {"ok": True},
-        "availability": {
-            "state": "unknown",
-            "ready": None,
-            "lastStatusCode": None,
-            "lastFailureAt": None,
-            "lastSuccessAt": None,
-        },
-        "ready": None,
-    }
-    assert captured == {
-        "base_url": main.OPENROUTER_BASE_URL,
-        "key_headers": {"X-Request": "1"},
-        "credits_headers": {"X-Request": "2"},
-        "timeout_seconds": 15,
-    }
+    main._openrouter_key_status_cache.clear()
+    pending = asyncio.run(main.fetch_openrouter_key_status())
+    assert pending["pending"] is True
+    assert not captured
+    result = asyncio.run(main.fetch_openrouter_key_status(force=True))
+    assert result["ok"] is True
+    assert result["liveVerified"] is True
+    assert captured["base_url"] == main.OPENROUTER_BASE_URL
 
 
-def test_main_key_status_preserves_safe_exception_wrapper(monkeypatch):
+def test_main_key_status_sanitizes_network_failure(monkeypatch):
     async def failed_fetch(**_kwargs):
-        raise httpx.ConnectError("provider unavailable")
-
-    monkeypatch.setattr(main, "openrouter_api_key", lambda: "configured-secret")
+        raise httpx.ConnectError("sk-or-provider-secret-leak")
+    monkeypatch.setattr(main, "openrouter_api_key", lambda: "sk-or-configured-fake")
     monkeypatch.setattr(main, "openrouter_api_key_source", lambda: "env")
-    monkeypatch.setattr(main, "openrouter_headers", lambda: {"Authorization": "not-returned"})
     monkeypatch.setattr(main, "fetch_openrouter_key_details", failed_fetch)
-
-    assert asyncio.run(main.fetch_openrouter_key_status()) == {
-        "configured": True,
-        "source": "env",
-        "ok": False,
-        "error": "provider unavailable",
-        "availability": {
-            "state": "unknown",
-            "ready": None,
-            "lastStatusCode": None,
-            "lastFailureAt": None,
-            "lastSuccessAt": None,
-        },
-        "ready": False,
-    }
+    main._openrouter_key_status_cache.clear()
+    result = asyncio.run(main.fetch_openrouter_key_status(force=True))
+    assert result["configured"] is True
+    assert result["ok"] is False
+    assert result["error"] == "OPENROUTER_NETWORK_UNAVAILABLE"
+    assert "sk-or-provider" not in repr(result)
 
 
 def test_chat_completion_transport_preserves_path_headers_body_status_and_payload():

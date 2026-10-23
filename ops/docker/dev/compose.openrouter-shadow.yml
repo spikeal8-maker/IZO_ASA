@@ -1,0 +1,74 @@
+# Opt-in isolated candidate only. Does not edit the default Shadow's nftables rules.
+# Guard egress: only proxy IP 10.249.211.3:3128; proxy allows CONNECT openrouter.ai:443.
+services:
+  guard:
+    image: izo-asa-openrouter-guard:${IZO_SOURCE_SHA}
+    build:
+      context: ../../..
+      dockerfile: ops/docker/dev/Dockerfile.guard.openrouter
+      args:
+        IZO_SOURCE_SHA: ${IZO_SOURCE_SHA}
+    depends_on:
+      proxy:
+        condition: service_healthy
+    networks:
+      shadow:
+        ipv4_address: 10.249.211.2
+
+  proxy:
+    image: izo-asa-openrouter-proxy:${IZO_SOURCE_SHA}
+    build:
+      context: ../../..
+      dockerfile: ops/docker/dev/Dockerfile.proxy.openrouter
+      args:
+        IZO_SOURCE_SHA: ${IZO_SOURCE_SHA}
+    user: "10001:10001"
+    read_only: true
+    restart: "no"
+    cpus: 0.3
+    mem_limit: 128m
+    pids_limit: 64
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks:
+      shadow:
+        ipv4_address: 10.249.211.3
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; sock=socket.create_connection(('127.0.0.1',3128),2); sock.close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    labels:
+      io.izo.owner: OPENROUTER-LINUX-SHADOW-001
+      io.izo.project: ${IZO_COMPOSE_PROJECT}
+
+  backend:
+    environment:
+      OPENROUTER_BASE_URL: https://openrouter.ai/api/v1
+      HTTPS_PROXY: http://10.249.211.3:3128
+      https_proxy: http://10.249.211.3:3128
+      IZO_OPENAI_MASTER_KEY_FILE: /home/izo/master/openai.key
+    volumes:
+      - type: volume
+        source: openrouter-secrets
+        target: /home/izo/secrets
+      - type: volume
+        source: openrouter-master
+        target: /home/izo/master
+        read_only: true
+
+networks:
+  shadow:
+    ipam:
+      config:
+        - subnet: 10.249.211.0/24
+
+volumes:
+  openrouter-secrets:
+    labels:
+      io.izo.owner: OPENROUTER-LINUX-SHADOW-001
+      io.izo.project: ${IZO_COMPOSE_PROJECT}
+  openrouter-master:
+    labels:
+      io.izo.owner: OPENROUTER-LINUX-SHADOW-001
+      io.izo.project: ${IZO_COMPOSE_PROJECT}

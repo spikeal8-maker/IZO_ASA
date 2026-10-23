@@ -4,6 +4,7 @@
 // маршруты и user-choice сохраняются через /api/admin/settings/{key}.
 import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { AdminModelsNavigation } from './adminModelsNavigation'
+import { saveOpenRouterKeyAction, checkOpenRouterKeyAction } from './openRouterAdminKey'
 import { OpenRouterAudioPage, OpenRouterThreeDPage } from './adminOpenRouterAuxPages'
 import {
   ADMIN_OPENROUTER_PAGES,
@@ -167,6 +168,7 @@ type PageData = {
     keyConfigured: boolean
     status?: { ok?: boolean; ready?: boolean | null; configured?: boolean; source?: string; status_code?: number; error?: unknown; data?: Record<string, unknown>; credits?: Record<string, unknown>; availability?: OpenRouterAvailability }
     usage?: {
+      tokens?: number
       pricedImages?: number
       totalCostUsd?: number
       avgCostUsd?: number | null
@@ -1250,18 +1252,15 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
   }
 
   const saveOpenrouterKey = async () => {
-    const key = openrouterKeyInput.trim()
-    if (!key) { setMsg('Вставьте ключ OpenRouter'); return }
     setOpenrouterBusy(true); setMsg('')
-    const r = await amvFetch('/admin/openrouter/key', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key }),
-    }).then((x) => x.json()).catch(() => null) as { ok?: boolean; key?: { ok?: boolean; error?: unknown } } | null
-    setOpenrouterBusy(false)
-    setOpenrouterKeyInput('')
-    await load()
-    setMsg(r?.key?.ok ? 'Ключ OpenRouter сохранён и проверен' : `Ключ сохранён, но проверка не прошла: ${String(r?.key?.error || 'unknown')}`)
+    const result = await saveOpenRouterKeyAction(amvFetch, openrouterKeyInput)
+    if (result.saved) { setOpenrouterKeyInput(''); await load() }
+    setMsg(result.message); setOpenrouterBusy(false)
+  }
+  const verifyOpenrouterKey = async () => {
+    setOpenrouterBusy(true); setMsg('Проверка OpenRouter выполняется…')
+    const message = await checkOpenRouterKeyAction(amvFetch)
+    await load(); setMsg(message); setOpenrouterBusy(false)
   }
 
   const refreshOpenrouterCatalog = async () => {
@@ -1562,7 +1561,9 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
   const effectiveRateText = usdRubBase === null || usdRubEffective === null
     ? 'курс ЦБ не загрузился'
     : `$1 ${usdRubBase.toFixed(2)} ₽ + ${Math.round(USD_FEE_RATE * 100)}% = ${usdRubEffective.toFixed(2)} ₽`
-  const spentTokensText = tokensText(data.openrouter.usage?.totalCostUsd, usdRubEffective, tokenRub)
+  const spentTokensText = typeof data.openrouter.usage?.tokens === 'number'
+    ? `${data.openrouter.usage.tokens.toLocaleString('ru-RU')} ток.`
+    : tokensText(data.openrouter.usage?.totalCostUsd, usdRubEffective, tokenRub)
   const exchangeCache = data.openrouter.exchange?.cache || ''
   const exchangeStateClass = usdRubBase === null ? 'rate-bad' : exchangeCache === 'stale' ? 'rate-stale' : 'rate-ok'
   const exchangeStateText = usdRubBase === null ? 'курс не загружен' : exchangeCache === 'stale' ? 'курс из последнего кэша' : 'курс загружен'
@@ -2256,15 +2257,16 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
               <span className={`state ${orStatus.ok ? 'ok' : orStatus.configured ? 'warn' : 'bad'}`}>{orStatusText}</span>
             </div>
             <div className="actions">
-              <button className="primary" disabled={openrouterBusy || !openrouterKeyInput.trim()} onClick={saveOpenrouterKey}>Сохранить и проверить</button>
-              <button className="ghost" disabled={openrouterBusy} onClick={() => { void load(); setMsg('Статус OpenRouter обновлён') }}>Проверить</button>
+              <button className="primary" disabled={openrouterBusy || !openrouterKeyInput.trim()} onClick={saveOpenrouterKey}>Сохранить ключ</button>
+              <button className="ghost" disabled={openrouterBusy || !data.openrouter.keyConfigured} onClick={verifyOpenrouterKey}>Проверить OpenRouter</button>
               <button className="ghost" disabled={openrouterTestBusy || !data.openrouter.status?.ok} onClick={runOpenrouterTest}>Тест Klein 4B 1MP</button>
               <button className="danger" disabled={openrouterBusy || !data.openrouter.keyConfigured} onClick={deleteOpenrouterKey}>Удалить UI-ключ</button>
             </div>
             <details>
               <summary>Детали ключа и лимитов</summary>
               <div className="key-status">
-                <div className={`key-status-row ${orStatusClass}`}><span>Проверка</span><strong>{orStatusText}</strong></div>
+                <div className="key-status-row"><span>Хранение</span><strong>{data.openrouter.keyConfigured ? 'Ключ сохранён на сервере' : 'Ключ отсутствует'}</strong></div>
+                <div className={`key-status-row ${orStatusClass}`}><span>Проверка OpenRouter</span><strong>{orStatusText}</strong></div>
                 <div className="key-status-row"><span>Источник</span><strong>{orStatus.source === 'admin_ui' ? 'ключ из админки' : orStatus.source === 'env' ? 'OPENROUTER_API_KEY env' : '—'}</strong></div>
                 <div className="key-status-row"><span>Ответ OpenRouter</span><strong>{orStatus.status_code || '—'}</strong></div>
                 <div className="key-status-row"><span>Метка ключа</span><strong>{valueText(orData.label)}</strong></div>

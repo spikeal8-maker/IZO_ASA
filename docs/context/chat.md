@@ -117,3 +117,11 @@ text-only, no images and no tool execution; cost is not dynamically quoted
 from OpenRouter. The model should not be published to paid end users before
 a reviewed provider-specific billing policy is implemented. The provider
 uses `store=false` and never retries an ambiguous paid request automatically.
+
+## OpenRouter key availability and chat billing (#210)
+
+Existing chat and Studio continue to consume OpenRouter through the canonical
+routing and catalog. The Linux credential storage repair does not grant model
+access or change pricing. A successful key save does **not** trigger a paid
+chat/image request or automatic retry. Owner-authorized live acceptance still
+requires a priced model, visible tariff/ledger and a confirmed new request id.

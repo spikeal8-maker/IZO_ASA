@@ -255,3 +255,11 @@ The old OpenRouter routes remain independent. The live provider is not
 considered available until secure network egress and owner authorization are
 verified. Targeted tests: `test_admin_openai.py`,
 `test_openai_secrets.py`, and `e2e-admin-openai.mjs`.
+
+## OPENROUTER-LINUX-SHADOW-001 — admin operations
+
+The trusted-admin OpenRouter key save/check/delete routes require the existing
+session, CSRF Origin boundary, server-side encrypted key readback and audit.
+Key save and verification are separate actions. An invalid key, unavailable
+secret volume, denied caller and unavailable network must not be combined into
+one success/error status. User-visible error bodies must never contain an API key.

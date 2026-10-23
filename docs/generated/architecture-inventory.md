@@ -5,21 +5,21 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 ## Summary
 
-- Routes: 257
+- Routes: 258
 - Registered workers: 9
 - Registered ephemeral tasks: 10
 - SQLite tables: 65
 - SQLite indexes: 98
 - Foreign-key declarations: 2
-- Frontend/static API literals: 43
+- Frontend/static API literals: 44
 - Route process role: `api-server-or-combined`
 
 ## Route authorization
 
 | Static policy | Count |
 |---|---:|
-| REVIEW: admin route without detected gate | 8 |
-| admin | 94 |
+| REVIEW: admin route without detected gate | 11 |
+| admin | 92 |
 | public/optional/review | 95 |
 | session | 1 |
 | user | 57 |
@@ -145,6 +145,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | `/api/phone/v1/jobs/{dynamic}` | frontend/src/phone/core/jobs.ts |
 | `/api/phone/v1/platform` | frontend/src/phone/api.ts |
 | `/api/tools/transcribe` | frontend/src/phone/features/audio/api.ts, frontend/src/phone/features/chat/api.ts |
+| `/api/v1/key` | frontend/src/openRouterAdminKey.ts |
 | `/api/version` | frontend/src/diag.tsx |
 | `/api/video/config` | frontend/src/phone/features/video/api.ts |
 | `/api/video/estimate` | frontend/src/phone/features/video/api.ts |
@@ -156,11 +157,11 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Owner | Category | Protected | Non-growth | Current | Maximum | Remaining |
 |---|---|---|---|---|---:|---:|---:|
-| `backend/main.py` | backend-composition | backend-hotspot | true | true | 19335 | 19750 | 415 |
+| `backend/main.py` | backend-composition | backend-hotspot | true | true | 19314 | 19750 | 436 |
 | `backend/static/feed/index.html` | feed-static | static-ui-hotspot | true | true | 2124 | 2200 | 76 |
 | `backend/test_feed_v2.py` | feed-tests | test-hotspot | true | true | 2346 | 2600 | 254 |
 | `frontend/src/LegacyApp.tsx` | frontend-legacy | frontend-legacy-hotspot | true | true | 3600 | 3700 | 100 |
-| `frontend/src/adminModels.tsx` | admin-models | frontend-admin-hotspot | true | true | 2300 | 2300 | 0 |
+| `frontend/src/adminModels.tsx` | admin-models | frontend-admin-hotspot | true | true | 2299 | 2300 | 1 |
 | `frontend/src/index.css` | frontend-shell | frontend-style-hotspot | true | true | 2501 | 2650 | 149 |
 | `frontend/src/newStudioV3.css` | frontend-studio | frontend-style-hotspot | true | true | 6071 | 6400 | 329 |
 | `frontend/src/newUi.css` | frontend-studio | frontend-style-hotspot | true | true | 3143 | 3400 | 257 |
@@ -170,7 +171,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Owner | Category | Protected | Functions | Maximum | Classes | Maximum | Routes | Maximum |
 |---|---|---|---|---:|---:|---:|---:|---:|---:|
-| `backend/main.py` | backend-composition | backend-hotspot | true | 677 | 725 | 77 | 83 | 188 | 238 |
+| `backend/main.py` | backend-composition | backend-hotspot | true | 678 | 725 | 77 | 83 | 189 | 238 |
 
 ## Handwritten source-size policy
 
