@@ -48,3 +48,11 @@ services:
       interval: 4s
       timeout: 3s
       retries: 20
+
+# One isolated candidate Docker network; avoids exhausted automatic address pools.
+# Confirmed no overlap with the 53 existing Docker networks on D2-R2.
+networks:
+  shadow:
+    ipam:
+      config:
+        - subnet: 10.249.219.0/28

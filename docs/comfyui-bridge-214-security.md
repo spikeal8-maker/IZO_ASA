@@ -20,6 +20,7 @@ Reviewed read-only pinned `yanokusnir-ai/one-node-flux-2-klein` @ `7827d1e4f1a51
       -> /prompt /history /view PNG
       -> existing backend job persistence + owned gallery and tokens
 
+- Candidate alone uses Docker subnet `10.249.219.0/28`, verified unused across the current 53 Docker networks when initial Docker default pools were exhausted. No existing subnet, host route or daemon address-pool setting is modified.
 - Guard uses preexisting nftables `OUTPUT policy drop`, no accepted external egress; established inbound reply permitted, guard interfaces remain only candidate project.
 - Host control endpoint published **127.0.0.1 only** on 48216; ComfyUI remains **127.0.0.1:8188** only, not container-addressable, no wildcard LAN binding or port changes.
 - Backend listener 18888 binds container network loopback, not host-published. Bridge control requires random 96-hex token, stored only at Windows `%LOCALAPPDATA%\IZO_ASA_Comfy214Runtime\bridge.token`, read-only mounted into bridge under `/run/bridge/token`, never Git, never stdout/receipts.
