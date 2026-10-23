@@ -109,3 +109,16 @@ the large `adminModels.tsx` is intentionally unchanged.
 and `backend/app/security/openai_secrets.py` owns encrypted external storage.
 The fixed server allowlist controls selectable text models. Verify performs
 GET /v1/models/{model}, not a paid response. No automatic fallback is enabled.
+
+## OPENROUTER-LINUX-SHADOW-001 — key and network acceptance
+
+The OpenRouter `sk-or-` credential is stored on Linux by the shared Fernet
+secret-store backend in the externally mounted `IZO_SECRET_DIR`; the master
+key resides in a separate read-only file mount. On Windows the existing DPAPI
+format is retained. `PUT /api/admin/openrouter/key` reports persisted readback,
+not network readiness; `POST /api/admin/openrouter/key/check` checks the ordinary
+`GET /api/v1/key`. The management-only `/credits` endpoint is optional and
+is not evidence that a standard API key is invalid. The dedicated optional
+Compose overlay routes TLS only to `openrouter.ai:443` through a constrained
+CONNECT proxy and a per-project nftables default-deny rule. No automatic paid
+generation or fallback is authorized by key configuration.

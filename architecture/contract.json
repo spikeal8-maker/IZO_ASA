@@ -49,6 +49,24 @@
       "path": "/api/admin/bots/max/webhook-secret-v2",
       "handler": "admin_bots_max_webhook_secret_v2",
       "rationale": "The v2 wrapper delegates to a provider-specific trusted-admin mutation."
+    },
+    {
+      "method": "PUT",
+      "path": "/api/admin/openrouter/key",
+      "handler": "admin_save_openrouter_key",
+      "rationale": "Issue #210: trusted-admin encrypted Linux key write with readback and audit; network verification is separate."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/admin/openrouter/key",
+      "handler": "admin_delete_openrouter_key",
+      "rationale": "Issue #210: trusted-admin key deletion with encrypted store verification and audit."
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/openrouter/key/check",
+      "handler": "admin_check_openrouter_key",
+      "rationale": "Issue #210: separate read-only OpenRouter GET /key verification under trusted-admin; no paid request."
     }
   ],
   "legacy_auth_consumers": [

@@ -1,0 +1,205 @@
+manifestVersion = 1
+id = "OPENROUTER-LINUX-SHADOW-001"
+baseSha = "445bf08b24758c8b93dc4132226bf9b2b14fa075"
+goal = "Restore OpenRouter as primary cloud provider through secure Linux credentials and verified admin UX"
+userOutcome = "Owner can safely save, verify and manage a personal sk-or key in real admin and select catalog models for existing chat and Studio"
+beforeScenario = "Linux Docker DPAPI secret persistence fails; OpenRouter status conflates credentials and credits with egress blocked"
+afterScenario = "Platform secret storage protects OpenRouter key across recreation, status is truthful and owner accesses independent verified UI"
+nonGoals = [
+  "Change direct OpenAI behavior",
+  "Modify Studio or draft save",
+  "Touch live older Shadow stacks",
+  "Change main or other PR branches",
+  "Silently permit paid generations",
+]
+declaredFiles = [
+  "backend/main.py",
+  "backend/app/api/routers/admin_operations.py",
+  "backend/app/integrations/openrouter.py",
+  "backend/app/security/portable_secrets.py",
+  "backend/app/security/openai_secrets.py",
+  "backend/test_openrouter_portable_secrets.py",
+  "backend/test_openrouter_key_admin.py",
+  "backend/test_openrouter_key_status.py",
+  "frontend/src/adminModels.tsx",
+  "frontend/e2e-admin-openrouter.mjs",
+  "docs/context/admin-models.md",
+  "docs/context/admin-control-center.md",
+  "docs/context/chat.md",
+  "docs/admin-panel-guide.md",
+  "docs/admin-change-contract.md",
+  "backend/test_integrations_openrouter_module.py",
+  "backend/test_openrouter_proxy_policy.py",
+  "ops/docker/dev/openrouter_https_proxy.py",
+  "ops/docker/dev/openrouter_network_guard.py",
+  "ops/docker/dev/Dockerfile.guard.openrouter",
+  "ops/docker/dev/Dockerfile.proxy.openrouter",
+  "ops/docker/dev/Dockerfile.proxy.openrouter.dockerignore",
+  "ops/docker/dev/Dockerfile.guard.openrouter.dockerignore",
+  "ops/docker/dev/compose.openrouter-shadow.yml",
+  "backend/app/api/routers/admin_openrouter_key.py",
+  "backend/app/services/openrouter_key_status.py",
+  "frontend/src/openRouterAdminKey.ts",
+  "docs/generated/architecture-inventory.json",
+  "docs/generated/architecture-inventory.md",
+  "docs/generated/context-index.json",
+  "docs/generated/context-index.md",
+  "docs/generated/frontend-map.json",
+  "docs/generated/frontend-map.md",
+  "architecture/contract.json",
+  "backend/SYMBOL_MAP.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "frontend/src/newUi.tsx",
+  "frontend/src/newUi.css",
+  "frontend/src/newStudioV3.css",
+  "frontend/src/studio/**",
+  "frontend/src/phone/features/studio/**",
+  "backend/app/api/routers/admin_openai.py",
+  "backend/app/integrations/openai.py",
+]
+protectedFilesTouched = [
+  "backend/main.py",
+  "frontend/src/adminModels.tsx",
+]
+domain = "admin-models-chat"
+riskClass = "high-assurance"
+changeClass = "provider-integration"
+maxProductionFiles = 12
+maxChangedLines = 3500
+acceptance = [
+  "OpenRouter sk-or encrypted persist succeeds on Linux and Windows DPAPI stays compatible",
+  "Admin key save readback is separate from live verification and credits management-only",
+  "Invalid key network outage and secrets failures are distinguishable without revealing key",
+  "Real Chromium desktop/mobile and candidate Docker do not impact previous Shadows",
+  "No payment without explicit owner permission",
+]
+requiredEvidence = [
+  "Exact stacked source and ownership",
+  "Linux Docker isolated tests and credential persistence after recreate",
+  "Admin unauthorized 401 and CSRF 403",
+  "Client failure retains text and server error is accurate",
+  "External TLS remains off until narrow path independently reviewed",
+  "Read-only independent security review",
+]
+targetedTests = [
+  "backend/test_openrouter_portable_secrets.py",
+  "backend/test_openrouter_key_admin.py",
+  "backend/test_openrouter_key_status.py",
+  "frontend/e2e-admin-openrouter.mjs",
+]
+fileGrowthExpectations = [
+  "Keep backend/main.py protected non-growing using extraction",
+  "Do not split or broadly refactor existing adminModels.tsx",
+]
+forbiddenOperations = [
+  "production deploy",
+  "global network/firewall/DNS/route change",
+  "automatic paid request",
+  "Studio edits",
+  "insecure key storage",
+  "mutating other project Docker resources",
+]
+rollbackBoundary = "Delete only new candidate compose after backup; preserve both existing Shadow stacks and source credentials"
+
+[[scopeExpansions]]
+path = "backend/test_integrations_openrouter_module.py"
+reason = "Issue 210 narrow OpenRouter HTTPS and legacy contract coverage"
+recordedAtUtc = "2026-10-23T05:40:35.207320Z"
+
+[[scopeExpansions]]
+path = "backend/test_openrouter_proxy_policy.py"
+reason = "Issue 210 narrow OpenRouter HTTPS and legacy contract coverage"
+recordedAtUtc = "2026-10-23T05:40:36.153439Z"
+
+[[scopeExpansions]]
+path = "ops/docker/dev/openrouter_https_proxy.py"
+reason = "Issue 210 narrow OpenRouter HTTPS and legacy contract coverage"
+recordedAtUtc = "2026-10-23T05:40:37.088143Z"
+
+[[scopeExpansions]]
+path = "ops/docker/dev/openrouter_network_guard.py"
+reason = "Issue 210 narrow OpenRouter HTTPS and legacy contract coverage"
+recordedAtUtc = "2026-10-23T05:40:38.026965Z"
+
+[[scopeExpansions]]
+path = "ops/docker/dev/Dockerfile.guard.openrouter"
+reason = "Issue 210 narrow OpenRouter HTTPS and legacy contract coverage"
+recordedAtUtc = "2026-10-23T05:40:39.002129Z"
+
+[[scopeExpansions]]
+path = "ops/docker/dev/Dockerfile.proxy.openrouter"
+reason = "Issue 210 narrow OpenRouter HTTPS and legacy contract coverage"
+recordedAtUtc = "2026-10-23T05:40:40.022718Z"
+
+[[scopeExpansions]]
+path = "ops/docker/dev/Dockerfile.proxy.openrouter.dockerignore"
+reason = "Issue 210 narrow OpenRouter HTTPS and legacy contract coverage"
+recordedAtUtc = "2026-10-23T05:40:41.037901Z"
+
+[[scopeExpansions]]
+path = "ops/docker/dev/Dockerfile.guard.openrouter.dockerignore"
+reason = "Issue 210 narrow OpenRouter HTTPS and legacy contract coverage"
+recordedAtUtc = "2026-10-23T05:40:41.968510Z"
+
+[[scopeExpansions]]
+path = "ops/docker/dev/compose.openrouter-shadow.yml"
+reason = "Issue 210 narrow OpenRouter HTTPS and legacy contract coverage"
+recordedAtUtc = "2026-10-23T05:40:42.886154Z"
+
+[[scopeExpansions]]
+path = "backend/app/api/routers/admin_openrouter_key.py"
+reason = "Small trusted OpenRouter key API module instead of enlarging main.py"
+recordedAtUtc = "2026-10-23T05:47:47.249453Z"
+
+[[scopeExpansions]]
+path = "backend/app/services/openrouter_key_status.py"
+reason = "Sanitized OpenRouter live verification controller"
+recordedAtUtc = "2026-10-23T05:47:48.181996Z"
+
+[[scopeExpansions]]
+path = "frontend/src/openRouterAdminKey.ts"
+reason = "Extract key UI behavior without growing legacy adminModels"
+recordedAtUtc = "2026-10-23T05:50:11.977983Z"
+
+[[scopeExpansions]]
+path = "docs/generated/architecture-inventory.json"
+reason = "Generated architecture and context evidence for Issue 210 exact candidate"
+recordedAtUtc = "2026-10-23T05:51:51.733023Z"
+
+[[scopeExpansions]]
+path = "docs/generated/architecture-inventory.md"
+reason = "Generated architecture and context evidence for Issue 210 exact candidate"
+recordedAtUtc = "2026-10-23T05:51:52.713685Z"
+
+[[scopeExpansions]]
+path = "docs/generated/context-index.json"
+reason = "Generated architecture and context evidence for Issue 210 exact candidate"
+recordedAtUtc = "2026-10-23T05:51:53.707951Z"
+
+[[scopeExpansions]]
+path = "docs/generated/context-index.md"
+reason = "Generated architecture and context evidence for Issue 210 exact candidate"
+recordedAtUtc = "2026-10-23T05:51:54.640206Z"
+
+[[scopeExpansions]]
+path = "docs/generated/frontend-map.json"
+reason = "Generated architecture and context evidence for Issue 210 exact candidate"
+recordedAtUtc = "2026-10-23T05:51:55.575003Z"
+
+[[scopeExpansions]]
+path = "docs/generated/frontend-map.md"
+reason = "Generated architecture and context evidence for Issue 210 exact candidate"
+recordedAtUtc = "2026-10-23T05:51:56.538100Z"
+
+[[scopeExpansions]]
+path = "architecture/contract.json"
+reason = "Issue 210 explicit review of protected OpenRouter key API routes"
+recordedAtUtc = "2026-10-23T05:56:44.249266Z"
+
+[[scopeExpansions]]
+path = "backend/SYMBOL_MAP.md"
+reason = "Generated backend route map after explicit reviewed OpenRouter admin routes"
+recordedAtUtc = "2026-10-23T05:58:17.259311Z"

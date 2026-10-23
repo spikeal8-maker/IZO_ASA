@@ -583,45 +583,44 @@ async def fetch_openrouter_key_details(
     timeout_seconds: float = 15,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> dict[str, Any]:
-    """Fetch the legacy read-only key and credits status payload."""
+    """Probe ordinary sk-or keys via GET /key; management /credits is optional.
 
-    client_options: dict[str, Any] = {"timeout": timeout_seconds}
-    client_options = generation_options(client_options, transport)
+    No paid API operation or user key is ever echoed in provider diagnostics.
+    """
+
+    _ = credits_headers  # Management key is deliberately not used in this probe.
+    options = generation_options({"timeout": timeout_seconds, "follow_redirects": False}, transport)
     resolved_base_url = base_url.rstrip("/")
-    async with httpx.AsyncClient(**client_options) as client:
-        response = await client.get(f"{resolved_base_url}/key", headers=key_headers)
-        credits_response = await client.get(f"{resolved_base_url}/credits", headers=credits_headers)
-    data = response.json() if response.content else {}
-    if response.status_code >= 400:
-        return {
-            "ok": False,
-            "status_code": response.status_code,
-            "error": data.get("error") or data,
-        }
-    key_data = data.get("data") if isinstance(data.get("data"), dict) else data
-    credits_payload = credits_response.json() if credits_response.content else {}
-    credits_data = credits_payload.get("data") if isinstance(credits_payload.get("data"), dict) else credits_payload
-    credits: dict[str, Any] = {
-        "ok": credits_response.status_code < 400,
-        "status_code": credits_response.status_code,
-    }
-    if credits["ok"] and isinstance(credits_data, dict):
-        total_credits = credits_data.get("total_credits")
-        total_usage = credits_data.get("total_usage")
-        credits.update({"data": credits_data})
-        if isinstance(total_credits, (int, float)) and isinstance(total_usage, (int, float)):
-            # The credits endpoint exposes cumulative values. Their difference
-            # is useful for reconciliation, but it is not authoritative proof
-            # that the account can currently pay for a generation.
-            credits["calculated_balance"] = round(float(total_credits) - float(total_usage), 6)
-    else:
-        credits["error"] = credits_payload.get("error") if isinstance(credits_payload, dict) else credits_payload
-    return {
-        "ok": True,
-        "status_code": response.status_code,
-        "data": key_data,
-        "credits": credits,
-    }
+    try:
+        async with httpx.AsyncClient(**options) as client:
+            response = await client.get(f"{resolved_base_url}/key", headers=key_headers)
+    except httpx.TimeoutException:
+        return {"ok": False, "status_code": None, "error": "OPENROUTER_TIMEOUT",
+                "credits": {"ok": False, "skipped": True, "error": "MANAGEMENT_KEY_REQUIRED"}}
+    except httpx.HTTPError:
+        return {"ok": False, "status_code": None, "error": "OPENROUTER_NETWORK_UNAVAILABLE",
+                "credits": {"ok": False, "skipped": True, "error": "MANAGEMENT_KEY_REQUIRED"}}
+    codes = {400: "OPENROUTER_REQUEST_INVALID", 401: "OPENROUTER_KEY_INVALID",
+             403: "OPENROUTER_KEY_FORBIDDEN", 429: "OPENROUTER_RATE_LIMIT"}
+    if response.status_code != 200:
+        return {"ok": False, "status_code": response.status_code,
+                "error": codes.get(response.status_code, "OPENROUTER_PROVIDER_UNAVAILABLE"),
+                "credits": {"ok": False, "skipped": True, "error": "MANAGEMENT_KEY_REQUIRED"}}
+    try:
+        payload = response.json()
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, dict):
+            raise ValueError("malformed key response")
+    except (ValueError, TypeError):
+        return {"ok": False, "status_code": 502, "error": "OPENROUTER_RESPONSE_INVALID",
+                "credits": {"ok": False, "skipped": True, "error": "MANAGEMENT_KEY_REQUIRED"}}
+    # Only return documented non-secret accounting fields, never arbitrary provider JSON.
+    allowlist = ("label", "limit", "limit_remaining", "usage", "usage_daily",
+                 "usage_weekly", "usage_monthly", "is_free_tier", "rate_limit",
+                 "include_byok_in_limit", "allowed_data_regions")
+    safe = {name: data[name] for name in allowlist if name in data}
+    return {"ok": True, "status_code": 200, "data": safe,
+            "credits": {"ok": False, "skipped": True, "error": "MANAGEMENT_KEY_REQUIRED"}}
 
 
 async def request_openrouter_chat_completion(

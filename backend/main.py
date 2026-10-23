@@ -841,6 +841,11 @@ MEDIA.mkdir(parents=True, exist_ok=True)
 AVATAR_DIR = STORAGE_PATH_POLICY.avatar_dir
 AVATAR_DIR.mkdir(parents=True, exist_ok=True)
 
+try:
+    from .app.security.portable_secrets import PortableSecretStore
+except ImportError:
+    from app.security.portable_secrets import PortableSecretStore
+
 OPENROUTER_SECRET_NAME = "openrouter_api_key"
 SMTP_SECRET_NAME = "smtp_password"
 UNISENDER_SECRET_NAME = "unisender_api_key"
@@ -851,7 +856,7 @@ MAX_BOT_SECRET_NAME = "max_bot_token"
 MAX_WEBHOOK_SECRET_NAME = "max_webhook_secret"
 OPENROUTER_SECRET_STORE_DIR = default_secret_store_dir()
 assert_secret_store_outside_repository(OPENROUTER_SECRET_STORE_DIR, ROOT.parent)
-OPENROUTER_SECRET_STORE = DpapiSecretStore(OPENROUTER_SECRET_STORE_DIR)
+OPENROUTER_SECRET_STORE = PortableSecretStore(OPENROUTER_SECRET_STORE_DIR)
 
 
 def initial_runtime_secret(name: str, env_name: str) -> str:
@@ -5484,7 +5489,7 @@ def _bot_secret_value(name: str, env_name: str) -> str:
 def _bot_secret_source(name: str, env_name: str) -> str:
     if os.getenv(env_name, "").strip():
         return "environment"
-    return "dpapi" if OPENROUTER_SECRET_STORE.exists(name) else "none"
+    return ("dpapi" if os.name == "nt" else "encrypted-volume") if OPENROUTER_SECRET_STORE.exists(name) else "none"
 
 
 def _bot_secret_updated_at(name: str) -> str | None:
@@ -5597,7 +5602,7 @@ def openrouter_api_key_source() -> str:
     if os.getenv("OPENROUTER_API_KEY", "").strip():
         return "env"
     if OPENROUTER_SECRET_STORE.exists(OPENROUTER_SECRET_NAME):
-        return "dpapi"
+        return "admin_ui"
     return "none"
 
 
@@ -5614,7 +5619,7 @@ def save_openrouter_api_key(value: str) -> None:
     OPENROUTER_SECRET_STORE.set(OPENROUTER_SECRET_NAME, value)
     verified = OPENROUTER_SECRET_STORE.get(OPENROUTER_SECRET_NAME)
     if not hmac.compare_digest(verified.encode("utf-8"), value.encode("utf-8")):
-        raise SecretStoreError("OpenRouter DPAPI secret readback verification failed.")
+        raise SecretStoreError("OPENROUTER_SECRET_READBACK_FAILED")
     delete_admin_secret(OPENROUTER_SECRET_NAME)
     invalidate_openrouter_admin_caches(authorization_changed=True)
 
@@ -6725,44 +6730,18 @@ def _openrouter_public_error(status_code: int, data: dict[str, Any]) -> str:
 
 
 async def fetch_openrouter_key_status(force: bool = False) -> dict[str, Any]:
-    now = time.monotonic()
-    key = openrouter_api_key()
-    source = openrouter_api_key_source()
-    key_marker = (
-        hashlib.sha256(f"{source}\0{key}".encode("utf-8")).hexdigest()[:16]
-        if key
-        else ""
-    )
-    cached = _openrouter_key_status_cache.get("data")
-    if (
-        not force
-        and isinstance(cached, dict)
-        and _openrouter_key_status_cache.get("keyMarker") == key_marker
-        and now - float(_openrouter_key_status_cache.get("ts") or 0)
-        < OPENROUTER_KEY_STATUS_CACHE_TTL_SECONDS
-    ):
-        return dict(cached)
-    if not key:
-        result = OPENROUTER_AVAILABILITY.attach({"configured": False, "ok": False, "error": "OPENROUTER_API_KEY не задан"})
-        _openrouter_key_status_cache.update({"ts": now, "data": result, "keyMarker": key_marker})
-        return result
     try:
-        details = await fetch_openrouter_key_details(
-            base_url=OPENROUTER_BASE_URL,
-            key_headers=openrouter_headers(),
-            credits_headers=openrouter_headers(),
-            timeout_seconds=15,
-        )
-        result = OPENROUTER_AVAILABILITY.attach({"configured": True, "source": source, **details})
-    except Exception as exc:
-        result = OPENROUTER_AVAILABILITY.attach({
-            "configured": True,
-            "source": source,
-            "ok": False,
-            "error": str(exc),
-        })
-    _openrouter_key_status_cache.update({"ts": now, "data": result, "keyMarker": key_marker})
-    return dict(result)
+        from .app.services.openrouter_key_status import collect_openrouter_key_status
+    except ImportError:
+        from app.services.openrouter_key_status import collect_openrouter_key_status
+    return await collect_openrouter_key_status(
+        force=force, cache=_openrouter_key_status_cache,
+        ttl_seconds=OPENROUTER_KEY_STATUS_CACHE_TTL_SECONDS,
+        get_key=openrouter_api_key, get_source=openrouter_api_key_source,
+        store_ready=lambda: getattr(OPENROUTER_SECRET_STORE, "ready", lambda: True)(),
+        attach=OPENROUTER_AVAILABILITY.attach, probe=fetch_openrouter_key_details,
+        base_url=OPENROUTER_BASE_URL, headers=openrouter_headers,
+    )
 
 
 async def send_to_openrouter(payload: GenerateRequest, job: dict[str, Any]) -> OpenRouterResult:
@@ -16680,42 +16659,42 @@ app.include_router(create_phone_audio_router(PhoneAudioDependencies(
 app.include_router(create_phone_platform_router(PhonePlatformDependencies(require_trusted_user)))
 app.include_router(create_phone_jobs_router(PhoneJobDependencies(require_trusted_user, db, get_job, get_video_job)))
 
+try:
+    from .app.api.routers.admin_openrouter_key import (
+        OpenRouterKeyDependencies, SaveKeyRequest,
+        save_openrouter_key, check_openrouter_key, delete_openrouter_key,
+    )
+except ImportError:
+    from app.api.routers.admin_openrouter_key import (
+        OpenRouterKeyDependencies, SaveKeyRequest,
+        save_openrouter_key, check_openrouter_key, delete_openrouter_key,
+    )
+
+OPENROUTER_KEY_DEPS = OpenRouterKeyDependencies(
+    require_admin=lambda request: require_trusted_admin(request),
+    store_ready=lambda: getattr(OPENROUTER_SECRET_STORE, "ready", lambda: True)(),
+    store_exists=lambda: OPENROUTER_SECRET_STORE.exists(OPENROUTER_SECRET_NAME),
+    get_key=lambda: openrouter_api_key(),
+    save_key=lambda value: save_openrouter_api_key(value),
+    delete_key=lambda: delete_openrouter_api_key(),
+    verify=lambda: fetch_openrouter_key_status(force=True),
+    db=lambda: db(),
+    audit=lambda *args, **kwargs: record_audit_log(*args, **kwargs),
+    secret_error=SecretStoreError,
+)
+
 @app.put("/api/admin/openrouter/key")
 async def admin_save_openrouter_key(req: AdminSecretKeyRequest, request: Request) -> dict[str, Any]:
-    require_trusted_admin(request)
-    key = req.key.strip()
-    if not key.startswith("sk-or-"):
-        raise HTTPException(400, "OpenRouter key должен начинаться с sk-or-")
-    try:
-        save_openrouter_api_key(key)
-    except SecretStoreError as exc:
-        raise HTTPException(503, "OpenRouter secret store is unavailable.") from exc
-    key_status = await fetch_openrouter_key_status()
-    refresh_started = schedule_openrouter_catalog_refresh()
-    return {
-        "ok": bool(key_status.get("ok")),
-        "key": key_status,
-        "usage": openrouter_usage_stats(),
-        "config": get_openrouter_config(),
-        "catalogRefreshStarted": refresh_started,
-    }
+    return await save_openrouter_key(OPENROUTER_KEY_DEPS, SaveKeyRequest(key=req.key), request)
+
+@app.post("/api/admin/openrouter/key/check")
+async def admin_check_openrouter_key(request: Request) -> dict[str, Any]:
+    return await check_openrouter_key(OPENROUTER_KEY_DEPS, request)
 
 @app.delete("/api/admin/openrouter/key")
 async def admin_delete_openrouter_key(request: Request) -> dict[str, Any]:
-    require_trusted_admin(request)
-    try:
-        delete_openrouter_api_key()
-    except SecretStoreError as exc:
-        raise HTTPException(503, "OpenRouter secret store is unavailable.") from exc
-    key_status = await fetch_openrouter_key_status()
-    refresh_started = schedule_openrouter_catalog_refresh()
-    return {
-        "ok": True,
-        "key": key_status,
-        "usage": openrouter_usage_stats(),
-        "config": get_openrouter_config(),
-        "catalogRefreshStarted": refresh_started,
-    }
+    return await delete_openrouter_key(OPENROUTER_KEY_DEPS, request)
+
 
 @app.post("/api/admin/openrouter/test-generate")
 async def admin_openrouter_test_generate(req: AdminOpenRouterTestRequest, request: Request) -> dict[str, Any]:
