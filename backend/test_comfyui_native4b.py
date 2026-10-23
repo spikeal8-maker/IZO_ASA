@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 import unittest
+import asyncio
+from types import SimpleNamespace
 
 import sys
 from pathlib import Path
@@ -60,6 +62,74 @@ class Native4BTests(unittest.TestCase):
                 "vaes": [native.VAE]}
         self.assertTrue(native.validate_model_inventory(data))
         self.assertFalse(native.validate_model_inventory({**data, "vaes": []}))
+
+
+class Native4BProviderBoundaries(unittest.TestCase):
+    """No charged/provider effects in guarded denial paths; no ambiguous resubmit."""
+
+    def setUp(self):
+        self.request = SimpleNamespace(mode="text_to_image", modelProfile="flux_klein_4b",
+            width=512, height=512, prompt="A small friendly robot", steps=4, loras=[], seed=2414)
+        self.inv = {"diffusion_models": [native.MODEL], "text_encoders": [native.ENCODER],
+                    "vaes": [native.VAE]}
+        self.submit_calls = 0
+        self.download_calls = 0
+
+    async def good_available(self):
+        return True
+
+    async def good_inventory(self):
+        return self.inv
+
+    async def submitted(self, graph, job):
+        self.submit_calls += 1
+        return "test-prompt-id", {"status": "completed"}, [{"filename": "local4b_00001_.png"}]
+
+    async def downloaded(self, item, job_id):
+        self.download_calls += 1
+        return "/isolated/media/result.png", "/isolated/media/thumb.png"
+
+    def _run(self, *, available=None, inventory=None, enabled=None, submit=None):
+        return asyncio.run(native.execute_request(
+            self.request, {"id": "test-job-214"},
+            available=available or self.good_available,
+            inventory=inventory or self.good_inventory,
+            enabled=(lambda: True) if enabled is None else enabled,
+            submit=submit or self.submitted,
+            download=self.downloaded,
+            result_factory=lambda **kwargs: kwargs))
+
+    def test_offline_missing_checkpoint_and_admin_off_do_not_submit(self):
+        async def offline():
+            return False
+        async def missing():
+            return {"diffusion_models": [], "text_encoders": [], "vaes": []}
+        for case in [
+            {"available": offline},
+            {"inventory": missing},
+            {"enabled": lambda: False},
+        ]:
+            with self.subTest(case=list(case)[0]):
+                with self.assertRaises(RuntimeError):
+                    self._run(**case)
+                self.assertEqual(self.submit_calls, 0)
+                self.assertEqual(self.download_calls, 0)
+
+    def test_unknown_outcome_does_not_retry_or_save_fake_media(self):
+        async def outage(graph, job):
+            self.submit_calls += 1
+            raise TimeoutError("network response lost after submission")
+        with self.assertRaises(TimeoutError):
+            self._run(submit=outage)
+        self.assertEqual(self.submit_calls, 1)
+        self.assertEqual(self.download_calls, 0)
+
+    def test_mock_success_returns_persistent_worker_result_shape_only(self):
+        result = self._run()
+        self.assertEqual(self.submit_calls, 1)
+        self.assertEqual(self.download_calls, 1)
+        self.assertEqual(result["prompt_id"], "test-prompt-id")
+        self.assertTrue(result["image_path"].endswith("result.png"))
 
 
 if __name__ == "__main__":
