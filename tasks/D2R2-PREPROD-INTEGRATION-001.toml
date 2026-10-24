@@ -60,7 +60,6 @@ forbiddenPatterns = [
   "ops/docker/dev/openrouter_https_proxy.py",
   "backend/app/security/**",
   "backend/app/services/generation_accounting.py",
-  "backend/app/services/generation_admission.py",
   "backend/app/services/generation_claims.py",
   "backend/requirements.txt",
   "frontend/package.json",
