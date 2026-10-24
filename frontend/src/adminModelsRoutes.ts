@@ -1,4 +1,4 @@
-export type AdminModelsPage = 'api' | 'openai' | 'config' | 'energy' | 'voice' | 'improve'
+export type AdminModelsPage = 'api' | 'openai' | 'ollama' | 'config' | 'energy' | 'voice' | 'improve'
 export type AdminOpenRouterPage = 'text' | 'images' | 'video' | 'audio' | '3d' | 'settings'
 
 export const ADMIN_OPENROUTER_PAGES: Array<{
@@ -36,6 +36,13 @@ export const ADMIN_MODELS_PAGES: Array<{
     path: '/admin/models/openai',
     title: 'OpenAI API',
     description: 'Прямой API OpenAI: безопасный ключ, доступная модель и проверка соединения.',
+  },
+  {
+    id: 'ollama',
+    label: 'Ollama',
+    path: '/admin/models/ollama',
+    title: 'Локальные модели Ollama',
+    description: 'Доступность защищённого канала, модель, GPU и проверка через backend.',
   },
   {
     id: 'config',

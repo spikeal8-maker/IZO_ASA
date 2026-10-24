@@ -11,7 +11,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 - SQLite tables: 65
 - SQLite indexes: 98
 - Foreign-key declarations: 2
-- Frontend/static API literals: 44
+- Frontend/static API literals: 45
 - Route process role: `api-server-or-combined`
 
 ## Route authorization
@@ -144,6 +144,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | `/api/phone/v1/jobs` | frontend/src/phone/core/jobs.ts |
 | `/api/phone/v1/jobs/{dynamic}` | frontend/src/phone/core/jobs.ts |
 | `/api/phone/v1/platform` | frontend/src/phone/api.ts |
+| `/api/ps` | frontend/src/adminOllamaPage.tsx |
 | `/api/tools/transcribe` | frontend/src/phone/features/audio/api.ts, frontend/src/phone/features/chat/api.ts |
 | `/api/v1/key` | frontend/src/openRouterAdminKey.ts |
 | `/api/version` | frontend/src/diag.tsx |
@@ -161,7 +162,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | `backend/static/feed/index.html` | feed-static | static-ui-hotspot | true | true | 2124 | 2200 | 76 |
 | `backend/test_feed_v2.py` | feed-tests | test-hotspot | true | true | 2346 | 2600 | 254 |
 | `frontend/src/LegacyApp.tsx` | frontend-legacy | frontend-legacy-hotspot | true | true | 3600 | 3700 | 100 |
-| `frontend/src/adminModels.tsx` | admin-models | frontend-admin-hotspot | true | true | 2300 | 2300 | 0 |
+| `frontend/src/adminModels.tsx` | admin-models | frontend-admin-hotspot | true | true | 2297 | 2300 | 3 |
 | `frontend/src/index.css` | frontend-shell | frontend-style-hotspot | true | true | 2501 | 2650 | 149 |
 | `frontend/src/newStudioV3.css` | frontend-studio | frontend-style-hotspot | true | true | 6071 | 6400 | 329 |
 | `frontend/src/newUi.css` | frontend-studio | frontend-style-hotspot | true | true | 3143 | 3400 | 257 |

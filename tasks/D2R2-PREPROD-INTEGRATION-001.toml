@@ -27,6 +27,12 @@ declaredFiles = [
   "tools/preprod216_repair_thumb.py",
   "tools/test_preprod216_repair_thumb.py",
   "tools/test_preprod216_contract.py",
+  "frontend/src/adminModels.tsx",
+  "frontend/src/adminModelsRoutes.ts",
+  "frontend/src/adminOllamaPage.tsx",
+  "frontend/test_preprod216_ollama_routes.mjs",
+  "docs/generated/frontend-map.json",
+  "docs/generated/frontend-map.md",
   "docs/preprod216-integration.md",
   "docs/generated/architecture-inventory.json",
   "docs/generated/architecture-inventory.md",
@@ -50,7 +56,7 @@ forbiddenPatterns = [
   "frontend/src/LegacyApp.tsx",
   "frontend/src/newUi.tsx",
 ]
-protectedFilesTouched = []
+protectedFilesTouched = ["frontend/src/adminModels.tsx"]
 domain = "release-ops"
 riskClass = "high-assurance"
 changeClass = "architecture"
@@ -78,6 +84,7 @@ targetedTests = [
   "backend/test_comfyui_bridge_security.py",
   "backend/test_generation_worker_process.py",
   "frontend/e2e-comfy214.mjs",
+  "frontend/test_preprod216_ollama_routes.mjs",
 ]
 fileGrowthExpectations = [
   "Dedicated small compositional overlay and fixed audited guard; reuse OpenRouter and native Comfy files without copying secrets.",
@@ -105,3 +112,33 @@ recordedAtUtc = "2026-10-24T11:16:55Z"
 path = "tools/test_preprod216_repair_thumb.py"
 reason = "Independent deterministic fixture checks for same-user ownership, path validation, dry-run and atomic no-overwrite thumbnail repair."
 recordedAtUtc = "2026-10-24T11:16:55Z"
+
+[[scopeExpansions]]
+path = "frontend/src/adminModels.tsx"
+reason = "Owner Issue 216 requests unifying existing Ollama admin UI with Comfy and OpenRouter; port only current PR200 frontend controls without enabling unreviewed Ollama network routes."
+recordedAtUtc = "2026-10-24T11:42:46Z"
+
+[[scopeExpansions]]
+path = "frontend/src/adminModelsRoutes.ts"
+reason = "Register the existing Ollama admin route in one integrated local application while preserving OpenAI and Config UI navigation."
+recordedAtUtc = "2026-10-24T11:42:46Z"
+
+[[scopeExpansions]]
+path = "frontend/src/adminOllamaPage.tsx"
+reason = "Vendor only the reviewed draft component source from PR200 with explicit fail-closed unavailable-provider affordances and backend-only model test action."
+recordedAtUtc = "2026-10-24T11:42:46Z"
+
+[[scopeExpansions]]
+path = "frontend/test_preprod216_ollama_routes.mjs"
+reason = "Run bounded static frontend-route and unavailable-provider checks without mocking owner authentication or triggering Ollama."
+recordedAtUtc = "2026-10-24T11:57:35Z"
+
+[[scopeExpansions]]
+path = "docs/generated/frontend-map.json"
+reason = "Generated frontend route import closure updated after integrating PR200 component into existing admin route."
+recordedAtUtc = "2026-10-24T11:57:35Z"
+
+[[scopeExpansions]]
+path = "docs/generated/frontend-map.md"
+reason = "Generated frontend route map updated by canonical generator, no manual changes."
+recordedAtUtc = "2026-10-24T11:57:35Z"
