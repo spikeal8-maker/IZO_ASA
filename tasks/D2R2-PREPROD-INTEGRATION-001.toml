@@ -18,6 +18,7 @@ declaredFiles = [
   "tasks/D2R2-PREPROD-INTEGRATION-001.toml",
   "ops/docker/dev/compose.preprod216.yml",
   "ops/docker/dev/Dockerfile.guard.preprod216",
+  "ops/docker/dev/Dockerfile.guard.preprod216.dockerignore",
   "ops/docker/dev/network_guard.preprod216.py",
   "ops/windows/preprod216_comfy_agent.py",
   "ops/windows/start-preprod216-comfy-agent.ps1",

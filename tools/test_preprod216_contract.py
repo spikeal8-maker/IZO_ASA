@@ -23,6 +23,11 @@ class Preprod216ContractTests(unittest.TestCase):
         self.assertNotIn("ip daddr 0.0.0.0", module.RULES)
         self.assertNotIn("10.249.211.3", module.RULES)
         self.assertEqual(module.RULES.count("tcp dport"), 1)
+        context = (OPS / "Dockerfile.guard.preprod216.dockerignore").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("!ops/docker/dev/network_guard.preprod216.py", context)
+        self.assertIn("**/secrets/**", context)
 
     def test_overlay_separates_candidate_volumes_and_ports(self):
         text = (OPS / "compose.preprod216.yml").read_text(encoding="utf-8")

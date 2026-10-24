@@ -1,0 +1,12 @@
+**
+!ops/
+!ops/docker/
+!ops/docker/dev/
+!ops/docker/dev/network_guard.preprod216.py
+**/__pycache__
+**/*.pyc
+**/.env
+**/secrets/**
+**/media/**
+**/.git/**
+**/.runtime/**
