@@ -27,7 +27,15 @@ declaredFiles = [
   "tools/preprod216_repair_thumb.py",
   "tools/test_preprod216_repair_thumb.py",
   "tools/test_preprod216_contract.py",
+  "frontend/src/newUi.tsx",
   "frontend/src/adminModels.tsx",
+  "backend/main.py",
+  "backend/app/services/image_model_publication.py",
+  "backend/test_effective_resolution_access.py",
+  "backend/test_resolution_policy.py",
+  "frontend/src/phone/features/image/PhoneImageWorkspace.tsx",
+  "frontend/src/profileSupport.ts",
+
   "frontend/src/adminModelsRoutes.ts",
   "frontend/src/adminOllamaPage.tsx",
   "frontend/test_preprod216_ollama_routes.mjs",
@@ -54,9 +62,8 @@ forbiddenPatterns = [
   "backend/requirements.txt",
   "frontend/package.json",
   "frontend/src/LegacyApp.tsx",
-  "frontend/src/newUi.tsx",
 ]
-protectedFilesTouched = ["frontend/src/adminModels.tsx"]
+protectedFilesTouched = ["backend/main.py", "frontend/src/adminModels.tsx", "frontend/src/newUi.tsx"]
 domain = "release-ops"
 riskClass = "high-assurance"
 changeClass = "architecture"
@@ -83,6 +90,9 @@ targetedTests = [
   "backend/test_comfyui_native4b.py",
   "backend/test_comfyui_bridge_security.py",
   "backend/test_generation_worker_process.py",
+  "backend/test_effective_resolution_access.py",
+  "backend/test_resolution_policy.py",
+  "frontend/phoneImage.test.ts",
   "frontend/e2e-comfy214.mjs",
   "frontend/test_preprod216_ollama_routes.mjs",
 ]
@@ -142,3 +152,38 @@ recordedAtUtc = "2026-10-24T11:57:35Z"
 path = "docs/generated/frontend-map.md"
 reason = "Generated frontend route map updated by canonical generator, no manual changes."
 recordedAtUtc = "2026-10-24T11:57:35Z"
+
+[[scopeExpansions]]
+path = "backend/main.py"
+reason = "Allow precise native4b admin normalization and model-access application wiring for Issue 216; preserve protected size bound."
+recordedAtUtc = "2026-10-24T14:59:18Z"
+
+[[scopeExpansions]]
+path = "backend/app/services/image_model_publication.py"
+reason = "Owner required true tier x model capabilities intersection; keep published catalogue intact and make selectable ids fail closed."
+recordedAtUtc = "2026-10-24T14:59:18Z"
+
+[[scopeExpansions]]
+path = "backend/test_effective_resolution_access.py"
+reason = "Exercise real effective model resolutions for each stored plan without cloud calls."
+recordedAtUtc = "2026-10-24T14:59:18Z"
+
+[[scopeExpansions]]
+path = "backend/test_resolution_policy.py"
+reason = "Regression validation for native 4B resolution and backend restrictions."
+recordedAtUtc = "2026-10-24T14:59:18Z"
+
+[[scopeExpansions]]
+path = "frontend/src/newUi.tsx"
+reason = "Owner explicitly required desktop Studio per-model formats and tariff intersection; narrow permitted expansion replaces previous path prohibition."
+recordedAtUtc = "2026-10-24T14:59:18Z"
+
+[[scopeExpansions]]
+path = "frontend/src/phone/features/image/PhoneImageWorkspace.tsx"
+reason = "Owner required mobile Studio selection reset and disabled unsupported formats before GPU admission."
+recordedAtUtc = "2026-10-24T14:59:18Z"
+
+[[scopeExpansions]]
+path = "frontend/src/profileSupport.ts"
+reason = "Normalize image model capabilities without fabricating local resolutions or plan grants."
+recordedAtUtc = "2026-10-24T14:59:18Z"

@@ -1731,10 +1731,8 @@ export default function NewStudio(): ReactElement {
     return typeof priced?.tokens === 'number' && priced.tokens > 0 ? priced.tokens : model.tokenHint
   }
   const formatSummaryForModel = (model: ModelOption) => {
-    if (model.provider !== 'openrouter') {
-      const ratios: Record<PublicFormatId, string> = { square: '1:1', portrait: '9:16', wide: '16:9', soft_wide: '3:2' }
-      return supportedFormatIdsForModel(model).map((id) => ratios[id]).join(' · ') || 'форматы недоступны'
-    }
+    const ratios: Record<PublicFormatId, string> = { square: '1:1', portrait: '9:16', wide: '16:9', soft_wide: '3:2' }
+    if (model.provider !== 'openrouter') return supportedFormatIdsForModel(model).map((id) => ratios[id]).join(' · ') || 'форматы недоступны'
     const formats = openrouterPricing[model.id]?.formats || []
     const available = formats.filter((fmt) => fmt.supported !== false).map((fmt) => `${fmt.short} ${fmt.tokens ?? model.tokenHint}т`)
     return available.length ? available.join(' · ') : 'форматы уточняются'

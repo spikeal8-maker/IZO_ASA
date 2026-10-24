@@ -1596,9 +1596,8 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
     testPrompt={assistantTestPrompt}
     testResult={assistantTestResult}
     onChangePrompt={setAssistantTestPrompt}
-    onChangeChat={(patch) => {
-      if (assistantData) updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, ...patch } })
-    }}
+    onChangeChat={(patch) => assistantData && updateAssistantConfig({
+      ...assistantData.config, chat: { ...assistantData.config.chat, ...patch } })}
     onSave={() => void saveAssistantConfig('ollama')}
     onRefresh={() => void loadAssistants()}
     onTest={() => void testPromptAssistant('local', assistantData?.config.chat.localModel)}
