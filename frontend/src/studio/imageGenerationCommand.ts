@@ -1,4 +1,4 @@
-/** One durable browser command per unresolved paid image-generation intent. No prompts or media are stored. */
+/** Durable paid-image intent, separated by server-verified account identity. No prompt/media persisted. */
 export type ImageCommandScope = 'phone' | 'desktop'
 
 type PendingImageCommand = {
@@ -9,13 +9,44 @@ type PendingImageCommand = {
   acceptedJobId?: string
 }
 
-export type ImageGenerationCommand = { key: string; seed: number; body: string; acceptedJobId?: string }
+export type ImageGenerationCommand = {
+  ownerId: string
+  key: string
+  seed: number
+  body: string
+  acceptedJobId?: string
+}
 
-const keyFor = (scope: ImageCommandScope) => `izo.image.pending.${scope}.v1`
 const replayBlocked = 'Предыдущий запуск ещё не подтверждён. Проверьте задания и повторите его с прежними параметрами, прежде чем начинать другую генерацию.'
+const legacyBlocked = 'Обнаружен запрос предыдущей версии без подтверждённого владельца. Новый платный запуск заблокирован до проверки задания.'
 
-function readPending(scope: ImageCommandScope): PendingImageCommand | null {
-  const raw = sessionStorage.getItem(keyFor(scope))
+function keyFor(scope: ImageCommandScope, ownerId: string): string {
+  return `izo.image.pending.${scope}.v2.${encodeURIComponent(ownerId)}`
+}
+
+function legacyKeyFor(scope: ImageCommandScope): string {
+  return `izo.image.pending.${scope}.v1`
+}
+
+/** /api/me-v2 is authenticated using the current HttpOnly session cookie, never a device ID. */
+async function verifiedOwner(): Promise<string> {
+  const response = await fetch('/api/me-v2', {
+    credentials: 'include', cache: 'no-store', headers: { Accept: 'application/json' },
+  })
+  if (!response.ok) throw new Error('Не удалось подтвердить аккаунт. Войдите снова, прежде чем запускать генерацию.')
+  const value: unknown = await response.json()
+  const owner = value && typeof value === 'object'
+    ? (value as { internal_user_id?: unknown }).internal_user_id : undefined
+  if (typeof owner !== 'string' || !owner || owner.length > 160 || owner.trim() !== owner || /[\u0000-\u001f\u007f]/.test(owner)) {
+    throw new Error('Сервер не подтвердил идентификатор аккаунта. Новый платный запуск заблокирован.')
+  }
+  return owner
+}
+
+function readPending(scope: ImageCommandScope, ownerId: string): PendingImageCommand | null {
+  // A legacy v1 command cannot be attributed to A or B: do not silently discard or reassign it.
+  if (sessionStorage.getItem(legacyKeyFor(scope)) !== null) throw new Error(legacyBlocked)
+  const raw = sessionStorage.getItem(keyFor(scope, ownerId))
   if (raw === null) return null
   try {
     const value: unknown = JSON.parse(raw)
@@ -35,8 +66,8 @@ function readPending(scope: ImageCommandScope): PendingImageCommand | null {
   }
 }
 
-function writePending(scope: ImageCommandScope, command: PendingImageCommand): void {
-  sessionStorage.setItem(keyFor(scope), JSON.stringify(command))
+function writePending(scope: ImageCommandScope, ownerId: string, command: PendingImageCommand): void {
+  sessionStorage.setItem(keyFor(scope, ownerId), JSON.stringify(command))
 }
 
 async function hashPayload(body: string): Promise<string> {
@@ -49,47 +80,47 @@ export async function beginImageGenerationCommand(
   draft: Record<string, unknown>,
   requestedSeed?: number,
 ): Promise<ImageGenerationCommand> {
-  const previous = readPending(scope)
+  const ownerId = await verifiedOwner()
+  const previous = readPending(scope, ownerId)
   const key = previous?.key ?? crypto.randomUUID()
   const freshSeed = crypto.getRandomValues(new Uint32Array(1))[0] % 2147483646 + 1
   const seed = previous?.seed ?? (
     Number.isSafeInteger(requestedSeed) && Number(requestedSeed) >= 1 && Number(requestedSeed) <= 2147483646
       ? Number(requestedSeed) : freshSeed
   )
-
-  // Persist the identity before hashing or making a network request; a reload
-  // must never silently replace a potentially accepted paid command.
-  if (!previous) writePending(scope, { version: 1, key, seed, payloadHash: '' })
+  // Persist before hashing or I/O: an unknown acceptance must retain its key on F5.
+  if (!previous) writePending(scope, ownerId, { version: 1, key, seed, payloadHash: '' })
   const body = JSON.stringify({ ...draft, seed, clientRequestId: key })
   const payloadHash = await hashPayload(body)
-  const current = readPending(scope)
+  const current = readPending(scope, ownerId)
   if (!current || current.key !== key || (current.payloadHash && current.payloadHash !== payloadHash)) {
     throw new Error(replayBlocked)
   }
-  if (!current.payloadHash) writePending(scope, { ...current, payloadHash })
-  return { key, seed, body, acceptedJobId: current.acceptedJobId }
+  if (!current.payloadHash) writePending(scope, ownerId, { ...current, payloadHash })
+  return { ownerId, key, seed, body, acceptedJobId: current.acceptedJobId }
 }
 
-export function acknowledgeImageGenerationCommand(scope: ImageCommandScope, key: string, jobId: string): void {
+export function acknowledgeImageGenerationCommand(scope: ImageCommandScope, ownerId: string, key: string, jobId: string): void {
   if (!/^[a-zA-Z0-9_-]{1,160}$/.test(jobId)) throw new Error('Сервер вернул некорректный идентификатор задания.')
-  const pending = readPending(scope)
-  if (pending?.key === key) writePending(scope, { ...pending, acceptedJobId: jobId })
+  const pending = readPending(scope, ownerId)
+  if (pending?.key === key) writePending(scope, ownerId, { ...pending, acceptedJobId: jobId })
 }
 
-export function getAcceptedImageGenerationJob(scope: ImageCommandScope): string | null {
-  return readPending(scope)?.acceptedJobId || null
+export async function getAcceptedImageGenerationJob(scope: ImageCommandScope): Promise<string | null> {
+  const ownerId = await verifiedOwner()
+  return readPending(scope, ownerId)?.acceptedJobId || null
 }
 
-export function completeImageGenerationCommand(scope: ImageCommandScope, jobId: string): void {
-  const pending = readPending(scope)
-  if (pending?.acceptedJobId === jobId) sessionStorage.removeItem(keyFor(scope))
+export async function completeImageGenerationCommand(scope: ImageCommandScope, jobId: string): Promise<void> {
+  const ownerId = await verifiedOwner()
+  const pending = readPending(scope, ownerId)
+  if (pending?.acceptedJobId === jobId) sessionStorage.removeItem(keyFor(scope, ownerId))
 }
 
-export function rejectImageGenerationCommand(scope: ImageCommandScope, key: string, status: number): void {
-  // These are definite pre-admission rejections. 409/429/5xx and lost
-  // responses remain unresolved and must be retried with the original key.
-  if ([400, 401, 402, 403, 422].includes(status)) {
-    const pending = readPending(scope)
-    if (pending?.key === key && !pending.acceptedJobId) sessionStorage.removeItem(keyFor(scope))
+export function rejectImageGenerationCommand(scope: ImageCommandScope, ownerId: string, key: string, status: number): void {
+  // 401/403 can reflect an account switch; unknown outcome and rate limits must never release the key.
+  if ([400, 402, 422].includes(status)) {
+    const pending = readPending(scope, ownerId)
+    if (pending?.key === key && !pending.acceptedJobId) sessionStorage.removeItem(keyFor(scope, ownerId))
   }
 }

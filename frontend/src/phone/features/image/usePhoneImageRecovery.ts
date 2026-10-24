@@ -31,7 +31,7 @@ export function usePhoneImageRecovery({ offline, jobObserver: jobObserverRef, co
       void loadPhoneJobs(true, controller.signal).then(async (items) => {
         controller.signal.throwIfAborted()
         setRecovery({ offline, phase: 'ready' })
-        const acceptedId = getAcceptedImageGenerationJob('phone')
+        const acceptedId = await getAcceptedImageGenerationJob('phone')
         const active = items.find((item) => item.modality === 'image' && !item.terminal)
         const jobId = acceptedId || active?.id
         if (!jobId) return
@@ -39,7 +39,7 @@ export function usePhoneImageRecovery({ offline, jobObserver: jobObserverRef, co
         const job = await waitForPhoneJob(jobId, { signal: controller.signal,
           onChange: (value) => setProgress(value.progress) })
         terminalObserved = job.terminal
-        if (job.terminal) completeImageGenerationCommand('phone', job.id)
+        if (job.terminal) await completeImageGenerationCommand('phone', job.id).catch(() => undefined)
         completeImage(job, controller.signal)
       }).catch((caught) => {
         if (controller.signal.aborted) return

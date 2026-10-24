@@ -4,66 +4,122 @@ import { beforeEach, test } from 'node:test'
 import { beginImageGenerationCommand, acknowledgeImageGenerationCommand, completeImageGenerationCommand, getAcceptedImageGenerationJob, rejectImageGenerationCommand } from './src/studio/imageGenerationCommand.ts'
 
 const values = new Map()
+let owner = 'account-A'
+let authOk = true
 globalThis.sessionStorage = {
   getItem: (key) => values.has(key) ? values.get(key) : null,
   setItem: (key, value) => values.set(key, String(value)),
   removeItem: (key) => values.delete(key),
 }
 Object.defineProperty(globalThis, 'crypto', { configurable: true, value: webcrypto })
+globalThis.fetch = async (path, init) => {
+  assert.equal(path, '/api/me-v2')
+  assert.equal(init.credentials, 'include')
+  assert.equal(init.cache, 'no-store')
+  return { ok: authOk, json: async () => ({ internal_user_id: owner }) }
+}
 
-beforeEach(() => values.clear())
+beforeEach(() => { values.clear(); owner = 'account-A'; authOk = true })
 
-test('concurrent repeated intent 2/5/10 uses exactly one key, frozen seed and body', async () => {
+test('concurrent same intent 2/5/10 freezes one key, seed and body per owner', async () => {
   for (const n of [2, 5, 10]) {
     values.clear()
     const requests = await Promise.all(Array.from({ length: n }, () =>
-      beginImageGenerationCommand('phone', { prompt: 'safe synthetic fixture', width: 704, height: 704 })))
+      beginImageGenerationCommand('phone', { prompt: 'synthetic fixture', width: 704, height: 704 })))
     assert.equal(new Set(requests.map((x) => x.key)).size, 1)
     assert.equal(new Set(requests.map((x) => x.seed)).size, 1)
     assert.equal(new Set(requests.map((x) => x.body)).size, 1)
+    assert.equal(new Set(requests.map((x) => x.ownerId)).size, 1)
     assert.equal(JSON.parse(requests[0].body).clientRequestId, requests[0].key)
   }
 })
 
-test('network outcome unknown survives reload and preserves original operation', async () => {
-  const first = await beginImageGenerationCommand('desktop', { prompt: 'test', model: 'local' }, 42)
-  const recovered = await beginImageGenerationCommand('desktop', { prompt: 'test', model: 'local' }, 13)
-  assert.deepEqual(recovered, first)
-  assert.equal(first.seed, 42)
+test('pending unknown ACK A→logout→B→logout→A: B gets independent key, A retains original', async () => {
+  for (const scope of ['phone', 'desktop']) {
+    values.clear()
+    owner = 'account-A'
+    const first = await beginImageGenerationCommand(scope, { prompt: 'shared text' }, 42)
+    owner = 'account-B'
+    assert.equal(await getAcceptedImageGenerationJob(scope), null)
+    const second = await beginImageGenerationCommand(scope, { prompt: 'shared text' }, 43)
+    assert.notEqual(first.key, second.key)
+    assert.notEqual(first.ownerId, second.ownerId)
+    owner = 'account-A'
+    const restored = await beginImageGenerationCommand(scope, { prompt: 'shared text' }, 1)
+    assert.deepEqual(restored, first)
+    assert.equal(restored.seed, 42)
+  }
 })
 
-test('changed request with unresolved key fails closed rather than creating a paid job', async () => {
+test('accepted A job ID cannot be inherited by B and A can recover after F5', async () => {
+  for (const scope of ['phone', 'desktop']) {
+    values.clear()
+    owner = 'account-A'
+    const first = await beginImageGenerationCommand(scope, { prompt: 'private A' })
+    acknowledgeImageGenerationCommand(scope, first.ownerId, first.key, 'job_private_A')
+    assert.equal(await getAcceptedImageGenerationJob(scope), 'job_private_A')
+    owner = 'account-B'
+    assert.equal(await getAcceptedImageGenerationJob(scope), null)
+    const second = await beginImageGenerationCommand(scope, { prompt: 'private B' })
+    acknowledgeImageGenerationCommand(scope, second.ownerId, second.key, 'job_private_B')
+    assert.equal(await getAcceptedImageGenerationJob(scope), 'job_private_B')
+    await completeImageGenerationCommand(scope, 'job_private_A')
+    assert.equal(await getAcceptedImageGenerationJob(scope), 'job_private_B')
+    owner = 'account-A'
+    assert.equal(await getAcceptedImageGenerationJob(scope), 'job_private_A')
+    assert.equal((await beginImageGenerationCommand(scope, { prompt: 'private A' })).key, first.key)
+    await completeImageGenerationCommand(scope, 'job_private_A')
+    assert.equal(await getAcceptedImageGenerationJob(scope), null)
+  }
+})
+
+test('changed request for unresolved account command is fail-closed', async () => {
   const first = await beginImageGenerationCommand('phone', { prompt: 'original' })
   await assert.rejects(() => beginImageGenerationCommand('phone', { prompt: 'changed' }), /Предыдущий запуск/)
   assert.equal((await beginImageGenerationCommand('phone', { prompt: 'original' })).key, first.key)
 })
 
-test('an accepted job survives F5 and is not posted again until terminal completion', async () => {
-  const first = await beginImageGenerationCommand('desktop', { prompt: 'again' })
-  acknowledgeImageGenerationCommand('desktop', first.key, 'job_accepted_1')
-  const recovered = await beginImageGenerationCommand('desktop', { prompt: 'again' })
-  assert.equal(recovered.key, first.key)
-  assert.equal(recovered.acceptedJobId, 'job_accepted_1')
-  assert.equal(getAcceptedImageGenerationJob('desktop'), 'job_accepted_1')
-  rejectImageGenerationCommand('desktop', first.key, 401)
-  assert.equal(getAcceptedImageGenerationJob('desktop'), 'job_accepted_1')
-  completeImageGenerationCommand('desktop', 'job_unrelated')
-  assert.equal(getAcceptedImageGenerationJob('desktop'), 'job_accepted_1')
-  completeImageGenerationCommand('desktop', 'job_accepted_1')
-  const second = await beginImageGenerationCommand('desktop', { prompt: 'again' })
-  assert.notEqual(second.key, first.key)
+test('accepted job survives reload; unrelated completion and 401 never erase it', async () => {
+  const first = await beginImageGenerationCommand('desktop', { prompt: 'again' }, 42)
+  acknowledgeImageGenerationCommand('desktop', first.ownerId, first.key, 'job_accepted_1')
+  rejectImageGenerationCommand('desktop', first.ownerId, first.key, 401)
+  assert.equal(await getAcceptedImageGenerationJob('desktop'), 'job_accepted_1')
+  await completeImageGenerationCommand('desktop', 'job_unrelated')
+  assert.equal(await getAcceptedImageGenerationJob('desktop'), 'job_accepted_1')
+  await completeImageGenerationCommand('desktop', 'job_accepted_1')
+  assert.notEqual((await beginImageGenerationCommand('desktop', { prompt: 'again' })).key, first.key)
 })
 
-test('definitive admission rejection may release key; uncertain 429/500 must not', async () => {
+test('429/500/401/403 keep unresolved charge identity; definite 402 releases it', async () => {
   const first = await beginImageGenerationCommand('phone', { prompt: 'charge' })
-  rejectImageGenerationCommand('phone', first.key, 500)
-  rejectImageGenerationCommand('phone', first.key, 429)
-  assert.equal((await beginImageGenerationCommand('phone', { prompt: 'charge' })).key, first.key)
-  rejectImageGenerationCommand('phone', first.key, 402)
+  for (const status of [429, 500, 401, 403]) {
+    rejectImageGenerationCommand('phone', first.ownerId, first.key, status)
+    assert.equal((await beginImageGenerationCommand('phone', { prompt: 'charge' })).key, first.key)
+  }
+  rejectImageGenerationCommand('phone', first.ownerId, first.key, 402)
   assert.notEqual((await beginImageGenerationCommand('phone', { prompt: 'charge' })).key, first.key)
 })
 
-test('unreadable saved state fails closed', async () => {
-  values.set('izo.image.pending.phone.v1', 'corrupted')
-  await assert.rejects(() => beginImageGenerationCommand('phone', { prompt: 'another' }), /Новое списание заблокировано/)
+test('unauthenticated or missing verified account fails closed without writing pending', async () => {
+  authOk = false
+  await assert.rejects(() => beginImageGenerationCommand('phone', { prompt: 'anonymous' }), /Не удалось подтвердить аккаунт/)
+  assert.equal(values.size, 0)
+  authOk = true
+  owner = ''
+  await assert.rejects(() => beginImageGenerationCommand('phone', { prompt: 'anonymous' }), /идентификатор аккаунта/)
+  assert.equal(values.size, 0)
+})
+
+test('corrupt pending state for A blocks only A, not B', async () => {
+  values.set('izo.image.pending.phone.v2.account-A', 'corrupt')
+  await assert.rejects(() => beginImageGenerationCommand('phone', { prompt: 'new' }), /Новое списание заблокировано/)
+  owner = 'account-B'
+  assert.ok((await beginImageGenerationCommand('phone', { prompt: 'new' })).key)
+})
+
+test('legacy unscoped v1 command is never silently reassigned between accounts', async () => {
+  values.set('izo.image.pending.phone.v1', '{"key":"orphan"}')
+  await assert.rejects(() => beginImageGenerationCommand('phone', { prompt: 'new' }), /предыдущей версии/)
+  owner = 'account-B'
+  await assert.rejects(() => beginImageGenerationCommand('phone', { prompt: 'new' }), /предыдущей версии/)
 })
