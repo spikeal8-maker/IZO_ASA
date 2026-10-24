@@ -33,7 +33,8 @@ def verify(database: Path, media: Path, receipt_path: Path) -> dict:
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     if receipt.get("snapshot_id") != "20261024T082359.324871Z":
         raise RuntimeError("RECEIPT_SNAPSHOT_MISMATCH")
-    db = sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=5)
+    # Pre-start/post-stop volume audit: never request WAL/SHM writes on a read-only mount.
+    db = sqlite3.connect(database.as_uri() + "?mode=ro&immutable=1", uri=True, timeout=5)
     try:
         db.execute("PRAGMA query_only=ON")
         counts = {

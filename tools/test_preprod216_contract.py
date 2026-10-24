@@ -87,6 +87,10 @@ class Preprod216ContractTests(unittest.TestCase):
         self.assertIn('revoke_reason=', text)
         self.assertIn('DISABLED_SIDE_EFFECT_SETTINGS', text)
         self.assertNotIn('UPDATE users SET role=', text)
+        verifier = (ROOT / "tools" / "preprod216_verify_runtime.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("mode=ro&immutable=1", verifier)
 
 
 if __name__ == "__main__":
