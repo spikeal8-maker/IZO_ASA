@@ -93,7 +93,7 @@ import {
   STYLE_PREFIX,
 } from './studio/studioHelpers'
 import { readStudioDraft } from './studio/studioDraft'
-import { beginImageGenerationCommand, acknowledgeImageGenerationCommand, rejectImageGenerationCommand } from './studio/imageGenerationCommand'
+import { beginImageGenerationCommand, acknowledgeImageGenerationCommand, completeImageGenerationCommand, rejectImageGenerationCommand } from './studio/imageGenerationCommand'
 import {
   comfySafeGenerationSize,
   composeI2IEditPrompt,
@@ -797,6 +797,9 @@ export default function NewStudio(): ReactElement {
           return
         }
         setJob(next)
+        if (next.status === 'completed' || next.status === 'failed' || next.status === 'cancelled') {
+          completeImageGenerationCommand('desktop', next.id)
+        }
         if (next.status === 'completed') {
           const completedUrl = next.resultUrl
           const completedImageId = next.resultImageId
@@ -1222,13 +1225,15 @@ export default function NewStudio(): ReactElement {
         outpaint: mode === 'paint' && paintMode === 'outpaint' ? outpaintPaddingOnly(paintOutpaint) : undefined,
       }
       const command = await beginImageGenerationCommand('desktop', body, effectiveSeed)
-      const response = await apiFetch('/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': command.key },
-        body: command.body,
-      })
+      const response = command.acceptedJobId
+        ? await apiFetch(`/jobs/${encodeURIComponent(command.acceptedJobId)}`)
+        : await apiFetch('/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Idempotency-Key': command.key },
+            body: command.body,
+          })
       if (!response.ok) {
-        rejectImageGenerationCommand('desktop', command.key, response.status)
+        if (!command.acceptedJobId) rejectImageGenerationCommand('desktop', command.key, response.status)
         let detail: unknown = ''
         try {
           detail = (await response.json())?.detail || ''
@@ -1251,7 +1256,13 @@ export default function NewStudio(): ReactElement {
         setNotice('Сервер не подтвердил создание задачи. Проверьте задания перед повтором.')
         return
       }
-      acknowledgeImageGenerationCommand('desktop', command.key)
+      acknowledgeImageGenerationCommand('desktop', command.key, created.id)
+      if (created.status === 'completed' || created.status === 'failed' || created.status === 'cancelled') {
+        completeImageGenerationCommand('desktop', created.id)
+        setNotice('Предыдущее задание уже завершилось. Результат доступен в истории; для нового запуска нажмите ещё раз.')
+        void fetchGallery()
+        return
+      }
       if (trialPending) void refreshAuthStateV2()
       if (mode === 'text') {
         lastTextSubmittedRef.current = { prompt: textPrompt, model: selectedModel.id, width: requestSize.width, height: requestSize.height }
