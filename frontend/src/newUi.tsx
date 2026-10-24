@@ -298,7 +298,7 @@ export default function NewStudio(): ReactElement {
   }
   const onLogout = async () => {
     await logoutV2()
-    await refreshAuthStateV2()
+    window.location.reload()
   }
   const onApplyPromo = async () => {
     const code = promoCode.trim().toUpperCase()
