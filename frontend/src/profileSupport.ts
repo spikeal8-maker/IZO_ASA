@@ -78,6 +78,9 @@ export const SERVER_MODEL_OPTION: ModelOption = {
   supportedResolutionIds: IMAGE_RESOLUTIONS.filter((item) => item.tier !== 'four_k').map((item) => item.id),
   generation: { fixedSteps: 4, allowsExactRepeat: false, supportsSeed: true, maxInputReferences: 4 },
 }
+// A missing/empty server entitlement must never manufacture local model access.
+export const UNAVAILABLE_MODEL_OPTION: ModelOption = { ...SERVER_MODEL_OPTION, label: 'Модель недоступна', supportedResolutionIds: [] }
+
 export const modelOptions: ModelOption[] = [
   SERVER_MODEL_OPTION,
   { id: 'black-forest-labs/flux.2-klein-4b', label: 'FLUX.2 Klein 4B', provider: 'openrouter', modelProfile: 'black-forest-labs/flux.2-klein-4b', tokenHint: 1 },
@@ -322,7 +325,7 @@ export function normalizeModelAccess(input: unknown, fallbackPlan: TariffKey = '
   const plan = tariffKeys.includes(source.plan as TariffKey) ? source.plan as TariffKey : fallbackPlan
   const modes = modelModeOrder.reduce((acc, mode) => {
     const raw = source.modes?.[mode]
-    const rawModels = Array.isArray(raw?.models) ? raw.models : [SERVER_MODEL_OPTION]
+    const rawModels = Array.isArray(raw?.models) ? raw.models : []
     const normalizeOptions = (items: ModelOption[]) => items.map((item) => {
       const fallback = modelOptionById(String(item.id || item.modelProfile || SERVER_MODEL_OPTION.id))
       const generation = item.generation && typeof item.generation === 'object'
@@ -349,12 +352,12 @@ export function normalizeModelAccess(input: unknown, fallbackPlan: TariffKey = '
     const models = normalizeOptions(rawModels)
     const rawPublishedModels = Array.isArray(raw?.publishedModels) ? raw.publishedModels : rawModels
     const publishedModels = normalizeOptions(rawPublishedModels)
-    const unique = Array.from(new Map([SERVER_MODEL_OPTION, ...models].map((item) => [item.id, item])).values())
-    const uniquePublished = Array.from(new Map([SERVER_MODEL_OPTION, ...publishedModels, ...unique].map((item) => [item.id, item])).values())
+    const unique = Array.from(new Map(models.map((item) => [item.id, item])).values())
+    const uniquePublished = Array.from(new Map([...publishedModels, ...unique].map((item) => [item.id, item])).values())
     const rawPresets = (raw?.presets || {}) as Partial<TariffModelDefaults>
     const presets = qualityPresets.reduce((presetAcc, preset) => {
-      const value = String(rawPresets[preset] || SERVER_MODEL_OPTION.id)
-      presetAcc[preset] = unique.some((item) => item.id === value) ? value : SERVER_MODEL_OPTION.id
+      const value = String(rawPresets[preset] || '')
+      presetAcc[preset] = unique.some((item) => item.id === value) ? value : (unique[0]?.id || '')
       return presetAcc
     }, { ...serverDefaults } as TariffModelDefaults)
     acc[mode] = { id: mode, label: raw?.label || modelModeLabels[mode], models: unique, publishedModels: uniquePublished, presets }
@@ -365,8 +368,8 @@ export function normalizeModelAccess(input: unknown, fallbackPlan: TariffKey = '
 
 export function modelAccessOption(access: UserModelAccess | null | undefined, mode: ModelModeKey, preset: QualityPreset, userChoices?: Partial<Record<ModelModeKey, Partial<TariffModelDefaults>>>) {
   const modeAccess = access?.modes?.[mode]
-  const models = modeAccess?.models?.length ? modeAccess.models : [SERVER_MODEL_OPTION]
+  const models = modeAccess?.models?.length ? modeAccess.models : [UNAVAILABLE_MODEL_OPTION]
   const chosen = userChoices?.[mode]?.[preset]
   const presetId = chosen && models.some((item) => item.id === chosen) ? chosen : modeAccess?.presets?.[preset]
-  return models.find((item) => item.id === presetId) || models[0] || SERVER_MODEL_OPTION
+  return models.find((item) => item.id === presetId) || models[0] || UNAVAILABLE_MODEL_OPTION
 }

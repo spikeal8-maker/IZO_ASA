@@ -98,3 +98,21 @@ def test_config_ui_advertises_all_canonical_sizes() -> None:
         "h-sd", "h-hd", "h-fhd", "h-4k",
         "p-sd", "p-hd", "p-fhd", "p-4k",
     )
+
+
+def test_native4b_admin_profile_cannot_exceed_running_adapter(monkeypatch) -> None:
+    from backend import main
+
+    monkeypatch.setattr(main, "COMFYUI_NATIVE4B_ONLY", True)
+    profiles = main.normalize_server_model_profiles({
+        "profiles": {
+            "flux_klein_4b": {
+                "width": 2048, "height": 1536, "steps": 60,
+                "sampler": "er_sde", "seed": 42,
+            }
+        }
+    })["profiles"]
+    assert profiles["flux_klein_4b"]["width"] == 704
+    assert profiles["flux_klein_4b"]["height"] == 704
+    assert profiles["flux_klein_4b"]["steps"] == 4
+    assert profiles["flux_klein_4b"]["sampler"] == "euler"

@@ -6919,6 +6919,9 @@ def normalize_server_model_profiles(value: dict[str, Any] | None) -> dict[str, A
         if sampler not in allowed_samplers:
             raise HTTPException(422, f"Sampler {sampler} не разрешён для Config UI.")
         profiles[profile_id] = {"width": max(512, min(2048, width)), "height": max(512, min(2048, height)), "steps": max(1, min(80, steps)), "sampler": sampler, "seedMode": "fixed" if raw.get("seedMode") == "fixed" else "random", "seed": max(0, seed)}
+        if COMFYUI_NATIVE4B_ONLY and profile_id == "flux_klein_4b":
+            # Admin settings must never advertise a profile the native bridge rejects.
+            profiles[profile_id].update(width=704, height=704, steps=4, sampler="euler")
     return {"profiles": profiles}
 
 
@@ -16595,6 +16598,7 @@ def public_model_access_for_plan(plan: str, capability_catalog: list[dict[str, A
         quality_presets=QUALITY_PRESETS,
         option_builder=_public_model_option,
         quality_model=openrouter_quality_model,
+        local_model_modes=("text_to_image",) if COMFYUI_NATIVE4B_ONLY else None,
     )
 
 

@@ -117,6 +117,7 @@ def public_access_for_plan(
     quality_presets: Iterable[str],
     option_builder: Callable[[str, dict[str, Any] | None], dict[str, Any]],
     quality_model: Callable[[dict[str, Any], str, str, str], str | None],
+    local_model_modes: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     if plan not in valid_plans:
         plan = "mini"
@@ -139,9 +140,11 @@ def public_access_for_plan(
             for model_id in mode_ids if isinstance(model_id, str)
         )
     modes: dict[str, Any] = {}
+    permitted_local_modes = set(local_model_modes) if local_model_modes is not None else None
     for mode in sorted(mode_labels):
-        ids = ["server:local_flux_klein"]
-        published_ids = ["server:local_flux_klein"]
+        publish_local = permitted_local_modes is None or mode in permitted_local_modes
+        ids = ["server:local_flux_klein"] if publish_local else []
+        published_ids = list(ids)
         mode_access = access.get(mode) if isinstance(access.get(mode), dict) else {}
         mode_enabled = enabled.get(mode) if isinstance(enabled.get(mode), list) else sorted({
             model_id
@@ -157,17 +160,28 @@ def public_access_for_plan(
         for model_id in tier_ids:
             if model_id in published_ids and model_id not in ids:
                 ids.append(model_id)
-        models = [option_builder(model_id, capabilities.get(model_id)) for model_id in ids]
+        # /model-access is scoped to the user's plan. Publish effective, not
+        # merely provider-supported, resolutions for every selectable model.
+        plan_resolution_ids = set(tariff.get("allowed_resolutions") or [])
+        models: list[dict[str, Any]] = []
+        for model_id in ids:
+            option = option_builder(model_id, capabilities.get(model_id))
+            supported = option.get("supportedResolutionIds")
+            effective = [resolution_id for resolution_id in supported if resolution_id in plan_resolution_ids] if isinstance(supported, list) else []
+            if effective:
+                models.append({**option, "supportedResolutionIds": effective})
+        # The published catalogue remains inspectable, including locked models.
         published_models = [option_builder(model_id, capabilities.get(model_id)) for model_id in published_ids]
+        ids = [item["id"] for item in models]
         tariff_defaults = tariff.get("model_defaults") if isinstance(tariff.get("model_defaults"), dict) else {}
         presets: dict[str, str] = {}
         for preset in quality_presets:
             default_id = str(tariff_defaults.get(preset) or "server:local_flux_klein")
-            if default_id == "server:local_flux_klein" or default_id in ids:
+            if default_id in ids:
                 presets[preset] = default_id
             else:
                 fallback = quality_model(config, mode, preset, plan)
-                presets[preset] = fallback if fallback in ids else "server:local_flux_klein"
+                presets[preset] = fallback if fallback in ids else (ids[0] if ids else "")
         modes[mode] = {
             "id": mode,
             "label": mode_labels[mode],

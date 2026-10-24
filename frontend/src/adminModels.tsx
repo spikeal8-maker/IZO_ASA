@@ -1241,7 +1241,10 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
     setTariffs(normalized)
     const expected = tariffKeys.every((plan) => tariffs[plan].allowed_resolutions.filter((id) => CONFIG_UI_RUNTIME_RESOLUTION_IDS.has(id)).sort().join('|') === [...normalized[plan].allowed_resolutions].sort().join('|'))
     if (!expected) { setMsg('Сервер вернул другие настройки разрешений — изменения не применены полностью'); return }
-    const profilesSaved = await saveSetting('server_model_profiles', { profiles: serverProfiles }, 'Параметры моделей Config UI')
+    const profiles = configStatus?.config_api?.native4b?.enabled
+      ? { ...serverProfiles, flux_klein_4b: { ...serverProfiles.flux_klein_4b, width: 704, height: 704, steps: 4, sampler: 'euler' } }
+      : serverProfiles
+    const profilesSaved = await saveSetting('server_model_profiles', { profiles }, 'Параметры моделей Config UI')
     setMsg(profilesSaved ? 'Разрешения и параметры Config UI сохранены и проверены' : 'Разрешения сохранены; параметры модели сохранить не удалось')
   }
   const saveMinMargin = async () => {
@@ -1775,7 +1778,7 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
     </article>
 
     <article className="card">
-      <div className="card-head"><div><h2 className="card-title">Разрешения и настройки Config UI</h2><p className="card-note">SD, HD и Full HD доступны для Klein 9B/4B. Галочки определяют доступность разрешений по тарифам.</p></div><button className="primary" onClick={() => void saveConfigUiSettings()}>Сохранить параметры</button></div>
+      <div className="card-head"><div><h2 className="card-title">Разрешения и настройки Config UI</h2><p className="card-note">Галочки задают права тарифа, а не возможности каждой модели. {configStatus?.config_api?.native4b?.enabled ? 'На этом сервере локальная Klein 4B работает только в профиле 704×704 / 4 шага. Дополнительные размеры возможны у совместимых моделей.' : 'Реальный список размеров зависит от выбранной модели и провайдера.'}</p></div><button className="primary" onClick={() => void saveConfigUiSettings()}>Сохранить параметры</button></div>
       <div className="resolution-matrix">
         <table>
           <thead><tr><th>Формат</th>{CONFIG_RESOLUTION_TIERS.map((tier) => <th key={tier}>{IMAGE_RESOLUTIONS.find((item) => item.tier === tier)?.tierLabel}</th>)}</tr></thead>
@@ -1801,13 +1804,14 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
       <div className="config-profiles">{(['9B', '4B'] as const).map((profileKey) => {
         const active = globalLocalProfile.toLowerCase().endsWith(profileKey.toLowerCase())
         const profileId = profileKey === '9B' ? 'flux_klein_9b' : 'flux_klein_4b'
+        const native4bRestricted = profileKey === '4B' && !!configStatus?.config_api?.native4b?.enabled
         const settings = serverProfiles[profileId] || { width: 1024, height: 1024, steps: 4, sampler: 'er_sde', seedMode: 'random', seed: 42 }
         return <section className={`config-profile ${active ? 'active' : ''}`} key={profileKey}>
           <div className="config-profile-head"><h3>FLUX.2 Klein {profileKey}</h3><span className={`state ${active ? 'ok' : ''}`}>{active ? 'используется' : 'не загружена'}</span></div>
           <div className="config-fields">
-            <div className="config-field"><label>Разрешение по умолчанию</label><select value={`${settings.width}x${settings.height}`} onChange={(e) => { const [width, height] = e.target.value.split('x').map(Number); updateServerProfile(profileId, { width, height }) }}>{IMAGE_RESOLUTIONS.map((option) => <option key={option.id} value={`${option.width}x${option.height}`}>{resolutionLabel(option)}</option>)}</select></div>
-            <div className="config-field"><label>Количество шагов</label><input type="number" min="1" max="80" value={settings.steps} onChange={(e) => updateServerProfile(profileId, { steps: Number(e.target.value) })} /></div>
-            <div className="config-field"><label>Sampler</label><select value={settings.sampler} onChange={(e) => updateServerProfile(profileId, { sampler: e.target.value })}><option value="er_sde">ER-SDE</option><option value="euler">Euler</option><option value="dpmpp_2m">DPM++ 2M</option></select></div>
+            <div className="config-field"><label>Разрешение по умолчанию</label><select value={native4bRestricted ? '704x704' : `${settings.width}x${settings.height}`} disabled={native4bRestricted} onChange={(e) => { const [width, height] = e.target.value.split('x').map(Number); updateServerProfile(profileId, { width, height }) }}>{IMAGE_RESOLUTIONS.filter((option) => !native4bRestricted || option.id === 'sq-sd').map((option) => <option key={option.id} value={`${option.width}x${option.height}`}>{resolutionLabel(option)}</option>)}</select></div>
+            <div className="config-field"><label>Количество шагов</label><input type="number" min="1" max="80" value={native4bRestricted ? 4 : settings.steps} disabled={native4bRestricted} onChange={(e) => updateServerProfile(profileId, { steps: Number(e.target.value) })} /></div>
+            <div className="config-field"><label>Sampler</label><select value={native4bRestricted ? 'euler' : settings.sampler} disabled={native4bRestricted} onChange={(e) => updateServerProfile(profileId, { sampler: e.target.value })}><option value="er_sde">ER-SDE</option><option value="euler">Euler</option><option value="dpmpp_2m">DPM++ 2M</option></select></div>
             <div className="config-field"><label>Seed</label><select value={settings.seedMode} onChange={(e) => updateServerProfile(profileId, { seedMode: e.target.value as 'random' | 'fixed' })}><option value="random">Случайный при каждой генерации</option><option value="fixed">Фиксированный</option></select></div>
             {settings.seedMode === 'fixed' && <div className="config-field"><label>Фиксированный seed</label><input type="number" min="0" value={settings.seed} onChange={(e) => updateServerProfile(profileId, { seed: Number(e.target.value) })} /></div>}
           </div>

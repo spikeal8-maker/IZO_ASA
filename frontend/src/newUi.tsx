@@ -1713,12 +1713,11 @@ export default function NewStudio(): ReactElement {
     return (openrouterPricing[model.id]?.formats || []).filter((fmt) => fmt.supported !== false)
   }
   const supportedFormatIdsForModel = (model: ModelOption) => {
-    if (model.provider !== 'openrouter') return ['square', 'portrait', 'wide', 'soft_wide'] as PublicFormatId[]
     const supportedIds = new Set(model.supportedResolutionIds || [])
     const ids = RESOLUTION_PRESETS
       .filter((resolution) => supportedIds.has(resolution.id))
       .map((resolution) => formatPricingId(resolution))
-    return Array.from(new Set(ids.length ? ids : ['square'])) as PublicFormatId[]
+    return Array.from(new Set(ids)) as PublicFormatId[]
   }
   const pricingForModel = (model: ModelOption) => {
     if (model.provider !== 'openrouter') return undefined
@@ -1732,14 +1731,17 @@ export default function NewStudio(): ReactElement {
     return typeof priced?.tokens === 'number' && priced.tokens > 0 ? priced.tokens : model.tokenHint
   }
   const formatSummaryForModel = (model: ModelOption) => {
-    if (model.provider !== 'openrouter') return '1:1 · 9:16 · 16:9 · 3:2'
+    if (model.provider !== 'openrouter') {
+      const ratios: Record<PublicFormatId, string> = { square: '1:1', portrait: '9:16', wide: '16:9', soft_wide: '3:2' }
+      return supportedFormatIdsForModel(model).map((id) => ratios[id]).join(' · ') || 'форматы недоступны'
+    }
     const formats = openrouterPricing[model.id]?.formats || []
     const available = formats.filter((fmt) => fmt.supported !== false).map((fmt) => `${fmt.short} ${fmt.tokens ?? model.tokenHint}т`)
     return available.length ? available.join(' · ') : 'форматы уточняются'
   }
   const tariffResolutionIds = new Set(activeTariff.allowed_resolutions)
   const supportedResolutionIdsForModel = (model: ModelOption) => {
-    const modelIds = new Set(model.supportedResolutionIds?.length ? model.supportedResolutionIds : RESOLUTION_PRESETS.map((item) => item.id))
+    const modelIds = new Set(model.supportedResolutionIds || [])
     return RESOLUTION_PRESETS.filter((item) => modelIds.has(item.id) && tariffResolutionIds.has(item.id)).map((item) => item.id)
   }
   const preferredResolutionForModel = (model: ModelOption, formatId?: string, preferredTier = selectedResolution.tier) => {
