@@ -84,7 +84,6 @@ import {
   isRasterOpenRouterModel,
   JOB_ACTIVE,
   modelModeFromStudio,
-  newClientRequestId,
   PROMPT_APPEND_PREFIX,
   QUALITY,
   randomOf,
@@ -94,6 +93,7 @@ import {
   STYLE_PREFIX,
 } from './studio/studioHelpers'
 import { readStudioDraft } from './studio/studioDraft'
+import { beginImageGenerationCommand, acknowledgeImageGenerationCommand, rejectImageGenerationCommand } from './studio/imageGenerationCommand'
 import {
   comfySafeGenerationSize,
   composeI2IEditPrompt,
@@ -1138,11 +1138,11 @@ export default function NewStudio(): ReactElement {
       setNotice('Измените промпт, модель, формат или исходное изображение перед новой генерацией.')
       return
     }
-    if (!(await ensureAuthed())) return
     inFlightRef.current = true
-    setIsSubmitting(true)
-    setNotice('')
     try {
+      if (!(await ensureAuthed())) return
+      setIsSubmitting(true)
+      setNotice('')
       const style = I2I_STYLES.find((s) => s.id === styleId)
       const steps = mode === 'text' && typeof selectedModel.generation?.fixedSteps === 'number'
         ? selectedModel.generation.fixedSteps
@@ -1220,14 +1220,15 @@ export default function NewStudio(): ReactElement {
         maskImage: mode === 'paint' && paintMode === 'mask' ? paintMask : undefined,
         canvas: mode === 'paint' && paintMode === 'sketch' ? paintCanvas : undefined,
         outpaint: mode === 'paint' && paintMode === 'outpaint' ? outpaintPaddingOnly(paintOutpaint) : undefined,
-        clientRequestId: newClientRequestId(),
       }
+      const command = await beginImageGenerationCommand('desktop', body, effectiveSeed)
       const response = await apiFetch('/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': command.key },
+        body: command.body,
       })
       if (!response.ok) {
+        rejectImageGenerationCommand('desktop', command.key, response.status)
         let detail: unknown = ''
         try {
           detail = (await response.json())?.detail || ''
@@ -1247,9 +1248,10 @@ export default function NewStudio(): ReactElement {
       }
       const created = normalizeGeneration(await response.json())
       if (!created) {
-        setNotice('Сервер не подтвердил создание задачи. Токены не списываются без подтверждённой задачи.')
+        setNotice('Сервер не подтвердил создание задачи. Проверьте задания перед повтором.')
         return
       }
+      acknowledgeImageGenerationCommand('desktop', command.key)
       if (trialPending) void refreshAuthStateV2()
       if (mode === 'text') {
         lastTextSubmittedRef.current = { prompt: textPrompt, model: selectedModel.id, width: requestSize.width, height: requestSize.height }
@@ -1270,9 +1272,10 @@ export default function NewStudio(): ReactElement {
       resetInspectView()
       setResultSource(nextResultSource)
       setCompare(mode === 'i2i' || isEditLikeMode || mode === 'paint' ? 96 : 50)
-      if (!seed) setSeed(effectiveSeed)
-    } catch {
-      setNotice('Проблема соединения с сервером. Проверьте, что сервис запущен.')
+      if (!seed) setSeed(command.seed)
+    } catch (error) {
+      setNotice(error instanceof Error && /Предыдущий запуск|сохранённый запрос/.test(error.message)
+        ? error.message : 'Проблема соединения с сервером. Проверьте, что сервис запущен.')
     } finally {
       inFlightRef.current = false
       setIsSubmitting(false)
