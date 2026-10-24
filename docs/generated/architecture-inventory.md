@@ -11,7 +11,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 - SQLite tables: 65
 - SQLite indexes: 98
 - Foreign-key declarations: 2
-- Frontend/static API literals: 44
+- Frontend/static API literals: 45
 - Route process role: `api-server-or-combined`
 
 ## Route authorization
@@ -144,6 +144,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | `/api/phone/v1/jobs` | frontend/src/phone/core/jobs.ts |
 | `/api/phone/v1/jobs/{dynamic}` | frontend/src/phone/core/jobs.ts |
 | `/api/phone/v1/platform` | frontend/src/phone/api.ts |
+| `/api/ps` | frontend/src/adminOllamaPage.tsx |
 | `/api/tools/transcribe` | frontend/src/phone/features/audio/api.ts, frontend/src/phone/features/chat/api.ts |
 | `/api/v1/key` | frontend/src/openRouterAdminKey.ts |
 | `/api/version` | frontend/src/diag.tsx |

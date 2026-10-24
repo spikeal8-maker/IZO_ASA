@@ -3323,16 +3323,18 @@ def _initialize_intro_tariff_if_new(conn: sqlite3.Connection, legacy_user_id: st
     )
     return True
 
-
 def gallery_quota_for_user(conn: sqlite3.Connection, user_row: sqlite3.Row | None, legacy_user_id: str | None = None) -> dict[str, Any]:
     plan = gallery_policy.normalize_gallery_plan(_row_get(user_row, "plan"), PLAN_ORDER)
     tariff = get_tariff_config(conn)[plan]
     user_id = legacy_user_id or _row_get(user_row, "id")
+    if user_id:
+        limits = generation_admission.preprod216_personal_gallery_limits(conn, user_id, plan)
+        if limits:
+            tariff = {**tariff, "gallery_slots": limits[0], "video_slots": limits[1]}
     used = 0
     if user_id:
         used = storage_count_active_gallery_images(conn, user_id)
     return gallery_policy.build_gallery_quota(plan=plan, tariff=tariff, gallery_used=used)
-
 
 def video_storage_state_for_user(
     conn: sqlite3.Connection,
@@ -3352,7 +3354,6 @@ def video_storage_state_for_user(
 
 ACTIVE_IMAGE_WHERE = "deleted_at IS NULL"
 
-
 def evict_gallery_images_for_new_save(
     conn: sqlite3.Connection,
     legacy_user_id: str,
@@ -3366,6 +3367,8 @@ def evict_gallery_images_for_new_save(
     over-limit galleries shrink gradually with continued use instead of staying
     permanently above quota.
     """
+    if os.getenv("IZO_PREPROD_PRESERVE_HISTORY") == "1":
+        raise RuntimeError("HISTORIC_GALLERY_FULL_REFUSE_EVICTION")
     target = gallery_policy.gallery_eviction_target(quota)
     if not target:
         return 0
@@ -3383,10 +3386,8 @@ def evict_gallery_images_for_new_save(
     )
     return gallery_eviction.apply_gallery_evictions(runtime, rows)
 
-
 def gallery_cursor_from_row(row: sqlite3.Row) -> str:
     return gallery_query.encode_gallery_cursor(_row_get(row, "created_at"), _row_get(row, "id"))
-
 
 def parse_gallery_cursor(cursor: str | None) -> tuple[str, str] | None:
     try:
@@ -3397,7 +3398,6 @@ def parse_gallery_cursor(cursor: str | None) -> tuple[str, str] | None:
 
 def gallery_fts_query(value: str) -> str:
     return gallery_query.build_gallery_fts_query(value)
-
 
 def gallery_media_owner_row(conn: sqlite3.Connection, filename: str, legacy_user_id: str) -> sqlite3.Row | None:
     return storage_find_gallery_media_owner(
@@ -6919,8 +6919,9 @@ def normalize_server_model_profiles(value: dict[str, Any] | None) -> dict[str, A
         if sampler not in allowed_samplers:
             raise HTTPException(422, f"Sampler {sampler} не разрешён для Config UI.")
         profiles[profile_id] = {"width": max(512, min(2048, width)), "height": max(512, min(2048, height)), "steps": max(1, min(80, steps)), "sampler": sampler, "seedMode": "fixed" if raw.get("seedMode") == "fixed" else "random", "seed": max(0, seed)}
+        if COMFYUI_NATIVE4B_ONLY and profile_id == "flux_klein_4b":
+            profiles[profile_id].update(width=704, height=704, steps=4, sampler="euler")
     return {"profiles": profiles}
-
 
 def get_server_model_profiles() -> dict[str, dict[str, Any]]:
     return normalize_server_model_profiles(_saved_setting("server_model_profiles"))["profiles"]
@@ -15836,6 +15837,8 @@ def _video_storage_reservation(
     state = video_storage.storage_state(conn, user_id, limit=int(quota["video_slots"] or 0))
     if not quota["video_enabled"] or state.limit <= 0:
         raise HTTPException(403, "Хранение видео не входит в ваш тариф.")
+    if os.getenv("IZO_PREPROD_PRESERVE_HISTORY") == "1" and state.active + state.reserved >= state.limit:
+        raise HTTPException(409, "VIDEO_QUOTA_FULL_HISTORY_PRESERVED")
     if not state.can_reserve:
         raise HTTPException(
             409,
@@ -15843,7 +15846,6 @@ def _video_storage_reservation(
             "Снимите сердечко, удалите видео или дождитесь завершения генерации.",
         )
     return state
-
 
 def _queue_video_file_deletion(
     conn: sqlite3.Connection,
@@ -15897,7 +15899,6 @@ def drain_video_file_deletions(*, limit: int = 50) -> dict[str, int]:
                 )
     return {"checked": len(rows), "removed": removed, "failed": failed}
 
-
 def _evict_videos_for_new_result(
     conn: sqlite3.Connection,
     user_row: sqlite3.Row | None,
@@ -15905,6 +15906,8 @@ def _evict_videos_for_new_result(
     *,
     now: str,
 ) -> int:
+    if os.getenv("IZO_PREPROD_PRESERVE_HISTORY") == "1":
+        return 0
     quota = gallery_quota_for_user(conn, user_row, user_id)
     rows = video_storage.select_eviction_candidates(
         conn,
@@ -15915,11 +15918,9 @@ def _evict_videos_for_new_result(
         _queue_video_file_deletion(conn, row, now=now)
     return len(rows)
 
-
 def _claim_video_finalization(job_id: str, *, expected=None) -> tuple[bool, sqlite3.Row]:
     return video_storage.claim_finalization(db, job_id, stale_seconds=VIDEO_FINALIZATION_STALE_SECONDS,
                                             error_factory=HTTPException, expected=expected)
-
 
 def _release_video_finalization(job_id: str, error: str, *, expected, public_error=None):
     public_error = public_error if public_error is not None else video_presentation.public_video_error_message(error, provider="local_ltx") if expected["provider"] == "local_ltx" else error
@@ -16594,9 +16595,8 @@ def public_model_access_for_plan(plan: str, capability_catalog: list[dict[str, A
         mode_labels=PUBLIC_MODEL_MODE_LABELS,
         quality_presets=QUALITY_PRESETS,
         option_builder=_public_model_option,
-        quality_model=openrouter_quality_model,
+        quality_model=openrouter_quality_model, local_model_modes=("text_to_image",) if COMFYUI_NATIVE4B_ONLY else None,
     )
-
 
 @app.get("/api/model-access")
 async def model_access(request: Request) -> dict[str, Any]:

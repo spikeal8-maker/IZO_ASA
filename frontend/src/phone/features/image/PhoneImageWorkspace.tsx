@@ -142,13 +142,37 @@ export default function PhoneImageWorkspace({ offline }: { offline: boolean }) {
 
   const model = models.find((item) => item.id === modelId) || models[0] || { id: 'server:local_flux_klein', label: 'ИЗО Base', provider: 'comfyui' as const, modelProfile: 'local_flux_klein', tokenHint: 1, supportedResolutionIds: [] }
   const selectedSize = sizes[ratio][tier]
-  const tierAvailable = (value: Tier) => !model.supportedResolutionIds?.length || model.supportedResolutionIds.includes(sizes[ratio][value][0])
+  const availableResolutionIds = model.supportedResolutionIds || []
+  const availableResolutionKey = availableResolutionIds.join('|')
+  const tierAvailable = (value: Tier) => availableResolutionIds.includes(sizes[ratio][value][0])
+  const ratioAvailable = (value: Ratio) => (Object.keys(sizes[value]) as Tier[]).some((option) => availableResolutionIds.includes(sizes[value][option][0]))
+  useEffect(() => {
+    const allowed = availableResolutionKey.split('|').filter(Boolean)
+    if (allowed.includes(sizes[ratio][tier][0])) return
+    let nextRatio = ratio
+    let nextTier = (Object.keys(sizes[ratio]) as Tier[]).find((option) => allowed.includes(sizes[ratio][option][0]))
+    if (!nextTier) {
+      for (const candidateRatio of Object.keys(sizes) as Ratio[]) {
+        const candidateTier = (Object.keys(sizes[candidateRatio]) as Tier[]).find((option) => allowed.includes(sizes[candidateRatio][option][0]))
+        if (candidateTier) { nextRatio = candidateRatio; nextTier = candidateTier; break }
+      }
+    }
+    if (!nextTier) return
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setRatio(nextRatio)
+      if (nextTier) setTier(nextTier)
+    })
+    return () => { cancelled = true }
+  }, [model.id, availableResolutionKey, ratio, tier])
   const style = I2I_STYLES.find((item) => item.id === styleId)
 
   const generate = async () => {
     const mode = editorMode()
     const promptRequired = mode !== 'remove_background' && mode !== 'outpaint'
     if ((promptRequired && !prompt.trim()) || busy || recovering || offline) { if (promptRequired && !prompt.trim()) setError('Опишите, что нужно создать или изменить.'); return }
+    if (!tierAvailable(tier)) { setError('Выбранное разрешение недоступно для модели и тарифа.'); return }
     if (mode === 'image_to_image' && !sources.length) { setError('Добавьте исходное изображение.'); return }
     if (mode === 'edit' && sources.length < 2) { setError('Для совмещения нужно минимум два изображения.'); return }
     if (['inpaint', 'outpaint', 'remove_background'].includes(mode) && !sources.length) { setError('Добавьте исходное изображение.'); return }
@@ -187,12 +211,12 @@ export default function PhoneImageWorkspace({ offline }: { offline: boolean }) {
 
       <input ref={fileRef} hidden multiple type="file" accept="image/jpeg,image/png,image/webp" onChange={async (event) => { try { const added = await Promise.all(Array.from(event.target.files || []).slice(0, 4 - sources.length).map(fileToPhoneImage)); setSources((value) => [...value, ...added].slice(0, 4)); setTab('edit') } catch (caught) { setError(caught instanceof Error ? caught.message : 'Не удалось добавить изображение.') } event.target.value = '' }} />
       {tab === 'edit' && <PhoneImageEditor tool={editorTool} setTool={setEditorTool} source={sources[0]} faceStrength={faceStrength} setFaceStrength={setFaceStrength} mask={mask} setMask={setMask} outpaint={outpaint} setOutpaint={setOutpaint} />}
-      <div className="phone-image-prompt"><textarea value={prompt} maxLength={3000} placeholder="Например: сова в космосе, неоновые звёзды…" onChange={(event) => setPrompt(event.target.value)} /><button type="button" disabled={busy || recovering || offline || (!prompt.trim() && !['remove_background', 'outpaint'].includes(editorMode()))} onClick={() => void generate()}><Sparkles />{busy ? 'Создаём…' : retryAllowed ? 'Нужна проверка заданий' : recovering && !offline ? 'Проверяем задания…' : editorTool === 'remove_background' && tab === 'edit' ? 'Удалить фон' : editorTool === 'outpaint' && tab === 'edit' ? 'Расширить' : 'Сгенерировать'}<em className={phoneTokenClass(model.provider === 'comfyui' ? 'daily' : 'main')}>{model.tokenHint} ток.</em></button></div>
+      <div className="phone-image-prompt"><textarea value={prompt} maxLength={3000} placeholder="Например: сова в космосе, неоновые звёзды…" onChange={(event) => setPrompt(event.target.value)} /><button type="button" disabled={busy || recovering || offline || !tierAvailable(tier) || (!prompt.trim() && !['remove_background', 'outpaint'].includes(editorMode()))} onClick={() => void generate()}><Sparkles />{busy ? 'Создаём…' : retryAllowed ? 'Нужна проверка заданий' : recovering && !offline ? 'Проверяем задания…' : editorTool === 'remove_background' && tab === 'edit' ? 'Удалить фон' : editorTool === 'outpaint' && tab === 'edit' ? 'Расширить' : 'Сгенерировать'}<em className={phoneTokenClass(model.provider === 'comfyui' ? 'daily' : 'main')}>{model.tokenHint} ток.</em></button></div>
       {(error || retryAllowed) && <div className="phone-image-error">{error}{retryAllowed && <button type="button" style={{ position: 'static', display: 'block', width: '100%', height: 'auto', minHeight: 44, marginTop: 8 }} onClick={retryRecovery}>Повторить проверку заданий</button>}{error && <button type="button" aria-label="Закрыть" onClick={() => setError('')}><X /></button>}</div>}
       {notice && <div className="phone-image-notice">{notice}<button type="button" aria-label="Закрыть уведомление" onClick={() => setNotice('')}><X /></button></div>}
 
-      <section className="phone-image-options"><h2>Формат и качество</h2><div className="phone-image-ratios">{(['1:1', '9:16', '16:9', '3:2'] as Ratio[]).map((value) => <button className={ratio === value ? 'active' : ''} type="button" key={value} onClick={() => setRatio(value)}>{value}</button>)}</div><div className="phone-image-tiers">{(['SD', 'HD', 'Full HD', '4K'] as Tier[]).map((value) => <button className={tier === value ? 'active' : ''} disabled={!tierAvailable(value)} type="button" key={value} onClick={() => setTier(value)}><b>{value === 'Full HD' ? 'FHD' : value}</b><small>{sizes[ratio][value][1]}×{sizes[ratio][value][2]}</small></button>)}</div>
-        <label>Модель<select value={model.id} onChange={(event) => setModelId(event.target.value)}>{models.length ? models.map((item) => <option value={item.id} key={item.id}>{item.label} · {item.tokenHint} ток.</option>) : <option value={model.id}>{model.label} · {model.tokenHint} ток.</option>}</select><small>{model.provider === 'comfyui' ? 'Базовая модель ИЗО АСА на этом сервере' : 'Расширенная модель для особых задач'}</small></label>
+      <section className="phone-image-options"><h2>Формат и качество</h2><div className="phone-image-ratios">{(['1:1', '9:16', '16:9', '3:2'] as Ratio[]).map((value) => <button className={ratio === value ? 'active' : ''} type="button" key={value} disabled={!ratioAvailable(value)} title={!ratioAvailable(value) ? 'Недоступно для модели и тарифа' : undefined} onClick={() => setRatio(value)}>{value}</button>)}</div><div className="phone-image-tiers">{(['SD', 'HD', 'Full HD', '4K'] as Tier[]).map((value) => <button className={tier === value ? 'active' : ''} disabled={!tierAvailable(value)} type="button" key={value} onClick={() => setTier(value)}><b>{value === 'Full HD' ? 'FHD' : value}</b><small>{sizes[ratio][value][1]}×{sizes[ratio][value][2]}</small></button>)}</div>
+        <label>Модель<select value={model.id} onChange={(event) => setModelId(event.target.value)}>{models.length ? models.map((item) => <option value={item.id} key={item.id}>{item.label} · {item.tokenHint} ток.</option>) : <option value={model.id}>Нет доступных моделей</option>}</select><small>{model.provider === 'comfyui' && availableResolutionKey === 'sq-sd' ? 'На этом сервере: 704×704. Другие размеры — у совместимых моделей.' : model.provider === 'comfyui' ? 'Локальная модель ИЗО АСА' : 'Расширенная облачная модель'}</small></label>
       </section>
 
       <section className="phone-image-styles"><h2>Стиль</h2><div><button className={!styleId ? 'active none' : 'none'} type="button" onClick={() => setStyleId('')}><Check /><span>Нет</span></button>{I2I_STYLES.map((item) => <button className={styleId === item.id ? 'active' : ''} type="button" key={item.id} onClick={() => setStyleId(item.id)}><img src={item.preview.female} alt="" /><span>{styleShortLabel(item, 'ru')}</span></button>)}</div></section>

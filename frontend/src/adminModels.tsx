@@ -5,6 +5,7 @@ import Comfy214StatusOverview from './adminComfy214Status'
 // маршруты и user-choice сохраняются через /api/admin/settings/{key}.
 import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { AdminModelsNavigation } from './adminModelsNavigation'
+import { AdminOllamaPage } from './adminOllamaPage'
 import { saveOpenRouterKeyAction, checkOpenRouterKeyAction } from './openRouterAdminKey'
 import { OpenRouterAudioPage, OpenRouterThreeDPage } from './adminOpenRouterAuxPages'
 import {
@@ -1136,31 +1137,33 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
   }, [])
 
   useEffect(() => {
-    if ((pageTab === 'improve' || pageTab === 'api' || pageTab === 'config') && !assistantData) queueMicrotask(() => { void loadAssistants() })
+    if ((pageTab === 'improve' || pageTab === 'api' || pageTab === 'config' || pageTab === 'ollama') && !assistantData) queueMicrotask(() => { void loadAssistants() })
   }, [assistantData, loadAssistants, pageTab])
 
   const updateAssistantConfig = (next: AssistantConfig) => setAssistantData((current) => current ? { ...current, config: next } : current)
-  const saveAssistantConfig = async () => {
+  const saveAssistantConfig = async (scope: 'general' | 'ollama' = 'general') => {
     if (!assistantData) return
     setAssistantBusy(true)
     const publishedApiModels = assistantData.config.chat.publishedApiModels || assistantData.config.chat.enabledApiModels
-    const normalizedConfig = {
-      ...assistantData.config,
-      chat: {
-        ...assistantData.config.chat,
-        publishedApiModels,
-        enabledApiModels: [...publishedApiModels],
-      },
-    }
+    const normalizedConfig = scope === 'ollama'
+      ? { ...assistantData.config, chat: {
+          ...assistantData.config.chat,
+          localEnabled: Boolean(assistantData.ollama.ok && assistantData.config.chat.localEnabled),
+        } }
+      : { ...assistantData.config, chat: {
+          ...assistantData.config.chat,
+          publishedApiModels,
+          enabledApiModels: [...publishedApiModels],
+        } }
     await saveSetting('assistant_models', normalizedConfig, 'Настройки помощников')
     setAssistantBusy(false)
     await loadAssistants()
   }
-  const testPromptAssistant = async (provider: 'local' | 'api') => {
+  const testPromptAssistant = async (provider: 'local' | 'api', selectedLocalModel?: string) => {
     setAssistantBusy(true); setAssistantTestResult(null)
     const result = await amvFetch('/admin/assistants/test', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider, prompt: assistantTestPrompt, mode: 'text', config: assistantData?.config.improve }),
+      body: JSON.stringify({ provider, prompt: assistantTestPrompt, mode: 'text', config: provider === 'local' && selectedLocalModel ? { ...assistantData?.config.improve, localModel: selectedLocalModel } : assistantData?.config.improve }),
     }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) })).catch(() => null)
     setAssistantBusy(false)
     if (result?.status === 200) setAssistantTestResult(result.body as AssistantTestResult)
@@ -1238,7 +1241,10 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
     setTariffs(normalized)
     const expected = tariffKeys.every((plan) => tariffs[plan].allowed_resolutions.filter((id) => CONFIG_UI_RUNTIME_RESOLUTION_IDS.has(id)).sort().join('|') === [...normalized[plan].allowed_resolutions].sort().join('|'))
     if (!expected) { setMsg('Сервер вернул другие настройки разрешений — изменения не применены полностью'); return }
-    const profilesSaved = await saveSetting('server_model_profiles', { profiles: serverProfiles }, 'Параметры моделей Config UI')
+    const profiles = configStatus?.config_api?.native4b?.enabled
+      ? { ...serverProfiles, flux_klein_4b: { ...serverProfiles.flux_klein_4b, width: 704, height: 704, steps: 4, sampler: 'euler' } }
+      : serverProfiles
+    const profilesSaved = await saveSetting('server_model_profiles', { profiles }, 'Параметры моделей Config UI')
     setMsg(profilesSaved ? 'Разрешения и параметры Config UI сохранены и проверены' : 'Разрешения сохранены; параметры модели сохранить не удалось')
   }
   const saveMinMargin = async () => {
@@ -1584,6 +1590,18 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
     'Верни только JSON с одним строковым полем improved_prompt.',
   ].filter(Boolean).join(' ') : ''
   const assistantPreviewUser = JSON.stringify({ prompt: assistantTestPrompt.trim(), technical_context: null }, null, 2)
+  const ollamaPanel = <AdminOllamaPage
+    data={assistantData}
+    busy={assistantBusy}
+    testPrompt={assistantTestPrompt}
+    testResult={assistantTestResult}
+    onChangePrompt={setAssistantTestPrompt}
+    onChangeChat={(patch) => assistantData && updateAssistantConfig({
+      ...assistantData.config, chat: { ...assistantData.config.chat, ...patch } })}
+    onSave={() => void saveAssistantConfig('ollama')}
+    onRefresh={() => void loadAssistants()}
+    onTest={() => void testPromptAssistant('local', assistantData?.config.chat.localModel)}
+  />
   return <div className="amv2">
     <style>{CSS}</style>
     {msg && <p style={{ color: 'var(--lime)', fontSize: 12, margin: '0 0 8px' }}>{msg}</p>}
@@ -1593,6 +1611,8 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
         <span className="state ok">billing: {backendPricedCount} моделей</span>
         <button className={`state ${exchangeStateClass}`} disabled={exchangeBusy} onClick={refreshExchange}>{exchangeBusy ? 'обновляю курс…' : `${exchangeStateText}: ${effectiveRateText}`}</button>
       </div> : undefined} />
+
+    {pageTab === 'ollama' && ollamaPanel}
 
     {pageTab === 'improve' && !assistantData && <div className="models-page-loading">Загружаем настройки улучшения промпта…</div>}
 
@@ -1653,28 +1673,7 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
       <button className={configSection === 'text' ? 'active' : ''} onClick={() => setConfigSection('text')}>Текст</button>
     </div>
 
-    {configSection === 'text' && <section className="server-layout">
-      <article className="card">
-        <div className="card-head"><div><h2 className="card-title">Локальная текстовая модель</h2><p className="card-note">Пользователь видит название «ИЗО Чат», техническая модель работает через Ollama на RTX 4070.</p></div></div>
-        {!assistantData ? <p className="hint">Загружаем состояние Ollama…</p> : <div className="assistant-form">
-          <div className="assistant-summary">
-            <div><span>Ollama</span><strong>{assistantData.ollama.ok ? 'работает' : 'не отвечает'}</strong><small>{assistantData.ollama.baseUrl}</small></div>
-            <div><span>Модель в памяти</span><strong>{assistantData.ollamaResidency.models.some((m) => (m.name || m.model) === assistantData.config.chat.localModel) ? 'да' : 'нет'}</strong><small>{assistantData.config.chat.localModel}</small></div>
-            <div><span>Тариф</span><strong>Бесплатно</strong><small>Базовый локальный чат не расходует дневные и основные токены.</small></div>
-          </div>
-          <div className="two-col">
-            <div className="field"><label>Название для пользователя</label><input value={assistantData.config.chat.localLabel} onChange={(e) => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, localLabel: e.target.value } })} /></div>
-            <div className="field"><label>Техническая модель Ollama</label><select value={assistantData.config.chat.localModel} onChange={(e) => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, localModel: e.target.value } })}>{assistantData.ollama.models.filter((m) => m.name && !(m.name || '').endsWith(':cloud')).map((m) => <option key={m.name} value={m.name}>{m.name}</option>)}</select></div>
-            <div className="field"><label>Цена базового ответа</label><input type="text" value="Бесплатно" disabled /></div>
-            <div className="field"><label>Таймаут, секунд</label><input type="number" min="10" max="180" value={assistantData.config.chat.localTimeoutSeconds} onChange={(e) => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, localTimeoutSeconds: Number(e.target.value) } })} /></div>
-            <div className="field"><label>История диалога, символов</label><input type="number" min="4000" max="240000" step="1000" value={assistantData.config.chat.contextChars} onChange={(e) => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, contextChars: Number(e.target.value) } })} /><small>60 000 символов — примерно 15 000 токенов текста.</small></div>
-            <div className="field"><label>Контекст Ollama, токенов</label><input type="number" min="4096" max="32768" step="1024" value={assistantData.config.chat.localNumCtx} onChange={(e) => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, localNumCtx: Number(e.target.value) } })} /><small>Увеличение требует больше видеопамяти; проверяйте загрузку RTX 4070.</small></div>
-          </div>
-          <label className="resolution-plan"><input type="checkbox" checked={assistantData.config.chat.enabled && assistantData.config.chat.localEnabled} onChange={(e) => updateAssistantConfig({ ...assistantData.config, chat: { ...assistantData.config.chat, enabled: e.target.checked, localEnabled: e.target.checked } })} /><span>Доступна пользователям в чате</span></label>
-          <button className="primary" disabled={assistantBusy} onClick={() => void saveAssistantConfig()}>{assistantBusy ? 'Сохраняю…' : 'Сохранить текстовую модель'}</button>
-        </div>}
-      </article>
-    </section>}
+    {configSection === 'text' && ollamaPanel}
 
     {configSection === 'video' && <section className="server-layout">
       <article className="card">
@@ -1778,7 +1777,7 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
     </article>
 
     <article className="card">
-      <div className="card-head"><div><h2 className="card-title">Разрешения и настройки Config UI</h2><p className="card-note">SD, HD и Full HD доступны для Klein 9B/4B. Галочки определяют доступность разрешений по тарифам.</p></div><button className="primary" onClick={() => void saveConfigUiSettings()}>Сохранить параметры</button></div>
+      <div className="card-head"><div><h2 className="card-title">Разрешения и настройки Config UI</h2><p className="card-note">Галочки задают права тарифа, а не возможности каждой модели. {configStatus?.config_api?.native4b?.enabled ? 'На этом сервере локальная Klein 4B работает только в профиле 704×704 / 4 шага. Дополнительные размеры возможны у совместимых моделей.' : 'Реальный список размеров зависит от выбранной модели и провайдера.'}</p></div><button className="primary" onClick={() => void saveConfigUiSettings()}>Сохранить параметры</button></div>
       <div className="resolution-matrix">
         <table>
           <thead><tr><th>Формат</th>{CONFIG_RESOLUTION_TIERS.map((tier) => <th key={tier}>{IMAGE_RESOLUTIONS.find((item) => item.tier === tier)?.tierLabel}</th>)}</tr></thead>
@@ -1804,13 +1803,14 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
       <div className="config-profiles">{(['9B', '4B'] as const).map((profileKey) => {
         const active = globalLocalProfile.toLowerCase().endsWith(profileKey.toLowerCase())
         const profileId = profileKey === '9B' ? 'flux_klein_9b' : 'flux_klein_4b'
+        const native4bRestricted = profileKey === '4B' && !!configStatus?.config_api?.native4b?.enabled
         const settings = serverProfiles[profileId] || { width: 1024, height: 1024, steps: 4, sampler: 'er_sde', seedMode: 'random', seed: 42 }
         return <section className={`config-profile ${active ? 'active' : ''}`} key={profileKey}>
           <div className="config-profile-head"><h3>FLUX.2 Klein {profileKey}</h3><span className={`state ${active ? 'ok' : ''}`}>{active ? 'используется' : 'не загружена'}</span></div>
           <div className="config-fields">
-            <div className="config-field"><label>Разрешение по умолчанию</label><select value={`${settings.width}x${settings.height}`} onChange={(e) => { const [width, height] = e.target.value.split('x').map(Number); updateServerProfile(profileId, { width, height }) }}>{IMAGE_RESOLUTIONS.map((option) => <option key={option.id} value={`${option.width}x${option.height}`}>{resolutionLabel(option)}</option>)}</select></div>
-            <div className="config-field"><label>Количество шагов</label><input type="number" min="1" max="80" value={settings.steps} onChange={(e) => updateServerProfile(profileId, { steps: Number(e.target.value) })} /></div>
-            <div className="config-field"><label>Sampler</label><select value={settings.sampler} onChange={(e) => updateServerProfile(profileId, { sampler: e.target.value })}><option value="er_sde">ER-SDE</option><option value="euler">Euler</option><option value="dpmpp_2m">DPM++ 2M</option></select></div>
+            <div className="config-field"><label>Разрешение по умолчанию</label><select value={native4bRestricted ? '704x704' : `${settings.width}x${settings.height}`} disabled={native4bRestricted} onChange={(e) => { const [width, height] = e.target.value.split('x').map(Number); updateServerProfile(profileId, { width, height }) }}>{IMAGE_RESOLUTIONS.filter((option) => !native4bRestricted || option.id === 'sq-sd').map((option) => <option key={option.id} value={`${option.width}x${option.height}`}>{resolutionLabel(option)}</option>)}</select></div>
+            <div className="config-field"><label>Количество шагов</label><input type="number" min="1" max="80" value={native4bRestricted ? 4 : settings.steps} disabled={native4bRestricted} onChange={(e) => updateServerProfile(profileId, { steps: Number(e.target.value) })} /></div>
+            <div className="config-field"><label>Sampler</label><select value={native4bRestricted ? 'euler' : settings.sampler} disabled={native4bRestricted} onChange={(e) => updateServerProfile(profileId, { sampler: e.target.value })}><option value="er_sde">ER-SDE</option><option value="euler">Euler</option><option value="dpmpp_2m">DPM++ 2M</option></select></div>
             <div className="config-field"><label>Seed</label><select value={settings.seedMode} onChange={(e) => updateServerProfile(profileId, { seedMode: e.target.value as 'random' | 'fixed' })}><option value="random">Случайный при каждой генерации</option><option value="fixed">Фиксированный</option></select></div>
             {settings.seedMode === 'fixed' && <div className="config-field"><label>Фиксированный seed</label><input type="number" min="0" value={settings.seed} onChange={(e) => updateServerProfile(profileId, { seed: Number(e.target.value) })} /></div>}
           </div>

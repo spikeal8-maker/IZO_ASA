@@ -1,0 +1,147 @@
+# D2R2-PREPROD-INTEGRATION-001: single localhost application; one isolated network.
+# Combine reviewed OpenRouter HTTPS proxy and existing native4b bridge in the
+# same private namespace, with a new exact, default-deny nftables egress policy.
+services:
+  guard:
+    image: izo-asa-preprod216-guard:${IZO_SOURCE_SHA:?exact source sha required}
+    build:
+      context: ../../..
+      dockerfile: ops/docker/dev/Dockerfile.guard.preprod216
+      args:
+        IZO_SOURCE_SHA: ${IZO_SOURCE_SHA}
+    depends_on:
+      proxy:
+        condition: service_healthy
+    networks:
+      shadow:
+        ipv4_address: 10.249.221.2
+    ports:
+      - "127.0.0.1:${IZO_PREPROD_COMFY_BRIDGE_PORT:?bridge port required}:18889"
+    labels:
+      io.izo.owner: D2R2-PREPROD-INTEGRATION-001
+      io.izo.project: ${IZO_COMPOSE_PROJECT}
+
+  proxy:
+    image: izo-asa-preprod216-proxy:${IZO_SOURCE_SHA}
+    build:
+      context: ../../..
+      dockerfile: ops/docker/dev/Dockerfile.proxy.openrouter
+      args:
+        IZO_SOURCE_SHA: ${IZO_SOURCE_SHA}
+    user: "10001:10001"
+    read_only: true
+    restart: "no"
+    cpus: 0.3
+    mem_limit: 128m
+    pids_limit: 64
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks:
+      shadow:
+        ipv4_address: 10.249.221.3
+    labels:
+      io.izo.owner: D2R2-PREPROD-INTEGRATION-001
+      io.izo.project: ${IZO_COMPOSE_PROJECT}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; sock=socket.create_connection(('127.0.0.1',3128),2); sock.close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    depends_on:
+      bridge:
+        condition: service_healthy
+    environment:
+      APP_ENV: test
+      ENV: test
+      MODE: test
+      BOT_MODE: disabled
+      BOT_UPDATES_MODE: disabled
+      MAX_UPDATES_MODE: disabled
+      MAX_POLLING_ENABLED: "false"
+      TELEGRAM_POLLING_ENABLED: "false"
+      COMFYUI_BASE_URL: http://127.0.0.1:18888
+      COMFYUI_NATIVE4B_ONLY: "true"
+      IZO_PREPROD_PRESERVE_HISTORY: "1"
+      COMFYUI_MOCK_FALLBACK: "false"
+      COMFYUI_REQUIRED: "true"
+      OPENROUTER_BASE_URL: https://openrouter.ai/api/v1
+      HTTPS_PROXY: http://10.249.221.3:3128
+      https_proxy: http://10.249.221.3:3128
+      OLLAMA_BASE_URL: http://127.0.0.1:1
+      IZO_OPENAI_MASTER_KEY_FILE: /home/izo/master/openai.key
+      YOOKASSA_SECRET_KEY: ""
+      YOOKASSA_SHOP_ID: ""
+      PAYMENT_PROVIDER_TOKEN: ""
+      LOCAL_LTX_ENABLED: "false"
+      BACKEND_PUBLIC_URL: ""
+      RUNTIME_ALERT_WEBHOOK_URL: ""
+    volumes:
+      - type: volume
+        source: openrouter-secrets
+        target: /home/izo/secrets
+      - type: volume
+        source: openrouter-master
+        target: /home/izo/master
+        read_only: true
+      - type: volume
+        source: seed-data
+        target: /opt/izo/backend/seed/feed
+        read_only: true
+
+  bridge:
+    image: izo-asa-preprod216-comfy-bridge:${IZO_SOURCE_SHA}
+    build:
+      context: ../../..
+      dockerfile: ops/docker/dev/Dockerfile.comfy214
+      args:
+        IZO_SOURCE_SHA: ${IZO_SOURCE_SHA}
+    user: "10001:10001"
+    read_only: true
+    restart: "no"
+    tmpfs: [/tmp]
+    cpus: 0.3
+    mem_limit: 128m
+    pids_limit: 48
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    network_mode: service:guard
+    depends_on:
+      guard:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: ${IZO_PREPROD_BRIDGE_TOKEN_FILE:?preprod token required}
+        target: /run/bridge/token
+        read_only: true
+    environment:
+      COMFY214_BRIDGE_TOKEN_FILE: /run/bridge/token
+    labels:
+      io.izo.owner: D2R2-PREPROD-INTEGRATION-001
+      io.izo.project: ${IZO_COMPOSE_PROJECT}
+    healthcheck:
+      test: [CMD, python, -c, "import json,urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:18888/bridge/health',timeout=2))['ok']"]
+      interval: 4s
+      timeout: 3s
+      retries: 20
+
+networks:
+  shadow:
+    ipam:
+      config:
+        - subnet: 10.249.221.0/28
+
+volumes:
+  openrouter-secrets:
+    labels:
+      io.izo.owner: D2R2-PREPROD-INTEGRATION-001
+      io.izo.project: ${IZO_COMPOSE_PROJECT}
+  openrouter-master:
+    labels:
+      io.izo.owner: D2R2-PREPROD-INTEGRATION-001
+      io.izo.project: ${IZO_COMPOSE_PROJECT}
+  seed-data:
+    labels:
+      io.izo.owner: D2R2-PREPROD-INTEGRATION-001
+      io.izo.project: ${IZO_COMPOSE_PROJECT}
