@@ -76,6 +76,10 @@ export function acknowledgeImageGenerationCommand(scope: ImageCommandScope, key:
   if (pending?.key === key) writePending(scope, { ...pending, acceptedJobId: jobId })
 }
 
+export function getAcceptedImageGenerationJob(scope: ImageCommandScope): string | null {
+  return readPending(scope)?.acceptedJobId || null
+}
+
 export function completeImageGenerationCommand(scope: ImageCommandScope, jobId: string): void {
   const pending = readPending(scope)
   if (pending?.acceptedJobId === jobId) sessionStorage.removeItem(keyFor(scope))
