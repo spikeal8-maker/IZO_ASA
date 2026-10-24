@@ -9,6 +9,7 @@ nonGoals = ["Install/modify ComfyUI program, Python, models or CUDA drivers", "A
 declaredFiles = [
   "tasks/COMFYUI-BRIDGE-D2R2-001.toml",
   "backend/main.py",
+  "backend/app/integrations/__init__.py",
   "backend/app/integrations/comfyui_client.py",
   "backend/app/services/comfyui_native4b.py",
   "backend/app/services/comfyui_workflows.py",
@@ -39,7 +40,12 @@ maxProductionFiles = 7
 maxChangedLines = 2300
 acceptance = ["Worktree remains stacked from verified PR211 3f041ca8c2989e53cbd469dfbe29131a63279ae2; never write upstream PR211/main.", "ComfyUI remains Windows-host local only; existing models/paths untouched.", "Only one strict native 4B text-to-image graph allowed; 9B, custom nodes, uploads and arbitrary Comfy endpoints denied.", "Host outbound-polling relay with random secret, allowlisted routes, bounded payloads and only candidate loopback port; no general Docker egress.", "Backend imageEnabled disabled rejects before provider submission; OpenRouter paths unchanged.", "Candidate-only isolated fresh volumes, no Yandex data or OpenRouter key reuse; exact images labeled commit SHA.", "Real desktop/mobile Chromium Studio generation through durable API and verified saved PNG/one billing effect.", "Negative tests reject unknown endpoint, malformed graph, wrong token, missing models, transport loss, duplicate submit and cancellation.", "Git scope/hygiene, targeted unit/lint/build, independent review and Draft PR with true CI status."]
 requiredEvidence = ["exact base and head commit", "strict bridge allowlist and security test", "fresh candidate source image IDs, network guard verified", "Comfy /prompt ID, /history success, /view PNG SHA256", "isolated job, gallery, token balance before/after", "desktop and mobile screenshots", "Ollama and original Shadows before/after", "independent review report separate from implementer"]
-targetedTests = ["backend/test_comfyui_native4b.py", "backend/test_comfyui_bridge_security.py", "backend/test_comfyui_adapter.py", "backend/test_integrations_comfyui_client.py", "frontend/e2e-comfy214.mjs"]
+targetedTests = ["backend/test_comfyui_native4b.py", "backend/test_comfyui_bridge_security.py", "backend/test_comfyui_adapter.py", "backend/test_integrations_comfyui_client.py", "backend/test_generation_worker_process.py", "frontend/e2e-comfy214.mjs"]
 fileGrowthExpectations = ["Small bounded native 4B adapter; no monolith growth without offsetting extraction.", "Isolated candidate-only reverse polling service and companion host agent; no global Docker settings.", "Config UI adds real queue/installed models/readiness within existing page."]
 forbiddenOperations = ["direct-main", "production-deploy", "owner-data-mount", "real-financial-call", "comfy-reinstall", "model-download", "global-network-change", "shadow-210-mutation", "shadow-209-mutation", "shadow-1021-mutation"]
 rollbackBoundary = "Stop candidate-only bridge/agent and remove only owned new candidate containers/volumes after receipt; no changes to ComfyUI or any earlier Shadows."
+
+[[scopeExpansions]]
+path = "backend/app/integrations/__init__.py"
+reason = "Owner #214 requested fixing all eight baseline worker tests; prevent IPC worker entry from eagerly importing provider facade and sqlite3 without relaxing worker import assertions."
+recordedAtUtc = "2026-10-24T08:40:54Z"

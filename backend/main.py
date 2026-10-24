@@ -16549,11 +16549,9 @@ def _public_model_option(model_id: str, capability: dict[str, Any] | None = None
             "provider": "comfyui",
             "modelProfile": "local_flux_klein",
             "tokenHint": 1,
-            "supportedResolutionIds": (
-                comfyui_native4b.supported_resolution_ids(IMAGE_RESOLUTIONS)
-                if COMFYUI_NATIVE4B_ONLY
-                else [item["id"] for item in IMAGE_RESOLUTIONS if item["tier"] != "four_k"]
-            ),
+            "supportedResolutionIds": (comfyui_native4b.supported_resolution_ids(IMAGE_RESOLUTIONS)
+                                       if COMFYUI_NATIVE4B_ONLY else
+                                       [item["id"] for item in IMAGE_RESOLUTIONS if item["tier"] != "four_k"]),
             "generation": {
                 "fixedSteps": LOCAL_TEXT_TO_IMAGE_STEPS,
                 "allowsExactRepeat": False,
