@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { webcrypto } from 'node:crypto'
 import { beforeEach, test } from 'node:test'
-import { beginImageGenerationCommand, acknowledgeImageGenerationCommand, rejectImageGenerationCommand } from './src/studio/imageGenerationCommand.ts'
+import { beginImageGenerationCommand, acknowledgeImageGenerationCommand, completeImageGenerationCommand, getAcceptedImageGenerationJob, rejectImageGenerationCommand } from './src/studio/imageGenerationCommand.ts'
 
 const values = new Map()
 globalThis.sessionStorage = {
@@ -38,9 +38,18 @@ test('changed request with unresolved key fails closed rather than creating a pa
   assert.equal((await beginImageGenerationCommand('phone', { prompt: 'original' })).key, first.key)
 })
 
-test('an acknowledged operation and an explicit subsequent launch get different keys', async () => {
+test('an accepted job survives F5 and is not posted again until terminal completion', async () => {
   const first = await beginImageGenerationCommand('desktop', { prompt: 'again' })
-  acknowledgeImageGenerationCommand('desktop', first.key)
+  acknowledgeImageGenerationCommand('desktop', first.key, 'job_accepted_1')
+  const recovered = await beginImageGenerationCommand('desktop', { prompt: 'again' })
+  assert.equal(recovered.key, first.key)
+  assert.equal(recovered.acceptedJobId, 'job_accepted_1')
+  assert.equal(getAcceptedImageGenerationJob('desktop'), 'job_accepted_1')
+  rejectImageGenerationCommand('desktop', first.key, 401)
+  assert.equal(getAcceptedImageGenerationJob('desktop'), 'job_accepted_1')
+  completeImageGenerationCommand('desktop', 'job_unrelated')
+  assert.equal(getAcceptedImageGenerationJob('desktop'), 'job_accepted_1')
+  completeImageGenerationCommand('desktop', 'job_accepted_1')
   const second = await beginImageGenerationCommand('desktop', { prompt: 'again' })
   assert.notEqual(second.key, first.key)
 })
