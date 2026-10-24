@@ -1,6 +1,7 @@
 import { useEffect, useState, type RefObject } from 'react'
 
 import { loadPhoneJobs, waitForPhoneJob, type PhoneJob } from '../../core/jobs.ts'
+import { completeImageGenerationCommand, getAcceptedImageGenerationJob } from '../../../studio/imageGenerationCommand.ts'
 
 type RecoveryState = { offline: boolean; phase: 'checking' | 'failed' | 'ready' }
 type RecoveryOptions = {
@@ -30,12 +31,15 @@ export function usePhoneImageRecovery({ offline, jobObserver: jobObserverRef, co
       void loadPhoneJobs(true, controller.signal).then(async (items) => {
         controller.signal.throwIfAborted()
         setRecovery({ offline, phase: 'ready' })
+        const acceptedId = getAcceptedImageGenerationJob('phone')
         const active = items.find((item) => item.modality === 'image' && !item.terminal)
-        if (!active) return
-        setBusy(true); setProgress(active.progress); setError(''); setResult(''); setResultId('')
-        const job = await waitForPhoneJob(active.id, { signal: controller.signal,
+        const jobId = acceptedId || active?.id
+        if (!jobId) return
+        setBusy(true); setProgress(active?.id === jobId ? active.progress : 0); setError(''); setResult(''); setResultId('')
+        const job = await waitForPhoneJob(jobId, { signal: controller.signal,
           onChange: (value) => setProgress(value.progress) })
         terminalObserved = job.terminal
+        if (job.terminal) completeImageGenerationCommand('phone', job.id)
         completeImage(job, controller.signal)
       }).catch((caught) => {
         if (controller.signal.aborted) return

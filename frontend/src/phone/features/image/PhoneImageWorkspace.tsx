@@ -95,6 +95,7 @@ export default function PhoneImageWorkspace({ offline }: { offline: boolean }) {
   const [progress, setProgress] = useState(0)
   const [busy, setBusy] = useState(false)
   const jobObserver = useRef<AbortController | null>(null)
+  const submissionGuard = useRef(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [viewer, setViewer] = useState(false)
@@ -171,7 +172,7 @@ export default function PhoneImageWorkspace({ offline }: { offline: boolean }) {
   const generate = async () => {
     const mode = editorMode()
     const promptRequired = mode !== 'remove_background' && mode !== 'outpaint'
-    if ((promptRequired && !prompt.trim()) || busy || recovering || offline) { if (promptRequired && !prompt.trim()) setError('Опишите, что нужно создать или изменить.'); return }
+    if ((promptRequired && !prompt.trim()) || submissionGuard.current || busy || recovering || offline) { if (promptRequired && !prompt.trim()) setError('Опишите, что нужно создать или изменить.'); return }
     if (!tierAvailable(tier)) { setError('Выбранное разрешение недоступно для модели и тарифа.'); return }
     if (mode === 'image_to_image' && !sources.length) { setError('Добавьте исходное изображение.'); return }
     if (mode === 'edit' && sources.length < 2) { setError('Для совмещения нужно минимум два изображения.'); return }
@@ -179,6 +180,7 @@ export default function PhoneImageWorkspace({ offline }: { offline: boolean }) {
     if (mode === 'inpaint' && !mask) { setError('Закрасьте область, которую нужно изменить.'); return }
     if (mode === 'outpaint' && !Object.values(outpaint).some((value) => value > 0)) { setError('Задайте поле расширения.'); return }
     if (editorTool === 'face' && !faceLora) { setError('Модуль лица временно недоступен. Попробуйте ещё раз позже.'); return }
+    submissionGuard.current = true
     const controller = new AbortController()
     let terminalObserved = false
     jobObserver.current?.abort(); jobObserver.current = controller
@@ -198,7 +200,7 @@ export default function PhoneImageWorkspace({ offline }: { offline: boolean }) {
         setError(caught instanceof Error ? caught.message : 'Генерация временно недоступна.')
       }
     }
-    finally { if (!controller.signal.aborted) setBusy(false) }
+    finally { submissionGuard.current = false; if (!controller.signal.aborted) setBusy(false) }
   }
 
   return <section className="phone-image" data-phone-workspace="image">
