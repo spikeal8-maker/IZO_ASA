@@ -93,7 +93,7 @@ import {
   STYLE_PREFIX,
 } from './studio/studioHelpers'
 import { readStudioDraft } from './studio/studioDraft'
-import { beginImageGenerationCommand, acknowledgeImageGenerationCommand, completeImageGenerationCommand, rejectImageGenerationCommand } from './studio/imageGenerationCommand'
+import { beginImageGenerationCommand, acknowledgeImageGenerationCommand, completeImageGenerationCommand, getAcceptedImageGenerationJob, rejectImageGenerationCommand } from './studio/imageGenerationCommand'
 import {
   comfySafeGenerationSize,
   composeI2IEditPrompt,
@@ -1146,6 +1146,28 @@ export default function NewStudio(): ReactElement {
       if (!(await ensureAuthed())) return
       setIsSubmitting(true)
       setNotice('')
+      const priorJobId = getAcceptedImageGenerationJob('desktop')
+      if (priorJobId) {
+        const receipt = await apiFetch(`/jobs/${encodeURIComponent(priorJobId)}`)
+        if (!receipt.ok) {
+          setNotice('Не удалось проверить прежнюю генерацию. Новый платный запуск заблокирован.')
+          return
+        }
+        const previous = normalizeGeneration(await receipt.json())
+        if (!previous || previous.id !== priorJobId) {
+          setNotice('Прежнюю генерацию пока не удалось подтвердить. Проверьте задания.')
+          return
+        }
+        if (previous.status === 'completed' || previous.status === 'failed' || previous.status === 'cancelled') {
+          completeImageGenerationCommand('desktop', priorJobId)
+          setNotice('Предыдущая генерация завершена. Проверьте историю; для нового запуска нажмите ещё раз.')
+          void fetchGallery()
+        } else {
+          setJob(previous)
+          setNotice('Продолжаем ранее принятую генерацию без повторного списания.')
+        }
+        return
+      }
       const style = I2I_STYLES.find((s) => s.id === styleId)
       const steps = mode === 'text' && typeof selectedModel.generation?.fixedSteps === 'number'
         ? selectedModel.generation.fixedSteps
