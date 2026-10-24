@@ -24,6 +24,8 @@ declaredFiles = [
   "ops/windows/start-preprod216-comfy-agent.ps1",
   "tools/preprod216_restore_clone.py",
   "tools/preprod216_verify_runtime.py",
+  "tools/preprod216_repair_thumb.py",
+  "tools/test_preprod216_repair_thumb.py",
   "tools/test_preprod216_contract.py",
   "docs/preprod216-integration.md",
   "docs/generated/architecture-inventory.json",
@@ -93,3 +95,13 @@ forbiddenOperations = [
   "existing-secret-volume-mount",
 ]
 rollbackBoundary = "Stop and delete only izo-asa-preprod-d2r2-001 containers and its owned test resources after preserving evidence; do not modify or remove original restore/candidate/production volumes and processes."
+
+[[scopeExpansions]]
+path = "tools/preprod216_repair_thumb.py"
+reason = "Owner Issue #216 requests investigation and repair of exactly one missing private thumbnail inside the new writable clone, with immutable source and ownership checks."
+recordedAtUtc = "2026-10-24T11:16:55Z"
+
+[[scopeExpansions]]
+path = "tools/test_preprod216_repair_thumb.py"
+reason = "Independent deterministic fixture checks for same-user ownership, path validation, dry-run and atomic no-overwrite thumbnail repair."
+recordedAtUtc = "2026-10-24T11:16:55Z"

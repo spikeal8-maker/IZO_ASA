@@ -33,3 +33,11 @@ The final operational acceptance requires a **single, authenticated site** prese
 Snapshot and new candidate data remain private. A separate independent reviewer must check CSRF/auth, private-media isolation, outbound allowlists, Comfy host ownership and financial idempotency. GitHub Actions was previously blocked on the owner's billing/spending limit; local tests do not replace required hosted gates. Integration PR stays Draft and `main` untouched until all gates are fulfilled.
 
 **Rollback:** stop only the preprod216 Docker project and its owned Windows agent; preserve receipts and named volumes until separately authorized deletion. Do not remove 48155/48145/48214/48135/48125 containers or their data, and do not alter the baseline.
+
+## One known missing private thumbnail — scoped repair procedure
+
+A read-only audit found exactly one historic `image_sources.thumb_url` referring to a missing private 384×384 WebP. The corresponding image belongs to the same user as its source and has a valid separate 512×512 WebP thumbnail. Historic private URLs contain a `userId` query: the repair parser preserves and validates this owner constraint; it does not treat the query as disposable. No private image, name, ID or path is published.
+
+`tools/preprod216_repair_thumb.py` defaults to **dry-run**, requires exactly one missing thumbnail, verifies matching ownership, safe relative path, image content and size, and refuses to overwrite existing targets. Apply is permitted **only with the preprod216 site stopped, its owned media volume writable, candidate DB read-only, and a private receipt output in the same candidate's data volume**. Generated thumbnail is a single derived WebP, not a replacement for an original user image or a database mutation. `tools/preprod216_verify_runtime.py` accepts 2564 baseline media and exactly one new derivative only with a matching private receipt, SHA and byte size. The source baseline and old 48155 preview remain untouched.
+
+The completed repair and authenticated private gallery display are distinct gates. A successful file-level repair does not prove that the historic user sees the thumbnail in the browser until legitimate account login is performed.

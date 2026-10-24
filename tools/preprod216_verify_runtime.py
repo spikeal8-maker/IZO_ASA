@@ -6,8 +6,9 @@ private paths, credentials or media bytes. Fails closed on count drift.
 from __future__ import annotations
 
 import argparse
+from hashlib import sha256
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import sqlite3
 
 EXPECTED = {
@@ -61,8 +62,32 @@ def verify(database: Path, media: Path, receipt_path: Path) -> dict:
     finally:
         db.close()
 
+    # This separate own-volume receipt documents exactly one replacement for
+    # a historically missing private WebP. Original 2564 source media remain.
+    derived = 0
+    thumb_receipt = receipt_path.with_name("preprod216_thumbnail_repair_receipt.json")
+    if thumb_receipt.exists():
+        detail = json.loads(thumb_receipt.read_text(encoding="utf-8"))
+        relative = PurePosixPath(detail["relative_media_path"])
+        if (relative.is_absolute() or ".." in relative.parts
+                or not detail.get("derived_from_existing_same_owner_thumbnail")
+                or not detail.get("applied")
+                or detail.get("target_size") != [384, 384]):
+            raise RuntimeError("PREPROD216_INVALID_REPAIR_RECEIPT")
+        target = (media / Path(*relative.parts)).resolve(strict=True)
+        try:
+            target.relative_to(media.resolve(strict=True))
+        except ValueError as exc:
+            raise RuntimeError("PREPROD216_UNOWNED_REPAIR_PATH") from exc
+        if not target.is_file() or target.is_symlink():
+            raise RuntimeError("PREPROD216_REPAIR_FILE_MISSING")
+        if sha256(target.read_bytes()).hexdigest() != detail["sha256"]:
+            raise RuntimeError("PREPROD216_REPAIR_SHA_MISMATCH")
+        if target.stat().st_size != detail["bytes"]:
+            raise RuntimeError("PREPROD216_REPAIR_SIZE_MISMATCH")
+        derived = 1
     media_files = sum(file.is_file() for file in media.rglob("*"))
-    if media_files != receipt["copied_media_files"] or media_files != 2564:
+    if media_files != receipt["copied_media_files"] + derived:
         raise RuntimeError("PREPROD216_MEDIA_COUNT_DRIFT")
     return {
         "ok": True,
@@ -70,6 +95,7 @@ def verify(database: Path, media: Path, receipt_path: Path) -> dict:
         "historic_counts": counts,
         "feed_published": published,
         "media_files": media_files,
+        "derived_private_thumbnail_count": derived,
         "historical_sessions_active": imported_sessions,
         "copied_media_bytes": receipt["copied_media_bytes"],
         "copied_source_sha256": receipt["source_database_sha256"],
