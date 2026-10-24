@@ -305,7 +305,7 @@ class WorkerClaimIntegrationTests(ClaimDatabase, unittest.TestCase):
                 payload.__dict__.update(mode=mode, inputImage1="first", inputImage2="second",
                     maskImage=None, outpaintMask=None, canvas=None, inputImages=[], model_copy=clone)
                 namespace = {"generation_worker": generation_worker, "COMFYUI_MOCK_FALLBACK": True,
-                    "generation_bootstrap": generation_bootstrap,
+                    "COMFYUI_NATIVE4B_ONLY": False, "generation_bootstrap": generation_bootstrap,
                     "os": SimpleNamespace(environ={"IZO_PROCESS_ROLE": "combined"}),
                     "COMFYUI_REQUIRED": True, "COMFYUI_FACE_INPUT_MAX_SIDE": 512,
                     "_saved_setting": lambda _name: {}, "wait_for_comfyui_recovery_gate": available,
