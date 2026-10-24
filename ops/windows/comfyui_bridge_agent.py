@@ -166,27 +166,32 @@ def process_task(opener, task, comfy, memory):
                     if (key[1] == "Comfy214" and isinstance(key[0], str)
                             and _IMAGE_RE.fullmatch(key[0])):
                         memory["images"].add(key)
-            # A definite GPU execution failure frees the local single-flight slot.
-            # Missing/partial history is uncertain and MUST NOT free it or resubmit.
-            if (item.get("status", {}).get("status_str") == "error"
-                    and memory["active"] == pid):
+            # Only Comfy's definitive terminal history can release this prompt.
+            # A missing/partial history is ambiguous: retain the ownership fence.
+            outcome = item.get("status", {})
+            complete = (outcome.get("status_str") == "error"
+                        or (outcome.get("status_str") == "success"
+                            and outcome.get("completed") is True))
+            own_terminal = complete and memory["active"] == pid
+            if own_terminal:
                 memory["active"] = None
             save_memory(memory)
+            # Free owned 4B VRAM when idle even if /view later fails. Never
+            # unload another queued job, and never resubmit a prior /prompt.
+            if own_terminal and outcome.get("status_str") == "success" and local_queue_idle(opener, comfy):
+                payload = b'{"unload_models":true,"free_memory":true}'
+                try:
+                    fetch(opener, comfy + "/free", method="POST",
+                          body=payload, headers={"Content-Type": "application/json"}, timeout=8)
+                except (OSError, TimeoutError):
+                    pass
         except (ValueError, AttributeError, TypeError):
             return 502, b'{"detail":"HOST_COMFY_HISTORY_INVALID"}'
     if status == 200 and path.startswith("/view?"):
         if not response.startswith(b"\x89PNG\r\n\x1a\n"):
             return 502, b'{"detail":"HOST_COMFY_VIEW_NOT_PNG"}'
-        # Unload the owned local model only when the host queue has become idle.
-        if local_queue_idle(opener, comfy):
-            payload = b'{"unload_models":true,"free_memory":true}'
-            try:
-                fetch(opener, comfy + "/free", method="POST",
-                      body=payload, headers={"Content-Type": "application/json"}, timeout=8)
-            except (OSError, TimeoutError):
-                pass
-            memory["active"] = None
-            save_memory(memory)
+        # PNG fetch is not an ownership signal. An older /view must never
+        # release an unrelated currently active Comfy prompt.
     return status, response
 
 
