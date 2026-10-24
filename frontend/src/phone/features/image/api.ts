@@ -1,4 +1,5 @@
-import { phoneFetch } from '../../core/http.ts'
+import { phoneFetch, PhoneTransportError } from '../../core/http.ts'
+import { beginImageGenerationCommand, acknowledgeImageGenerationCommand, rejectImageGenerationCommand } from '../../../studio/imageGenerationCommand.ts'
 import { waitForPhoneJob, type PhoneJob } from '../../core/jobs.ts'
 
 
@@ -43,7 +44,7 @@ export async function startPhoneImage(input: {
   signal?.throwIfAborted()
   const body: Record<string, unknown> = {
     mode: input.mode, provider: input.model.provider, prompt: input.prompt, negativePrompt: '',
-    seed: Math.floor(Math.random() * 2147483646) + 1, width: input.width, height: input.height,
+    width: input.width, height: input.height,
     resolutionId: input.resolutionId, steps: 4, cfg: 1, guidance: 3.5, strength: .75,
     modelProfile: input.model.modelProfile,
     loras: input.faceLora ? [{ id: input.faceLora.id, strength: Math.max(.25, Math.min(1, (input.faceStrength || 75) / 100)), triggerWord: input.faceLora.triggerWord || '' }] : [],
@@ -53,10 +54,22 @@ export async function startPhoneImage(input: {
   if (input.mode === 'paint') body.canvas = input.canvas
   if (input.mode === 'inpaint') body.maskImage = input.mask
   if (input.mode === 'outpaint') body.outpaint = input.outpaint
-  const started = await phoneFetch<{ id?: string; jobId?: string }>('/api/generate', { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  const command = await beginImageGenerationCommand('phone', body)
+  let started: { id?: string; jobId?: string }
+  try {
+    started = await phoneFetch<{ id?: string; jobId?: string }>('/api/generate', {
+      method: 'POST', signal,
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': command.key },
+      body: command.body,
+    })
+  } catch (error) {
+    if (error instanceof PhoneTransportError) rejectImageGenerationCommand('phone', command.key, error.status)
+    throw error
+  }
   signal?.throwIfAborted()
   const jobId = String(started.id || started.jobId || '')
   if (!jobId) throw new Error('Сервер не вернул номер генерации.')
+  acknowledgeImageGenerationCommand('phone', command.key)
   return waitForPhoneJob(jobId, { onChange, signal })
 }
 
