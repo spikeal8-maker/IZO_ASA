@@ -1,0 +1,94 @@
+manifestVersion = 1
+id = "D2R2-PREPROD-INTEGRATION-001"
+baseSha = "1fede386664c41141c0611919a2d15c31cfd4d5f"
+goal = "Build one isolated localhost IZO_ASA preproduction candidate from verified October SQLite and media with restricted OpenRouter proxy, reused ComfyUI native bridge, safeguarded optional Ollama and consistent user accounts."
+userOutcome = "On D2-R2 an operator opens one localhost IZO_ASA and can authenticate to restored accounts, inspect historic feed/gallery/chat, then use separately authorized OpenRouter, Ollama and FLUX.2 Klein 4B with durable jobs and private results."
+beforeScenario = "October restore has actual data but all providers disabled at 48155; OpenRouter, Comfy and Ollama implementations are split across independent shadows and draft PRs."
+afterScenario = "A newly scoped network and persistent volumes host one app preserving the verified baseline, with narrow cloud HTTPS and host Comfy bridges and explicit separate Ollama approval."
+nonGoals = [
+  "Production or public cutover, FRP, domain routing, DNS or firewall changes",
+  "Mount existing 48155 48145 48214 48135 48125 database/media/secrets volumes",
+  "Mutate verified baseline or Yandex source",
+  "Import real user credentials or historical private prompts into test logs, GitHub or cloud providers",
+  "Change driver, Ollama or ComfyUI installations, download 9B weights or custom nodes",
+  "Paid cloud inference without operator authorization",
+  "Overwrite in-progress PR 200, PR 211 or PR 215",
+]
+declaredFiles = [
+  "tasks/D2R2-PREPROD-INTEGRATION-001.toml",
+  "ops/docker/dev/compose.preprod216.yml",
+  "ops/docker/dev/Dockerfile.guard.preprod216",
+  "ops/docker/dev/network_guard.preprod216.py",
+  "ops/windows/preprod216_comfy_agent.py",
+  "ops/windows/start-preprod216-comfy-agent.ps1",
+  "tools/preprod216_restore_clone.py",
+  "tools/preprod216_verify_runtime.py",
+  "tools/test_preprod216_contract.py",
+  "docs/preprod216-integration.md",
+  "docs/generated/architecture-inventory.json",
+  "docs/generated/architecture-inventory.md",
+]
+allowedPatterns = []
+forbiddenPatterns = [
+  ".github/**",
+  "ops/docker/dev/compose.openrouter-shadow.yml",
+  "ops/docker/dev/compose.comfy214.yml",
+  "ops/docker/dev/compose.shadow.yml",
+  "ops/docker/dev/compose.yml",
+  "ops/docker/dev/network_guard.py",
+  "ops/docker/dev/openrouter_network_guard.py",
+  "ops/docker/dev/openrouter_https_proxy.py",
+  "backend/app/security/**",
+  "backend/app/services/generation_accounting.py",
+  "backend/app/services/generation_admission.py",
+  "backend/app/services/generation_claims.py",
+  "backend/requirements.txt",
+  "frontend/package.json",
+  "frontend/src/LegacyApp.tsx",
+  "frontend/src/newUi.tsx",
+]
+protectedFilesTouched = []
+domain = "release-ops"
+riskClass = "high-assurance"
+changeClass = "architecture"
+maxProductionFiles = 9
+maxChangedLines = 3200
+acceptance = [
+  "Only a new D2R2 preprod Compose project uses selected 48314/48315/48316 loopback ports and its own independent volumes and network.",
+  "Verified baseline DB and 2564 media files copied with readback SHA, original data unchanged, own session invalidation and prohibited side effects disabled.",
+  "One guarded backend serves OpenRouter through strict HTTPS CONNECT allowlist and Comfy via own Windows-initiated protected native4b bridge; unapproved Ollama routing fails closed.",
+  "Existing user identity hashes and private/published media remain unchanged in candidate except authorized session invalidation.",
+  "Exact-head Docker build, local frontend and backend smoke, real browser acceptance and independent security review recorded; Draft PR does not bypass upstream review or GitHub CI.",
+]
+requiredEvidence = [
+  "Source PR209/211/215 exact SHA and integration source ancestry",
+  "Read-only baseline hash and candidate DB/media readback receipts",
+  "Real localhost-only listener, guard nftables policy, TLS CONNECT deny controls and bridge token isolation",
+  "Historic feed, gallery and chats count/read parity, authenticated user session and owner-visible browser where authorized",
+  "Real OpenRouter/Ollama/Comfy job, accounting and GPU queue metrics only after authorized provider and operator actions",
+  "All original shadows/restore baseline remain unchanged",
+  "Independent read-only reviewer and exact-head required GitHub CI status",
+]
+targetedTests = [
+  "tools/test_preprod216_contract.py",
+  "backend/test_comfyui_native4b.py",
+  "backend/test_comfyui_bridge_security.py",
+  "backend/test_generation_worker_process.py",
+  "frontend/e2e-comfy214.mjs",
+]
+fileGrowthExpectations = [
+  "Dedicated small compositional overlay and fixed audited guard; reuse OpenRouter and native Comfy files without copying secrets.",
+  "Restore helper validates counts/checksums and touches only fresh named volumes.",
+  "Preserve original source components and bounded pre-production integration runbook.",
+]
+forbiddenOperations = [
+  "direct-main",
+  "production-deploy",
+  "owner-data-upload",
+  "old-shadow-mutation",
+  "original-backup-mutation",
+  "global-network-change",
+  "paid-provider-call-without-authorization",
+  "existing-secret-volume-mount",
+]
+rollbackBoundary = "Stop and delete only izo-asa-preprod-d2r2-001 containers and its owned test resources after preserving evidence; do not modify or remove original restore/candidate/production volumes and processes."
