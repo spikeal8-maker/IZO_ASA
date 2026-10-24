@@ -65,16 +65,16 @@ export async function startPhoneImage(input: {
         body: command.body,
       })
     } catch (error) {
-      if (error instanceof PhoneTransportError) rejectImageGenerationCommand('phone', command.key, error.status)
+      if (error instanceof PhoneTransportError) rejectImageGenerationCommand('phone', command.ownerId, command.key, error.status)
       throw error
     }
     signal?.throwIfAborted()
     jobId = String(started.id || started.jobId || '')
     if (!jobId) throw new Error('Сервер не вернул номер генерации.')
-    acknowledgeImageGenerationCommand('phone', command.key, jobId)
+    acknowledgeImageGenerationCommand('phone', command.ownerId, command.key, jobId)
   }
   const completed = await waitForPhoneJob(jobId, { onChange, signal })
-  if (completed.terminal) completeImageGenerationCommand('phone', jobId)
+  if (completed.terminal) await completeImageGenerationCommand('phone', jobId).catch(() => undefined)
   return completed
 }
 

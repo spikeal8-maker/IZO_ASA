@@ -798,7 +798,7 @@ export default function NewStudio(): ReactElement {
         }
         setJob(next)
         if (next.status === 'completed' || next.status === 'failed' || next.status === 'cancelled') {
-          completeImageGenerationCommand('desktop', next.id)
+          void completeImageGenerationCommand('desktop', next.id).catch(() => undefined)
         }
         if (next.status === 'completed') {
           const completedUrl = next.resultUrl
@@ -1146,7 +1146,7 @@ export default function NewStudio(): ReactElement {
       if (!(await ensureAuthed())) return
       setIsSubmitting(true)
       setNotice('')
-      const priorJobId = getAcceptedImageGenerationJob('desktop')
+      const priorJobId = await getAcceptedImageGenerationJob('desktop')
       if (priorJobId) {
         const receipt = await apiFetch(`/jobs/${encodeURIComponent(priorJobId)}`)
         if (!receipt.ok) {
@@ -1159,7 +1159,7 @@ export default function NewStudio(): ReactElement {
           return
         }
         if (previous.status === 'completed' || previous.status === 'failed' || previous.status === 'cancelled') {
-          completeImageGenerationCommand('desktop', priorJobId)
+          await completeImageGenerationCommand('desktop', priorJobId).catch(() => undefined)
           setNotice('Предыдущая генерация завершена. Проверьте историю; для нового запуска нажмите ещё раз.')
           void fetchGallery()
         } else {
@@ -1255,7 +1255,7 @@ export default function NewStudio(): ReactElement {
             body: command.body,
           })
       if (!response.ok) {
-        if (!command.acceptedJobId) rejectImageGenerationCommand('desktop', command.key, response.status)
+        if (!command.acceptedJobId) rejectImageGenerationCommand('desktop', command.ownerId, command.key, response.status)
         let detail: unknown = ''
         try {
           detail = (await response.json())?.detail || ''
@@ -1278,9 +1278,9 @@ export default function NewStudio(): ReactElement {
         setNotice('Сервер не подтвердил создание задачи. Проверьте задания перед повтором.')
         return
       }
-      acknowledgeImageGenerationCommand('desktop', command.key, created.id)
+      acknowledgeImageGenerationCommand('desktop', command.ownerId, command.key, created.id)
       if (created.status === 'completed' || created.status === 'failed' || created.status === 'cancelled') {
-        completeImageGenerationCommand('desktop', created.id)
+        await completeImageGenerationCommand('desktop', created.id).catch(() => undefined)
         setNotice('Предыдущее задание уже завершилось. Результат доступен в истории; для нового запуска нажмите ещё раз.')
         void fetchGallery()
         return
