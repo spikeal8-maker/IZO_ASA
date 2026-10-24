@@ -416,3 +416,30 @@ def build_outpaint_workflow(
     }
     graph["FKO:203"]["inputs"]["images"] = ["FKO:preserve_source", 0]
     return graph
+
+
+def choose_model(models: dict[str, list[str]], requested: str) -> tuple[str, str, str]:
+    diffusion = models.get("diffusion_models", [])
+    text_encoders = models.get("text_encoders", [])
+    vaes = models.get("vaes", [])
+
+    model = requested if requested in diffusion else ""
+    if not model:
+        model = next((item for item in diffusion if "klein-9b" in item and "fp8" in item), "")
+    if not model:
+        model = next((item for item in diffusion if "klein" in item), "")
+    if not model and diffusion:
+        model = diffusion[0]
+
+    is_4b = "4b" in model.lower()
+    preferred_te = "qwen_3_4b" if is_4b else "qwen_3_8b"
+    text_encoder = next((item for item in text_encoders if preferred_te in item), "")
+    if not text_encoder:
+        text_encoder = next((item for item in text_encoders if "qwen_3" in item), "")
+    if not text_encoder and text_encoders:
+        text_encoder = text_encoders[0]
+
+    vae = "flux2-vae.safetensors" if "flux2-vae.safetensors" in vaes else (vaes[0] if vaes else "")
+    if not model or not text_encoder or not vae:
+        raise RuntimeError("Модель, text encoder или VAE не найдены в ComfyUI. Откройте настройки модели.")
+    return model, text_encoder, vae

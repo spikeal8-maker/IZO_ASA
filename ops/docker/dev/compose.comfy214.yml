@@ -1,0 +1,58 @@
+# COMFYUI-BRIDGE-D2R2-001: opt-in third overlay on separate Docker Shadow.
+# Uses original default-deny guard; no OpenRouter egress or host Docker settings changed.
+services:
+  guard:
+    ports:
+      - "127.0.0.1:${IZO_COMFY_BRIDGE_PORT:?candidate bridge port required}:18889"
+  backend:
+    depends_on:
+      bridge:
+        condition: service_healthy
+    environment:
+      COMFYUI_BASE_URL: http://127.0.0.1:18888
+      COMFYUI_NATIVE4B_ONLY: "true"
+      COMFYUI_MOCK_FALLBACK: "false"
+      COMFYUI_REQUIRED: "true"
+  bridge:
+    build:
+      context: ../../..
+      dockerfile: ops/docker/dev/Dockerfile.comfy214
+      args:
+        IZO_SOURCE_SHA: ${IZO_SOURCE_SHA:?source sha required}
+    image: izo-asa-comfy214-bridge:${IZO_SOURCE_SHA:?source sha required}
+    user: "10001:10001"
+    restart: "no"
+    read_only: true
+    tmpfs: [/tmp]
+    cpus: 0.3
+    mem_limit: 128m
+    pids_limit: 48
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    network_mode: service:guard
+    depends_on:
+      guard:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: ${IZO_BRIDGE_TOKEN_FILE:?host bridge token file required}
+        target: /run/bridge/token
+        read_only: true
+    environment:
+      COMFY214_BRIDGE_TOKEN_FILE: /run/bridge/token
+    labels:
+      io.izo.owner: COMFYUI-BRIDGE-D2R2-001
+      io.izo.project: ${IZO_COMPOSE_PROJECT}
+    healthcheck:
+      test: [CMD, python, -c, "import json,urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:18888/bridge/health',timeout=2))['ok']"]
+      interval: 4s
+      timeout: 3s
+      retries: 20
+
+# One isolated candidate Docker network; avoids exhausted automatic address pools.
+# Confirmed no overlap with the 53 existing Docker networks on D2-R2.
+networks:
+  shadow:
+    ipam:
+      config:
+        - subnet: 10.249.219.0/28

@@ -1,87 +1,92 @@
 """External provider HTTP boundaries."""
 
-from .comfyui_client import (
-    ComfyUIHistoryClient,
-    comfyui_flux_klein_available,
-    fetch_comfyui_image_bytes,
-    fetch_comfyui_models,
-    fetch_comfyui_node_names,
-    fetch_comfyui_workflow,
-    fetch_flux_bgremoval_models,
-    fetch_flux_klein_config,
-    fetch_flux_lora_triggers,
-    free_comfyui_memory,
-    interrupt_comfyui,
-    submit_comfyui_workflow,
-    upload_comfyui_image,
-)
-from .ollama import (
-    ensure_ollama_model_resident,
-    fetch_ollama_models_status,
-    fetch_ollama_residency_status,
-    ollama_base_url,
-    request_ollama_chat_message,
-    unload_ollama_model,
-)
-from .max_tls import build_max_http_verify, normalize_max_tls_trust_store
-from .max_client import (
-    MaxBotHealth,
-    MaxClientError,
-    MaxConfigurationError,
-    MaxResponseError,
-    MaxTransportError,
-    probe_max_bot,
-    request_max_api,
-    request_max_bot_me,
-)
-from .openrouter_image_client import request_openrouter_image
-from .openrouter_image_io import load_openrouter_response_image, resolve_openrouter_reference_value
-from .openrouter_images import (
-    build_openrouter_image_request_metadata,
-    build_openrouter_image_request_body,
-    build_openrouter_image_request_plan,
-    image_edit_influence_instruction,
-    openrouter_descriptor_values,
-    openrouter_ratio_size,
-    requested_orientation,
-    resolve_openrouter_image_model,
-)
-from .openrouter import (
-    OpenRouterVideoRequestError,
-    extract_openrouter_generation_cost,
-    extract_openrouter_error_payload,
-    fetch_openrouter_key_details,
-    fetch_openrouter_image_model_documents,
-    fetch_openrouter_audio_input_models,
-    fetch_openrouter_text_models,
-    fetch_openrouter_video_models,
-    format_openrouter_public_error,
-    is_openrouter_size_error,
-    normalize_openrouter_endpoint_capability,
-    normalize_openrouter_image_response_metadata,
-    normalize_openrouter_model_capability,
-    normalize_openrouter_video_config,
-    openrouter_error_message,
-    openrouter_video_public_error,
-    parse_openrouter_audio_input_models,
-    parse_openrouter_text_models,
-    parse_openrouter_video_models,
-    poll_openrouter_video,
-    request_openrouter_chat_completion,
-    select_openrouter_first_image,
-    submit_openrouter_video,
-)
-from .telegram import (
-    TelegramApiError,
-    TelegramBotHealth,
-    TelegramClientError,
-    TelegramConfigurationError,
-    TelegramResponseError,
-    TelegramTransportError,
-    probe_telegram_bot,
-    request_telegram_bot_api,
-    telegram_file_url,
-)
+import os as _os
+
+# GenerationExecutor imports a leaf IPC module; do not load unrelated providers,
+# application storage, or sqlite3 in its strictly isolated process.
+if _os.environ.get('IZO_PROCESS_ROLE') != 'worker':
+    from .comfyui_client import (
+        ComfyUIHistoryClient,
+        comfyui_flux_klein_available,
+        fetch_comfyui_image_bytes,
+        fetch_comfyui_models,
+        fetch_comfyui_node_names,
+        fetch_comfyui_workflow,
+        fetch_flux_bgremoval_models,
+        fetch_flux_klein_config,
+        fetch_flux_lora_triggers,
+        free_comfyui_memory,
+        interrupt_comfyui,
+        submit_comfyui_workflow,
+        upload_comfyui_image,
+    )
+    from .ollama import (
+        ensure_ollama_model_resident,
+        fetch_ollama_models_status,
+        fetch_ollama_residency_status,
+        ollama_base_url,
+        request_ollama_chat_message,
+        unload_ollama_model,
+    )
+    from .max_tls import build_max_http_verify, normalize_max_tls_trust_store
+    from .max_client import (
+        MaxBotHealth,
+        MaxClientError,
+        MaxConfigurationError,
+        MaxResponseError,
+        MaxTransportError,
+        probe_max_bot,
+        request_max_api,
+        request_max_bot_me,
+    )
+    from .openrouter_image_client import request_openrouter_image
+    from .openrouter_image_io import load_openrouter_response_image, resolve_openrouter_reference_value
+    from .openrouter_images import (
+        build_openrouter_image_request_metadata,
+        build_openrouter_image_request_body,
+        build_openrouter_image_request_plan,
+        image_edit_influence_instruction,
+        openrouter_descriptor_values,
+        openrouter_ratio_size,
+        requested_orientation,
+        resolve_openrouter_image_model,
+    )
+    from .openrouter import (
+        OpenRouterVideoRequestError,
+        extract_openrouter_generation_cost,
+        extract_openrouter_error_payload,
+        fetch_openrouter_key_details,
+        fetch_openrouter_image_model_documents,
+        fetch_openrouter_audio_input_models,
+        fetch_openrouter_text_models,
+        fetch_openrouter_video_models,
+        format_openrouter_public_error,
+        is_openrouter_size_error,
+        normalize_openrouter_endpoint_capability,
+        normalize_openrouter_image_response_metadata,
+        normalize_openrouter_model_capability,
+        normalize_openrouter_video_config,
+        openrouter_error_message,
+        openrouter_video_public_error,
+        parse_openrouter_audio_input_models,
+        parse_openrouter_text_models,
+        parse_openrouter_video_models,
+        poll_openrouter_video,
+        request_openrouter_chat_completion,
+        select_openrouter_first_image,
+        submit_openrouter_video,
+    )
+    from .telegram import (
+        TelegramApiError,
+        TelegramBotHealth,
+        TelegramClientError,
+        TelegramConfigurationError,
+        TelegramResponseError,
+        TelegramTransportError,
+        probe_telegram_bot,
+        request_telegram_bot_api,
+        telegram_file_url,
+    )
 
 __all__ = [
     "build_max_http_verify",
@@ -157,3 +162,7 @@ __all__ = [
     "telegram_file_url",
     "upload_comfyui_image",
 ]
+
+# Prevent wildcard provider imports into the isolated worker process.
+if _os.environ.get('IZO_PROCESS_ROLE') == 'worker':
+    __all__ = []
