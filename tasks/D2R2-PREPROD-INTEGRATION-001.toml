@@ -24,6 +24,7 @@ declaredFiles = [
   "ops/windows/start-preprod216-comfy-agent.ps1",
   "tools/preprod216_restore_clone.py",
   "tools/preprod216_verify_runtime.py",
+  "tools/preprod216_archive_evicted_media.py",
   "tools/preprod216_repair_thumb.py",
   "tools/test_preprod216_repair_thumb.py",
   "tools/test_preprod216_contract.py",
@@ -31,8 +32,10 @@ declaredFiles = [
   "frontend/src/adminModels.tsx",
   "backend/main.py",
   "backend/app/services/image_model_publication.py",
+  "backend/app/services/generation_admission.py",
   "backend/test_effective_resolution_access.py",
   "backend/test_resolution_policy.py",
+  "backend/test_preprod216_quota_safety.py",
   "frontend/src/phone/features/image/PhoneImageWorkspace.tsx",
   "frontend/src/profileSupport.ts",
 
@@ -187,3 +190,23 @@ recordedAtUtc = "2026-10-24T14:59:18Z"
 path = "frontend/src/profileSupport.ts"
 reason = "Normalize image model capabilities without fabricating local resolutions or plan grants."
 recordedAtUtc = "2026-10-24T14:59:18Z"
+
+[[scopeExpansions]]
+path = "backend/app/services/generation_admission.py"
+reason = "At atomic image job admission refuse full storage before generation charge and provider request."
+recordedAtUtc = "2026-10-24T15:48:24Z"
+
+[[scopeExpansions]]
+path = "backend/test_preprod216_quota_safety.py"
+reason = "Pure synthetic checks for Pro image and video full quota, pending claims and protected historic records."
+recordedAtUtc = "2026-10-24T15:48:24Z"
+
+[[scopeExpansions]]
+path = "tools/preprod216_archive_evicted_media.py"
+reason = "One shot read-only source recovery of 25 confirmed historic media into owned private rollback archive."
+recordedAtUtc = "2026-10-24T15:48:24Z"
+
+[[scopeExpansions]]
+path = "ops/docker/dev/compose.preprod216.yml"
+reason = "Preprod-only explicit history preservation, without changing other sites or network permissions."
+recordedAtUtc = "2026-10-24T15:48:24Z"

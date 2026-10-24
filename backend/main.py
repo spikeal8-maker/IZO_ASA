@@ -3323,7 +3323,6 @@ def _initialize_intro_tariff_if_new(conn: sqlite3.Connection, legacy_user_id: st
     )
     return True
 
-
 def gallery_quota_for_user(conn: sqlite3.Connection, user_row: sqlite3.Row | None, legacy_user_id: str | None = None) -> dict[str, Any]:
     plan = gallery_policy.normalize_gallery_plan(_row_get(user_row, "plan"), PLAN_ORDER)
     tariff = get_tariff_config(conn)[plan]
@@ -3332,7 +3331,6 @@ def gallery_quota_for_user(conn: sqlite3.Connection, user_row: sqlite3.Row | Non
     if user_id:
         used = storage_count_active_gallery_images(conn, user_id)
     return gallery_policy.build_gallery_quota(plan=plan, tariff=tariff, gallery_used=used)
-
 
 def video_storage_state_for_user(
     conn: sqlite3.Connection,
@@ -3352,7 +3350,6 @@ def video_storage_state_for_user(
 
 ACTIVE_IMAGE_WHERE = "deleted_at IS NULL"
 
-
 def evict_gallery_images_for_new_save(
     conn: sqlite3.Connection,
     legacy_user_id: str,
@@ -3366,6 +3363,8 @@ def evict_gallery_images_for_new_save(
     over-limit galleries shrink gradually with continued use instead of staying
     permanently above quota.
     """
+    if os.getenv("IZO_PREPROD_PRESERVE_HISTORY") == "1":
+        raise RuntimeError("HISTORIC_GALLERY_FULL_REFUSE_EVICTION")
     target = gallery_policy.gallery_eviction_target(quota)
     if not target:
         return 0
@@ -3383,7 +3382,6 @@ def evict_gallery_images_for_new_save(
     )
     return gallery_eviction.apply_gallery_evictions(runtime, rows)
 
-
 def gallery_cursor_from_row(row: sqlite3.Row) -> str:
     return gallery_query.encode_gallery_cursor(_row_get(row, "created_at"), _row_get(row, "id"))
 
@@ -3397,7 +3395,6 @@ def parse_gallery_cursor(cursor: str | None) -> tuple[str, str] | None:
 
 def gallery_fts_query(value: str) -> str:
     return gallery_query.build_gallery_fts_query(value)
-
 
 def gallery_media_owner_row(conn: sqlite3.Connection, filename: str, legacy_user_id: str) -> sqlite3.Row | None:
     return storage_find_gallery_media_owner(
@@ -15837,6 +15834,8 @@ def _video_storage_reservation(
     state = video_storage.storage_state(conn, user_id, limit=int(quota["video_slots"] or 0))
     if not quota["video_enabled"] or state.limit <= 0:
         raise HTTPException(403, "Хранение видео не входит в ваш тариф.")
+    if os.getenv("IZO_PREPROD_PRESERVE_HISTORY") == "1" and state.active + state.reserved >= state.limit:
+        raise HTTPException(409, "VIDEO_QUOTA_FULL_HISTORY_PRESERVED")
     if not state.can_reserve:
         raise HTTPException(
             409,
@@ -15844,7 +15843,6 @@ def _video_storage_reservation(
             "Снимите сердечко, удалите видео или дождитесь завершения генерации.",
         )
     return state
-
 
 def _queue_video_file_deletion(
     conn: sqlite3.Connection,
@@ -15906,6 +15904,8 @@ def _evict_videos_for_new_result(
     *,
     now: str,
 ) -> int:
+    if os.getenv("IZO_PREPROD_PRESERVE_HISTORY") == "1":
+        return 0
     quota = gallery_quota_for_user(conn, user_row, user_id)
     rows = video_storage.select_eviction_candidates(
         conn,

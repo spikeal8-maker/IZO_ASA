@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
 import sqlite3
 from typing import Any
 import uuid
@@ -108,6 +109,33 @@ def _cached(runtime, user_id, job_id, fingerprint):
         return None
     with closing(runtime.connect()) as conn:
         return _replay(conn, user_id, job_id, fingerprint)
+
+
+def _ensure_preprod_gallery_slot(conn: sqlite3.Connection, runtime: AdmissionRuntime,
+                                 user_id: str) -> None:
+    """Do not charge or queue a new image that would evict historic owner media."""
+    if os.getenv("IZO_PREPROD_PRESERVE_HISTORY") != "1":
+        return
+    row = conn.execute("SELECT plan FROM users WHERE id=?", (user_id,)).fetchone()
+    if row is None:
+        raise AdmissionError(404, "User not found.")
+    plan = str(row["plan"] or "mini").lower()
+    if plan not in runtime.plan_order:
+        plan = "mini"
+    limit = int(runtime.get_tariff_config()[plan].get("gallery_slots") or 0)
+    used = conn.execute(
+        "SELECT COUNT(*) FROM images WHERE user_id=? "
+        "AND (deleted_at IS NULL OR deleted_at='')", (user_id,)
+    ).fetchone()[0]
+    pending = conn.execute(
+        "SELECT COUNT(*) FROM jobs WHERE user_id=? "
+        "AND mode IN ('text_to_image','image_to_image','edit','paint','inpaint',"
+        "'outpaint','faceswap','remove_background') "
+        "AND status IN ('queued','running','pending','in_progress',"
+        "'submitting','finalizing','processing')", (user_id,)
+    ).fetchone()[0]
+    if limit <= 0 or used + pending >= limit:
+        raise AdmissionError(409, "GALLERY_QUOTA_FULL_HISTORY_PRESERVED")
 
 
 async def _prepare(req, user_id: str, runtime: AdmissionRuntime) -> tuple[int, dict[str, Any] | None]:
@@ -239,6 +267,7 @@ async def admit(req, trusted: Mapping[str, Any], key: str | None, runtime: Admis
             return replay
         runtime.require_generation_social_verification(trusted, req)
         runtime.ensure_rate_limit(user_id)
+        _ensure_preprod_gallery_slot(conn, runtime, user_id)
         charge = reserve_or_charge_generation(
             conn, internal_user_id, job_id, now=datetime.now(timezone.utc).isoformat(), job=job,
             charge=lambda: runtime.charge_generation_tokens(conn, user_id, token_cost, job_id, req, billing),

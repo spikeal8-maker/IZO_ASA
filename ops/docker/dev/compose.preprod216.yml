@@ -63,6 +63,7 @@ services:
       TELEGRAM_POLLING_ENABLED: "false"
       COMFYUI_BASE_URL: http://127.0.0.1:18888
       COMFYUI_NATIVE4B_ONLY: "true"
+      IZO_PREPROD_PRESERVE_HISTORY: "1"
       COMFYUI_MOCK_FALLBACK: "false"
       COMFYUI_REQUIRED: "true"
       OPENROUTER_BASE_URL: https://openrouter.ai/api/v1

@@ -37,6 +37,7 @@ class Preprod216ContractTests(unittest.TestCase):
             "10.249.221.3",
             "127.0.0.1:",
             "COMFYUI_NATIVE4B_ONLY:",
+            'IZO_PREPROD_PRESERVE_HISTORY: "1"',
             "COMFYUI_MOCK_FALLBACK:",
             "OPENROUTER_BASE_URL: https://openrouter.ai/api/v1",
             "HTTPS_PROXY: http://10.249.221.3:3128",
