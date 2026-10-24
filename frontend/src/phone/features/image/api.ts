@@ -1,5 +1,5 @@
 import { phoneFetch, PhoneTransportError } from '../../core/http.ts'
-import { beginImageGenerationCommand, acknowledgeImageGenerationCommand, rejectImageGenerationCommand } from '../../../studio/imageGenerationCommand.ts'
+import { beginImageGenerationCommand, acknowledgeImageGenerationCommand, completeImageGenerationCommand, rejectImageGenerationCommand } from '../../../studio/imageGenerationCommand.ts'
 import { waitForPhoneJob, type PhoneJob } from '../../core/jobs.ts'
 
 
@@ -55,22 +55,27 @@ export async function startPhoneImage(input: {
   if (input.mode === 'inpaint') body.maskImage = input.mask
   if (input.mode === 'outpaint') body.outpaint = input.outpaint
   const command = await beginImageGenerationCommand('phone', body)
-  let started: { id?: string; jobId?: string }
-  try {
-    started = await phoneFetch<{ id?: string; jobId?: string }>('/api/generate', {
-      method: 'POST', signal,
-      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': command.key },
-      body: command.body,
-    })
-  } catch (error) {
-    if (error instanceof PhoneTransportError) rejectImageGenerationCommand('phone', command.key, error.status)
-    throw error
+  let jobId = command.acceptedJobId || ''
+  if (!jobId) {
+    let started: { id?: string; jobId?: string }
+    try {
+      started = await phoneFetch<{ id?: string; jobId?: string }>('/api/generate', {
+        method: 'POST', signal,
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': command.key },
+        body: command.body,
+      })
+    } catch (error) {
+      if (error instanceof PhoneTransportError) rejectImageGenerationCommand('phone', command.key, error.status)
+      throw error
+    }
+    signal?.throwIfAborted()
+    jobId = String(started.id || started.jobId || '')
+    if (!jobId) throw new Error('Сервер не вернул номер генерации.')
+    acknowledgeImageGenerationCommand('phone', command.key, jobId)
   }
-  signal?.throwIfAborted()
-  const jobId = String(started.id || started.jobId || '')
-  if (!jobId) throw new Error('Сервер не вернул номер генерации.')
-  acknowledgeImageGenerationCommand('phone', command.key)
-  return waitForPhoneJob(jobId, { onChange, signal })
+  const completed = await waitForPhoneJob(jobId, { onChange, signal })
+  if (completed.terminal) completeImageGenerationCommand('phone', jobId)
+  return completed
 }
 
 export async function loadFaceLora(signal?: AbortSignal): Promise<{ id: string; triggerWord?: string } | null> {
