@@ -111,6 +111,30 @@ def _cached(runtime, user_id, job_id, fingerprint):
         return _replay(conn, user_id, job_id, fingerprint)
 
 
+def preprod216_personal_gallery_limits(conn: sqlite3.Connection, user_id: str,
+                                       plan: str) -> tuple[int, int] | None:
+    """Single migration-only owner grant; never change the global plan matrix."""
+    if os.getenv("IZO_PREPROD_PRESERVE_HISTORY") != "1" or plan != "pro":
+        return None
+    try:
+        rows = conn.execute(
+            "SELECT user_id,gallery_slots,video_slots FROM "
+            "preprod216_owner_gallery_overrides"
+        ).fetchall()
+    except sqlite3.OperationalError as exc:
+        if "no such table" in str(exc).lower():
+            return None
+        raise
+    if len(rows) > 1:
+        raise RuntimeError("PREPROD216_MULTIPLE_OWNER_OVERRIDES_FORBIDDEN")
+    if not rows:
+        return None
+    owner, images, videos = rows[0]
+    if (int(images), int(videos)) != (120, 15):
+        raise RuntimeError("PREPROD216_UNAPPROVED_PERSONAL_QUOTA")
+    return (120, 15) if str(owner) == str(user_id) else None
+
+
 def _ensure_preprod_gallery_slot(conn: sqlite3.Connection, runtime: AdmissionRuntime,
                                  user_id: str) -> None:
     """Do not charge or queue a new image that would evict historic owner media."""
@@ -123,6 +147,9 @@ def _ensure_preprod_gallery_slot(conn: sqlite3.Connection, runtime: AdmissionRun
     if plan not in runtime.plan_order:
         plan = "mini"
     limit = int(runtime.get_tariff_config()[plan].get("gallery_slots") or 0)
+    owner_limits = preprod216_personal_gallery_limits(conn, user_id, plan)
+    if owner_limits is not None:
+        limit = owner_limits[0]
     used = conn.execute(
         "SELECT COUNT(*) FROM images WHERE user_id=? "
         "AND (deleted_at IS NULL OR deleted_at='')", (user_id,)

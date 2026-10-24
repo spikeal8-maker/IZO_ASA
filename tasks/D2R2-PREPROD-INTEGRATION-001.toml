@@ -25,6 +25,9 @@ declaredFiles = [
   "tools/preprod216_restore_clone.py",
   "tools/preprod216_verify_runtime.py",
   "tools/preprod216_archive_evicted_media.py",
+  "tools/preprod216_verify_owner_restoration.py",
+  "tools/preprod216_restore_owner_gallery.py",
+  "tools/preprod216_owner_migration_backup.py",
   "tools/preprod216_repair_thumb.py",
   "tools/test_preprod216_repair_thumb.py",
   "tools/test_preprod216_contract.py",
@@ -209,3 +212,18 @@ recordedAtUtc = "2026-10-24T15:48:24Z"
 path = "ops/docker/dev/compose.preprod216.yml"
 reason = "Preprod-only explicit history preservation, without changing other sites or network permissions."
 recordedAtUtc = "2026-10-24T15:48:24Z"
+
+[[scopeExpansions]]
+path = "tools/preprod216_owner_migration_backup.py"
+reason = "Consistent independent owned SQL/media backup with checksums before the owner-approved gallery restoration."
+recordedAtUtc = "2026-10-24T17:10:41Z"
+
+[[scopeExpansions]]
+path = "tools/preprod216_restore_owner_gallery.py"
+reason = "Owner authorized 8+1 same-account gallery rows and 25 original media with private 120/15 quota override, atomic transactions and no other data changes."
+recordedAtUtc = "2026-10-24T17:10:41Z"
+
+[[scopeExpansions]]
+path = "tools/preprod216_verify_owner_restoration.py"
+reason = "Independent read-only validation against original baseline and pre-migration snapshot for owner row identity, media SHA, financial records and other users."
+recordedAtUtc = "2026-10-24T17:10:41Z"

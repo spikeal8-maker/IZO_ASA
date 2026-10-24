@@ -12,7 +12,9 @@ from unittest.mock import patch
 import pytest
 from fastapi import HTTPException
 
-from app.services.generation_admission import AdmissionError, _ensure_preprod_gallery_slot
+from app.services.generation_admission import (
+    AdmissionError, _ensure_preprod_gallery_slot, preprod216_personal_gallery_limits,
+)
 import main
 
 
@@ -37,6 +39,84 @@ def _runtime():
         plan_order=("free", "mini", "plus", "pro", "business"),
         get_tariff_config=lambda: {"pro": {"gallery_slots": 100}},
     )
+
+
+def _migration_table(db, *, owner: str = "qa-user", images: int = 120,
+                     videos: int = 15):
+    db.execute(
+        "CREATE TABLE preprod216_owner_gallery_overrides "
+        "(user_id TEXT PRIMARY KEY, gallery_slots INTEGER, video_slots INTEGER)"
+    )
+    db.execute(
+        "INSERT INTO preprod216_owner_gallery_overrides VALUES (?,?,?)",
+        (owner, images, videos),
+    )
+
+
+def test_only_migrated_pro_owner_gets_120_15_not_other_users():
+    with _db() as db, patch.dict(os.environ, {"IZO_PREPROD_PRESERVE_HISTORY": "1"}):
+        db.execute("INSERT INTO users VALUES ('qa-other','pro')")
+        _migration_table(db)
+        assert preprod216_personal_gallery_limits(db, "qa-user", "pro") == (120, 15)
+        assert preprod216_personal_gallery_limits(db, "qa-other", "pro") is None
+        assert preprod216_personal_gallery_limits(db, "qa-user", "free") is None
+        with patch.object(main, "get_tariff_config", return_value={"pro": {
+            "gallery_slots": 100, "video_slots": 10, "daily_tokens": 1,
+            "monthly_tokens": 20, "video_enabled": True,
+        }}), patch.object(main, "storage_count_active_gallery_images", return_value=100):
+            user = db.execute("SELECT * FROM users WHERE id='qa-user'").fetchone()
+            actual = main.gallery_quota_for_user(db, user, "qa-user")
+            assert (actual["gallery_slots"], actual["video_slots"]) == (120, 15)
+            other = db.execute("SELECT * FROM users WHERE id='qa-other'").fetchone()
+            unchanged = main.gallery_quota_for_user(db, other, "qa-other")
+            assert (unchanged["gallery_slots"], unchanged["video_slots"]) == (100, 10)
+
+
+def test_personal_override_absent_in_other_projects_and_plans():
+    with _db() as db:
+        _migration_table(db)
+        with patch.dict(os.environ, {"IZO_PREPROD_PRESERVE_HISTORY": "0"}):
+            assert preprod216_personal_gallery_limits(db, "qa-user", "pro") is None
+        with patch.dict(os.environ, {"IZO_PREPROD_PRESERVE_HISTORY": "1"}):
+            assert preprod216_personal_gallery_limits(db, "qa-user", "plus") is None
+
+
+def test_invalid_or_multiple_personal_overrides_fail_closed():
+    with _db() as db, patch.dict(os.environ, {"IZO_PREPROD_PRESERVE_HISTORY": "1"}):
+        _migration_table(db, images=121)
+        with pytest.raises(RuntimeError, match="UNAPPROVED_PERSONAL_QUOTA"):
+            preprod216_personal_gallery_limits(db, "qa-user", "pro")
+        db.execute("UPDATE preprod216_owner_gallery_overrides SET gallery_slots=120")
+        db.execute("INSERT INTO users VALUES ('qa-other','pro')")
+        db.execute("INSERT INTO preprod216_owner_gallery_overrides VALUES ('qa-other',120,15)")
+        with pytest.raises(RuntimeError, match="MULTIPLE_OWNER_OVERRIDES"):
+            preprod216_personal_gallery_limits(db, "qa-user", "pro")
+
+
+def test_migration_owner_has_twelve_free_image_slots_and_four_video_slots():
+    with _db() as db, patch.dict(os.environ, {"IZO_PREPROD_PRESERVE_HISTORY": "1"}):
+        _migration_table(db)
+        runtime = _runtime()
+        _ensure_preprod_gallery_slot(db, runtime, "qa-user")
+        for n in range(19):
+            db.execute(
+                "INSERT INTO jobs VALUES (?,?,?,?)",
+                ("qa-pending-"+str(n), "qa-user", "text_to_image", "queued"),
+            )
+        _ensure_preprod_gallery_slot(db, runtime, "qa-user")
+        db.execute(
+            "INSERT INTO jobs VALUES ('qa-last','qa-user','text_to_image','queued')"
+        )
+        with pytest.raises(AdmissionError) as exc:
+            _ensure_preprod_gallery_slot(db, runtime, "qa-user")
+        assert exc.value.status_code == 409
+        with patch.object(main, "get_tariff_config", return_value={"pro": {
+            "gallery_slots": 100, "video_slots": 10, "daily_tokens": 1,
+            "monthly_tokens": 20, "video_enabled": True,
+        }}), patch.object(main, "storage_count_active_gallery_images", return_value=100):
+            user = db.execute("SELECT * FROM users WHERE id='qa-user'").fetchone()
+            state = main._video_storage_reservation(db, user, "qa-user")
+            assert (state.active, state.limit, state.free) == (10, 15, 5)
 
 
 def test_full_gallery_denied_before_charge_only_on_preprod():

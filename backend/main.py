@@ -3327,6 +3327,10 @@ def gallery_quota_for_user(conn: sqlite3.Connection, user_row: sqlite3.Row | Non
     plan = gallery_policy.normalize_gallery_plan(_row_get(user_row, "plan"), PLAN_ORDER)
     tariff = get_tariff_config(conn)[plan]
     user_id = legacy_user_id or _row_get(user_row, "id")
+    if user_id:
+        limits = generation_admission.preprod216_personal_gallery_limits(conn, user_id, plan)
+        if limits:
+            tariff = {**tariff, "gallery_slots": limits[0], "video_slots": limits[1]}
     used = 0
     if user_id:
         used = storage_count_active_gallery_images(conn, user_id)
@@ -3384,7 +3388,6 @@ def evict_gallery_images_for_new_save(
 
 def gallery_cursor_from_row(row: sqlite3.Row) -> str:
     return gallery_query.encode_gallery_cursor(_row_get(row, "created_at"), _row_get(row, "id"))
-
 
 def parse_gallery_cursor(cursor: str | None) -> tuple[str, str] | None:
     try:
@@ -15896,7 +15899,6 @@ def drain_video_file_deletions(*, limit: int = 50) -> dict[str, int]:
                 )
     return {"checked": len(rows), "removed": removed, "failed": failed}
 
-
 def _evict_videos_for_new_result(
     conn: sqlite3.Connection,
     user_row: sqlite3.Row | None,
@@ -15916,11 +15918,9 @@ def _evict_videos_for_new_result(
         _queue_video_file_deletion(conn, row, now=now)
     return len(rows)
 
-
 def _claim_video_finalization(job_id: str, *, expected=None) -> tuple[bool, sqlite3.Row]:
     return video_storage.claim_finalization(db, job_id, stale_seconds=VIDEO_FINALIZATION_STALE_SECONDS,
                                             error_factory=HTTPException, expected=expected)
-
 
 def _release_video_finalization(job_id: str, error: str, *, expected, public_error=None):
     public_error = public_error if public_error is not None else video_presentation.public_video_error_message(error, provider="local_ltx") if expected["provider"] == "local_ltx" else error
