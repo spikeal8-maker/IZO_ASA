@@ -23,3 +23,16 @@ Full frontend eslint/tsc/Vite, full backend suites, #222 queue/claim/lease/recov
 The connected D2-R2 device returned `link_id must identify an eligible linked account`. No read or mutation of the existing site `127.0.0.1:48314`, user SQLite, 59 accounts, restored media, quotas, old Shadows, ComfyUI, Ollama, production or external providers was attempted. No real keys or paid API calls used.
 
 See machine-readable `docs/internal218-audit-matrix.json`. **Do not merge to main or deploy from this Draft.**
+
+## Parallel real implementation under #204 (separate from integrated candidate)
+
+[Draft PR #229](https://github.com/spikeal8-maker/IZO_ASA/pull/229), exact HEAD `58c8bd2c2743d88db5b6707faa22025a2fd846de` from main, adds an isolated durable SQLite provider-receipt state machine and tests. Current source/test Git blobs `86322c2b2ed261239c1f7a3b6b8756d26c2062f6` / `e4a335b30dc0d743a123baa593601667d7abdcc0` have matching local SHA.
+
+Fresh `pytest -q backend/test_provider_reconciliation.py`: **10 PASS / 0 FAIL**. Demonstrated exactly one receipt/dispatch fence for 2/5/10 same-key callers, owner and payload separation, `ACCEPTED→OUTCOME_UNKNOWN→RECONCILIATION_PENDING→COMPLETED`, explicit operator receipt audit and persisted block despite deletion of a synthetic `jobs` row.
+
+Standalone synthetic SQLite replay microbenchmark (250 operations each, own WAL DB):
+- 1 thread: p50 1.88ms, p95 5.82ms, p99 9.25ms;
+- 5 threads: p50 3.94ms, p95 28.89ms, p99 122.98ms;
+- 10 threads: p50 2.24ms, p95 57.79ms, p99 108.63ms.
+
+All three had one receipt and zero errors. These values measure only the receipt helper under local synthetic contention; **not application capacity, real provider latency or accepted production P0**. The core has no production migration, billing adapter, authenticated operator API or actual video invocation, and was intentionally left outside this #228 integration branch until dependencies and independent review are satisfied.
