@@ -4,15 +4,10 @@ baseSha = "51543df2b6a559d693e3ed75b11baeacdb9033d3"
 goal = "Integrate disjoint source-verified fixes for npm dependencies, Python Pillow, license review and required GitHub Actions."
 userOutcome = "One exactly verified candidate can pass both mandatory CI contexts without bypassing security or branch protection."
 beforeScenario = "Three independent Draft PRs have verified focused fixes but inherited failing repository-wide security gates."
-afterScenario = "Source-identical patches are assembled without file overlap for one full exact-SHA CI and independent review."
+afterScenario = "Twelve unchanged implementation file blobs and one integration-only Task Contract are assembled without overlap for exact-SHA CI and independent review."
 domain = "verification"
 riskClass = "high-assurance"
 changeClass = "integration"
-sourceHeads = [
-  "PR #240 ea312a9ffd5013c3cbaaecc288901c13d71d5257",
-  "PR #243 16ee0ab975e5cc5c6ad174ef819c2f55335f5ea6",
-  "PR #244 046985e0b2cc4b5ca37b67851ca147ff6486e12a",
-]
 nonGoals = [
   "No product feature/UI refactoring, database migrations, provider work, or deployment.",
   "No merge of #227 before security/CI convergence acceptance.",
@@ -21,17 +16,14 @@ nonGoals = [
 declaredFiles = [
   ".github/workflows/ci.yml",
   ".github/workflows/file-hygiene.yml",
-  "tasks/GH-GATES-001.toml",
   "tools/test_required_workflow_gates.py",
   ".github/workflows/pillow-13-verification.yml",
   "backend/requirements.txt",
   "backend/test_pillow_13_compat.py",
-  "tasks/SEC-PILLOW-13-001.toml",
   ".github/workflows/npm-lockfile-verification.yml",
   "architecture/security-policy.json",
   "frontend/package-lock.json",
   "frontend/package.json",
-  "tasks/STAB-NPM-CHAIN-REM-154-155-001.toml",
   "tools/test_supply_chain_audit.py",
   "tools/test_supply_chain_floor.py",
   "tasks/SECURITY-CI-CONVERGENCE-001.toml",
@@ -41,7 +33,7 @@ protectedFilesTouched = []
 maxProductionFiles = 3
 maxChangedLines = 1900
 acceptance = [
-  "Each of 15 imported files matches the exact source PR blob SHA; no textual edits during assembly.",
+  "Each of 12 imported implementation files matches the exact source PR blob SHA; source package manifests remain in source PR branches.",
   "main remains protected; no check context rename, token privilege elevation or audit bypass.",
   "GitHub-hosted exact-source npm/Pillow focused runs and required CI validate all remediated dependencies.",
   "Current license review and baseline tests pass; Python audit has no unresolved critical findings.",
@@ -49,7 +41,7 @@ acceptance = [
   "Post-merge verification of main required CI before initiating architecture PR #227.",
 ]
 requiredEvidence = [
-  "15 source blob SHA map and source PR head SHAs",
+  "12 implementation blob SHA map and PR source commits #240 ea312a9, #243 16ee0ab, #244 046985e",
   "npm registry reproducible lock provenance and both audit counts",
   "Pinned Python 3.11.9 Pillow tests, official license evidence",
   "required checks on integrated exact SHA and independent reviewer findings",
@@ -63,7 +55,7 @@ targetedTests = [
   "full repository hosted Windows CI + Ubuntu Hygiene",
 ]
 fileGrowthExpectations = [
-  "Integration contains only already-reviewed PR file blobs and this manifest.",
+  "Integration contains only 12 unchanged implementation file blobs from source PRs and this single manifest.",
   "No duplicate implementations, duplicated module relocations or unbounded documentation edits.",
 ]
 forbiddenPatterns = [
