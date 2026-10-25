@@ -49,3 +49,11 @@ Source helper GitHub blob `25e37d2b126f62b8a659fed99906437435aabaa0`; test blob 
 [Draft PR #226](https://github.com/spikeal8-maker/IZO_ASA/pull/226) current HEAD `45f351903ca27a00c7d265ffbb5b3be06b9201e8` adds an additional post-job-list verification so stale A jobs are not resumed after a cookie switch. Integration code commit `4890272fd47e935d3c7b7ef491dd9ff3d608cafc` includes the exact latest seven phone source/test/contract blobs. Subsequent documentation commits change only receipt files.
 
 **Still blocked:** actual signed-in Chromium `PhoneApp` and Studio with two synthetic users, cookie refresh/logout and in-flight A↔B switch; full project TypeScript/ESLint/Vite, backend/worker/admission provider settlement, fault/rollback and independent review. The container's Chromium navigation is blocked by administrator policy; `Remote Desktop Commander` has no eligible linked D2-R2 device. No live owner data changed.
+
+## 25 Oct — additional logout/refresh gates
+
+- PR #226 https://github.com/spikeal8-maker/IZO_ASA/pull/226 source HEAD `2899663f9d38794d3981d91995faeb43663de1d2`: mobile code verifies account ownership again after loading the private job list. Canonical `fetchMeV2` requests `cache: 'no-store'` before and after refresh-cookie. This is source-only, not a real browser cookie PASS.
+- PR #231 https://github.com/spikeal8-maker/IZO_ASA/pull/231 HEAD `a1a89123b88dc540c13548eab55c39cda6f99ece`: the Legacy settings logout distinguishes positive ACK from a lost response and reloads private React state only after confirmed logout. Unconfirmed logout displays an error. Browser acceptance NOT_TESTED.
+- Latest combined code SHA before this evidence update: `e0f04d1683f4d2b431bd9c5083820e4f355e9237`. Main, #217, original PRs, D2-R2 and user data remain unchanged.
+- Headless Chromium navigation is administrator-blocked in this runtime. Static about:blank content denies native sessionStorage via SecurityError; this is not a substitute for an authenticated IZO_ASA browser/HTTP E2E.
+
