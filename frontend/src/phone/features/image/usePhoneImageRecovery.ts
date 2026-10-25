@@ -2,6 +2,7 @@ import { useEffect, useState, type RefObject } from 'react'
 
 import { loadPhoneJobs, waitForPhoneJob, type PhoneJob } from '../../core/jobs.ts'
 import { completeImageGenerationCommand, getAcceptedImageGenerationJob } from '../../../studio/imageGenerationCommand.ts'
+import { fetchMeV2 } from '../../../authV2'
 
 type RecoveryState = { offline: boolean; phase: 'checking' | 'failed' | 'ready' }
 type RecoveryOptions = {
@@ -31,7 +32,7 @@ export function usePhoneImageRecovery({ offline, jobObserver: jobObserverRef, co
       void loadPhoneJobs(true, controller.signal).then(async (items) => {
         controller.signal.throwIfAborted()
         setRecovery({ offline, phase: 'ready' })
-        const acceptedId = await getAcceptedImageGenerationJob('phone')
+        const acceptedId = await getAcceptedImageGenerationJob('phone', fetchMeV2)
         const active = items.find((item) => item.modality === 'image' && !item.terminal)
         const jobId = acceptedId || active?.id
         if (!jobId) return
@@ -39,7 +40,7 @@ export function usePhoneImageRecovery({ offline, jobObserver: jobObserverRef, co
         const job = await waitForPhoneJob(jobId, { signal: controller.signal,
           onChange: (value) => setProgress(value.progress) })
         terminalObserved = job.terminal
-        if (job.terminal) await completeImageGenerationCommand('phone', job.id).catch(() => undefined)
+        if (job.terminal) await completeImageGenerationCommand('phone', job.id, fetchMeV2).catch(() => undefined)
         completeImage(job, controller.signal)
       }).catch((caught) => {
         if (controller.signal.aborted) return
