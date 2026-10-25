@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "program": "INTERNAL-RELIABILITY-ACCEPTANCE-001",
+  "issue": 218,
+  "sourceBase": "1030abdafc32a0f11fbc4a6593acd435eb1bbdfd",
+  "integrationSource": "c5df5361278480cb0abcdff8a7cc1cada9dccba3",
+  "testedBlobs": {
+    "imageCommand": "7d1ab3c12ef8b9bbec0404d23a5ba7cd796cbf7e",
+    "nodeTests": "2d5aace73b73b7e3f5112cb54806913d17b8449d",
+    "videoGuard": "ea74c6798a6f4357c8d76c087104e72822ce4ede",
+    "videoTests": "9e9556570bc73236a682f86d378041317036d77e"
+  },
+  "environment": "Isolated ChatGPT Linux container; no GitHub checkout network; no D2-R2 connector; no paid API or user media",
+  "cases": [
+    {
+      "id": "AUTH-COMMAND-NODE",
+      "status": "PASS",
+      "scope": "Exact GitHub blobs copied byte-for-byte and hashes matched; Node v22.16.0",
+      "evidence": "node --experimental-strip-types --test frontend/test_image_generation_idempotency.mjs: 11 PASS, 0 FAIL",
+      "caveat": "Resolver is synthetic in unit tests; not the runtime authV2 bundle"
+    },
+    {
+      "id": "AUTH-COMMAND-TSC",
+      "status": "PASS",
+      "scope": "Standalone command module",
+      "evidence": "tsc --noEmit --lib dom,es2022 --target es2022 --module esnext: exit 0",
+      "caveat": "Full frontend TypeScript/Vite/ESLint not run"
+    },
+    {
+      "id": "AUTH-REFRESH-REAL-COOKIE",
+      "status": "NOT_TESTED",
+      "scope": "Real authV2 session-cookie refresh",
+      "evidence": "Changed runtime source to pass existing fetchMeV2; tests only inject resolver",
+      "caveat": "Requires real browser+backend with synthetic expiring cookies"
+    },
+    {
+      "id": "LOGOUT-FAILURE",
+      "status": "NOT_TESTED",
+      "scope": "Real auth logout response loss and cross-tab storage events",
+      "evidence": "Source changed: require positive HTTP ACK, no unconditional reload; no full-app browser test",
+      "caveat": "Needs HTTP 401, refresh, lost response and cross-tab behavior"
+    },
+    {
+      "id": "CHROMIUM-COMMAND-SYNTHETIC",
+      "status": "PASS",
+      "scope": "Real headless Chromium 1440x900 and 390x844, exact compiled command module with JS-safe crypto/transport shims",
+      "evidence": "2/5/10 duplicate submissions: one key/job per viewport; A-B-A key isolation; synthetic SQLite 4 jobs/4 debits/4 dispatch/4 gallery; scratch backup restore 4/4",
+      "caveat": "No network navigation, live authV2, or actual IZO_ASA UI/backend; browser network BLOCKED_BY_ADMINISTRATOR"
+    },
+    {
+      "id": "IMAGE-REAL-BACKEND-E2E",
+      "status": "NOT_TESTED",
+      "scope": "IZO_ASA real UI→HTTP→generation_admission→SQLite→child worker→fake provider→ledger",
+      "evidence": "No full checkout or working Docker runner in this container",
+      "caveat": "Synthetic browser fixture must not be cited as this E2E"
+    },
+    {
+      "id": "COMFY-CLAIM-HARNESS",
+      "status": "NOT_TESTED",
+      "scope": "Exact #222 claim-loss suite newly assembled",
+      "evidence": "Copied #222 exact test blob 3fbb6bc81f933024d48e8ddf665d1ab4d073be81; historical four subtests PASS only",
+      "caveat": "Real worker, claim, lease, queue and recovery suites must run on integrated HEAD"
+    },
+    {
+      "id": "VIDEO-UNKNOWN-FOCUSED",
+      "status": "PASS",
+      "scope": "Exact #223 Python source/test blobs copied and hashed",
+      "evidence": "pytest -q backend/test_video_unknown_reconciliation_guard.py: 10 PASS, 0 FAIL",
+      "caveat": "Does not cover HTTP endpoint/worker/provider lifecycle"
+    },
+    {
+      "id": "VIDEO-DELETE-JOB-GAP",
+      "status": "FAIL",
+      "scope": "Existing #223 guard on a synthetic SQLite deleted job row",
+      "evidence": "before_delete_blocked=True; after_delete_blocked=False",
+      "caveat": "Issue #204 durable receipts must be enforced before paid dispatch; #223 alone not final"
+    },
+    {
+      "id": "FINANCE-UNKNOWN-LATE-CALLBACK",
+      "status": "NOT_IMPLEMENTED",
+      "scope": "Durable provider receipt/reconciliation operator controls",
+      "evidence": "#204 OPEN; no durable lifecycle wiring in candidate",
+      "caveat": "No automatic retry when accepted/unknown; need migration+review"
+    },
+    {
+      "id": "GALLERY-NONDESTRUCTIVE-GLOBAL",
+      "status": "NOT_IMPLEMENTED",
+      "scope": "Globally accepted non-evicting quota protection",
+      "evidence": "PR #217 env-gated preprod-only preserve_history",
+      "caveat": "Production policy unresolved"
+    },
+    {
+      "id": "HOSTED-CI",
+      "status": "BLOCKED",
+      "scope": "Exact candidate SHA on GitHub hosted runners",
+      "evidence": "Zero workflow runs on PR #226 and integration source commit during check",
+      "caveat": "Historical billing/spending limit blocker; no hosted PASS"
+    },
+    {
+      "id": "INDEPENDENT-REVIEW",
+      "status": "BLOCKED",
+      "scope": "Separate security and finance GitHub APPROVE",
+      "evidence": "No formal GitHub review submitted on #224/#222; own source checks are not independent",
+      "caveat": "Require authenticated independent reviewer"
+    },
+    {
+      "id": "D2-R2-AND-ROLLBACK",
+      "status": "BLOCKED",
+      "scope": "User preprod 127.0.0.1:48314 remains untouched",
+      "evidence": "Remote Desktop Commander returned link_id must identify an eligible linked account",
+      "caveat": "Do not claim production/runtime PASS"
+    }
+  ],
+  "releaseVerdict": "NOT_ACCEPTED",
+  "constraints": [
+    "No production data changes",
+    "No main merge",
+    "No paid calls",
+    "No D2-R2 runtime mutations"
+  ]
+}
