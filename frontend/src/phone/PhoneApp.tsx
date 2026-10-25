@@ -25,6 +25,7 @@ import PhoneChatWorkspace from './features/chat/PhoneChatWorkspace.tsx'
 import PhoneAudioWorkspace from './features/audio/PhoneAudioWorkspace.tsx'
 import PhoneImageWorkspace from './features/image/PhoneImageWorkspace.tsx'
 import PhoneVideoWorkspace from './features/video/PhoneVideoWorkspace.tsx'
+import { VERIFIED_LOGOUT_EVENT_V2 } from '../authV2'
 import './phoneShell.css'
 
 
@@ -198,6 +199,13 @@ export default function PhoneApp() {
     }
   }, [])
 
+  useEffect(() => {
+    const onVerifiedLogoutInAnotherTab = (event: StorageEvent) => {
+      if (event.key === VERIFIED_LOGOUT_EVENT_V2) window.location.reload()
+    }
+    window.addEventListener('storage', onVerifiedLogoutInAnotherTab)
+    return () => window.removeEventListener('storage', onVerifiedLogoutInAnotherTab)
+  }, [])
   useEffect(() => {
     const controller = new AbortController()
     const timer = window.setTimeout(() => { void refresh(controller.signal) }, 0)
