@@ -109,6 +109,20 @@
       "scope": "User preprod 127.0.0.1:48314 remains untouched",
       "evidence": "Remote Desktop Commander returned link_id must identify an eligible linked account",
       "caveat": "Do not claim production/runtime PASS"
+    },
+    {
+      "id": "PROVIDER-RECEIPT-CORE",
+      "status": "PASS",
+      "scope": "PR #229 standalone service exact git-blob hashes and temporary SQLite (not integrated with app)",
+      "evidence": "pytest -q backend/test_provider_reconciliation.py: 10 PASS; 2/5/10 single receipt/one dispatch-fence; unknown receipt survives job deletion/restart; explicit reconciliation audit; malformed keys fail closed",
+      "caveat": "No production migrations, adapters, operator authorization, billing or provider dispatch integration"
+    },
+    {
+      "id": "PROVIDER-RECEIPT-SYNTHETIC-LOAD",
+      "status": "PASS",
+      "scope": "PR #229 isolated receipt store only, 250 operations each at 1/5/10 threads",
+      "evidence": "p95=5.82/28.89/57.79ms; p99=9.25/122.98/108.63ms; 1 receipt, 0 errors per batch",
+      "caveat": "Not real FastAPI/worker/SQLite application load, no GPU and no user traffic; cannot infer product capacity"
     }
   ],
   "releaseVerdict": "NOT_ACCEPTED",
@@ -117,5 +131,11 @@
     "No main merge",
     "No paid calls",
     "No D2-R2 runtime mutations"
-  ]
+  ],
+  "relatedDurableReceiptPR": {
+    "pr": 229,
+    "head": "58c8bd2c2743d88db5b6707faa22025a2fd846de",
+    "base": "51543df2b6a559d693e3ed75b11baeacdb9033d3",
+    "note": "Separate main-based isolated core; not integrated into production video paths or PR #228"
+  }
 }
