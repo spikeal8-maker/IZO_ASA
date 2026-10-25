@@ -62,7 +62,7 @@ export async function startPhoneImage(input: {
     try {
       started = await phoneFetch<{ id?: string; jobId?: string }>('/api/generate', {
         method: 'POST', signal,
-        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': command.key },
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': command.key, 'X-IZO-Expected-Internal-User': command.ownerId },
         body: command.body,
       })
     } catch (error) {
