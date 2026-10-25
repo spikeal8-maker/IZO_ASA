@@ -17,12 +17,6 @@ concurrency:
 jobs:
   verify:
     name: Backend, tooling and frontend gates
-    if: >-
-      github.event_name != 'pull_request' ||
-      (
-        github.event.pull_request.head.repo.full_name == github.repository &&
-        github.actor == 'spikeal8-maker'
-      )
     runs-on: windows-2022
     timeout-minutes: 45
     env:
@@ -32,10 +26,14 @@ jobs:
       - name: Assert GitHub-hosted Windows runner
         shell: powershell
         env:
+          IZO_PR_ALLOWED: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor == 'spikeal8-maker') }}
           IZO_RUNNER_ENVIRONMENT: ${{ runner.environment }}
           IZO_RUNNER_OS: ${{ runner.os }}
           IZO_RUNNER_ARCH: ${{ runner.arch }}
         run: |
+          if ($env:IZO_PR_ALLOWED -ne "true") {
+            throw "Untrusted pull request rejected before checkout."
+          }
           if ($env:GITHUB_ACTIONS -ne "true" -or
               $env:IZO_RUNNER_ENVIRONMENT -ne "github-hosted" -or
               $env:IZO_RUNNER_OS -ne "Windows" -or

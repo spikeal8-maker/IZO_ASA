@@ -1,0 +1,105 @@
+name: Transitive npm lockfile resolver and verification (supplemental)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+      - 'architecture/security-policy.json'
+      - '.github/workflows/npm-lockfile-verification.yml'
+      - 'tasks/STAB-NPM-CHAIN-REM-154-155-001.toml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: transitive-lock-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  npm_lock:
+    name: Resolve and verify patched transitive npm chains
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Reject untrusted PR before checkout
+        shell: bash
+        env:
+          IZO_PR_ALLOWED: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor == 'spikeal8-maker') }}
+        run: |
+          set -euo pipefail
+          if [[ "$IZO_PR_ALLOWED" != "true" ]]; then
+            echo "::error::Untrusted pull request rejected before checkout"
+            exit 1
+          fi
+
+      - name: Check out exact PR source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Configure pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v4.4.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Check exact PR head and pinned Node
+        shell: bash
+        env:
+          IZO_HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$IZO_HEAD"
+          test "$(node --version)" = "v24.14.1"
+          npm --version
+
+      - name: Resolve compatible lockfile using the real npm registry
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          node <<'NODE'
+          const fs = require("fs");
+          const lock = fs.readFileSync("package-lock.json", "utf8");
+          const parsed = JSON.parse(lock);
+          for (const [name, min] of [
+            ["browserslist", [4, 28, 7]],
+            ["postcss", [8, 5, 23]],
+            ["nanoid", [3, 3, 18]],
+          ]) {
+            const version = parsed.packages["node_modules/" + name]?.version;
+            if (!version) throw Error("Missing resolved " + name);
+            const triple = version.split(".").map(Number);
+            const safe = triple[0] > min[0] ||
+              (triple[0] === min[0] &&
+                (triple[1] > min[1] ||
+                  (triple[1] === min[1] && triple[2] >= min[2])));
+            if (!safe) throw Error("Affected version still resolved: " + name + "@" + version);
+            console.log("IZO_RESOLVED_PACKAGE=" + name + "@" + version);
+          }
+          console.log("IZO_NPM_LOCK_LENGTH=" + lock.length);
+          let part = 0;
+          for (let offset = 0; offset < lock.length; offset += 1000) {
+            const fragment = lock.slice(offset, offset + 1000);
+            console.log("IZO_NPM_LOCK_CHUNK_" + String(part++).padStart(4, "0") +
+              "=" + JSON.stringify(fragment));
+          }
+          console.log("IZO_NPM_LOCK_CHUNK_COUNT=" + part);
+          NODE
+
+      - name: Ensure deterministic npm ci on the resolver output
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts
+          npm audit --audit-level=moderate
+          npm audit --omit=dev --audit-level=moderate
+          npm run build
+          npm run lint

@@ -1,0 +1,81 @@
+name: Pillow 13 Python 3.11.9 compatibility (supplemental)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/requirements.txt'
+      - 'backend/test_pillow_13_compat.py'
+      - '.github/workflows/pillow-13-verification.yml'
+      - 'tasks/SEC-PILLOW-13-001.toml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pillow13-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pillow_compat:
+    name: Synthetic Pillow media regression / Python 3.11.9
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      PYTHONUTF8: "1"
+      BOT_UPDATES_MODE: "disabled"
+      MAX_UPDATES_MODE: "disabled"
+      COMFYUI_REQUIRED: "false"
+      TELEGRAM_BOT_TOKEN: ""
+      MAX_BOT_TOKEN: ""
+      OPENROUTER_API_KEY: ""
+      SESSION_HMAC_SECRET: ""
+      EMAIL_PROVIDER: ""
+    steps:
+      - name: Reject untrusted PR before checkout
+        shell: bash
+        env:
+          IZO_PR_ALLOWED: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor == 'spikeal8-maker') }}
+        run: |
+          set -euo pipefail
+          if [[ "$IZO_PR_ALLOWED" != "true" ]]; then
+            echo "::error::Untrusted pull request rejected before checkout"
+            exit 1
+          fi
+
+      - name: Check out exact PR source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Configure pinned Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      - name: Verify exact revision, version and requirements
+        shell: bash
+        env:
+          IZO_EXACT_HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$IZO_EXACT_HEAD"
+          test "$(python -c 'import sys;print(".".join(map(str,sys.version_info[:3])))')" = "3.11.9"
+          grep -Fxq 'Pillow==13.0.0' backend/requirements.txt
+
+      - name: Install requirements and confirm dependency integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --no-input -r backend/requirements.txt
+          python -m pip check
+
+      - name: Run synthetic Pillow, upload, gallery and integration regressions
+        working-directory: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q test_pillow_13_compat.py test_http_upload_security.py test_gallery_storage_optimization.py test_integrations_openrouter_image_io_module.py
