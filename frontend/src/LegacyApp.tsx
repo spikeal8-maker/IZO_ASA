@@ -2853,7 +2853,15 @@ function SettingsView({ copy, lang, onLanguageChange, tariffs, bootstrap, setBoo
       setAvatarBusy(false)
     }
   }
-  const onLogout = async () => { await logoutV2(); await refreshAuthStateV2() }
+  const onLogout = async () => {
+    const confirmed = await logoutV2()
+    if (!confirmed) {
+      setSaveMsg('Выход не подтверждён сервером. Проверьте соединение и повторите.')
+      return
+    }
+    // Clear previous account's legacy React gallery and previews only after server ACK.
+    window.location.reload()
+  }
   const onApplyPromo = async () => {
     const code = promoCode.trim().toUpperCase()
     if (!code) { setPromoResult('Введите промокод'); return }
