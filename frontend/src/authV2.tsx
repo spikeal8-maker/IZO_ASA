@@ -588,12 +588,21 @@ export async function fetchMeV2(): Promise<MeV2 | null> {
   return (await res.json()) as MeV2
 }
 
-export async function logoutV2(): Promise<void> {
+export const VERIFIED_LOGOUT_EVENT_V2 = 'izo.auth.verified-logout.v2'
+
+/** A lost logout acknowledgement is unknown, NOT a successful session revocation. */
+export async function logoutV2(): Promise<boolean> {
   try {
-    // Empty body: backend reads the session cookie and clears both cookies.
-    await authFetch('/auth/session/logout-v2', { method: 'POST', body: JSON.stringify({}) })
+    let res = await authFetch('/auth/session/logout-v2', { method: 'POST', body: JSON.stringify({}) })
+    if (res.status === 401 && await ensureSessionRefreshedV2()) {
+      res = await authFetch('/auth/session/logout-v2', { method: 'POST', body: JSON.stringify({}) })
+    }
+    if (!res.ok) return false
+    // Other tabs must discard private React state. Never store tokens or user data here.
+    try { window.localStorage.setItem(VERIFIED_LOGOUT_EVENT_V2, crypto.randomUUID()) } catch { /* storage unavailable */ }
+    return true
   } catch {
-    /* ignore network errors on logout */
+    return false
   }
   // installation_id / anonymous_id are intentionally retained.
 }
