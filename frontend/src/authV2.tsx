@@ -579,10 +579,10 @@ export function ensureSessionRefreshedV2(): Promise<boolean> {
 // Restore/validate the session purely via cookies. On a 401 (expired access
 // session), Option A: try one shared cookie-based refresh, then retry /me-v2 once.
 export async function fetchMeV2(): Promise<MeV2 | null> {
-  let res = await authFetch('/me-v2')
+  let res = await authFetch('/me-v2', { cache: 'no-store' })
   if (res.status === 401) {
     const refreshed = await ensureSessionRefreshedV2()
-    if (refreshed) res = await authFetch('/me-v2')
+    if (refreshed) res = await authFetch('/me-v2', { cache: 'no-store' })
   }
   if (!res.ok) return null
   return (await res.json()) as MeV2
