@@ -120,3 +120,23 @@ def test_unknown_never_enables_fallback_or_second_send(tmp_path):
     for state in ('DISPATCHING','ACCEPTED','RECONCILIATION_PENDING','COMPLETED'):
         assert not can_attempt_compatible_fallback(state)
     assert can_attempt_compatible_fallback('NOT_SENT')
+
+
+def test_reject_malformed_key_and_unknown_evidence_before_any_receipt(tmp_path):
+    path=db(tmp_path)
+    for key in ('', 'x' * 129, 'contains space', 'кириллица', 'line\nbreak'):
+        with pytest.raises(ValueError):register(path,key=key)
+    with pytest.raises(ValueError):register(path,fp='not-a-sha256')
+    with connect(path) as conn:
+        assert conn.execute('SELECT COUNT(*) FROM provider_dispatch_receipts').fetchone()[0]==0
+
+
+def test_operator_id_and_reason_must_be_verified_by_caller(tmp_path):
+    path=db(tmp_path);receipt,_=register(path)
+    assert begin_send(path,receipt)
+    with connect(path) as conn:
+        acknowledge(conn,receipt,'OUTCOME_UNKNOWN')
+        for operator,reason in [(None,'reason'),('','reason'),('person',None),('person','')]:
+            with pytest.raises(InvalidTransition):
+                resolve(conn,receipt,'REJECTED',evidence_sha256=PROOF,operator_id=operator,reason=reason)
+        assert conn.execute('SELECT state FROM provider_dispatch_receipts').fetchone()[0]=='RECONCILIATION_PENDING'
