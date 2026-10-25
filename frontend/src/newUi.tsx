@@ -1264,7 +1264,7 @@ export default function NewStudio(): ReactElement {
         ? await apiFetch(`/jobs/${encodeURIComponent(command.acceptedJobId)}`)
         : await apiFetch('/generate', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Idempotency-Key': command.key },
+            headers: { 'Content-Type': 'application/json', 'Idempotency-Key': command.key, 'X-IZO-Expected-Internal-User': command.ownerId },
             body: command.body,
           })
       if (!response.ok) {
