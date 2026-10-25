@@ -30,18 +30,11 @@ export function usePhoneImageRecovery({ offline, jobObserver: jobObserverRef, co
     jobObserverRef.current = controller
     if (!offline) {
       void (async () => {
-        // Canonical refresh before job-list 401; verify AGAIN after network I/O.
-        const initial = await fetchMeV2()
+        // Refresh an expired access cookie BEFORE job-list 401; never poll another owner's job.
+        const me = await fetchMeV2()
         controller.signal.throwIfAborted()
-        if (!initial?.internal_user_id) throw new Error('Не удалось подтвердить аккаунт для восстановления генерации.')
-        const items = await loadPhoneJobs(true, controller.signal)
-        controller.signal.throwIfAborted()
-        const current = await fetchMeV2()
-        controller.signal.throwIfAborted()
-        if (current?.internal_user_id !== initial.internal_user_id) {
-          throw new Error('Аккаунт изменился во время восстановления генерации.')
-        }
-        return items
+        if (!me?.internal_user_id) throw new Error('Не удалось подтвердить аккаунт для восстановления генерации.')
+        return loadPhoneJobs(true, controller.signal)
       })().then(async (items) => {
         controller.signal.throwIfAborted()
         setRecovery({ offline, phase: 'ready' })
