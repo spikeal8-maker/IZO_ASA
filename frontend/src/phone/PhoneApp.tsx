@@ -33,6 +33,7 @@ const MANIFEST_CACHE_KEY = 'izo.phone.platform.v1'
 const LAST_ROUTE_KEY = 'izo.phone.last-route.v1'
 
 type MePayload = {
+  internal_user_id?: string
   profile?: { display_name?: string | null; avatar_url?: string | null }
   account?: {
     token_balance?: number | null
@@ -269,6 +270,18 @@ export default function PhoneApp() {
     )
   }
 
+  if (!me?.internal_user_id) {
+    return (
+      <main className="phone-app phone-state">
+        <PhoneBrand />
+        <div className="phone-state-spinner" />
+        <b>Подтверждаем аккаунт</b>
+        <p>Личные черновики и работы откроются только после проверки сессии.</p>
+        {error && <button type="button" onClick={() => void refresh()}>Повторить проверку</button>}
+      </main>
+    )
+  }
+
   return (
     <main className="phone-app">
       <header className="phone-topbar">
@@ -284,7 +297,7 @@ export default function PhoneApp() {
       {error && manifest && !offline && <div className="phone-warning" role="status">Не удалось обновить настройки <button type="button" onClick={() => void refresh()}>Повторить</button></div>}
 
       <div className="phone-content">
-        {current?.id === 'image' ? <PhoneImageWorkspace offline={offline} /> : current?.id === 'video' ? <PhoneVideoWorkspace offline={offline} /> : current?.id === 'chat' ? <PhoneChatWorkspace offline={offline} /> : current?.id === 'audio' ? <PhoneAudioWorkspace offline={offline} /> : current ? <PhoneWorkspacePanel workspace={current} offline={offline} /> : (
+        {current?.id === 'image' ? <PhoneImageWorkspace key={`image:${me.internal_user_id}`} ownerId={me.internal_user_id} offline={offline} /> : current?.id === 'video' ? <PhoneVideoWorkspace key={`video:${me.internal_user_id}`} ownerId={me.internal_user_id} offline={offline} /> : current?.id === 'chat' ? <PhoneChatWorkspace key={`chat:${me.internal_user_id}`} offline={offline} /> : current?.id === 'audio' ? <PhoneAudioWorkspace key={`audio:${me.internal_user_id}`} offline={offline} /> : current ? <PhoneWorkspacePanel workspace={current} offline={offline} /> : (
           <section className="phone-not-found"><h1>Такого раздела нет</h1><button type="button" onClick={() => navigate(manifest.defaultRoute, true)}>Открыть картинки</button></section>
         )}
       </div>
