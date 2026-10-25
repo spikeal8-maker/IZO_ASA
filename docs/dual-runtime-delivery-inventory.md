@@ -17,7 +17,7 @@
 | Data protection | [Backup runbook](backup-restore-runbook-20260713.md) describes SQLite Backup API, checksum/media manifest; dated rehearsal is historical | VERIFIED source; current restore and RPO/RTO UNVERIFIED |
 | Docker in main | [DEV Compose](../ops/docker/dev/compose.yml) and [backend Dockerfile](../ops/docker/dev/Dockerfile.backend) | VERIFIED DEV/TEST only |
 | Docker production delivery | No production Compose or [docker-clean-install workflow](https://github.com/spikeal8-maker/IZO_ASA/tree/main/.github/workflows) in main; stack exists in Draft PRs | UNVERIFIED; not a released target |
-| Unified release manifest / two artifacts | No accepted paired Windows bundle + OCI digest on one SHA identified | MISSING acceptance, DUAL-04 |
+| Unified release manifest / two artifacts | No accepted paired Windows bundle + OCI digest on one SHA identified; GitHub Releases list was empty at discovery | MISSING acceptance, DUAL-04 |
 | Active deployed SHA, data host, volumes, worker ownership, current credentials | Installed runtime needs separate authorized redacted read-only receipts | UNVERIFIED; do not infer from repository |
 | Docs routing | [NOW](NOW.md) reports older main 7ab1861b and older active packages; [AI_START_HERE](../AI_START_HERE.md) owns reading order | VERIFIED drift; separate governance fix |
 
@@ -41,8 +41,12 @@
 | [#199](https://github.com/spikeal8-maker/IZO_ASA/pull/199) a250aea0bbf0951678162ef4ec3985116058e20c | main; admin/ledger durability | Draft |
 | [#221](https://github.com/spikeal8-maker/IZO_ASA/pull/221) f09f99b3a79dc32ca9e69380ff4013223748ed58 | #217; image command idempotency | Draft |
 | [#224](https://github.com/spikeal8-maker/IZO_ASA/pull/224) 77d35f4907fbb976f12bb279af1a66b832229493 | #221; account-isolated pending commands | Draft |
+| [#226](https://github.com/spikeal8-maker/IZO_ASA/pull/226) 539d4b136a163e7362ad9b8eb1350c1e75bd141a | #224; auth-refresh, logout and cross-tab privacy | Draft |
+| [#228](https://github.com/spikeal8-maker/IZO_ASA/pull/228) e60d3f002f09a0b37ea96192c8da8924e8880690 | #217; combined synthetic candidate, full E2E absent | Draft |
 | [#222](https://github.com/spikeal8-maker/IZO_ASA/pull/222) 9433610dae9ad8aa57cee7d00187c6fdef887a6f | #217; isolated Comfy test harness | Draft |
 | [#223](https://github.com/spikeal8-maker/IZO_ASA/pull/223) 493a0647eeb083939fe1f628418b232ee8b03c93 | #217; fail-closed paid video timeout stopgap | Draft |
+| [#229](https://github.com/spikeal8-maker/IZO_ASA/pull/229) 36f9dfe3399e2cee7c0d2d71d918a91a4bc19b33 | main; durable receipt prototype not wired into runtime | Draft |
+| [#240](https://github.com/spikeal8-maker/IZO_ASA/pull/240) ea312a9ffd5013c3cbaaecc288901c13d71d5257 | main; required GitHub gate hardening | Draft |
 
 The large #195 change set overlaps existing Compose, CI and docs/NOW; reuse only after review. DUAL-00 modifies none of these paths. Do not cherry-pick stacked PRs blindly. See [reliability audit #218](https://github.com/spikeal8-maker/IZO_ASA/issues/218), [image #219](https://github.com/spikeal8-maker/IZO_ASA/issues/219), [video/provider #204](https://github.com/spikeal8-maker/IZO_ASA/issues/204), and [cutover #126](https://github.com/spikeal8-maker/IZO_ASA/issues/126).
 
