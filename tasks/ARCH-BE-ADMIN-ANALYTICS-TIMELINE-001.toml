@@ -1,0 +1,64 @@
+manifestVersion = 1
+id = "ARCH-BE-ADMIN-ANALYTICS-TIMELINE-001"
+baseSha = "51543df2b6a559d693e3ed75b11baeacdb9033d3"
+goal = "Extract cohesive read-only dashboard timelines and payment summaries from admin_analytics.py."
+userOutcome = "CRM dashboard calculations have a bounded service owner, while existing admin analytics callers keep their imports and HTTP behavior."
+beforeScenario = "Dashboard timeline functions and bucket helpers are mixed with 1150 lines of user dossier, finance and history code."
+afterScenario = "Independent admin_analytics_timeline.py owns pure timeline/query presentations; admin_analytics.py reexports legacy symbols."
+nonGoals = [
+  "dashboard or mobile redesign",
+  "API/route/response changes",
+  "database migrations",
+  "billing arithmetic changes",
+  "worker/provider changes",
+  "production/release operations",
+  "unrelated cleanup",
+]
+domain = "admin-control-center"
+riskClass = "standard"
+changeClass = "extraction"
+declaredFiles = [
+  "backend/app/services/admin_analytics.py",
+  "backend/app/services/admin_analytics_timeline.py",
+  "backend/test_admin_analytics_timeline_module.py",
+  "tasks/ARCH-BE-ADMIN-ANALYTICS-TIMELINE-001.toml",
+]
+allowedPatterns = []
+protectedFilesTouched = []
+maxProductionFiles = 2
+maxChangedLines = 800
+acceptance = [
+  "The original admin_analytics module shrinks materially, and the new cohesive module has fewer than 500 source lines.",
+  "All ten historical public and internal module symbols preserve import identity through backward-compatible reexports.",
+  "No SQL query, schema, route handler, model or HTTP response shape is changed.",
+  "Moscow business-day, UTC query windows and rolling buckets retain their exact calculations.",
+  "Existing CRM end-to-end and targeted module tests pass on exact head; no external providers or real databases.",
+  "New source introduces no reverse dependency on main or hidden global application state.",
+  "Independent review and required exact-SHA CI succeed before merge.",
+]
+requiredEvidence = [
+  "file size/line counts before and after",
+  "symbol exact-alias characterization",
+  "focused read-only SQLite timeline tests",
+  "backend/test_admin_analytics.py",
+  "applicable package/CI gates",
+  "independent review",
+]
+targetedTests = [
+  "backend/test_admin_analytics_timeline_module.py",
+  "backend/test_admin_analytics.py",
+]
+fileGrowthExpectations = [
+  "backend/app/services/admin_analytics.py shrinks",
+  "new module remains cohesive, without duplicate function definitions",
+  "no other protected file changes",
+]
+forbiddenPatterns = [
+  "backend/main.py",
+  "backend/app/billing/**",
+  "backend/app/database/**",
+  "frontend/**",
+  "ops/**",
+]
+forbiddenOperations = ["deploy", "restart", "production-data", "provider-call", "direct-main"]
+rollbackBoundary = "Revert this self-contained extraction PR; do not modify the SQLite schema, data, media or secrets."
