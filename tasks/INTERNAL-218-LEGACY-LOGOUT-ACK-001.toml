@@ -1,0 +1,25 @@
+manifestVersion = 1
+id = "INTERNAL-218-LEGACY-LOGOUT-ACK-001"
+baseSha = "2899663f9d38794d3981d91995faeb43663de1d2"
+goal = "Fix an unsafe logout result handler in the frozen LegacyApp compatibility settings page."
+userOutcome = "Unconfirmed server logout is shown as an error; confirmed logout clears prior account private React state."
+beforeScenario = "Legacy settings silently discards logoutV2 boolean and merely refreshes session; successful logout may preserve private in-memory UI."
+afterScenario = "Unconfirmed logout displays an error beside the logout control; confirmed logout reloads once and revalidates cookie state."
+nonGoals = ["Change legacy product design", "Rewrite authentication", "Delete pending paid commands", "Modify backend sessions", "Production deploy"]
+domain = "frontend-auth"
+riskClass = "high-assurance"
+changeClass = "product"
+declaredFiles = ["frontend/src/LegacyApp.tsx"]
+allowedPatterns = []
+forbiddenPatterns = ["backend/**", "ops/**", "frontend/src/authV2.tsx", "frontend/src/newUi.tsx", "frontend/src/phone/**"]
+protectedFilesTouched = ["frontend/src/LegacyApp.tsx"]
+maxProductionFiles = 1
+maxChangedLines = 40
+acceptance = ["Legacy settings logout reports failure when response is lost or non-2xx", "Only positive backend ACK triggers page reload", "No private React gallery persists after confirmed exit", "A-B-A real browser auth and account isolation", "Existing Studio and Phone logout remain unchanged"]
+requiredEvidence = ["Exact SHA source review", "Frontend lint/typecheck/Vite build", "Real Chromium synthetic login and loss-of-ACK tests", "Independent security review", "Hosted exact-SHA CI"]
+targetedTests = ["authV2 logout flow", "Legacy SettingsView logout handler"]
+fileGrowthExpectations = ["Single bounded 8-line compatibility fix", "No new responsibility or redesign"]
+forbiddenOperations = ["main-merge", "deployment", "production-data", "paid-provider-call", "global-network-change"]
+rollbackBoundary = "Discard child PR; existing #226 source, main and D2-R2 unchanged"
+
+# Bounded 40-line allowance includes the required 23-line Task Contract itself.

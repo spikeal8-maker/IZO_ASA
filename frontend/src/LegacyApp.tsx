@@ -2853,7 +2853,7 @@ function SettingsView({ copy, lang, onLanguageChange, tariffs, bootstrap, setBoo
       setAvatarBusy(false)
     }
   }
-  const onLogout = async () => { await logoutV2(); await refreshAuthStateV2() }
+  const onLogout = async () => { if (await logoutV2()) window.location.reload(); else setSaveMsg('Выход не подтверждён сервером. Проверьте соединение и повторите.') }
   const onApplyPromo = async () => {
     const code = promoCode.trim().toUpperCase()
     if (!code) { setPromoResult('Введите промокод'); return }
