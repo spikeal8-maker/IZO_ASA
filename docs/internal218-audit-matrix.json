@@ -130,6 +130,27 @@
       "scope": "#229 exact 58c8bd2c2743d88db5b6707faa22025a2fd846de",
       "evidence": "Workflow runs 40174442965 and 40174442974 completed failure after ~3 seconds, jobs had zero steps, logs GET returned 404 BlobNotFound",
       "caveat": "Root cause not verified. Historic billing/spending-limit blocker suspected, but not proven on these runs; do not assert code tests failed or passed."
+    },
+    {
+      "id": "P0-PHONE-ACCOUNT-DRAFTS",
+      "status": "PASS",
+      "scope": "Exact blob standalone helper+Node tests in Linux Node v22.16.0 and TypeScript 5.8.3",
+      "evidence": "git hash-object matched PR230 blobs 25e37d2... and f3866fb...; node --experimental-strip-types --test: 6 passed, 0 failed; tsc --noEmit: PASS",
+      "caveat": "Only scoped helper unit tests, NOT full PhoneImage/PhoneVideo React/browser session E2E"
+    },
+    {
+      "id": "P0-PHONE-INFLIGHT-ACCOUNT-SWITCH",
+      "status": "NOT_TESTED",
+      "scope": "#230 PhoneApp plus #226 recovery on exact #228 combined code",
+      "evidence": "Source enforces verified /me-v2 owner before/after job list, fences stale request sequences, hides cached private workspace during refresh; exact GitHub blobs confirmed",
+      "caveat": "No actual cookie-swapping Chromium/backend execution; remaining TOCTOU must be reviewed"
+    },
+    {
+      "id": "GITHUB-COMBINED-BLOB-IDENTITY",
+      "status": "PASS",
+      "scope": "#228 combined code with #226 and #230",
+      "evidence": "7/7 selected phone source/test/contract blobs matched their latest source PRs at 4890272fd47e935d3c7b7ef491dd9ff3d608cafc",
+      "caveat": "Source integration identity is not runtime E2E or a full build"
     }
   ],
   "releaseVerdict": "NOT_ACCEPTED",
@@ -144,5 +165,18 @@
     "head": "58c8bd2c2743d88db5b6707faa22025a2fd846de",
     "base": "51543df2b6a559d693e3ed75b11baeacdb9033d3",
     "note": "Separate main-based isolated core; not integrated into production video paths or PR #228"
+  },
+  "latestCombinedCodeSha": "4890272fd47e935d3c7b7ef491dd9ff3d608cafc",
+  "accountDraftPatch": {
+    "pr": 230,
+    "head": "7fdb7ab4c7069674183bc5c1a0a2aab195cfe7e5",
+    "basePr": 226,
+    "sourceHelperBlob": "25e37d2b126f62b8a659fed99906437435aabaa0",
+    "sourceTestBlob": "f3866fb8611df22315752aab83bbefc26c75a68f"
+  },
+  "latestAuthRefreshPatch": {
+    "pr": 226,
+    "head": "45f351903ca27a00c7d265ffbb5b3be06b9201e8",
+    "recoveryBlob": "f0c74c74c6f1961ce9021f7a56f0ba65bd9ed6a2"
   }
 }
