@@ -1,0 +1,90 @@
+# Supplemental exact-SHA evidence only. NEVER replaces required CI/security gates.
+# GitHub-hosted ephemeral runner; no owner DB/media/credentials or paid/GPU I/O.
+name: "IZO #218 Focused Evidence (NOT Release Gate)"
+
+on:
+  push:
+    branches:
+      - agent/internal-218-focused-evidence-001
+
+permissions:
+  contents: read
+
+concurrency:
+  group: internal218-evidence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Focused real Python backend/worker tests
+    runs-on: windows-2022
+    timeout-minutes: 25
+    env:
+      PYTHONUTF8: "1"
+      OPENROUTER_BASE_URL: http://127.0.0.1:1
+      COMFYUI_BASE_URL: http://127.0.0.1:1
+      OLLAMA_BASE_URL: http://127.0.0.1:1
+    steps:
+      - name: Checkout source without persistent credentials
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 3b2baebb568dab666cc73834cb17f73d13cff378
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify exact source SHA and temporary hosted runner
+        shell: pwsh
+        run: |
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne "3b2baebb568dab666cc73834cb17f73d13cff378") { throw "Source HEAD mismatch" }
+          if ("${{ runner.environment }}" -ne "github-hosted") { throw "Not ephemeral hosted runner" }
+          Write-Host "EVIDENCE_ONLY_EXACT_SHA=$actual"
+      - name: Setup repository-pinned Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version-file: .python-version
+          architecture: x64
+      - name: Install backend test dependencies
+        run: python -m pip install -r backend/requirements.txt
+      - name: Real backend admission/claims/worker/video/owner tests (synthetic fixtures)
+        shell: pwsh
+        run: |
+          python -m pytest -q backend/test_generation_admission.py backend/test_generation_claims.py backend/test_generation_worker_claims.py backend/test_generation_dispatch.py backend/test_generation_leases.py backend/test_generation_recovery_wiring.py backend/test_generation_worker_process.py backend/test_generation_worker_status_support.py backend/test_generation_owner_dispatch_fence.py backend/test_video_unknown_reconciliation_guard.py backend/test_video_generation_api.py backend/test_video_cancellation_fence.py backend/test_preprod216_quota_safety.py backend/test_generation_process_ownership.py
+
+  frontend:
+    name: Node client cases, ESLint, TypeScript and Vite
+    runs-on: windows-2022
+    timeout-minutes: 20
+    env:
+      CI: "true"
+    steps:
+      - name: Checkout source without persistent credentials
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 3b2baebb568dab666cc73834cb17f73d13cff378
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify exact SHA and temporary hosted runner
+        shell: pwsh
+        run: |
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne "3b2baebb568dab666cc73834cb17f73d13cff378") { throw "Source HEAD mismatch" }
+          if ("${{ runner.environment }}" -ne "github-hosted") { throw "Not ephemeral hosted runner" }
+          Write-Host "EVIDENCE_ONLY_EXACT_SHA=$actual"
+      - name: Setup repository-pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          architecture: x64
+          package-manager-cache: false
+      - name: Reproduce lockfile with npm ci (security gate NOT waived)
+        working-directory: frontend
+        run: npm ci
+      - name: Client A-B-A, refresh and private phone draft tests
+        working-directory: frontend
+        run: node --experimental-strip-types --test test_image_generation_idempotency.mjs test_phone_owner_drafts.mjs
+      - name: ESLint product sources
+        working-directory: frontend
+        run: npm run lint
+      - name: Full TypeScript and Vite production build
+        working-directory: frontend
+        run: npm run build
