@@ -1,6 +1,6 @@
 # Supplemental exact-SHA evidence only. NEVER replaces required CI/security gates.
 # GitHub-hosted ephemeral runner; no owner DB/media/credentials or paid/GPU I/O.
-name: IZO #218 Focused Evidence (NOT Release Gate)
+name: "IZO #218 Focused Evidence (NOT Release Gate)"
 
 on:
   push:
@@ -28,14 +28,14 @@ jobs:
       - name: Checkout source without persistent credentials
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          ref: ${{ github.sha }}
+          ref: 3b2baebb568dab666cc73834cb17f73d13cff378
           persist-credentials: false
           fetch-depth: 1
       - name: Verify exact source SHA and temporary hosted runner
         shell: pwsh
         run: |
           $actual = (git rev-parse HEAD).Trim()
-          if ($actual -ne "${{ github.sha }}") { throw "Source HEAD mismatch" }
+          if ($actual -ne "3b2baebb568dab666cc73834cb17f73d13cff378") { throw "Source HEAD mismatch" }
           if ("${{ runner.environment }}" -ne "github-hosted") { throw "Not ephemeral hosted runner" }
           Write-Host "EVIDENCE_ONLY_EXACT_SHA=$actual"
       - name: Setup repository-pinned Python
@@ -60,14 +60,14 @@ jobs:
       - name: Checkout source without persistent credentials
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          ref: ${{ github.sha }}
+          ref: 3b2baebb568dab666cc73834cb17f73d13cff378
           persist-credentials: false
           fetch-depth: 1
       - name: Verify exact SHA and temporary hosted runner
         shell: pwsh
         run: |
           $actual = (git rev-parse HEAD).Trim()
-          if ($actual -ne "${{ github.sha }}") { throw "Source HEAD mismatch" }
+          if ($actual -ne "3b2baebb568dab666cc73834cb17f73d13cff378") { throw "Source HEAD mismatch" }
           if ("${{ runner.environment }}" -ne "github-hosted") { throw "Not ephemeral hosted runner" }
           Write-Host "EVIDENCE_ONLY_EXACT_SHA=$actual"
       - name: Setup repository-pinned Node

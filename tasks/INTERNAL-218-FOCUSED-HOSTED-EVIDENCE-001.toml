@@ -4,7 +4,7 @@ baseSha = "e60d3f002f09a0b37ea96192c8da8924e8880690"
 goal = "Run real bounded backend/worker/finance and frontend lint/type/build tests at exact PR228 combined source on GitHub-hosted Windows."
 userOutcome = "Receive independent runner receipts for combined image, Comfy claim loss, video, auth, and owner-scoped mobile work without touching the real site."
 beforeScenario = "Existing CI triggers only for pull_request base main and is blocked by expired dependency policy; stacked PR228 has zero hosted test runs."
-afterScenario = "One isolated push-triggered evidence workflow checks out an exact source SHA on a hosted runner and runs bounded backend and frontend tests without changing mandatory main CI gates."
+afterScenario = "One isolated push-triggered evidence workflow checks out an explicitly pinned candidate source SHA on a hosted runner and runs bounded backend and frontend tests without changing mandatory main CI gates."
 nonGoals = ["Redefine required CI", "Waive expired security exceptions", "Run paid API or GPU", "Deploy", "Modify user DB", "Merge into main"]
 domain = "verification"
 riskClass = "high-assurance"
@@ -15,9 +15,13 @@ forbiddenPatterns = ["backend/**", "frontend/**", "ops/**", ".github/workflows/c
 protectedFilesTouched = [".github/workflows/internal-218-focused-evidence.yml"]
 maxProductionFiles = 0
 maxChangedLines = 165
-acceptance = ["Workflow uses exact checked-out push SHA and read-only repository token", "Runner is ephemeral Windows and never receives real owner credentials", "Python focused backend/worker claims and video tests run independently of frontend lint/TS/Vite and Node tests", "No bypass of existing mandatory npm audit or branch restrictions", "Output exact job and SHA results, no false general CI PASS"]
-requiredEvidence = ["Exact workflow and source SHA", "GitHub Actions run URLs, individual steps and failure logs", "README-level supported scope, no real provider I/O", "Integration code remains unmodified"]
+acceptance = ["Workflow checks out explicitly pinned #236 source HEAD and read-only repository token", "Runner is ephemeral Windows and never receives real owner credentials", "Python focused backend/worker claims and video tests run independently of frontend lint/TS/Vite and Node tests", "No bypass of existing mandatory npm audit or branch restrictions", "Output exact job and SHA results, no false general CI PASS"]
+requiredEvidence = ["Exact workflow SHA and pinned product source SHA", "GitHub Actions run URLs, individual steps and failure logs", "README-level supported scope, no real provider I/O", "Integration code remains unmodified"]
 targetedTests = ["backend/test_generation_admission.py", "backend/test_generation_worker_claims.py", "backend/test_generation_owner_dispatch_fence.py", "frontend/test_image_generation_idempotency.mjs", "frontend/test_phone_owner_drafts.mjs"]
 fileGrowthExpectations = ["One bounded supplemental workflow, zero production files changed"]
 forbiddenOperations = ["main-merge", "production-data", "deployment", "paid-provider-call", "gpu", "global-network-change"]
 rollbackBoundary = "Discard temporary child verification PR/branch; original #228 code, main and D2-R2 remain untouched"
+
+# Exact tested product ref for source-only GitHub-hosted evidence: 3b2baebb568dab666cc73834cb17f73d13cff378.
+# The test-only workflow branch has no product-code diff; checkout pins PR #236
+# so the old ESLint failures and newly fixed code are tested without merging.
