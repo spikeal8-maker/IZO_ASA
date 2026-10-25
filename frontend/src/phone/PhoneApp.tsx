@@ -25,24 +25,12 @@ import PhoneChatWorkspace from './features/chat/PhoneChatWorkspace.tsx'
 import PhoneAudioWorkspace from './features/audio/PhoneAudioWorkspace.tsx'
 import PhoneImageWorkspace from './features/image/PhoneImageWorkspace.tsx'
 import PhoneVideoWorkspace from './features/video/PhoneVideoWorkspace.tsx'
-import { fetchMeV2, VERIFIED_LOGOUT_EVENT_V2 } from '../authV2'
+import { fetchMeV2, VERIFIED_LOGOUT_EVENT_V2, type MeV2 } from '../authV2'
 import './phoneShell.css'
 
 
 const MANIFEST_CACHE_KEY = 'izo.phone.platform.v1'
 const LAST_ROUTE_KEY = 'izo.phone.last-route.v1'
-
-type MePayload = {
-  internal_user_id?: string
-  profile?: { display_name?: string | null; avatar_url?: string | null }
-  account?: {
-    token_balance?: number | null
-    daily_tokens?: number | null
-    daily_tokens_limit?: number | null
-    daily_tokens_used?: number | null
-    daily_tokens_remaining?: number | null
-  }
-}
 
 const workspaceIcons: Record<PhoneWorkspaceId, typeof ImageIcon> = {
   image: ImageIcon,
@@ -170,7 +158,7 @@ function PhoneWorkspacePanel({ workspace, offline }: { workspace: PhoneWorkspace
 
 export default function PhoneApp() {
   const [manifest, setManifest] = useState<PhonePlatformManifest | null>(() => cachedManifest())
-  const [me, setMe] = useState<MePayload | null>(null)
+  const [me, setMe] = useState<MeV2 | null>(null)
   const [path, setPath] = useState(window.location.pathname)
   const [loading, setLoading] = useState(!manifest)
   const [error, setError] = useState<PhoneApiError | null>(null)
