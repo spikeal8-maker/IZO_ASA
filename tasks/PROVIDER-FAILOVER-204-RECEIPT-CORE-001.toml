@@ -1,0 +1,29 @@
+manifestVersion = 1
+id = "PROVIDER-FAILOVER-204-RECEIPT-CORE-001"
+baseSha = "51543df2b6a559d693e3ed75b11baeacdb9033d3"
+goal = "Implement an isolated durable provider receipt lifecycle that survives jobs deletion and cannot duplicate dispatch after an ambiguous ACK."
+userOutcome = "A job removed from history does not remove provider operation identity or unlock a second paid request."
+beforeScenario = "Video guard #223 only reads jobs; deletion loses provider_response_timeout and permits a new request."
+afterScenario = "SQLite receipt namespace stores owner/key/fingerprint independently of jobs, durable dispatch fence, pending reconciliation and operator audit transitions."
+nonGoals = ["Wire into live backend", "Production migration", "Auto-payout/refund", "Use real providers", "Deploy or merge without dependencies #199/#203 and independent review"]
+domain = "provider-reconciliation"
+riskClass = "high-assurance"
+changeClass = "product"
+declaredFiles = ["backend/app/services/provider_reconciliation.py", "backend/test_provider_reconciliation.py"]
+allowedPatterns = []
+forbiddenPatterns = ["backend/main.py", "backend/app/security/**", "backend/app/db/**", "frontend/**", "ops/**"]
+protectedFilesTouched = []
+maxProductionFiles = 1
+maxChangedLines = 480
+acceptance = ["2/5/10 concurrent claims have one receipt and one dispatch fence", "unknown survives connection/restart and deletion of jobs", "same key changed payload is conflict", "cross-account isolation", "late callback can be operator reconciled only with attested evidence", "no blind alternate paid provider attempt", "Receipt and ledger join one BEGIN IMMEDIATE transaction with rollback parity", "Dispatch is forbidden before owning financial transaction commits"]
+requiredEvidence = ["Exact source commit SHA", "Python focused tests synthetic temp SQLite", "Independent finance/security review before any adapter integration", "No migrations/production changes", "Hosted CI after dependencies"]
+targetedTests = ["backend/test_provider_reconciliation.py"]
+fileGrowthExpectations = ["Independent service less than 250 lines", "Single focused test module", "No changes to protected main.py"]
+forbiddenOperations = ["main-merge", "production-data", "deployment", "paid-provider-call", "global-network-change"]
+rollbackBoundary = "Discard standalone PR; no production schema or data touched"
+
+# Expanded bounded LOC budget from 400 to 480 only for newly verified high-assurance
+# atomicity requirement. The existing video route executes BEGIN IMMEDIATE before
+# charging and creating the job; standalone receipt core must therefore join the
+# caller transaction rather than commit it early or start a second BEGIN.
+# Current scope remains one production module and one synthetic test module.
