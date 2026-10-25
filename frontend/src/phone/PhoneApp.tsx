@@ -25,7 +25,7 @@ import PhoneChatWorkspace from './features/chat/PhoneChatWorkspace.tsx'
 import PhoneAudioWorkspace from './features/audio/PhoneAudioWorkspace.tsx'
 import PhoneImageWorkspace from './features/image/PhoneImageWorkspace.tsx'
 import PhoneVideoWorkspace from './features/video/PhoneVideoWorkspace.tsx'
-import { VERIFIED_LOGOUT_EVENT_V2 } from '../authV2'
+import { fetchMeV2, VERIFIED_LOGOUT_EVENT_V2 } from '../authV2'
 import './phoneShell.css'
 
 
@@ -181,19 +181,23 @@ export default function PhoneApp() {
     setLoading(true)
     setError(null)
     try {
+      // Reuse canonical cookie refresh before other authenticated phone endpoints.
+      const trusted = await fetchMeV2()
+      signal?.throwIfAborted()
+      if (!trusted?.internal_user_id) throw new PhoneApiError(401, 'Нужно войти в аккаунт.')
       const platform = await loadPhonePlatform(signal)
       setManifest(platform)
       sessionStorage.setItem(MANIFEST_CACHE_KEY, JSON.stringify(platform))
       setOffline(false)
-      fetch('/api/me-v2', { credentials: 'include', headers: { Accept: 'application/json' } })
-        .then(async (response) => response.ok ? response.json() as Promise<MePayload> : null)
-        .then((payload) => { if (payload) setMe(payload) })
-        .catch(() => undefined)
+      setMe(trusted)
       loadPhoneJobs(true, signal).then(setActiveJobs).catch(() => undefined)
     } catch (caught) {
+      if (signal?.aborted) return
       const failure = caught instanceof PhoneApiError ? caught : new PhoneApiError(0, 'Нет соединения с сервером.')
       setError(failure)
-      setOffline(true)
+      if (failure.status === 401) {
+        setMe(null); setActiveJobs([]); setManifest(null); setOffline(false)
+      } else setOffline(true)
     } finally {
       setLoading(false)
     }
