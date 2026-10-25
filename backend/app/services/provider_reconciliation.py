@@ -1,6 +1,6 @@
 """Durable, fail-closed provider dispatch receipts. Not wired to production routes.
 
-Each helper owns a short SQLite writer transaction on a caller-provided connection.
+Admission may join an existing SQLite writer transaction so receipt and ledger commit\natomically; provider dispatch/acknowledgements require a committed, separate writer transaction.
 A begun dispatch is forever unsafe to replay without authoritative reconciliation,
 even if the originating job row has been removed. No external provider I/O or
 ledger mutation happens inside this module.
@@ -77,6 +77,37 @@ def _validate(owner: str, key: str, fingerprint: str, provider: str) -> None:
         raise ValueError('INVALID_PAYLOAD_SHA256')
 
 
+def _enter_writer(conn: sqlite3.Connection, *, join_existing: bool) -> str | None:
+    """Admission can join a caller's charge transaction; dispatch must be committed.
+
+    When joining an existing transaction the caller owns the final commit and MUST
+    commit receipt + ledger atomically before attempting provider I/O.
+    """
+    if conn.in_transaction:
+        if not join_existing:
+            raise InvalidTransition('DISPATCH_REQUIRES_COMMITTED_TRANSACTION')
+        savepoint = 'provider_receipt_' + uuid.uuid4().hex
+        conn.execute(f'SAVEPOINT {savepoint}')
+        return savepoint
+    conn.execute('BEGIN IMMEDIATE')
+    return None
+
+
+def _finish_writer(conn: sqlite3.Connection, savepoint: str | None) -> None:
+    if savepoint:
+        conn.execute(f'RELEASE SAVEPOINT {savepoint}')
+    else:
+        conn.commit()
+
+
+def _rollback_writer(conn: sqlite3.Connection, savepoint: str | None) -> None:
+    if savepoint:
+        conn.execute(f'ROLLBACK TO SAVEPOINT {savepoint}')
+        conn.execute(f'RELEASE SAVEPOINT {savepoint}')
+    else:
+        conn.rollback()
+
+
 def _event(conn: sqlite3.Connection, receipt_id: str, before: str | None,
            after: str, kind: str, evidence: str | None = None,
            operator: str | None = None, reason: str | None = None) -> None:
@@ -93,14 +124,14 @@ def begin_intent(conn: sqlite3.Connection, *, owner: str, command_key: str,
     video outcomes without treating all matching prompts as permanently equal.
     """
     _validate(owner,command_key,payload_sha256,provider)
-    conn.execute('BEGIN IMMEDIATE')
+    savepoint = _enter_writer(conn, join_existing=True)
     try:
         existing = conn.execute('SELECT id,payload_sha256,provider,state FROM provider_dispatch_receipts '
                                 'WHERE owner_id=? AND command_key=?',(owner,command_key)).fetchone()
         if existing:
             if existing[1]!=payload_sha256 or existing[2]!=provider:
                 raise ReceiptConflict('KEY_PAYLOAD_OR_PROVIDER_MISMATCH')
-            conn.commit()
+            _finish_writer(conn, savepoint)
             return existing[0],existing[3]
         row=conn.execute('SELECT id FROM provider_dispatch_receipts WHERE owner_id=? '
                          'AND payload_sha256=? AND state IN (?,?,?,?) LIMIT 1',
@@ -113,16 +144,16 @@ def begin_intent(conn: sqlite3.Connection, *, owner: str, command_key: str,
                      'VALUES (?,?,?,?,?,?,?, ?,?)',
                      (receipt_id,owner,command_key,payload_sha256,provider,job_id,'NOT_SENT',created,created))
         _event(conn,receipt_id,None,'NOT_SENT','INTENT_RESERVED')
-        conn.commit()
+        _finish_writer(conn, savepoint)
         return receipt_id,'NOT_SENT'
     except BaseException:
-        conn.rollback()
+        _rollback_writer(conn, savepoint)
         raise
 
 
 def acquire_dispatch(conn: sqlite3.Connection, receipt_id: str) -> bool:
     """Durably fence a send BEFORE any external HTTP. A crash is ambiguous, not retryable."""
-    conn.execute('BEGIN IMMEDIATE')
+    _enter_writer(conn, join_existing=False)
     try:
         changed=conn.execute("UPDATE provider_dispatch_receipts SET state='DISPATCHING', "
                              "dispatch_attempts=1,updated_at=? WHERE id=? AND state='NOT_SENT' "
@@ -143,7 +174,7 @@ def acknowledge(conn: sqlite3.Connection, receipt_id: str,
     target={'ACCEPTED':'ACCEPTED','OUTCOME_UNKNOWN':'RECONCILIATION_PENDING','ACK_REJECTED':'REJECTED'}[outcome]
     if outcome!='OUTCOME_UNKNOWN' and not (evidence_sha256 and re.fullmatch(r'[a-f0-9]{64}',evidence_sha256)):
         raise InvalidTransition('AUTHORITATIVE_PROVIDER_RECEIPT_REQUIRED')
-    conn.execute('BEGIN IMMEDIATE')
+    _enter_writer(conn, join_existing=False)
     try:
         row=conn.execute('SELECT state FROM provider_dispatch_receipts WHERE id=?',(receipt_id,)).fetchone()
         if row is None or row[0] not in ('DISPATCHING','ACCEPTED'):
@@ -169,7 +200,7 @@ def resolve(conn: sqlite3.Connection, receipt_id: str,
             or not isinstance(operator_id,str) or not operator_id.strip()
             or not isinstance(reason,str) or not reason.strip()):
         raise InvalidTransition('OPERATOR_AND_AUTHORITATIVE_EVIDENCE_REQUIRED')
-    conn.execute('BEGIN IMMEDIATE')
+    _enter_writer(conn, join_existing=False)
     try:
         row=conn.execute('SELECT state FROM provider_dispatch_receipts WHERE id=?',(receipt_id,)).fetchone()
         if row is None or row[0] not in ('RECONCILIATION_PENDING','ACCEPTED'):
