@@ -5,18 +5,10 @@ import { beginImageGenerationCommand as beginVerified, acknowledgeImageGeneratio
 
 const values = new Map()
 let owner = 'account-A'
-let authOk = true
-let expiredAccess = false
-let refreshValid = true
-let refreshCount = 0
-
+let authOk = true, expiredAccess = false, refreshValid = true, refreshCount = 0
 const resolveMe = async () => {
-  if (!authOk) return null
-  if (expiredAccess) {
-    if (!refreshValid) return null
-    refreshCount += 1
-    expiredAccess = false
-  }
+  if (!authOk || (expiredAccess && !refreshValid)) return null
+  if (expiredAccess) { refreshCount += 1; expiredAccess = false }
   return { internal_user_id: owner }
 }
 const beginImageGenerationCommand = (scope, draft, seed) => beginVerified(scope, draft, resolveMe, seed)
@@ -142,17 +134,13 @@ test('valid refresh recovers accepted paid job with original key/seed', async ()
   assert.equal(await getAcceptedImageGenerationJob('desktop'), 'job_paid_1')
   assert.equal(refreshCount, 1)
   const resumed = await beginImageGenerationCommand('desktop', { prompt: 'pending' }, 999)
-  assert.equal(resumed.key, initial.key)
-  assert.equal(resumed.seed, 12)
-  assert.equal(resumed.acceptedJobId, 'job_paid_1')
+  assert.deepEqual([resumed.key, resumed.seed, resumed.acceptedJobId], [initial.key, 12, 'job_paid_1'])
 })
 
 test('invalid refresh retains unresolved owner command without a new debit', async () => {
   const first = await beginImageGenerationCommand('phone', { prompt: 'pending' })
-  expiredAccess = true
-  refreshValid = false
+  expiredAccess = true; refreshValid = false
   await assert.rejects(() => beginImageGenerationCommand('phone', { prompt: 'pending' }), /Не удалось подтвердить аккаунт/)
-  assert.equal(values.size, 1)
-  expiredAccess = false
+  assert.equal(values.size, 1); expiredAccess = false
   assert.equal((await beginImageGenerationCommand('phone', { prompt: 'pending' })).key, first.key)
 })
