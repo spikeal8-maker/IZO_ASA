@@ -2853,15 +2853,7 @@ function SettingsView({ copy, lang, onLanguageChange, tariffs, bootstrap, setBoo
       setAvatarBusy(false)
     }
   }
-  const onLogout = async () => {
-    const confirmed = await logoutV2()
-    if (!confirmed) {
-      setSaveMsg('Выход не подтверждён сервером. Проверьте соединение и повторите.')
-      return
-    }
-    // Clear previous account's legacy React gallery and previews only after server ACK.
-    window.location.reload()
-  }
+  const onLogout = async () => { if (await logoutV2()) window.location.reload(); else setSaveMsg('Выход не подтверждён сервером. Проверьте соединение и повторите.') }
   const onApplyPromo = async () => {
     const code = promoCode.trim().toUpperCase()
     if (!code) { setPromoResult('Введите промокод'); return }
