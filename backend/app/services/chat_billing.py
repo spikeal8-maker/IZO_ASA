@@ -73,7 +73,7 @@ def normalize_chat_config(value: Any) -> dict[str, Any]:
         "apiTokenCosts": {model_id: bounded_cost(raw_costs.get(model_id)) for model_id in enabled_api},
         "apiTierAccess": tier_access,
         "contextChars": bounded(source.get("contextChars"), 60000, 4000, 240000),
-        "localNumCtx": bounded(source.get("localNumCtx"), 16384, 4096, 32768),
+        "localNumCtx": bounded(source.get("localNumCtx"), 16384, 4096, 65536),
         "localTimeoutSeconds": bounded(source.get("localTimeoutSeconds"), 60, 10, 180),
         "apiTimeoutSeconds": bounded(source.get("apiTimeoutSeconds"), 60, 10, 90),
         "usageBillingEnabled": bool(source.get("usageBillingEnabled", True)),

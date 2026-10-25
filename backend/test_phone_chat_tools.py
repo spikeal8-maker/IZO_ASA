@@ -31,6 +31,20 @@ def _config() -> dict[str, object]:
     }
 
 
+def test_local_chat_preserves_shared_64k_context_in_provider_request(monkeypatch) -> None:
+    captured = []
+
+    async def fake_ollama(*, body, timeout_seconds):
+        captured.append(body)
+        return "Готово.", {"message": {"content": "Готово."}}
+
+    monkeypatch.setattr(phone_chat, "request_ollama_chat_message", fake_ollama)
+    request = PhoneChatRequest(messages=[{"role": "user", "content": "Привет"}])
+    config = {**_config(), "localNumCtx": 65536}
+    asyncio.run(phone_chat.phone_chat_ollama(request, _deps(), config))
+    assert captured[0]["options"]["num_ctx"] == 65536
+
+
 def test_tool_call_accepts_ollama_and_openrouter_arguments() -> None:
     local = {"function": {"name": "web_search", "arguments": {"query": "новости"}}}
     cloud = {"id": "call_1", "function": {"name": "generate_image", "arguments": '{"prompt":"кот","aspect_ratio":"9:16"}'}}
