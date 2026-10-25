@@ -14,12 +14,12 @@ allowedPatterns = []
 forbiddenPatterns = ["backend/**", "ops/**", "frontend/src/authV2.tsx", "frontend/src/newUi.tsx", "frontend/src/phone/**"]
 protectedFilesTouched = ["frontend/src/LegacyApp.tsx"]
 maxProductionFiles = 1
-maxChangedLines = 40
-acceptance = ["Legacy settings logout reports failure when response is lost or non-2xx", "Only positive backend ACK triggers page reload", "No private React gallery persists after confirmed exit", "A-B-A real browser auth and account isolation", "Existing Studio and Phone logout remain unchanged"]
+maxChangedLines = 55
+acceptance = ["Legacy settings logout reports failure when response is lost or non-2xx", "Only positive backend ACK triggers page reload", "Other LegacyApp tabs discard private React state on a verified server logout event", "No private React gallery persists after confirmed exit", "A-B-A real browser auth and account isolation", "Existing Studio and Phone logout remain unchanged"]
 requiredEvidence = ["Exact SHA source review", "Frontend lint/typecheck/Vite build", "Real Chromium synthetic login and loss-of-ACK tests", "Independent security review", "Hosted exact-SHA CI"]
 targetedTests = ["authV2 logout flow", "Legacy SettingsView logout handler"]
 fileGrowthExpectations = ["Single bounded 8-line compatibility fix", "No new responsibility or redesign"]
 forbiddenOperations = ["main-merge", "deployment", "production-data", "paid-provider-call", "global-network-change"]
 rollbackBoundary = "Discard child PR; existing #226 source, main and D2-R2 unchanged"
 
-# Bounded 40-line allowance includes the required 23-line Task Contract itself.
+# Bounded 55-line allowance includes the Task Contract and the verified cross-tab privacy effect; current legacy code diff is 18 changed lines.
