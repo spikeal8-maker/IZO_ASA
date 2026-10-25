@@ -193,6 +193,20 @@
       "scope": "Exact #229 receipt source blob 947d0e26...; isolated actual child Python processes and temp SQLite WAL, no real providers",
       "evidence": "5 groups PASS, 0 FAIL: process killed before commit => 0 receipt/debit; killed after committed fence before send => no retry; fake provider accepted then kill before ACK => one provider call/one dispatch fence and unknown replay blocked; 2/5/10 independent processes => exactly one claim; SQLite backup restore => 5 receipts/12 audit events/PRAGMA quick_check ok/FK violations 0",
       "caveat": "Synthetic-only process harness, separate from actual IZO_ASA FastAPI/queue/ledger. No production migration/real provider/operator auth; not release acceptance."
+    },
+    {
+      "id": "OWNER-COOKIE-POST-FENCE",
+      "status": "PASS",
+      "scope": "Exact #234 AST-extracted real backend/main.py generate route, synthetic session and admission",
+      "evidence": "Before patch 5 FAIL / 2 PASS; after patch 7 PASS / 0 FAIL. A-owned persisted command with B current cookie 409 before admission/provider validation; B-matching and legacy no-header compatible. Source blob 0478b663..., test 1d185da...",
+      "caveat": "Source-function characterization only; real full backend auth/ledger/not-yet-implemented E2E separately required"
+    },
+    {
+      "id": "OWNER-COOKIE-ASGI-HTTP",
+      "status": "PASS",
+      "scope": "Actual FastAPI ASGI POST HTTPX using exact route body with synthetic cookie principals, injected fake admission/SQLite and child fake-workers",
+      "evidence": "10 synthetic scenarios PASS; A command with B cookie =>409 and zero charge; concurrent 2/5/10 same key 1 job/1 debit; changed payload 409; lost ACK replay same job; cross-owner isolated; 20 worker process attempts 2 unique dispatches/2 gallery rows; WAL backup verified.",
+      "caveat": "Only actual route function source is real, full IZO_ASA app/session/admission/worker/provider/ledger not exercised. No user-site traffic."
     }
   ],
   "releaseVerdict": "NOT_ACCEPTED",
@@ -210,7 +224,7 @@
     "testBlob": "79b5366c3f663f0ddea79f5f519fad286c857e9e",
     "note": "Standalone receipt state machine, not wired into #228 or production video path"
   },
-  "latestCombinedCodeSha": "df9472f86dc39d0e5dfb6aa4d9a8ad342cfe77f5",
+  "latestCombinedCodeSha": "75da4be0bbcf3b42f3480f2cfabc942b69a047a3",
   "accountDraftPatch": {
     "pr": 230,
     "head": "7fdb7ab4c7069674183bc5c1a0a2aab195cfe7e5",
@@ -232,5 +246,13 @@
     "note": "Separate frozen compatibility one-handler fix, no full browser accepted"
   },
   "lastVerifiedStandaloneProviderHead": "36f9dfe3399e2cee7c0d2d71d918a91a4bc19b33",
-  "lastVerifiedIntegrationSourceBeforeEvidence": "5c0edfb0158388828bb71b669dbbb2ff0bcaa79e"
+  "lastVerifiedIntegrationSourceBeforeEvidence": "5c0edfb0158388828bb71b669dbbb2ff0bcaa79e",
+  "latestIntegrationReviewSha": "75da4be0bbcf3b42f3480f2cfabc942b69a047a3",
+  "latestOwnerFencePR": {
+    "number": 234,
+    "sha": "6eb7a2220f7307e7dee0df788d244b9bd767dea1",
+    "backendBlob": "0478b663202f6dddcf7398d16962b8afb9e982ef",
+    "testBlob": "1d185da954c81eeab583cfc3a779ca067bcab306",
+    "integratedSourceSha": "75da4be0bbcf3b42f3480f2cfabc942b69a047a3"
+  }
 }
