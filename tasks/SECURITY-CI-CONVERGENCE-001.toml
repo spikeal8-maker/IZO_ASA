@@ -1,0 +1,68 @@
+manifestVersion = 1
+id = "SECURITY-CI-CONVERGENCE-001"
+baseSha = "51543df2b6a559d693e3ed75b11baeacdb9033d3"
+goal = "Integrate disjoint source-verified fixes for npm dependencies, Python Pillow, license review and required GitHub Actions."
+userOutcome = "One exactly verified candidate can pass both mandatory CI contexts without bypassing security or branch protection."
+beforeScenario = "Three independent Draft PRs have verified focused fixes but inherited failing repository-wide security gates."
+afterScenario = "Twelve unchanged implementation file blobs and one integration-only Task Contract are assembled without overlap for exact-SHA CI and independent review."
+domain = "verification"
+riskClass = "high-assurance"
+changeClass = "integration"
+nonGoals = [
+  "No product feature/UI refactoring, database migrations, provider work, or deployment.",
+  "No merge of #227 before security/CI convergence acceptance.",
+  "No edits to owned source blobs, credential settings, rulesets, release servers or product files.",
+]
+declaredFiles = [
+  ".github/workflows/ci.yml",
+  ".github/workflows/file-hygiene.yml",
+  "tools/test_required_workflow_gates.py",
+  ".github/workflows/pillow-13-verification.yml",
+  "backend/requirements.txt",
+  "backend/test_pillow_13_compat.py",
+  ".github/workflows/npm-lockfile-verification.yml",
+  "architecture/security-policy.json",
+  "frontend/package-lock.json",
+  "frontend/package.json",
+  "tools/test_supply_chain_audit.py",
+  "tools/test_supply_chain_floor.py",
+  "tasks/SECURITY-CI-CONVERGENCE-001.toml",
+]
+allowedPatterns = []
+protectedFilesTouched = []
+maxProductionFiles = 3
+maxChangedLines = 1900
+acceptance = [
+  "Each of 12 imported implementation files matches the exact source PR blob SHA; source package manifests remain in source PR branches.",
+  "main remains protected; no check context rename, token privilege elevation or audit bypass.",
+  "GitHub-hosted exact-source npm/Pillow focused runs and required CI validate all remediated dependencies.",
+  "Current license review and baseline tests pass; Python audit has no unresolved critical findings.",
+  "Exact HEAD passes both required GitHub Actions contexts, plus independent non-author review before merge.",
+  "Post-merge verification of main required CI before initiating architecture PR #227.",
+]
+requiredEvidence = [
+  "12 implementation blob SHA map and PR source commits #240 ea312a9, #243 16ee0ab, #244 046985e",
+  "npm registry reproducible lock provenance and both audit counts",
+  "Pinned Python 3.11.9 Pillow tests, official license evidence",
+  "required checks on integrated exact SHA and independent reviewer findings",
+  "merge SHA and post-merge CI, if and only if all requirements are fulfilled",
+]
+targetedTests = [
+  "tools/test_required_workflow_gates.py",
+  "tools/test_supply_chain_audit.py tools/test_supply_chain_floor.py",
+  "backend/test_pillow_13_compat.py and adjacent synthetic media tests",
+  "frontend npm ci, audits, lint, TypeScript and production build",
+  "full repository hosted Windows CI + Ubuntu Hygiene",
+]
+fileGrowthExpectations = [
+  "Integration contains only 12 unchanged implementation file blobs from source PRs and this single manifest.",
+  "No duplicate implementations, duplicated module relocations or unbounded documentation edits.",
+]
+forbiddenPatterns = [
+  "backend/main.py", "backend/app/**", "frontend/src/**", "ops/**",
+]
+forbiddenOperations = [
+  "direct-main-write", "force-push", "ruleset-bypass", "disable-security-checks",
+  "external-provider-call", "production-data", "deploy", "restart",
+]
+rollbackBoundary = "Reject the integration candidate, leaving all three source PRs and the protected main unchanged."

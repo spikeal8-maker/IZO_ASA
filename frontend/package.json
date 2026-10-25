@@ -78,6 +78,12 @@
     "playwright": "^1.61.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
-    "vite": "^8.0.16"
+    "vite": "8.1.6"
+  },
+  "overrides": {
+    "browserslist": "4.28.7",
+    "postcss": "8.5.23",
+    "nanoid": "3.3.18",
+    "zod": "4.6.6"
   }
 }

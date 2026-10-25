@@ -56,52 +56,7 @@
     "npm audit fix --force",
     "npm update"
   ],
-  "baselineExceptions": [
-    {
-      "package": "browserslist",
-      "severity": "high",
-      "affectedRange": "<=4.28.6",
-      "advisories": [
-        "GHSA-73wf-gq98-2v4g",
-        "GHSA-c83g-rgw3-j3cx"
-      ],
-      "classification": "dev-only",
-      "issue": "#154",
-      "owner": "spikeal8-maker",
-      "reason": "Reviewed current npm baseline; dependency mutation is intentionally deferred to the tracked remediation issue.",
-      "remediation": "Update the eslint-plugin-react-hooks/Babel chain so browserslist is outside the affected range, with a separately reviewed dependency/lockfile delta.",
-      "reviewBy": "2026-10-23"
-    },
-    {
-      "package": "nanoid",
-      "severity": "high",
-      "affectedRange": "<=3.3.17",
-      "advisories": [
-        "GHSA-28wg-ghj8-5hjv",
-        "GHSA-2v37-7h3g-55p8"
-      ],
-      "classification": "dev-only",
-      "issue": "#155",
-      "owner": "spikeal8-maker",
-      "reason": "Reviewed current npm baseline; dependency mutation is intentionally deferred to the tracked Vite/PostCSS remediation issue.",
-      "remediation": "Update the Vite/PostCSS chain so nanoid is outside all affected ranges, with a separately reviewed dependency/lockfile delta.",
-      "reviewBy": "2026-10-23"
-    },
-    {
-      "package": "postcss",
-      "severity": "high",
-      "affectedRange": "<=8.5.22",
-      "advisories": [
-        "GHSA-r28c-9q8g-f849"
-      ],
-      "classification": "dev-only",
-      "issue": "#155",
-      "owner": "spikeal8-maker",
-      "reason": "Reviewed current npm baseline; dependency mutation is intentionally deferred to the tracked Vite/PostCSS remediation issue.",
-      "remediation": "Update the Vite/PostCSS chain so postcss is outside the affected range, with a separately reviewed dependency/lockfile delta.",
-      "reviewBy": "2026-10-23"
-    }
-  ],
+  "baselineExceptions": [],
   "pythonAudit": {
     "scanner": {
       "name": "pip-audit",
@@ -136,22 +91,12 @@
       "BSD-2-Clause",
       "BSD-3-Clause",
       "ISC",
-      "MIT"
+      "MIT",
+      "MIT-CMU"
     ],
     "forbiddenExpressions": [],
     "unlistedExpressionClass": "needs-review",
     "reviews": [
-      {
-        "ecosystem": "backend",
-        "package": "Pillow",
-        "resolvedVersion": "12.3.0",
-        "license": "MIT-CMU",
-        "classification": "unknown",
-        "issue": "#156",
-        "owner": "spikeal8-maker",
-        "reason": "Current direct backend baseline requires explicit license review; requirements.txt does not prove runtime vs dev/test classification.",
-        "reviewBy": "2026-10-23"
-      },
       {
         "ecosystem": "backend",
         "package": "socksio",
@@ -160,8 +105,8 @@
         "classification": "unknown",
         "issue": "#156",
         "owner": "spikeal8-maker",
-        "reason": "Maintained license metadata did not provide a usable SPDX expression; current direct backend baseline requires explicit review.",
-        "reviewBy": "2026-10-23"
+        "reason": "Fresh 2026-10-25 version-scoped review: PyPI https://pypi.org/project/socksio/1.0.0/ and its package documentation explicitly state MIT; pip-licenses 5.5.5 --from=expression reports UNKNOWN for this exact 1.0.0 pin. Review covers missing scanner metadata only, not an unknown legal license.",
+        "reviewBy": "2027-01-25"
       }
     ]
   },
