@@ -177,30 +177,45 @@ export default function PhoneApp() {
   const [offline, setOffline] = useState(!navigator.onLine)
   const [menuOpen, setMenuOpen] = useState(false)
   const [activeJobs, setActiveJobs] = useState<PhoneJob[]>([])
+  const refreshSequence = useRef(0)
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
+    const sequence = ++refreshSequence.current
     setLoading(true)
     setError(null)
+    // Do not display A's cached private workspaces while confirming the current cookie owner.
+    setMe(null)
+    setActiveJobs([])
     try {
-      // Reuse canonical cookie refresh before other authenticated phone endpoints.
-      const trusted = await fetchMeV2()
+      const initial = await fetchMeV2()
       signal?.throwIfAborted()
-      if (!trusted?.internal_user_id) throw new PhoneApiError(401, 'Нужно войти в аккаунт.')
-      const platform = await loadPhonePlatform(signal)
+      if (!initial?.internal_user_id) throw new PhoneApiError(401, 'Нужно войти в аккаунт.')
+      const [platform, items] = await Promise.all([
+        loadPhonePlatform(signal),
+        loadPhoneJobs(true, signal).catch((): PhoneJob[] => []),
+      ])
+      signal?.throwIfAborted()
+      // An account may change in another tab while the private job list is loading.
+      const current = await fetchMeV2()
+      signal?.throwIfAborted()
+      if (!current?.internal_user_id || current.internal_user_id !== initial.internal_user_id) {
+        throw new PhoneApiError(401, 'Аккаунт изменился. Проверьте авторизацию.')
+      }
+      if (sequence !== refreshSequence.current) return
       setManifest(platform)
-      sessionStorage.setItem(MANIFEST_CACHE_KEY, JSON.stringify(platform))
+      try { sessionStorage.setItem(MANIFEST_CACHE_KEY, JSON.stringify(platform)) } catch { /* optional cache */ }
       setOffline(false)
-      setMe(trusted)
-      loadPhoneJobs(true, signal).then(setActiveJobs).catch(() => undefined)
+      setMe(current)
+      setActiveJobs(items)
     } catch (caught) {
-      if (signal?.aborted) return
+      if (signal?.aborted || sequence !== refreshSequence.current) return
       const failure = caught instanceof PhoneApiError ? caught : new PhoneApiError(0, 'Нет соединения с сервером.')
       setError(failure)
       if (failure.status === 401) {
         setMe(null); setActiveJobs([]); setManifest(null); setOffline(false)
       } else setOffline(true)
     } finally {
-      setLoading(false)
+      if (sequence === refreshSequence.current) setLoading(false)
     }
   }, [])
 
