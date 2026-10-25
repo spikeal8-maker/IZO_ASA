@@ -79,5 +79,10 @@
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
     "vite": "^8.0.16"
+  },
+  "overrides": {
+    "browserslist": "4.28.7",
+    "postcss": "8.5.23",
+    "nanoid": "3.3.18"
   }
 }
