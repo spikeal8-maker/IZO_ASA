@@ -41,7 +41,7 @@ test('orphaned legacy v1 draft and video source are never attributed to B', () =
 })
 
 test('owner identity is required; browser installation ID cannot stand in for account', () => {
-  for (const ownerId of ['', ' bad ', '\ninvalid', 'x'.repeat(161)]) {
+  for (const ownerId of ['', ' bad ', '\ninvalid', 'invalid\u007fowner', 'x'.repeat(161)]) {
     assert.throws(() => phoneDraftKey('image.prompt', ownerId), /подтвердить владельца/)
     assert.throws(() => readPhoneDraft('video.prompt', ownerId), /подтвердить владельца/)
   }
