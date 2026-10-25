@@ -1,6 +1,7 @@
 """Durable, fail-closed provider dispatch receipts. Not wired to production routes.
 
-Admission may join an existing SQLite writer transaction so receipt and ledger commit\natomically; provider dispatch/acknowledgements require a committed, separate writer transaction.
+Admission may join an existing SQLite writer transaction so receipt and ledger commit
+atomically; provider dispatch/acknowledgements require a committed, separate writer transaction.
 A begun dispatch is forever unsafe to replay without authoritative reconciliation,
 even if the originating job row has been removed. No external provider I/O or
 ledger mutation happens inside this module.
