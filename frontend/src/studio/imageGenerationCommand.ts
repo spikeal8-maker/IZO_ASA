@@ -36,7 +36,7 @@ async function verifiedOwner(resolveMe: VerifiedMeResolver): Promise<string> {
   if (!value) throw new Error('Не удалось подтвердить аккаунт. Войдите снова, прежде чем запускать генерацию.')
   const owner = value && typeof value === 'object'
     ? (value as { internal_user_id?: unknown }).internal_user_id : undefined
-  if (typeof owner !== 'string' || !owner || owner.length > 160 || owner.trim() !== owner || /[\u0000-\u001f\u007f]/.test(owner)) {
+  if (typeof owner !== 'string' || !owner || owner.length > 160 || owner.trim() !== owner || [...owner].some((ch) => ch.charCodeAt(0) < 32 || ch.charCodeAt(0) === 127)) {
     throw new Error('Сервер не подтвердил идентификатор аккаунта. Новый платный запуск заблокирован.')
   }
   return owner
