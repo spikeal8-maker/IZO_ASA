@@ -140,3 +140,62 @@ def test_operator_id_and_reason_must_be_verified_by_caller(tmp_path):
             with pytest.raises(InvalidTransition):
                 resolve(conn,receipt,'REJECTED',evidence_sha256=PROOF,operator_id=operator,reason=reason)
         assert conn.execute('SELECT state FROM provider_dispatch_receipts').fetchone()[0]=='RECONCILIATION_PENDING'
+
+
+def test_receipt_joins_owner_ledger_transaction_without_premature_commit(tmp_path):
+    path = db(tmp_path)
+    with connect(path) as conn:
+        conn.execute('CREATE TABLE synthetic_ledger (id TEXT PRIMARY KEY)')
+        conn.execute('BEGIN IMMEDIATE')
+        conn.execute("INSERT INTO synthetic_ledger VALUES ('reserved')")
+        receipt, state = begin_intent(conn, owner='A', command_key='atomic-intent',
+                                       payload_sha256=FP, provider='synthetic-provider',
+                                       job_id='job_1')
+        assert state == 'NOT_SENT'
+        assert conn.in_transaction  # acceptance must not commit the financial reservation
+        conn.rollback()
+    with connect(path) as conn:
+        assert conn.execute('SELECT COUNT(*) FROM provider_dispatch_receipts').fetchone()[0] == 0
+        assert conn.execute('SELECT COUNT(*) FROM synthetic_ledger').fetchone()[0] == 0
+        conn.execute('BEGIN IMMEDIATE')
+        conn.execute("INSERT INTO synthetic_ledger VALUES ('accepted')")
+        restored, _ = begin_intent(conn, owner='A', command_key='atomic-intent',
+                                   payload_sha256=FP, provider='synthetic-provider',
+                                   job_id='job_1')
+        assert restored != receipt
+        conn.commit()
+    with connect(path) as conn:
+        assert conn.execute('SELECT COUNT(*) FROM provider_dispatch_receipts').fetchone()[0] == 1
+        assert conn.execute('SELECT COUNT(*) FROM synthetic_ledger').fetchone()[0] == 1
+
+
+def test_outer_transaction_survives_conflicting_receipt_savepoint(tmp_path):
+    path = db(tmp_path)
+    receipt, _ = register(path)
+    with connect(path) as conn:
+        conn.execute('CREATE TABLE synthetic_ledger (id TEXT PRIMARY KEY)')
+        conn.execute('BEGIN IMMEDIATE')
+        conn.execute("INSERT INTO synthetic_ledger VALUES ('unrelated')")
+        with pytest.raises(ReceiptConflict):
+            begin_intent(conn, owner='A', command_key='intent-1',
+                         payload_sha256=hashlib.sha256(b'changed').hexdigest(),
+                         provider='synthetic-provider', job_id='job_1')
+        assert conn.in_transaction
+        conn.commit()
+    with connect(path) as conn:
+        assert conn.execute('SELECT COUNT(*) FROM synthetic_ledger').fetchone()[0] == 1
+        assert conn.execute('SELECT id FROM provider_dispatch_receipts').fetchone()[0] == receipt
+
+
+def test_dispatch_must_never_run_before_outer_charge_transaction_commits(tmp_path):
+    path = db(tmp_path)
+    with connect(path) as conn:
+        conn.execute('BEGIN IMMEDIATE')
+        receipt, _ = begin_intent(conn, owner='A', command_key='pending-commit',
+                                  payload_sha256=FP, provider='synthetic-provider',
+                                  job_id='job_1')
+        with pytest.raises(InvalidTransition, match='COMMITTED'):
+            acquire_dispatch(conn, receipt)
+        conn.rollback()
+    with connect(path) as conn:
+        assert conn.execute('SELECT COUNT(*) FROM provider_dispatch_receipts').fetchone()[0] == 0
