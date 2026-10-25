@@ -20,6 +20,38 @@ TRUST_EXPRESSION = (
 )
 
 
+
+def _runnable_bash() -> str | None:
+    """Probe a real Bash executable; Windows' WSL launcher is not sufficient."""
+    candidates: list[Path] = []
+    if os.name == "nt":
+        git_exe = shutil.which("git")
+        if git_exe:
+            git_root = Path(git_exe).resolve().parent.parent
+            candidates.extend((git_root / "bin" / "bash.exe", git_root / "usr" / "bin" / "bash.exe"))
+        for variable in ("ProgramFiles", "ProgramFiles(x86)"):
+            root = os.environ.get(variable)
+            if root:
+                candidates.extend((Path(root) / "Git" / "bin" / "bash.exe", Path(root) / "Git" / "usr" / "bin" / "bash.exe"))
+
+    in_path = shutil.which("bash")
+    if in_path:
+        candidates.append(Path(in_path))
+    for candidate in dict.fromkeys(candidates):
+        if not candidate.is_file():
+            continue
+        try:
+            result = subprocess.run(
+                [str(candidate), "-c", "printf 'IZO_BASH_READY'"],
+                capture_output=True, text=True, check=False, timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if result.returncode == 0 and result.stdout == "IZO_BASH_READY":
+            return str(candidate)
+    return None
+
+
 class RequiredWorkflowGatesTests(unittest.TestCase):
     def test_required_contexts_are_unconditional_jobs(self) -> None:
         for source, job, context in (
@@ -62,8 +94,12 @@ class RequiredWorkflowGatesTests(unittest.TestCase):
         self.assertIn("Enforce reviewed npm audit baseline", CI)
         self.assertIn("Enforce Python licenses and changed-scope secret floor", CI)
 
-    @unittest.skipUnless(shutil.which("bash"), "Bash admission smoke runs in Ubuntu hygiene CI")
     def test_hygiene_untrusted_pr_fails_before_checkout(self) -> None:
+        bash = _runnable_bash()
+        if bash is None:
+            if os.environ.get("GITHUB_ACTIONS") == "true":
+                self.fail("CI requires an executable Bash; a nonworking WSL launcher is insufficient")
+            self.skipTest("No executable Bash available outside CI")
         block = HYGIENE.split("      - name: Reject untrusted pull request before checkout\n", 1)[1]
         run = block.split("        run: |\n", 1)[1].split(
             "      - name: Check out exact source revision", 1
@@ -73,7 +109,7 @@ class RequiredWorkflowGatesTests(unittest.TestCase):
             with self.subTest(admitted=admitted):
                 env = dict(os.environ, IZO_PR_ALLOWED=admitted)
                 result = subprocess.run(
-                    ["bash", "-c", script], env=env, text=True, capture_output=True, check=False
+                    [bash, "-c", script], env=env, text=True, capture_output=True, check=False, timeout=10
                 )
                 self.assertEqual(result.returncode, expected_code, result.stderr + result.stdout)
 
