@@ -129,17 +129,13 @@ test('legacy unscoped v1 command is never silently reassigned between accounts',
 
 test('valid refresh recovers accepted paid job with original key/seed', async () => {
   const initial = await beginImageGenerationCommand('desktop', { prompt: 'pending' }, 12)
-  acknowledgeImageGenerationCommand('desktop', initial.ownerId, initial.key, 'job_paid_1')
-  expiredAccess = true
-  assert.equal(await getAcceptedImageGenerationJob('desktop'), 'job_paid_1')
-  assert.equal(refreshCount, 1)
+  acknowledgeImageGenerationCommand('desktop', initial.ownerId, initial.key, 'job_paid_1'); expiredAccess = true
+  assert.equal(await getAcceptedImageGenerationJob('desktop'), 'job_paid_1'); assert.equal(refreshCount, 1)
   const resumed = await beginImageGenerationCommand('desktop', { prompt: 'pending' }, 999)
   assert.deepEqual([resumed.key, resumed.seed, resumed.acceptedJobId], [initial.key, 12, 'job_paid_1'])
 })
-
 test('invalid refresh retains unresolved owner command without a new debit', async () => {
-  const first = await beginImageGenerationCommand('phone', { prompt: 'pending' })
-  expiredAccess = true; refreshValid = false
+  const first = await beginImageGenerationCommand('phone', { prompt: 'pending' }); expiredAccess = true; refreshValid = false
   await assert.rejects(() => beginImageGenerationCommand('phone', { prompt: 'pending' }), /Не удалось подтвердить аккаунт/)
   assert.equal(values.size, 1); expiredAccess = false
   assert.equal((await beginImageGenerationCommand('phone', { prompt: 'pending' })).key, first.key)
