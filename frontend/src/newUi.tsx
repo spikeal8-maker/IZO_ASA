@@ -18,6 +18,8 @@ import {
   getAuthCapabilitiesV2,
   initAuthV2,
   logoutV2,
+  fetchMeV2,
+  VERIFIED_LOGOUT_EVENT_V2,
   pollBotLoginStatusV2,
   refreshAuthStateV2,
   startBotLinkV2,
@@ -84,7 +86,6 @@ import {
   isRasterOpenRouterModel,
   JOB_ACTIVE,
   modelModeFromStudio,
-  newClientRequestId,
   PROMPT_APPEND_PREFIX,
   QUALITY,
   randomOf,
@@ -94,6 +95,7 @@ import {
   STYLE_PREFIX,
 } from './studio/studioHelpers'
 import { readStudioDraft } from './studio/studioDraft'
+import { beginImageGenerationCommand, acknowledgeImageGenerationCommand, completeImageGenerationCommand, getAcceptedImageGenerationJob, rejectImageGenerationCommand } from './studio/imageGenerationCommand'
 import {
   comfySafeGenerationSize,
   composeI2IEditPrompt,
@@ -297,9 +299,20 @@ export default function NewStudio(): ReactElement {
     }
   }
   const onLogout = async () => {
-    await logoutV2()
-    await refreshAuthStateV2()
+    const confirmed = await logoutV2()
+    if (!confirmed) {
+      setNotice('Выход не подтверждён сервером. Сессия могла сохраниться: проверьте подключение и повторите выход.')
+      return
+    }
+    window.location.reload()
   }
+  useEffect(() => {
+    const onVerifiedLogoutInAnotherTab = (event: StorageEvent) => {
+      if (event.key === VERIFIED_LOGOUT_EVENT_V2) window.location.reload()
+    }
+    window.addEventListener('storage', onVerifiedLogoutInAnotherTab)
+    return () => window.removeEventListener('storage', onVerifiedLogoutInAnotherTab)
+  }, [])
   const onApplyPromo = async () => {
     const code = promoCode.trim().toUpperCase()
     if (!code) { setPromoResult('Введите промокод'); return }
@@ -797,6 +810,9 @@ export default function NewStudio(): ReactElement {
           return
         }
         setJob(next)
+        if (next.status === 'completed' || next.status === 'failed' || next.status === 'cancelled') {
+          void completeImageGenerationCommand('desktop', next.id, fetchMeV2).catch(() => undefined)
+        }
         if (next.status === 'completed') {
           const completedUrl = next.resultUrl
           const completedImageId = next.resultImageId
@@ -1138,11 +1154,33 @@ export default function NewStudio(): ReactElement {
       setNotice('Измените промпт, модель, формат или исходное изображение перед новой генерацией.')
       return
     }
-    if (!(await ensureAuthed())) return
     inFlightRef.current = true
-    setIsSubmitting(true)
-    setNotice('')
     try {
+      if (!(await ensureAuthed())) return
+      setIsSubmitting(true)
+      setNotice('')
+      const priorJobId = await getAcceptedImageGenerationJob('desktop', fetchMeV2)
+      if (priorJobId) {
+        const receipt = await apiFetch(`/jobs/${encodeURIComponent(priorJobId)}`)
+        if (!receipt.ok) {
+          setNotice('Не удалось проверить прежнюю генерацию. Новый платный запуск заблокирован.')
+          return
+        }
+        const previous = normalizeGeneration(await receipt.json())
+        if (!previous || previous.id !== priorJobId) {
+          setNotice('Прежнюю генерацию пока не удалось подтвердить. Проверьте задания.')
+          return
+        }
+        if (previous.status === 'completed' || previous.status === 'failed' || previous.status === 'cancelled') {
+          await completeImageGenerationCommand('desktop', priorJobId, fetchMeV2).catch(() => undefined)
+          setNotice('Предыдущая генерация завершена. Проверьте историю; для нового запуска нажмите ещё раз.')
+          void fetchGallery()
+        } else {
+          setJob(previous)
+          setNotice('Продолжаем ранее принятую генерацию без повторного списания.')
+        }
+        return
+      }
       const style = I2I_STYLES.find((s) => s.id === styleId)
       const steps = mode === 'text' && typeof selectedModel.generation?.fixedSteps === 'number'
         ? selectedModel.generation.fixedSteps
@@ -1220,14 +1258,17 @@ export default function NewStudio(): ReactElement {
         maskImage: mode === 'paint' && paintMode === 'mask' ? paintMask : undefined,
         canvas: mode === 'paint' && paintMode === 'sketch' ? paintCanvas : undefined,
         outpaint: mode === 'paint' && paintMode === 'outpaint' ? outpaintPaddingOnly(paintOutpaint) : undefined,
-        clientRequestId: newClientRequestId(),
       }
-      const response = await apiFetch('/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
+      const command = await beginImageGenerationCommand('desktop', body, fetchMeV2, effectiveSeed)
+      const response = command.acceptedJobId
+        ? await apiFetch(`/jobs/${encodeURIComponent(command.acceptedJobId)}`)
+        : await apiFetch('/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Idempotency-Key': command.key, 'X-IZO-Expected-Internal-User': command.ownerId },
+            body: command.body,
+          })
       if (!response.ok) {
+        if (!command.acceptedJobId) rejectImageGenerationCommand('desktop', command.ownerId, command.key, response.status)
         let detail: unknown = ''
         try {
           detail = (await response.json())?.detail || ''
@@ -1247,7 +1288,14 @@ export default function NewStudio(): ReactElement {
       }
       const created = normalizeGeneration(await response.json())
       if (!created) {
-        setNotice('Сервер не подтвердил создание задачи. Токены не списываются без подтверждённой задачи.')
+        setNotice('Сервер не подтвердил создание задачи. Проверьте задания перед повтором.')
+        return
+      }
+      acknowledgeImageGenerationCommand('desktop', command.ownerId, command.key, created.id)
+      if (created.status === 'completed' || created.status === 'failed' || created.status === 'cancelled') {
+        await completeImageGenerationCommand('desktop', created.id, fetchMeV2).catch(() => undefined)
+        setNotice('Предыдущее задание уже завершилось. Результат доступен в истории; для нового запуска нажмите ещё раз.')
+        void fetchGallery()
         return
       }
       if (trialPending) void refreshAuthStateV2()
@@ -1270,9 +1318,10 @@ export default function NewStudio(): ReactElement {
       resetInspectView()
       setResultSource(nextResultSource)
       setCompare(mode === 'i2i' || isEditLikeMode || mode === 'paint' ? 96 : 50)
-      if (!seed) setSeed(effectiveSeed)
-    } catch {
-      setNotice('Проблема соединения с сервером. Проверьте, что сервис запущен.')
+      if (!seed) setSeed(command.seed)
+    } catch (error) {
+      setNotice(error instanceof Error && /Предыдущий запуск|сохранённый запрос/.test(error.message)
+        ? error.message : 'Проблема соединения с сервером. Проверьте, что сервис запущен.')
     } finally {
       inFlightRef.current = false
       setIsSubmitting(false)

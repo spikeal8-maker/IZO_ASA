@@ -7,6 +7,7 @@ import {
   updateProfileV2,
   updateProfileV2Detailed,
   logoutV2,
+  VERIFIED_LOGOUT_EVENT_V2,
   getAuthCapabilitiesV2,
   pollBotLoginStatusV2,
   refreshAuthStateV2,
@@ -780,6 +781,13 @@ function App() {
 
   useEffect(() => {
     document.title = 'ИЗО_АСА'
+  }, [])
+  useEffect(() => {
+    const onVerifiedLogoutInAnotherTab = (event: StorageEvent) => {
+      if (event.key === VERIFIED_LOGOUT_EVENT_V2) window.location.reload()
+    }
+    window.addEventListener('storage', onVerifiedLogoutInAnotherTab)
+    return () => window.removeEventListener('storage', onVerifiedLogoutInAnotherTab)
   }, [])
   // Из Ленты «Открыть галерею» ведёт на /?open=gallery — уводим на
   // каноничную статическую галерею, чтобы не оживлять старый React-экран.
@@ -2853,7 +2861,15 @@ function SettingsView({ copy, lang, onLanguageChange, tariffs, bootstrap, setBoo
       setAvatarBusy(false)
     }
   }
-  const onLogout = async () => { await logoutV2(); await refreshAuthStateV2() }
+  const onLogout = async () => {
+    const confirmed = await logoutV2()
+    if (!confirmed) {
+      setSaveMsg('Выход не подтверждён сервером. Проверьте соединение и повторите.')
+      return
+    }
+    // Clear previous account's legacy React gallery and previews only after server ACK.
+    window.location.reload()
+  }
   const onApplyPromo = async () => {
     const code = promoCode.trim().toUpperCase()
     if (!code) { setPromoResult('Введите промокод'); return }

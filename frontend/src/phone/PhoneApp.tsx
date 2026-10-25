@@ -25,6 +25,7 @@ import PhoneChatWorkspace from './features/chat/PhoneChatWorkspace.tsx'
 import PhoneAudioWorkspace from './features/audio/PhoneAudioWorkspace.tsx'
 import PhoneImageWorkspace from './features/image/PhoneImageWorkspace.tsx'
 import PhoneVideoWorkspace from './features/video/PhoneVideoWorkspace.tsx'
+import { fetchMeV2, VERIFIED_LOGOUT_EVENT_V2 } from '../authV2'
 import './phoneShell.css'
 
 
@@ -32,6 +33,7 @@ const MANIFEST_CACHE_KEY = 'izo.phone.platform.v1'
 const LAST_ROUTE_KEY = 'izo.phone.last-route.v1'
 
 type MePayload = {
+  internal_user_id?: string
   profile?: { display_name?: string | null; avatar_url?: string | null }
   account?: {
     token_balance?: number | null
@@ -175,29 +177,55 @@ export default function PhoneApp() {
   const [offline, setOffline] = useState(!navigator.onLine)
   const [menuOpen, setMenuOpen] = useState(false)
   const [activeJobs, setActiveJobs] = useState<PhoneJob[]>([])
+  const refreshSequence = useRef(0)
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
+    const sequence = ++refreshSequence.current
     setLoading(true)
     setError(null)
+    // Do not display A's cached private workspaces while confirming the current cookie owner.
+    setMe(null)
+    setActiveJobs([])
     try {
-      const platform = await loadPhonePlatform(signal)
+      const initial = await fetchMeV2()
+      signal?.throwIfAborted()
+      if (!initial?.internal_user_id) throw new PhoneApiError(401, 'Нужно войти в аккаунт.')
+      const [platform, items] = await Promise.all([
+        loadPhonePlatform(signal),
+        loadPhoneJobs(true, signal).catch((): PhoneJob[] => []),
+      ])
+      signal?.throwIfAborted()
+      // An account may change in another tab while the private job list is loading.
+      const current = await fetchMeV2()
+      signal?.throwIfAborted()
+      if (!current?.internal_user_id || current.internal_user_id !== initial.internal_user_id) {
+        throw new PhoneApiError(401, 'Аккаунт изменился. Проверьте авторизацию.')
+      }
+      if (sequence !== refreshSequence.current) return
       setManifest(platform)
-      sessionStorage.setItem(MANIFEST_CACHE_KEY, JSON.stringify(platform))
+      try { sessionStorage.setItem(MANIFEST_CACHE_KEY, JSON.stringify(platform)) } catch { /* optional cache */ }
       setOffline(false)
-      fetch('/api/me-v2', { credentials: 'include', headers: { Accept: 'application/json' } })
-        .then(async (response) => response.ok ? response.json() as Promise<MePayload> : null)
-        .then((payload) => { if (payload) setMe(payload) })
-        .catch(() => undefined)
-      loadPhoneJobs(true, signal).then(setActiveJobs).catch(() => undefined)
+      setMe(current)
+      setActiveJobs(items)
     } catch (caught) {
+      if (signal?.aborted || sequence !== refreshSequence.current) return
       const failure = caught instanceof PhoneApiError ? caught : new PhoneApiError(0, 'Нет соединения с сервером.')
       setError(failure)
-      setOffline(true)
+      if (failure.status === 401) {
+        setMe(null); setActiveJobs([]); setManifest(null); setOffline(false)
+      } else setOffline(true)
     } finally {
-      setLoading(false)
+      if (sequence === refreshSequence.current) setLoading(false)
     }
   }, [])
 
+  useEffect(() => {
+    const onVerifiedLogoutInAnotherTab = (event: StorageEvent) => {
+      if (event.key === VERIFIED_LOGOUT_EVENT_V2) window.location.reload()
+    }
+    window.addEventListener('storage', onVerifiedLogoutInAnotherTab)
+    return () => window.removeEventListener('storage', onVerifiedLogoutInAnotherTab)
+  }, [])
   useEffect(() => {
     const controller = new AbortController()
     const timer = window.setTimeout(() => { void refresh(controller.signal) }, 0)
@@ -257,6 +285,18 @@ export default function PhoneApp() {
     )
   }
 
+  if (!me?.internal_user_id) {
+    return (
+      <main className="phone-app phone-state">
+        <PhoneBrand />
+        <div className="phone-state-spinner" />
+        <b>Подтверждаем аккаунт</b>
+        <p>Личные черновики и работы откроются только после проверки сессии.</p>
+        {error && <button type="button" onClick={() => void refresh()}>Повторить проверку</button>}
+      </main>
+    )
+  }
+
   return (
     <main className="phone-app">
       <header className="phone-topbar">
@@ -272,7 +312,7 @@ export default function PhoneApp() {
       {error && manifest && !offline && <div className="phone-warning" role="status">Не удалось обновить настройки <button type="button" onClick={() => void refresh()}>Повторить</button></div>}
 
       <div className="phone-content">
-        {current?.id === 'image' ? <PhoneImageWorkspace offline={offline} /> : current?.id === 'video' ? <PhoneVideoWorkspace offline={offline} /> : current?.id === 'chat' ? <PhoneChatWorkspace offline={offline} /> : current?.id === 'audio' ? <PhoneAudioWorkspace offline={offline} /> : current ? <PhoneWorkspacePanel workspace={current} offline={offline} /> : (
+        {current?.id === 'image' ? <PhoneImageWorkspace key={`image:${me.internal_user_id}`} ownerId={me.internal_user_id} offline={offline} /> : current?.id === 'video' ? <PhoneVideoWorkspace key={`video:${me.internal_user_id}`} ownerId={me.internal_user_id} offline={offline} /> : current?.id === 'chat' ? <PhoneChatWorkspace key={`chat:${me.internal_user_id}`} offline={offline} /> : current?.id === 'audio' ? <PhoneAudioWorkspace key={`audio:${me.internal_user_id}`} offline={offline} /> : current ? <PhoneWorkspacePanel workspace={current} offline={offline} /> : (
           <section className="phone-not-found"><h1>Такого раздела нет</h1><button type="button" onClick={() => navigate(manifest.defaultRoute, true)}>Открыть картинки</button></section>
         )}
       </div>

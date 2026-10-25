@@ -1,0 +1,23 @@
+manifestVersion = 1
+id = "INTERNAL-220-COMFY-CLAIM-STACK-001"
+baseSha = "1030abdafc32a0f11fbc4a6593acd435eb1bbdfd"
+goal = "Repair the current PR217 AST-extracted worker claim-loss test fixture."
+userOutcome = "Four ComfyUI legacy-mode scenarios exercise real GenerationClaimLost assertions instead of raising NameError."
+beforeScenario = "Four inpaint/faceswap subtests fail because test AST globals omit COMFYUI_NATIVE4B_ONLY."
+afterScenario = "The standalone synthetic namespace defines COMFYUI_NATIVE4B_ONLY=False while preserving original claim-loss/fallback assertions."
+nonGoals = ["Production ComfyUI changes", "GPU invocation", "Provider fallback modification", "Changes to existing PR217 branch or main"]
+domain = "image-generation"
+riskClass = "high-assurance"
+changeClass = "tests"
+declaredFiles = ["backend/test_generation_worker_claims.py"]
+allowedPatterns = []
+forbiddenPatterns = ["backend/main.py", "backend/app/**", "frontend/**", "ops/**"]
+protectedFilesTouched = []
+maxProductionFiles = 0
+maxChangedLines = 12
+acceptance = ["All four claim-loss subtests reach injected GenerationClaimLost", "No fallback or extra submit", "Neighboring worker and claim suites pass"]
+requiredEvidence = ["Source audit baseline of four NameError failures", "Synthetic worker execution at exact modified SHA", "Independent reviewer", "CI at exact SHA before merge"]
+targetedTests = ["backend/test_generation_worker_claims.py", "backend/test_generation_claims.py"]
+fileGrowthExpectations = ["Single legacy-mode fixture constant; no new production logic or test skips"]
+forbiddenOperations = ["production-data", "paid-provider-call", "gpu", "main-merge", "deployment"]
+rollbackBoundary = "Revert the one-line test fixture addition only"

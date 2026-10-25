@@ -1,0 +1,28 @@
+manifestVersion = 1
+id = "INTERNAL-218-PHONE-OWNER-DRAFTS-001"
+baseSha = "efaadc253ac7d76da4704be21beda58798cc5756"
+goal = "Prevent private mobile image/video prompts and source-frame handoffs from appearing after account switching."
+userOutcome = "Account B cannot read account A's saved phone drafts or pending video source; A can reopen only its own state."
+beforeScenario = "Unscoped v1 phone image/video sessionStorage keys are reused on the same browser tab after logout/login."
+afterScenario = "Private drafts use verified internal_user_id namespaces; phone workspaces require verified owner and remount on identity change."
+nonGoals = ["Rewrite chat and video generation", "Change server authorization", "Modify payment or provider logic", "Migrate ambiguous legacy drafts", "Production deployment"]
+domain = "frontend-phone"
+riskClass = "high-assurance"
+changeClass = "product"
+declaredFiles = ["frontend/src/phone/core/accountDraft.ts", "frontend/src/phone/PhoneApp.tsx", "frontend/src/phone/features/image/PhoneImageWorkspace.tsx", "frontend/src/phone/features/video/PhoneVideoWorkspace.tsx", "frontend/test_phone_owner_drafts.mjs"]
+allowedPatterns = []
+forbiddenPatterns = ["backend/**", "ops/**", "frontend/src/authV2.tsx", "frontend/src/newUi.tsx", "frontend/src/studio/imageGenerationCommand.ts"]
+protectedFilesTouched = []
+maxProductionFiles = 4
+maxChangedLines = 220
+acceptance = ["No ownerless v1 private phone draft read", "Owner B never receives A image/video prompt or private handoff", "Returning to A preserves A private drafts", "Non-verified owner cannot mount private mobile workspaces", "In-flight private job list from A never becomes visible after cookie changes to B", "Phone/desktop A-B-A browser and cross-tab E2E", "No repeat paid job/debit/dispatch"]
+requiredEvidence = ["Exact GitHub blob SHA tests", "Frontend full build/lint/typecheck", "Authenticated Chromium with two synthetic accounts", "Independent security/finance review", "Hosted exact-head CI"]
+targetedTests = ["frontend/test_phone_owner_drafts.mjs", "frontend/test_image_generation_idempotency.mjs"]
+fileGrowthExpectations = ["One small bounded shared helper", "No new big UI component", "No growth to protected newUi.tsx"]
+forbiddenOperations = ["main-merge", "deployment", "production-data", "paid-provider-call", "global-network-change"]
+rollbackBoundary = "Discard this independent child Draft; original PR226, main and D2-R2 unchanged"
+
+# Scope reconciliation 2026-10-25: the post-login asynchronous private-job race was
+# reproduced by code inspection during account isolation work; changes in PhoneApp
+# must fence stale results, not merely partition saved drafts. Budget 220 covers
+# the 4 bounded production files, 6 focused tests and this Task Contract.

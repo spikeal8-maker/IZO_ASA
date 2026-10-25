@@ -1,0 +1,258 @@
+{
+  "schemaVersion": 1,
+  "program": "INTERNAL-RELIABILITY-ACCEPTANCE-001",
+  "issue": 218,
+  "sourceBase": "1030abdafc32a0f11fbc4a6593acd435eb1bbdfd",
+  "integrationSource": "c5df5361278480cb0abcdff8a7cc1cada9dccba3",
+  "testedBlobs": {
+    "imageCommand": "7d1ab3c12ef8b9bbec0404d23a5ba7cd796cbf7e",
+    "nodeTests": "2d5aace73b73b7e3f5112cb54806913d17b8449d",
+    "videoGuard": "ea74c6798a6f4357c8d76c087104e72822ce4ede",
+    "videoTests": "9e9556570bc73236a682f86d378041317036d77e"
+  },
+  "environment": "Isolated ChatGPT Linux container; no GitHub checkout network; no D2-R2 connector; no paid API or user media",
+  "cases": [
+    {
+      "id": "AUTH-COMMAND-NODE",
+      "status": "PASS",
+      "scope": "Exact GitHub blobs copied byte-for-byte and hashes matched; Node v22.16.0",
+      "evidence": "node --experimental-strip-types --test frontend/test_image_generation_idempotency.mjs: 11 PASS, 0 FAIL",
+      "caveat": "Resolver is synthetic in unit tests; not the runtime authV2 bundle"
+    },
+    {
+      "id": "AUTH-COMMAND-TSC",
+      "status": "PASS",
+      "scope": "Standalone command module",
+      "evidence": "tsc --noEmit --lib dom,es2022 --target es2022 --module esnext: exit 0",
+      "caveat": "Full frontend TypeScript/Vite/ESLint not run"
+    },
+    {
+      "id": "AUTH-REFRESH-REAL-COOKIE",
+      "status": "NOT_TESTED",
+      "scope": "Real authV2 session-cookie refresh",
+      "evidence": "Changed runtime source to pass existing fetchMeV2; tests only inject resolver",
+      "caveat": "Requires real browser+backend with synthetic expiring cookies"
+    },
+    {
+      "id": "LOGOUT-FAILURE",
+      "status": "NOT_TESTED",
+      "scope": "Real auth logout response loss and cross-tab storage events",
+      "evidence": "Source changed: require positive HTTP ACK, no unconditional reload; no full-app browser test",
+      "caveat": "Needs HTTP 401, refresh, lost response and cross-tab behavior"
+    },
+    {
+      "id": "CHROMIUM-COMMAND-SYNTHETIC",
+      "status": "PASS",
+      "scope": "Real headless Chromium 1440x900 and 390x844, exact compiled command module with JS-safe crypto/transport shims",
+      "evidence": "2/5/10 duplicate submissions: one key/job per viewport; A-B-A key isolation; synthetic SQLite 4 jobs/4 debits/4 dispatch/4 gallery; scratch backup restore 4/4",
+      "caveat": "No network navigation, live authV2, or actual IZO_ASA UI/backend; browser network BLOCKED_BY_ADMINISTRATOR"
+    },
+    {
+      "id": "IMAGE-REAL-BACKEND-E2E",
+      "status": "NOT_TESTED",
+      "scope": "IZO_ASA real UI→HTTP→generation_admission→SQLite→child worker→fake provider→ledger",
+      "evidence": "No full checkout or working Docker runner in this container",
+      "caveat": "Synthetic browser fixture must not be cited as this E2E"
+    },
+    {
+      "id": "COMFY-CLAIM-HARNESS",
+      "status": "NOT_TESTED",
+      "scope": "Exact #222 claim-loss suite newly assembled",
+      "evidence": "Copied #222 exact test blob 3fbb6bc81f933024d48e8ddf665d1ab4d073be81; historical four subtests PASS only",
+      "caveat": "Real worker, claim, lease, queue and recovery suites must run on integrated HEAD"
+    },
+    {
+      "id": "VIDEO-UNKNOWN-FOCUSED",
+      "status": "PASS",
+      "scope": "Exact #223 Python source/test blobs copied and hashed",
+      "evidence": "pytest -q backend/test_video_unknown_reconciliation_guard.py: 10 PASS, 0 FAIL",
+      "caveat": "Does not cover HTTP endpoint/worker/provider lifecycle"
+    },
+    {
+      "id": "VIDEO-DELETE-JOB-GAP",
+      "status": "FAIL",
+      "scope": "Existing #223 guard on a synthetic SQLite deleted job row",
+      "evidence": "before_delete_blocked=True; after_delete_blocked=False",
+      "caveat": "Issue #204 durable receipts must be enforced before paid dispatch; #223 alone not final"
+    },
+    {
+      "id": "FINANCE-UNKNOWN-LATE-CALLBACK",
+      "status": "NOT_IMPLEMENTED",
+      "scope": "Durable provider receipt/reconciliation operator controls",
+      "evidence": "#204 OPEN; no durable lifecycle wiring in candidate",
+      "caveat": "No automatic retry when accepted/unknown; need migration+review"
+    },
+    {
+      "id": "GALLERY-NONDESTRUCTIVE-GLOBAL",
+      "status": "NOT_IMPLEMENTED",
+      "scope": "Globally accepted non-evicting quota protection",
+      "evidence": "PR #217 env-gated preprod-only preserve_history",
+      "caveat": "Production policy unresolved"
+    },
+    {
+      "id": "HOSTED-CI",
+      "status": "NOT_TESTED",
+      "scope": "#228 integration branch exact source/head",
+      "evidence": "No pull_request workflow runs found on #228 exact combined HEAD",
+      "caveat": "Must run required hosted workflows; do not transfer standalone #229 success."
+    },
+    {
+      "id": "INDEPENDENT-REVIEW",
+      "status": "BLOCKED",
+      "scope": "Separate security and finance GitHub APPROVE",
+      "evidence": "No formal GitHub review submitted on #224/#222; own source checks are not independent",
+      "caveat": "Require authenticated independent reviewer"
+    },
+    {
+      "id": "D2-R2-AND-ROLLBACK",
+      "status": "BLOCKED",
+      "scope": "User preprod 127.0.0.1:48314 remains untouched",
+      "evidence": "Remote Desktop Commander returned link_id must identify an eligible linked account",
+      "caveat": "Do not claim production/runtime PASS"
+    },
+    {
+      "id": "PROVIDER-RECEIPT-CORE",
+      "status": "PASS",
+      "scope": "Exactly verified #229 source and test blobs in isolated Linux temp SQLite",
+      "evidence": "Old source blob 86322... with new atomicity tests: 3 FAIL sqlite3.OperationalError nested BEGIN; new source 947d0e... and tests 79b536...: 13/13 PASS (0.50s), atomic charge/receipt rollback + commit, safe SAVEPOINT conflict, no send before commit",
+      "caveat": "Standalone core only, not real FastAPI/video worker/ledger provider adapter"
+    },
+    {
+      "id": "PROVIDER-RECEIPT-SYNTHETIC-LOAD",
+      "status": "PASS",
+      "scope": "PR #229 isolated receipt store only, 250 operations each at 1/5/10 threads",
+      "evidence": "p95=5.82/28.89/57.79ms; p99=9.25/122.98/108.63ms; 1 receipt, 0 errors per batch",
+      "caveat": "Not real FastAPI/worker/SQLite application load, no GPU and no user traffic; cannot infer product capacity"
+    },
+    {
+      "id": "PROVIDER-RECEIPT-HOSTED-CI",
+      "status": "FAIL",
+      "scope": "#229 exact HEAD 36f9dfe3399e2cee7c0d2d71d918a91a4bc19b33",
+      "evidence": "Actions file hygiene run 40186925722 SUCCESS; Windows CI 40186925672 FAILURE at Enforce reviewed npm audit baseline; earlier CI 40186642244 verified three expired exception dates 2026-10-23; 5 high dev-only, production scan zero",
+      "caveat": "Security gate is not waived. App tests after supply chain were skipped; required full CI not PASS. Security remediation tracked in Issues #154/#155."
+    },
+    {
+      "id": "P0-PHONE-ACCOUNT-DRAFTS",
+      "status": "PASS",
+      "scope": "Exact blob standalone helper+Node tests in Linux Node v22.16.0 and TypeScript 5.8.3",
+      "evidence": "git hash-object matched PR230 blobs 25e37d2... and f3866fb...; node --experimental-strip-types --test: 6 passed, 0 failed; tsc --noEmit: PASS",
+      "caveat": "Only scoped helper unit tests, NOT full PhoneImage/PhoneVideo React/browser session E2E"
+    },
+    {
+      "id": "P0-PHONE-INFLIGHT-ACCOUNT-SWITCH",
+      "status": "NOT_TESTED",
+      "scope": "#230 PhoneApp plus #226 recovery on exact #228 combined code",
+      "evidence": "Source enforces verified /me-v2 owner before/after job list, fences stale request sequences, hides cached private workspace during refresh; exact GitHub blobs confirmed",
+      "caveat": "No actual cookie-swapping Chromium/backend execution; remaining TOCTOU must be reviewed"
+    },
+    {
+      "id": "GITHUB-COMBINED-BLOB-IDENTITY",
+      "status": "PASS",
+      "scope": "#228 combined code with #226 and #230",
+      "evidence": "7/7 selected phone source/test/contract blobs matched their latest source PRs at 4890272fd47e935d3c7b7ef491dd9ff3d608cafc",
+      "caveat": "Source integration identity is not runtime E2E or a full build"
+    },
+    {
+      "id": "AUTH-TRUSTED-ME-NO-STORE",
+      "status": "NOT_TESTED",
+      "scope": "PR226 authV2.fetchMeV2 first/retried GET /me-v2",
+      "evidence": "Both requests explicitly pass cache:'no-store'; integrated exact blob e374ba... at PR228",
+      "caveat": "No actual browser cookie cache / service-worker / two-user network test"
+    },
+    {
+      "id": "LEGACY-LOGOUT-ACK",
+      "status": "NOT_TESTED",
+      "scope": "PR231 frozen legacy SettingsView logout",
+      "evidence": "Source inspected: LegacyApp logout callback requires confirmed logoutV2 result and reloads only on ACK; original historical source had silently ignored return. Latest code adds verified storage-event listener; source blob to inspect by exact PR #228.",
+      "caveat": "Full React/Chrome two-tab behavior not run, only source review; security acceptance pending"
+    },
+    {
+      "id": "CHROMIUM-NATIVE-STORAGE",
+      "status": "BLOCKED",
+      "scope": "Chromium with local page navigation",
+      "evidence": "Playwright page.set_content works but about:blank sessionStorage raises SecurityError; attempted local/full URL navigation blocked by administrator policy",
+      "caveat": "No substitute for true authenticated app UI/browser testing"
+    },
+    {
+      "id": "PROVIDER-RECEIPT-ATOMIC-RED-GREEN",
+      "status": "PASS",
+      "scope": "Exact #229 pre-fix/post-fix SHA in isolated SQLite",
+      "evidence": "Old 86322c2b... + three new tests: 3/3 FAIL (nested BEGIN IMMEDIATE); new 947d0e26... + full exact test 79b5366c...: 13/13 PASS. Parent financial transaction rollback reverts receipt and fake charge; external transaction survives receipt conflict; dispatch forbidden before COMMIT.",
+      "caveat": "Proof is isolated receipt component and synthetic ledger, not deployed billing system."
+    },
+    {
+      "id": "LEGACY-LOGOUT-CROSSTAB",
+      "status": "NOT_TESTED",
+      "scope": "GitHub PR #228 verified logout StorageEvent handler in LegacyApp",
+      "evidence": "Implemented source-level listener for VERIFIED_LOGOUT_EVENT_V2 with unmount cleanup; handler triggers window.reload only for matching event, not independently authorized browser E2E",
+      "caveat": "Chromium navigation blocked by administrator in current test container; two-tab authenticated browser test still required."
+    },
+    {
+      "id": "PROVIDER-RECEIPT-PROCESS-FAULTS",
+      "status": "PASS",
+      "scope": "Exact #229 receipt source blob 947d0e26...; isolated actual child Python processes and temp SQLite WAL, no real providers",
+      "evidence": "5 groups PASS, 0 FAIL: process killed before commit => 0 receipt/debit; killed after committed fence before send => no retry; fake provider accepted then kill before ACK => one provider call/one dispatch fence and unknown replay blocked; 2/5/10 independent processes => exactly one claim; SQLite backup restore => 5 receipts/12 audit events/PRAGMA quick_check ok/FK violations 0",
+      "caveat": "Synthetic-only process harness, separate from actual IZO_ASA FastAPI/queue/ledger. No production migration/real provider/operator auth; not release acceptance."
+    },
+    {
+      "id": "OWNER-COOKIE-POST-FENCE",
+      "status": "PASS",
+      "scope": "Exact #234 AST-extracted real backend/main.py generate route, synthetic session and admission",
+      "evidence": "Before patch 5 FAIL / 2 PASS; after patch 7 PASS / 0 FAIL. A-owned persisted command with B current cookie 409 before admission/provider validation; B-matching and legacy no-header compatible. Source blob 0478b663..., test 1d185da...",
+      "caveat": "Source-function characterization only; real full backend auth/ledger/not-yet-implemented E2E separately required"
+    },
+    {
+      "id": "OWNER-COOKIE-ASGI-HTTP",
+      "status": "PASS",
+      "scope": "Actual FastAPI ASGI POST HTTPX using exact route body with synthetic cookie principals, injected fake admission/SQLite and child fake-workers",
+      "evidence": "10 synthetic scenarios PASS; A command with B cookie =>409 and zero charge; concurrent 2/5/10 same key 1 job/1 debit; changed payload 409; lost ACK replay same job; cross-owner isolated; 20 worker process attempts 2 unique dispatches/2 gallery rows; WAL backup verified.",
+      "caveat": "Only actual route function source is real, full IZO_ASA app/session/admission/worker/provider/ledger not exercised. No user-site traffic."
+    }
+  ],
+  "releaseVerdict": "NOT_ACCEPTED",
+  "constraints": [
+    "No production data changes",
+    "No main merge",
+    "No paid calls",
+    "No D2-R2 runtime mutations"
+  ],
+  "relatedDurableReceiptPR": {
+    "pr": 229,
+    "head": "36f9dfe3399e2cee7c0d2d71d918a91a4bc19b33",
+    "base": "51543df2b6a559d693e3ed75b11baeacdb9033d3",
+    "codeBlob": "947d0e26c43730341683d814db90094da62bbef8",
+    "testBlob": "79b5366c3f663f0ddea79f5f519fad286c857e9e",
+    "note": "Standalone receipt state machine, not wired into #228 or production video path"
+  },
+  "latestCombinedCodeSha": "75da4be0bbcf3b42f3480f2cfabc942b69a047a3",
+  "accountDraftPatch": {
+    "pr": 230,
+    "head": "7fdb7ab4c7069674183bc5c1a0a2aab195cfe7e5",
+    "basePr": 226,
+    "sourceHelperBlob": "25e37d2b126f62b8a659fed99906437435aabaa0",
+    "sourceTestBlob": "f3866fb8611df22315752aab83bbefc26c75a68f"
+  },
+  "latestAuthRefreshPatch": {
+    "pr": 226,
+    "head": "2899663f9d38794d3981d91995faeb43663de1d2",
+    "recoveryBlob": "f0c74c74c6f1961ce9021f7a56f0ba65bd9ed6a2",
+    "authBlob": "e374ba578f63e191f3f97670a9ffdf7a9560785f",
+    "note": "Request cache no-store on trusted owner read; source verification only"
+  },
+  "legacyLogoutPatch": {
+    "pr": 231,
+    "head": "a1a89123b88dc540c13548eab55c39cda6f99ece",
+    "sourceBlob": "11829e315feeb5e21608ddc7d139419e68532316",
+    "note": "Separate frozen compatibility one-handler fix, no full browser accepted"
+  },
+  "lastVerifiedStandaloneProviderHead": "36f9dfe3399e2cee7c0d2d71d918a91a4bc19b33",
+  "lastVerifiedIntegrationSourceBeforeEvidence": "5c0edfb0158388828bb71b669dbbb2ff0bcaa79e",
+  "latestIntegrationReviewSha": "75da4be0bbcf3b42f3480f2cfabc942b69a047a3",
+  "latestOwnerFencePR": {
+    "number": 234,
+    "sha": "6eb7a2220f7307e7dee0df788d244b9bd767dea1",
+    "backendBlob": "0478b663202f6dddcf7398d16962b8afb9e982ef",
+    "testBlob": "1d185da954c81eeab583cfc3a779ca067bcab306",
+    "integratedSourceSha": "75da4be0bbcf3b42f3480f2cfabc942b69a047a3"
+  }
+}

@@ -6,6 +6,7 @@ import { faceStrengthPrompt } from '../../../studio/studioHelpers.ts'
 import { comfySafeGenerationSize, outpaintRequestSizeFromSource } from '../../../studio/studioImageProcessing.ts'
 import { phoneTokenClass } from '../../core/billing.ts'
 import { type PhoneJob } from '../../core/jobs.ts'
+import { readPhoneDraft, writePhoneDraft } from '../../core/accountDraft.ts'
 import { fileToPhoneImage, loadFaceLora, loadImageModels, loadPhoneGallery, publishPhoneImage, startPhoneImage, type PhoneGalleryImage, type PhoneImageMode, type PhoneImageModel } from './api.ts'
 import PhoneImageEditor, { type PhoneEditorTool, type PhoneOutpaint } from './PhoneImageEditor.tsx'
 import { usePhoneImageRecovery } from './usePhoneImageRecovery.ts'
@@ -75,9 +76,9 @@ function ImageViewer({ src, onClose }: { src: string; onClose: () => void }) {
   return <div className="phone-image-viewer" role="dialog" aria-modal="true" aria-label="Просмотр изображения"><button type="button" aria-label="Закрыть" onClick={onClose}><X /></button><span>{scaleLabel}%</span><img ref={imageRef} src={src} alt="Результат крупным планом" draggable={false} onDoubleClick={toggle} onPointerDown={(event) => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY }); if (pointers.current.size === 2) { const [a, b] = [...pointers.current.values()]; transform.current.pinchDistance = Math.hypot(a.x - b.x, a.y - b.y); transform.current.pinchScale = transform.current.scale } }} onPointerMove={(event) => { const previous = pointers.current.get(event.pointerId); if (!previous) return; pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY }); if (pointers.current.size >= 2) { const [a, b] = [...pointers.current.values()]; transform.current.scale = Math.max(1, Math.min(5, transform.current.pinchScale * Math.hypot(a.x - b.x, a.y - b.y) / Math.max(1, transform.current.pinchDistance))) } else if (transform.current.scale > 1) { transform.current.x += event.clientX - previous.x; transform.current.y += event.clientY - previous.y } apply() }} onPointerUp={(event) => pointers.current.delete(event.pointerId)} onPointerCancel={(event) => pointers.current.delete(event.pointerId)} /></div>
 }
 
-export default function PhoneImageWorkspace({ offline }: { offline: boolean }) {
+export default function PhoneImageWorkspace({ offline, ownerId }: { offline: boolean; ownerId: string }) {
   const [tab, setTab] = useState<'describe' | 'edit' | 'draw'>('describe')
-  const [prompt, setPrompt] = useState(() => sessionStorage.getItem('izo.phone.image.prompt') || '')
+  const [prompt, setPrompt] = useState(() => readPhoneDraft('image.prompt', ownerId))
   const [ratio, setRatio] = useState<Ratio>('1:1')
   const [tier, setTier] = useState<Tier>('HD')
   const [styleId, setStyleId] = useState('')
@@ -95,6 +96,7 @@ export default function PhoneImageWorkspace({ offline }: { offline: boolean }) {
   const [progress, setProgress] = useState(0)
   const [busy, setBusy] = useState(false)
   const jobObserver = useRef<AbortController | null>(null)
+  const submissionGuard = useRef(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [viewer, setViewer] = useState(false)
@@ -171,7 +173,7 @@ export default function PhoneImageWorkspace({ offline }: { offline: boolean }) {
   const generate = async () => {
     const mode = editorMode()
     const promptRequired = mode !== 'remove_background' && mode !== 'outpaint'
-    if ((promptRequired && !prompt.trim()) || busy || recovering || offline) { if (promptRequired && !prompt.trim()) setError('Опишите, что нужно создать или изменить.'); return }
+    if ((promptRequired && !prompt.trim()) || submissionGuard.current || busy || recovering || offline) { if (promptRequired && !prompt.trim()) setError('Опишите, что нужно создать или изменить.'); return }
     if (!tierAvailable(tier)) { setError('Выбранное разрешение недоступно для модели и тарифа.'); return }
     if (mode === 'image_to_image' && !sources.length) { setError('Добавьте исходное изображение.'); return }
     if (mode === 'edit' && sources.length < 2) { setError('Для совмещения нужно минимум два изображения.'); return }
@@ -179,6 +181,7 @@ export default function PhoneImageWorkspace({ offline }: { offline: boolean }) {
     if (mode === 'inpaint' && !mask) { setError('Закрасьте область, которую нужно изменить.'); return }
     if (mode === 'outpaint' && !Object.values(outpaint).some((value) => value > 0)) { setError('Задайте поле расширения.'); return }
     if (editorTool === 'face' && !faceLora) { setError('Модуль лица временно недоступен. Попробуйте ещё раз позже.'); return }
+    submissionGuard.current = true
     const controller = new AbortController()
     let terminalObserved = false
     jobObserver.current?.abort(); jobObserver.current = controller
@@ -198,20 +201,20 @@ export default function PhoneImageWorkspace({ offline }: { offline: boolean }) {
         setError(caught instanceof Error ? caught.message : 'Генерация временно недоступна.')
       }
     }
-    finally { if (!controller.signal.aborted) setBusy(false) }
+    finally { submissionGuard.current = false; if (!controller.signal.aborted) setBusy(false) }
   }
 
   return <section className="phone-image" data-phone-workspace="image">
     <nav className="phone-image-tabs"><button className={tab === 'describe' ? 'active' : ''} type="button" onClick={() => setTab('describe')}><Sparkles />По описанию</button><button className={tab === 'edit' ? 'active' : ''} type="button" onClick={() => setTab('edit')}><Layers3 />Изменить</button><button className={tab === 'draw' ? 'active' : ''} type="button" onClick={() => setTab('draw')}><Pencil />Нарисовать</button></nav>
     <div className="phone-image-scroll">
       <div className="phone-image-preview">
-        {result ? <><img src={result} alt="Результат генерации" onDoubleClick={() => setViewer(true)} /><button className="dismiss" type="button" aria-label="Освободить предпросмотр" onClick={() => { setResult(''); setResultId('') }}><X /></button><div className="actions"><a href={result} download="izo-asa-image.png" aria-label="Скачать"><Download /></a><button type="button" aria-label="Поделиться" onClick={() => { const url = new URL(result, location.origin).toString(); if (navigator.share) void navigator.share({ title: 'ИЗО АСА', url }); else void navigator.clipboard?.writeText(url) }}><Share2 /></button><button type="button" aria-label="Оживить" onClick={() => { sessionStorage.setItem('izo.phone.video.source', result); window.location.assign('/phone/video') }}><Video /></button><button type="button" aria-label="В ленту" disabled={!resultId} onClick={() => { if (!resultId) return; setNotice(''); void publishPhoneImage(resultId, prompt.split(/[.!?\n]/)[0] || 'Новая работа').then((payload) => setNotice(payload.moderation === 'pending_review' ? 'Работа отправлена на проверку.' : 'Работа опубликована в ленте.')).catch((caught) => setError(caught instanceof Error ? caught.message : 'Не удалось опубликовать работу.')) }}><Send /></button></div></> : tab === 'draw' ? <SketchCanvas ratio={ratio} onChange={sketchChange} /> : tab === 'edit' && sources.length ? <div className="phone-image-sources">{sources.map((source, index) => <span key={`${source.slice(-20)}-${index}`}><img src={source} alt={`Исходное изображение ${index + 1}`} /><button type="button" aria-label="Убрать изображение" onClick={() => setSources((value) => value.filter((_, itemIndex) => itemIndex !== index))}><X /></button></span>)}{sources.length < 4 && <button type="button" onClick={() => fileRef.current?.click()}><ImagePlus />Добавить</button>}</div> : <><img className="placeholder" src="/phone-preview-placeholder.jpg" alt="" /><div className="empty"><Sparkles /><b>{tab === 'edit' ? 'Измените или совместите' : 'Создайте первое изображение'}</b><span>{tab === 'edit' ? 'Добавьте до четырёх изображений' : 'Результат полностью поместится здесь'}</span>{tab === 'edit' && <button type="button" onClick={() => fileRef.current?.click()}>Выбрать изображения</button>}</div></>}
+        {result ? <><img src={result} alt="Результат генерации" onDoubleClick={() => setViewer(true)} /><button className="dismiss" type="button" aria-label="Освободить предпросмотр" onClick={() => { setResult(''); setResultId('') }}><X /></button><div className="actions"><a href={result} download="izo-asa-image.png" aria-label="Скачать"><Download /></a><button type="button" aria-label="Поделиться" onClick={() => { const url = new URL(result, location.origin).toString(); if (navigator.share) void navigator.share({ title: 'ИЗО АСА', url }); else void navigator.clipboard?.writeText(url) }}><Share2 /></button><button type="button" aria-label="Оживить" onClick={() => { writePhoneDraft('video.source', ownerId, result); window.location.assign('/phone/video') }}><Video /></button><button type="button" aria-label="В ленту" disabled={!resultId} onClick={() => { if (!resultId) return; setNotice(''); void publishPhoneImage(resultId, prompt.split(/[.!?\n]/)[0] || 'Новая работа').then((payload) => setNotice(payload.moderation === 'pending_review' ? 'Работа отправлена на проверку.' : 'Работа опубликована в ленте.')).catch((caught) => setError(caught instanceof Error ? caught.message : 'Не удалось опубликовать работу.')) }}><Send /></button></div></> : tab === 'draw' ? <SketchCanvas ratio={ratio} onChange={sketchChange} /> : tab === 'edit' && sources.length ? <div className="phone-image-sources">{sources.map((source, index) => <span key={`${source.slice(-20)}-${index}`}><img src={source} alt={`Исходное изображение ${index + 1}`} /><button type="button" aria-label="Убрать изображение" onClick={() => setSources((value) => value.filter((_, itemIndex) => itemIndex !== index))}><X /></button></span>)}{sources.length < 4 && <button type="button" onClick={() => fileRef.current?.click()}><ImagePlus />Добавить</button>}</div> : <><img className="placeholder" src="/phone-preview-placeholder.jpg" alt="" /><div className="empty"><Sparkles /><b>{tab === 'edit' ? 'Измените или совместите' : 'Создайте первое изображение'}</b><span>{tab === 'edit' ? 'Добавьте до четырёх изображений' : 'Результат полностью поместится здесь'}</span>{tab === 'edit' && <button type="button" onClick={() => fileRef.current?.click()}>Выбрать изображения</button>}</div></>}
         {busy && <div className="phone-image-busy"><i style={{ width: `${Math.max(8, progress)}%` }} /><b>Создаём изображение</b><span>{Math.round(progress)}%</span></div>}
       </div>
 
       <input ref={fileRef} hidden multiple type="file" accept="image/jpeg,image/png,image/webp" onChange={async (event) => { try { const added = await Promise.all(Array.from(event.target.files || []).slice(0, 4 - sources.length).map(fileToPhoneImage)); setSources((value) => [...value, ...added].slice(0, 4)); setTab('edit') } catch (caught) { setError(caught instanceof Error ? caught.message : 'Не удалось добавить изображение.') } event.target.value = '' }} />
       {tab === 'edit' && <PhoneImageEditor tool={editorTool} setTool={setEditorTool} source={sources[0]} faceStrength={faceStrength} setFaceStrength={setFaceStrength} mask={mask} setMask={setMask} outpaint={outpaint} setOutpaint={setOutpaint} />}
-      <div className="phone-image-prompt"><textarea value={prompt} maxLength={3000} placeholder="Например: сова в космосе, неоновые звёзды…" onChange={(event) => setPrompt(event.target.value)} /><button type="button" disabled={busy || recovering || offline || !tierAvailable(tier) || (!prompt.trim() && !['remove_background', 'outpaint'].includes(editorMode()))} onClick={() => void generate()}><Sparkles />{busy ? 'Создаём…' : retryAllowed ? 'Нужна проверка заданий' : recovering && !offline ? 'Проверяем задания…' : editorTool === 'remove_background' && tab === 'edit' ? 'Удалить фон' : editorTool === 'outpaint' && tab === 'edit' ? 'Расширить' : 'Сгенерировать'}<em className={phoneTokenClass(model.provider === 'comfyui' ? 'daily' : 'main')}>{model.tokenHint} ток.</em></button></div>
+      <div className="phone-image-prompt"><textarea value={prompt} maxLength={3000} placeholder="Например: сова в космосе, неоновые звёзды…" onChange={(event) => { setPrompt(event.target.value); writePhoneDraft('image.prompt', ownerId, event.target.value) }} /><button type="button" disabled={busy || recovering || offline || !tierAvailable(tier) || (!prompt.trim() && !['remove_background', 'outpaint'].includes(editorMode()))} onClick={() => void generate()}><Sparkles />{busy ? 'Создаём…' : retryAllowed ? 'Нужна проверка заданий' : recovering && !offline ? 'Проверяем задания…' : editorTool === 'remove_background' && tab === 'edit' ? 'Удалить фон' : editorTool === 'outpaint' && tab === 'edit' ? 'Расширить' : 'Сгенерировать'}<em className={phoneTokenClass(model.provider === 'comfyui' ? 'daily' : 'main')}>{model.tokenHint} ток.</em></button></div>
       {(error || retryAllowed) && <div className="phone-image-error">{error}{retryAllowed && <button type="button" style={{ position: 'static', display: 'block', width: '100%', height: 'auto', minHeight: 44, marginTop: 8 }} onClick={retryRecovery}>Повторить проверку заданий</button>}{error && <button type="button" aria-label="Закрыть" onClick={() => setError('')}><X /></button>}</div>}
       {notice && <div className="phone-image-notice">{notice}<button type="button" aria-label="Закрыть уведомление" onClick={() => setNotice('')}><X /></button></div>}
 

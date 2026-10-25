@@ -8011,6 +8011,11 @@ def _generation_admission_runtime() -> generation_admission.AdmissionRuntime:
 async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
     req = normalize_generation_request(req)
     trusted = require_trusted_user(request)
+    expected_owner = request.headers.get("X-IZO-Expected-Internal-User")
+    # A cross-tab login can replace the cookie after the browser persisted A's
+    # paid intent. Reject before admission/charge; this header never authenticates.
+    if expected_owner is not None and expected_owner != str(trusted["internal_user_id"]):
+        raise HTTPException(409, "Аккаунт изменился во время подготовки генерации. Проверьте вход и прежнее задание.")
     if COMFYUI_NATIVE4B_ONLY and req.provider == "comfyui":
         if _saved_setting("config_ui_runtime").get("imageEnabled") is False:
             raise HTTPException(503, "NATIVE4B_IMAGE_GENERATION_DISABLED")

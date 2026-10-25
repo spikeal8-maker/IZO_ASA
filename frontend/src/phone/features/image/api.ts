@@ -1,5 +1,7 @@
-import { phoneFetch } from '../../core/http.ts'
+import { phoneFetch, PhoneTransportError } from '../../core/http.ts'
+import { beginImageGenerationCommand, acknowledgeImageGenerationCommand, completeImageGenerationCommand, rejectImageGenerationCommand } from '../../../studio/imageGenerationCommand.ts'
 import { waitForPhoneJob, type PhoneJob } from '../../core/jobs.ts'
+import { fetchMeV2 } from '../../../authV2'
 
 
 export type PhoneImageModel = {
@@ -43,7 +45,7 @@ export async function startPhoneImage(input: {
   signal?.throwIfAborted()
   const body: Record<string, unknown> = {
     mode: input.mode, provider: input.model.provider, prompt: input.prompt, negativePrompt: '',
-    seed: Math.floor(Math.random() * 2147483646) + 1, width: input.width, height: input.height,
+    width: input.width, height: input.height,
     resolutionId: input.resolutionId, steps: 4, cfg: 1, guidance: 3.5, strength: .75,
     modelProfile: input.model.modelProfile,
     loras: input.faceLora ? [{ id: input.faceLora.id, strength: Math.max(.25, Math.min(1, (input.faceStrength || 75) / 100)), triggerWord: input.faceLora.triggerWord || '' }] : [],
@@ -53,11 +55,28 @@ export async function startPhoneImage(input: {
   if (input.mode === 'paint') body.canvas = input.canvas
   if (input.mode === 'inpaint') body.maskImage = input.mask
   if (input.mode === 'outpaint') body.outpaint = input.outpaint
-  const started = await phoneFetch<{ id?: string; jobId?: string }>('/api/generate', { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-  signal?.throwIfAborted()
-  const jobId = String(started.id || started.jobId || '')
-  if (!jobId) throw new Error('Сервер не вернул номер генерации.')
-  return waitForPhoneJob(jobId, { onChange, signal })
+  const command = await beginImageGenerationCommand('phone', body, fetchMeV2)
+  let jobId = command.acceptedJobId || ''
+  if (!jobId) {
+    let started: { id?: string; jobId?: string }
+    try {
+      started = await phoneFetch<{ id?: string; jobId?: string }>('/api/generate', {
+        method: 'POST', signal,
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': command.key, 'X-IZO-Expected-Internal-User': command.ownerId },
+        body: command.body,
+      })
+    } catch (error) {
+      if (error instanceof PhoneTransportError) rejectImageGenerationCommand('phone', command.ownerId, command.key, error.status)
+      throw error
+    }
+    signal?.throwIfAborted()
+    jobId = String(started.id || started.jobId || '')
+    if (!jobId) throw new Error('Сервер не вернул номер генерации.')
+    acknowledgeImageGenerationCommand('phone', command.ownerId, command.key, jobId)
+  }
+  const completed = await waitForPhoneJob(jobId, { onChange, signal })
+  if (completed.terminal) await completeImageGenerationCommand('phone', jobId, fetchMeV2).catch(() => undefined)
+  return completed
 }
 
 export async function loadFaceLora(signal?: AbortSignal): Promise<{ id: string; triggerWord?: string } | null> {
