@@ -3,34 +3,8 @@ name: Documentation and Test File Hygiene
 on:
   pull_request:
     branches: [main]
-    paths:
-      - 'README.md'
-      - 'TEST_PLAN.md'
-      - 'AGENTS.md'
-      - 'docs/**'
-      - 'archive/docs/**'
-      - 'tasks/**'
-      - 'tools/**'
-      - 'backend/**'
-      - 'frontend/**'
-      - 'tests/**'
-      - 'architecture/contract.json'
-      - '.github/workflows/file-hygiene.yml'
   push:
     branches: [main]
-    paths:
-      - 'README.md'
-      - 'TEST_PLAN.md'
-      - 'AGENTS.md'
-      - 'docs/**'
-      - 'archive/docs/**'
-      - 'tasks/**'
-      - 'tools/**'
-      - 'backend/**'
-      - 'frontend/**'
-      - 'tests/**'
-      - 'architecture/contract.json'
-      - '.github/workflows/file-hygiene.yml'
   workflow_dispatch:
 
 permissions:
@@ -43,10 +17,19 @@ concurrency:
 jobs:
   check:
     name: Bounded documentation and test file checks
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
+      - name: Reject untrusted pull request before checkout
+        shell: bash
+        env:
+          IZO_PR_ALLOWED: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor == 'spikeal8-maker') }}
+        run: |
+          set -euo pipefail
+          if [[ "$IZO_PR_ALLOWED" != "true" ]]; then
+            echo "::error::Untrusted pull request rejected before checkout"
+            exit 1
+          fi
       - name: Check out exact source revision
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -68,5 +51,5 @@ jobs:
           if ! git cat-file -e "${IZO_BASE_SHA}^{commit}" 2>/dev/null; then
             IZO_BASE_SHA="$(git rev-parse HEAD^)"
           fi
-          python -m unittest -v tools.test_file_hygiene
+          python -m unittest -v tools.test_file_hygiene tools.test_required_workflow_gates
           python -m tools.file_hygiene --base "$IZO_BASE_SHA" --head "$IZO_HEAD_SHA"
