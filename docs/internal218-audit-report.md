@@ -36,3 +36,16 @@ Standalone synthetic SQLite replay microbenchmark (250 operations each, own WAL 
 - 10 threads: p50 2.24ms, p95 57.79ms, p99 108.63ms.
 
 All three had one receipt and zero errors. These values measure only the receipt helper under local synthetic contention; **not application capacity, real provider latency or accepted production P0**. The core has no production migration, billing adapter, authenticated operator API or actual video invocation, and was intentionally left outside this #228 integration branch until dependencies and independent review are satisfied.
+
+
+## 25 Oct — mobile account-switch privacy repair
+
+During continued source inspection, unscoped legacy mobile `sessionStorage` keys for image prompt, video prompt and image→video source were found. After A→logout→B, the mobile UI could present A's saved input despite the paid command ledger being partitioned. This is a client privacy/correctness finding, **not evidence of a backend media-authorization bypass**.
+
+[Draft PR #230](https://github.com/spikeal8-maker/IZO_ASA/pull/230) exact HEAD `7fdb7ab4c7069674183bc5c1a0a2aab195cfe7e5` isolates these drafts by server-confirmed `internal_user_id`, ignores ownerless legacy drafts and remounts phone workspaces with an owner-specific React key. `PhoneApp` hides private workspaces until auth verification, fences stale async results by request sequence, and rechecks that the owner did not change during the jobs-list fetch.
+
+Source helper GitHub blob `25e37d2b126f62b8a659fed99906437435aabaa0`; test blob `f3866fb8611df22315752aab83bbefc26c75a68f`. In an isolated Linux Node v22.16 environment, both hashes matched byte-for-byte: **6/6 tests PASS**, standalone TypeScript check **PASS**. Scenarios: A/B/A prompts, video source handoff, legacy isolation, invalid owner, owner-scoped clearing, storage failure.
+
+[Draft PR #226](https://github.com/spikeal8-maker/IZO_ASA/pull/226) current HEAD `45f351903ca27a00c7d265ffbb5b3be06b9201e8` adds an additional post-job-list verification so stale A jobs are not resumed after a cookie switch. Integration code commit `4890272fd47e935d3c7b7ef491dd9ff3d608cafc` includes the exact latest seven phone source/test/contract blobs. Subsequent documentation commits change only receipt files.
+
+**Still blocked:** actual signed-in Chromium `PhoneApp` and Studio with two synthetic users, cookie refresh/logout and in-flight A↔B switch; full project TypeScript/ESLint/Vite, backend/worker/admission provider settlement, fault/rollback and independent review. The container's Chromium navigation is blocked by administrator policy; `Remote Desktop Commander` has no eligible linked D2-R2 device. No live owner data changed.
