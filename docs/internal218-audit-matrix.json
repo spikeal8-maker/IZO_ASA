@@ -151,6 +151,27 @@
       "scope": "#228 combined code with #226 and #230",
       "evidence": "7/7 selected phone source/test/contract blobs matched their latest source PRs at 4890272fd47e935d3c7b7ef491dd9ff3d608cafc",
       "caveat": "Source integration identity is not runtime E2E or a full build"
+    },
+    {
+      "id": "AUTH-TRUSTED-ME-NO-STORE",
+      "status": "NOT_TESTED",
+      "scope": "PR226 authV2.fetchMeV2 first/retried GET /me-v2",
+      "evidence": "Both requests explicitly pass cache:'no-store'; integrated exact blob e374ba... at PR228",
+      "caveat": "No actual browser cookie cache / service-worker / two-user network test"
+    },
+    {
+      "id": "LEGACY-LOGOUT-ACK",
+      "status": "NOT_TESTED",
+      "scope": "PR231 frozen legacy SettingsView logout",
+      "evidence": "Positive logout response required before reload and private React clear; unknown error shown beside logout button; exact source blob 11829e...",
+      "caveat": "No full-app E2E nor independent security review; not accepted"
+    },
+    {
+      "id": "CHROMIUM-NATIVE-STORAGE",
+      "status": "BLOCKED",
+      "scope": "Chromium with local page navigation",
+      "evidence": "Playwright page.set_content works but about:blank sessionStorage raises SecurityError; attempted local/full URL navigation blocked by administrator policy",
+      "caveat": "No substitute for true authenticated app UI/browser testing"
     }
   ],
   "releaseVerdict": "NOT_ACCEPTED",
@@ -166,7 +187,7 @@
     "base": "51543df2b6a559d693e3ed75b11baeacdb9033d3",
     "note": "Separate main-based isolated core; not integrated into production video paths or PR #228"
   },
-  "latestCombinedCodeSha": "4890272fd47e935d3c7b7ef491dd9ff3d608cafc",
+  "latestCombinedCodeSha": "e0f04d1683f4d2b431bd9c5083820e4f355e9237",
   "accountDraftPatch": {
     "pr": 230,
     "head": "7fdb7ab4c7069674183bc5c1a0a2aab195cfe7e5",
@@ -176,7 +197,15 @@
   },
   "latestAuthRefreshPatch": {
     "pr": 226,
-    "head": "45f351903ca27a00c7d265ffbb5b3be06b9201e8",
-    "recoveryBlob": "f0c74c74c6f1961ce9021f7a56f0ba65bd9ed6a2"
+    "head": "2899663f9d38794d3981d91995faeb43663de1d2",
+    "recoveryBlob": "f0c74c74c6f1961ce9021f7a56f0ba65bd9ed6a2",
+    "authBlob": "e374ba578f63e191f3f97670a9ffdf7a9560785f",
+    "note": "Request cache no-store on trusted owner read; source verification only"
+  },
+  "legacyLogoutPatch": {
+    "pr": 231,
+    "head": "a1a89123b88dc540c13548eab55c39cda6f99ece",
+    "sourceBlob": "11829e315feeb5e21608ddc7d139419e68532316",
+    "note": "Separate frozen compatibility one-handler fix, no full browser accepted"
   }
 }
