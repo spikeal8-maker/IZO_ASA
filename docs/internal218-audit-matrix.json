@@ -91,10 +91,10 @@
     },
     {
       "id": "HOSTED-CI",
-      "status": "BLOCKED",
-      "scope": "Exact candidate SHA on GitHub hosted runners",
-      "evidence": "Zero workflow runs on PR #226 and integration source commit during check",
-      "caveat": "Historical billing/spending limit blocker; no hosted PASS"
+      "status": "NOT_TESTED",
+      "scope": "#228 integration branch exact source/head",
+      "evidence": "No pull_request workflow runs found on #228 exact combined HEAD",
+      "caveat": "Must run required hosted workflows; do not transfer standalone #229 success."
     },
     {
       "id": "INDEPENDENT-REVIEW",
@@ -113,9 +113,9 @@
     {
       "id": "PROVIDER-RECEIPT-CORE",
       "status": "PASS",
-      "scope": "PR #229 standalone service exact git-blob hashes and temporary SQLite (not integrated with app)",
-      "evidence": "pytest -q backend/test_provider_reconciliation.py: 10 PASS; 2/5/10 single receipt/one dispatch-fence; unknown receipt survives job deletion/restart; explicit reconciliation audit; malformed keys fail closed",
-      "caveat": "No production migrations, adapters, operator authorization, billing or provider dispatch integration"
+      "scope": "Exactly verified #229 source and test blobs in isolated Linux temp SQLite",
+      "evidence": "Old source blob 86322... with new atomicity tests: 3 FAIL sqlite3.OperationalError nested BEGIN; new source 947d0e... and tests 79b536...: 13/13 PASS (0.50s), atomic charge/receipt rollback + commit, safe SAVEPOINT conflict, no send before commit",
+      "caveat": "Standalone core only, not real FastAPI/video worker/ledger provider adapter"
     },
     {
       "id": "PROVIDER-RECEIPT-SYNTHETIC-LOAD",
@@ -127,9 +127,9 @@
     {
       "id": "PROVIDER-RECEIPT-HOSTED-CI",
       "status": "FAIL",
-      "scope": "#229 exact 58c8bd2c2743d88db5b6707faa22025a2fd846de",
-      "evidence": "Workflow runs 40174442965 and 40174442974 completed failure after ~3 seconds, jobs had zero steps, logs GET returned 404 BlobNotFound",
-      "caveat": "Root cause not verified. Historic billing/spending-limit blocker suspected, but not proven on these runs; do not assert code tests failed or passed."
+      "scope": "#229 exact HEAD 36f9dfe3399e2cee7c0d2d71d918a91a4bc19b33",
+      "evidence": "Actions file hygiene run 40186925722 SUCCESS; Windows CI 40186925672 FAILURE at Enforce reviewed npm audit baseline; earlier CI 40186642244 verified three expired exception dates 2026-10-23; 5 high dev-only, production scan zero",
+      "caveat": "Security gate is not waived. App tests after supply chain were skipped; required full CI not PASS. Security remediation tracked in Issues #154/#155."
     },
     {
       "id": "P0-PHONE-ACCOUNT-DRAFTS",
@@ -163,8 +163,8 @@
       "id": "LEGACY-LOGOUT-ACK",
       "status": "NOT_TESTED",
       "scope": "PR231 frozen legacy SettingsView logout",
-      "evidence": "Positive logout response required before reload and private React clear; unknown error shown beside logout button; exact source blob 11829e...",
-      "caveat": "No full-app E2E nor independent security review; not accepted"
+      "evidence": "Source inspected: LegacyApp logout callback requires confirmed logoutV2 result and reloads only on ACK; original historical source had silently ignored return. Latest code adds verified storage-event listener; source blob to inspect by exact PR #228.",
+      "caveat": "Full React/Chrome two-tab behavior not run, only source review; security acceptance pending"
     },
     {
       "id": "CHROMIUM-NATIVE-STORAGE",
@@ -172,6 +172,20 @@
       "scope": "Chromium with local page navigation",
       "evidence": "Playwright page.set_content works but about:blank sessionStorage raises SecurityError; attempted local/full URL navigation blocked by administrator policy",
       "caveat": "No substitute for true authenticated app UI/browser testing"
+    },
+    {
+      "id": "PROVIDER-RECEIPT-ATOMIC-RED-GREEN",
+      "status": "PASS",
+      "scope": "Exact #229 pre-fix/post-fix SHA in isolated SQLite",
+      "evidence": "Old 86322c2b... + three new tests: 3/3 FAIL (nested BEGIN IMMEDIATE); new 947d0e26... + full exact test 79b5366c...: 13/13 PASS. Parent financial transaction rollback reverts receipt and fake charge; external transaction survives receipt conflict; dispatch forbidden before COMMIT.",
+      "caveat": "Proof is isolated receipt component and synthetic ledger, not deployed billing system."
+    },
+    {
+      "id": "LEGACY-LOGOUT-CROSSTAB",
+      "status": "NOT_TESTED",
+      "scope": "GitHub PR #228 verified logout StorageEvent handler in LegacyApp",
+      "evidence": "Implemented source-level listener for VERIFIED_LOGOUT_EVENT_V2 with unmount cleanup; handler triggers window.reload only for matching event, not independently authorized browser E2E",
+      "caveat": "Chromium navigation blocked by administrator in current test container; two-tab authenticated browser test still required."
     }
   ],
   "releaseVerdict": "NOT_ACCEPTED",
@@ -183,11 +197,13 @@
   ],
   "relatedDurableReceiptPR": {
     "pr": 229,
-    "head": "58c8bd2c2743d88db5b6707faa22025a2fd846de",
+    "head": "36f9dfe3399e2cee7c0d2d71d918a91a4bc19b33",
     "base": "51543df2b6a559d693e3ed75b11baeacdb9033d3",
-    "note": "Separate main-based isolated core; not integrated into production video paths or PR #228"
+    "codeBlob": "947d0e26c43730341683d814db90094da62bbef8",
+    "testBlob": "79b5366c3f663f0ddea79f5f519fad286c857e9e",
+    "note": "Standalone receipt state machine, not wired into #228 or production video path"
   },
-  "latestCombinedCodeSha": "e0f04d1683f4d2b431bd9c5083820e4f355e9237",
+  "latestCombinedCodeSha": "df9472f86dc39d0e5dfb6aa4d9a8ad342cfe77f5",
   "accountDraftPatch": {
     "pr": 230,
     "head": "7fdb7ab4c7069674183bc5c1a0a2aab195cfe7e5",
