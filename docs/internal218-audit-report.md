@@ -57,3 +57,16 @@ Source helper GitHub blob `25e37d2b126f62b8a659fed99906437435aabaa0`; test blob 
 - Latest combined code SHA before this evidence update: `e0f04d1683f4d2b431bd9c5083820e4f355e9237`. Main, #217, original PRs, D2-R2 and user data remain unchanged.
 - Headless Chromium navigation is administrator-blocked in this runtime. Static about:blank content denies native sessionStorage via SecurityError; this is not a substitute for an authenticated IZO_ASA browser/HTTP E2E.
 
+
+
+## 25 Oct — exact-SHA receipt atomicity and hosted CI result
+
+Parallel provider-receipt [Draft #229](https://github.com/spikeal8-maker/IZO_ASA/pull/229) source `36f9dfe3399e2cee7c0d2d71d918a91a4bc19b33`. Exact GitHub source blob `947d0e26c43730341683d814db90094da62bbef8` and test blob `79b5366c3f663f0ddea79f5f519fad286c857e9e` independently matched `git hash-object` on local scratch copies.
+
+RED before patch: original exact service blob `86322c2b2ed261239c1f7a3b6b8756d26c2062f6` ran against three new atomicity tests and returned **3 failures**: `sqlite3.OperationalError: cannot start a transaction within a transaction`. GREEN after patch: 13/13 tests pass on exact current source and test blobs, including 2/5/10 same-key concurrency, duplicate-dispatch fencing, owner separation, unknown outcome after job deletion, operator reconciliation, and the new receipt+charge savepoint/rollback behavior. This is a *synthetic component test*, not IZO_ASA backend/worker ledger acceptance.
+
+GitHub Actions on exact standalone #229 `36f9dfe...`: **file hygiene #40186925722 SUCCESS**, **CI #40186925672 FAILURE** at `Enforce reviewed npm audit baseline`; Windows runner/checkout/npm setup succeeded. Earlier exact CI #40186642244 logs show 3 policy exceptions expired 2026-10-23, **5 dev-only HIGH + 1 moderate**, **0 production-only vulnerabilities**. Remediation evidence posted to existing #154/#155. Do not renew the exceptions, weaken the gate or claim backend/worker tests passed: they were skipped by earlier CI failure.
+
+The #228 integrated code also contains a bounded `LegacyApp` verified cross-tab logout event listener: a confirmed server logout reloads other legacy tabs so cached private galleries/previews cannot remain in React. Source change is published, but the authentic two-tab Chrome session/HTTP test is **NOT_TESTED** (browser URL navigation blocked in this container and D2-R2 remote connector unavailable). Existing confirmed logout checks are source-level, not deployment acceptance.
+
+**Release: NOT_ACCEPTED.** #204 production migration/provider/escrow/reconciliation adapter and trusted operator authority remain separate. No main merge, no paid provider I/O, no user-site mutation.
