@@ -140,3 +140,11 @@ test('invalid refresh retains unresolved owner command without a new debit', asy
   assert.equal(values.size, 1); expiredAccess = false
   assert.equal((await beginImageGenerationCommand('phone', { prompt: 'pending' })).key, first.key)
 })
+
+test('ASCII control characters and DEL in owner identity always fail closed', async () => {
+  for (const ownerId of ['invalid\\u0000user', 'invalid\\u001fuser', 'invalid\\u007fuser']) {
+    owner = ownerId.replace('\\u0000', String.fromCharCode(0)).replace('\\u001f', String.fromCharCode(31)).replace('\\u007f', String.fromCharCode(127))
+    await assert.rejects(() => beginImageGenerationCommand('phone', { prompt: 'private' }), /идентификатор аккаунта/)
+    assert.equal(values.size, 0)
+  }
+})
