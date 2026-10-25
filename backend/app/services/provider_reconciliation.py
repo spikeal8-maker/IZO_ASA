@@ -71,7 +71,9 @@ def _validate(owner: str, key: str, fingerprint: str, provider: str) -> None:
     if not all(isinstance(v,str) and v and len(v)<=160 and not any(ord(c)<32 for c in v)
                for v in (owner,key,provider)):
         raise ValueError('INVALID_RECEIPT_IDENTITY')
-    if not re.fullmatch(r'[a-f0-9]{64}', fingerprint):
+    if not isinstance(key, str) or not 1 <= len(key) <= 128 or any(not 33 <= ord(c) <= 126 for c in key):
+        raise ValueError('INVALID_IDEMPOTENCY_KEY')
+    if not isinstance(fingerprint, str) or not re.fullmatch(r'[a-f0-9]{64}', fingerprint):
         raise ValueError('INVALID_PAYLOAD_SHA256')
 
 
@@ -163,8 +165,9 @@ def resolve(conn: sqlite3.Connection, receipt_id: str,
             final: Literal['COMPLETED','REJECTED'], *, evidence_sha256: str,
             operator_id: str, reason: str) -> str:
     """Explicit attested provider/manual reconciliation; no time-based unlock."""
-    if (not re.fullmatch(r'[a-f0-9]{64}',evidence_sha256)
-            or not operator_id.strip() or not reason.strip()):
+    if (not isinstance(evidence_sha256,str) or not re.fullmatch(r'[a-f0-9]{64}',evidence_sha256)
+            or not isinstance(operator_id,str) or not operator_id.strip()
+            or not isinstance(reason,str) or not reason.strip()):
         raise InvalidTransition('OPERATOR_AND_AUTHORITATIVE_EVIDENCE_REQUIRED')
     conn.execute('BEGIN IMMEDIATE')
     try:
