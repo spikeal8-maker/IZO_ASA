@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from typing import Any
 
 
 ACTIVE_STATUSES = ("submitting", "queued", "pending", "in_progress", "finalizing")
-UNKNOWN_RETRY_COOLDOWN_SECONDS = 15 * 60
 
 
 class DuplicateVideoSubmission(RuntimeError):
@@ -36,33 +35,35 @@ def request_fingerprint(request: Any) -> str:
 
 
 def blocking_duplicate(conn: Any, user_id: str, fingerprint: str, *, now: datetime | None = None) -> Any | None:
-    """Find an active or recently uncertain identical provider submission."""
+    """Block an active or unreconciled ambiguous paid video dispatch.
 
-    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-    earliest = (current - timedelta(hours=6)).isoformat()
+    The previous 15-minute cooldown and 50-row/six-hour limit allowed a second
+    provider call while the original timeout could already have been accepted.
+    Retain the fail-closed guard until authoritative reconciliation updates the
+    stored submission state, even if the original request is old or failed.
+    The optional now argument remains for existing callers/tests.
+    """
     rows = conn.execute(
         "SELECT id,status,settings_json,created_at FROM jobs WHERE user_id=? AND provider='openrouter' "
         "AND mode IN ('text_to_video','image_to_video','first_last_frame','reference_to_video') "
-        "AND created_at>=? ORDER BY created_at DESC LIMIT 50",
-        (user_id, earliest),
+        "AND (status IN ('submitting','queued','pending','in_progress','finalizing') "
+        "OR settings_json LIKE '%provider_response_timeout%') "
+        "ORDER BY created_at DESC",
+        (user_id,),
     ).fetchall()
     for row in rows:
         try:
             settings = json.loads(row["settings_json"] or "{}")
         except (TypeError, json.JSONDecodeError):
+            if "provider_response_timeout" in str(row["settings_json"] or ""):
+                # Do not silently discard an ambiguous financial receipt.
+                raise DuplicateVideoSubmission("Unreconciled video provider outcome has invalid metadata.") from None
             continue
         if not isinstance(settings, dict) or settings.get("submissionFingerprint") != fingerprint:
             continue
         status = str(row["status"] or "")
         if status in ACTIVE_STATUSES:
             return row
-        if settings.get("openrouterSubmissionState") == "provider_response_timeout":
-            try:
-                created_at = datetime.fromisoformat(str(row["created_at"]).replace("Z", "+00:00"))
-                if created_at.tzinfo is None:
-                    created_at = created_at.replace(tzinfo=timezone.utc)
-            except (TypeError, ValueError):
-                return row
-            if current - created_at.astimezone(timezone.utc) < timedelta(seconds=UNKNOWN_RETRY_COOLDOWN_SECONDS):
-                return row
+        if status != "completed" and settings.get("openrouterSubmissionState") == "provider_response_timeout":
+            return row
     return None
