@@ -227,13 +227,27 @@ def test_nonzero_exit_with_valid_vulnerability_report_is_data_not_failure() -> N
     assert result["counts"]["high"] == 1
 
 
-def test_current_reviewed_baseline_passes_and_moderate_needs_no_high_exception() -> None:
-    result = evaluate_npm_policy(_current_full_report(), _clean_report(), POLICY, as_of=REVIEW_DATE)
+def test_remediated_policy_has_no_high_exceptions_and_rejects_stale_baseline() -> None:
+    assert POLICY["baselineExceptions"] == []
+    clean = evaluate_npm_policy(_clean_report(), _clean_report(), POLICY, as_of=date(2026, 10, 25))
+    assert clean["status"] == POLICY_PASS
+    assert clean["classifiedFindings"] == []
+
+    historical = evaluate_npm_policy(_current_full_report(), _clean_report(), POLICY, as_of=REVIEW_DATE)
+    assert historical["status"] == POLICY_FAIL
+    for name in ("browserslist", "nanoid", "postcss"):
+        assert any(item.startswith(f"UNTRACKED_HIGH_CRITICAL:{name}:") for item in historical["violations"])
+
+
+def test_moderate_dev_only_is_classified_but_not_automatically_high() -> None:
+    report = _current_full_report()
+    report["findings"] = [item for item in report["findings"] if item["package"] == "baseline-browser-mapping"]
+    report["counts"] = {"critical": 0, "high": 0, "moderate": 1, "low": 0}
+    result = evaluate_npm_policy(report, _clean_report(), POLICY, as_of=date(2026, 10, 25))
     assert result["status"] == POLICY_PASS
-    assert len(POLICY["baselineExceptions"]) == 3
-    moderate = next(item for item in result["classifiedFindings"] if item["package"] == "baseline-browser-mapping")
-    assert moderate["severity"] == "moderate"
+    moderate = result["classifiedFindings"][0]
     assert moderate["runtimeOrDev"] == CLASS_DEV_ONLY
+    assert moderate["severity"] == "moderate"
 
 
 @pytest.mark.parametrize(
@@ -253,19 +267,38 @@ def test_synthetic_new_high_or_critical_fails(severity: str, package: str, advis
     assert any(item.startswith(f"UNTRACKED_HIGH_CRITICAL:{package}:") for item in result["violations"])
 
 
+def _reviewed_high_exception() -> dict:
+    return {
+        "package": "synthetic-high",
+        "severity": "high",
+        "affectedRange": "<1",
+        "advisories": ["GHSA-1111-2222-3333"],
+        "classification": CLASS_DEV_ONLY,
+        "issue": "#999",
+        "owner": "review-fixture",
+        "reason": "Explicitly tracked synthetic advisory",
+        "remediation": "Patch the declared dependency",
+        "reviewBy": "2026-10-23",
+    }
+
+
 @pytest.mark.parametrize("field", ["issue", "owner", "reviewBy"])
 def test_missing_required_exception_field_fails(field: str) -> None:
     policy = copy.deepcopy(POLICY)
+    policy["baselineExceptions"] = [_reviewed_high_exception()]
     del policy["baselineExceptions"][0][field]
-    result = evaluate_npm_policy(_current_full_report(), _clean_report(), policy, as_of=REVIEW_DATE)
+    report = _single_finding("synthetic-high", severity="high", affected_range="<1", advisory="GHSA-1111-2222-3333")
+    result = evaluate_npm_policy(report, _clean_report(), policy, as_of=REVIEW_DATE)
     assert result["status"] == POLICY_FAIL
     assert any(f"missing-{field}" in item for item in result["violations"])
 
 
 def test_expired_exception_fails() -> None:
     policy = copy.deepcopy(POLICY)
+    policy["baselineExceptions"] = [_reviewed_high_exception()]
     policy["baselineExceptions"][0]["reviewBy"] = "2026-09-22"
-    result = evaluate_npm_policy(_current_full_report(), _clean_report(), policy, as_of=REVIEW_DATE)
+    report = _single_finding("synthetic-high", severity="high", affected_range="<1", advisory="GHSA-1111-2222-3333")
+    result = evaluate_npm_policy(report, _clean_report(), policy, as_of=REVIEW_DATE)
     assert result["status"] == POLICY_FAIL
     assert any(item.startswith("EXPIRED_EXCEPTION") for item in result["violations"])
 

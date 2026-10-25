@@ -82,6 +82,57 @@ def test_python_scanner_unavailable_fails_closed() -> None:
     assert "PYTHON_AUDIT_UNAVAILABLE" in result["violations"]
 
 
+def test_exact_pillow_mit_cmu_expression_is_reviewed_and_approved() -> None:
+    assert "MIT-CMU" in POLICY["licenses"]["approvedExpressions"]
+    backend = {
+        "status": STATUS_AVAILABLE,
+        "findings": [{
+            "package": "Pillow",
+            "resolvedVersion": "13.0.0",
+            "license": "MIT-CMU",
+            "classification": "unknown",
+            "ecosystem": "backend",
+        }],
+    }
+    result = evaluate_license_policy(
+        {"status": STATUS_AVAILABLE, "findings": []}, backend, POLICY, as_of=date(2026, 10, 25)
+    )
+    assert result["status"] == POLICY_PASS
+    assert result["findings"][0]["policyClass"] == LICENSE_APPROVED
+
+
+def test_socksio_unknown_metadata_has_exact_version_scoped_review() -> None:
+    reviews = POLICY["licenses"]["reviews"]
+    assert len(reviews) == 1
+    assert reviews[0]["package"] == "socksio"
+    assert reviews[0]["resolvedVersion"] == "1.0.0"
+    assert "pypi.org/project/socksio/1.0.0/" in reviews[0]["reason"]
+    backend = {
+        "status": STATUS_AVAILABLE,
+        "findings": [{
+            "package": "socksio",
+            "resolvedVersion": "1.0.0",
+            "license": "UNKNOWN",
+            "classification": "unknown",
+            "ecosystem": "backend",
+        }],
+    }
+    result = evaluate_license_policy(
+        {"status": STATUS_AVAILABLE, "findings": []}, backend, POLICY, as_of=date(2026, 10, 25)
+    )
+    assert result["status"] == POLICY_PASS
+    assert result["findings"][0]["reviewIssue"] == "#156"
+
+
+def test_unknown_license_on_other_package_is_still_denied() -> None:
+    backend = _license_report("backend", "UNKNOWN", classification="unknown")
+    result = evaluate_license_policy(
+        {"status": STATUS_AVAILABLE, "findings": []}, backend, POLICY, as_of=date(2026, 10, 25)
+    )
+    assert result["status"] == POLICY_FAIL
+    assert any(v.startswith("LICENSE_REVIEW_REQUIRED") for v in result["violations"])
+
+
 def test_approved_license_passes() -> None:
     result = evaluate_license_policy(_license_report("frontend", "MIT"), {"status": STATUS_AVAILABLE, "findings": []}, POLICY, as_of=TODAY)
     assert result["status"] == POLICY_PASS
