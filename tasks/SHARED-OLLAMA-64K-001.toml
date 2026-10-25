@@ -1,0 +1,32 @@
+manifestVersion = 1
+id = "SHARED-OLLAMA-64K-001"
+baseSha = "51543df2b6a559d693e3ed75b11baeacdb9033d3"
+goal = "Support a shared operator-selected 65536-token Ollama context."
+userOutcome = "IZO can use the same resident Qwen context as OpenCode and ASA Lab."
+beforeScenario = "IZO clamps saved and transmitted context to32768; cold prewarm forces4096."
+afterScenario = "Admin and chat support65536, and cold prewarm inherits the server context."
+nonGoals = ["model weight changes", "default context changes", "billing/auth/schema changes", "production deployment"]
+domain = "chat"
+riskClass = "standard"
+changeClass = "product"
+declaredFiles = [
+  "backend/app/services/chat_billing.py",
+  "backend/app/api/routers/phone_chat.py",
+  "backend/app/integrations/ollama.py",
+  "backend/test_chat_billing.py",
+  "backend/test_shared_ollama_context.py",
+  "backend/test_integrations_ollama_module.py",
+  "frontend/src/adminModels.tsx",
+  "docs/context/chat.md",
+]
+allowedPatterns = []
+forbiddenPatterns = ["ops/**", ".github/**", "architecture/**", "backend/main.py", "frontend/src/LegacyApp.tsx"]
+protectedFilesTouched = ["frontend/src/adminModels.tsx"]
+maxProductionFiles = 4
+maxChangedLines = 100
+acceptance = ["65536 survives normalization and provider request", "higher values stay bounded", "cold prewarm omits num_ctx", "admin accepts65536"]
+requiredEvidence = ["targeted pytest", "generated-map checks", "exact-head CI", "diff check"]
+targetedTests = ["backend/test_chat_billing.py", "backend/test_shared_ollama_context.py", "backend/test_integrations_ollama_module.py", "backend/test_phone_chat_tools.py"]
+fileGrowthExpectations = ["Existing large test modules do not grow", "No protected-file line growth"]
+forbiddenOperations = ["deploy", "restart", "provider-call", "production-data", "direct-main"]
+rollbackBoundary = "Revert the source commit. Runtime activation is separate and requires verified release and available memory."
