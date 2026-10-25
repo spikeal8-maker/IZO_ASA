@@ -1,6 +1,7 @@
 import { phoneFetch, PhoneTransportError } from '../../core/http.ts'
 import { beginImageGenerationCommand, acknowledgeImageGenerationCommand, completeImageGenerationCommand, rejectImageGenerationCommand } from '../../../studio/imageGenerationCommand.ts'
 import { waitForPhoneJob, type PhoneJob } from '../../core/jobs.ts'
+import { fetchMeV2 } from '../../../authV2'
 
 
 export type PhoneImageModel = {
@@ -54,7 +55,7 @@ export async function startPhoneImage(input: {
   if (input.mode === 'paint') body.canvas = input.canvas
   if (input.mode === 'inpaint') body.maskImage = input.mask
   if (input.mode === 'outpaint') body.outpaint = input.outpaint
-  const command = await beginImageGenerationCommand('phone', body)
+  const command = await beginImageGenerationCommand('phone', body, fetchMeV2)
   let jobId = command.acceptedJobId || ''
   if (!jobId) {
     let started: { id?: string; jobId?: string }
@@ -74,7 +75,7 @@ export async function startPhoneImage(input: {
     acknowledgeImageGenerationCommand('phone', command.ownerId, command.key, jobId)
   }
   const completed = await waitForPhoneJob(jobId, { onChange, signal })
-  if (completed.terminal) await completeImageGenerationCommand('phone', jobId).catch(() => undefined)
+  if (completed.terminal) await completeImageGenerationCommand('phone', jobId, fetchMeV2).catch(() => undefined)
   return completed
 }
 

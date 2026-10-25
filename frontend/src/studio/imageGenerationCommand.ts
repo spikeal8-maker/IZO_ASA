@@ -28,13 +28,12 @@ function legacyKeyFor(scope: ImageCommandScope): string {
   return `izo.image.pending.${scope}.v1`
 }
 
-/** /api/me-v2 is authenticated using the current HttpOnly session cookie, never a device ID. */
-async function verifiedOwner(): Promise<string> {
-  const response = await fetch('/api/me-v2', {
-    credentials: 'include', cache: 'no-store', headers: { Accept: 'application/json' },
-  })
-  if (!response.ok) throw new Error('Не удалось подтвердить аккаунт. Войдите снова, прежде чем запускать генерацию.')
-  const value: unknown = await response.json()
+/** Caller supplies canonical authV2.fetchMeV2: cookie-only with shared 401 refresh. */
+export type VerifiedMeResolver = () => Promise<{ internal_user_id?: unknown } | null>
+
+async function verifiedOwner(resolveMe: VerifiedMeResolver): Promise<string> {
+  const value: unknown = await resolveMe()
+  if (!value) throw new Error('Не удалось подтвердить аккаунт. Войдите снова, прежде чем запускать генерацию.')
   const owner = value && typeof value === 'object'
     ? (value as { internal_user_id?: unknown }).internal_user_id : undefined
   if (typeof owner !== 'string' || !owner || owner.length > 160 || owner.trim() !== owner || /[\u0000-\u001f\u007f]/.test(owner)) {
@@ -78,9 +77,10 @@ async function hashPayload(body: string): Promise<string> {
 export async function beginImageGenerationCommand(
   scope: ImageCommandScope,
   draft: Record<string, unknown>,
+  resolveMe: VerifiedMeResolver,
   requestedSeed?: number,
 ): Promise<ImageGenerationCommand> {
-  const ownerId = await verifiedOwner()
+  const ownerId = await verifiedOwner(resolveMe)
   const previous = readPending(scope, ownerId)
   const key = previous?.key ?? crypto.randomUUID()
   const freshSeed = crypto.getRandomValues(new Uint32Array(1))[0] % 2147483646 + 1
@@ -106,13 +106,13 @@ export function acknowledgeImageGenerationCommand(scope: ImageCommandScope, owne
   if (pending?.key === key) writePending(scope, ownerId, { ...pending, acceptedJobId: jobId })
 }
 
-export async function getAcceptedImageGenerationJob(scope: ImageCommandScope): Promise<string | null> {
-  const ownerId = await verifiedOwner()
+export async function getAcceptedImageGenerationJob(scope: ImageCommandScope, resolveMe: VerifiedMeResolver): Promise<string | null> {
+  const ownerId = await verifiedOwner(resolveMe)
   return readPending(scope, ownerId)?.acceptedJobId || null
 }
 
-export async function completeImageGenerationCommand(scope: ImageCommandScope, jobId: string): Promise<void> {
-  const ownerId = await verifiedOwner()
+export async function completeImageGenerationCommand(scope: ImageCommandScope, jobId: string, resolveMe: VerifiedMeResolver): Promise<void> {
+  const ownerId = await verifiedOwner(resolveMe)
   const pending = readPending(scope, ownerId)
   if (pending?.acceptedJobId === jobId) sessionStorage.removeItem(keyFor(scope, ownerId))
 }

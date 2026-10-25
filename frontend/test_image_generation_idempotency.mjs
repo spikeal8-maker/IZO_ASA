@@ -1,25 +1,28 @@
 import assert from 'node:assert/strict'
 import { webcrypto } from 'node:crypto'
 import { beforeEach, test } from 'node:test'
-import { beginImageGenerationCommand, acknowledgeImageGenerationCommand, completeImageGenerationCommand, getAcceptedImageGenerationJob, rejectImageGenerationCommand } from './src/studio/imageGenerationCommand.ts'
+import { beginImageGenerationCommand as beginVerified, acknowledgeImageGenerationCommand, completeImageGenerationCommand as completeVerified, getAcceptedImageGenerationJob as getVerifiedJob, rejectImageGenerationCommand } from './src/studio/imageGenerationCommand.ts'
 
 const values = new Map()
 let owner = 'account-A'
-let authOk = true
+let authOk = true, expiredAccess = false, refreshValid = true, refreshCount = 0
+const resolveMe = async () => {
+  if (!authOk || (expiredAccess && !refreshValid)) return null
+  if (expiredAccess) { refreshCount += 1; expiredAccess = false }
+  return { internal_user_id: owner }
+}
+const beginImageGenerationCommand = (scope, draft, seed) => beginVerified(scope, draft, resolveMe, seed)
+const getAcceptedImageGenerationJob = (scope) => getVerifiedJob(scope, resolveMe)
+const completeImageGenerationCommand = (scope, jobId) => completeVerified(scope, jobId, resolveMe)
 globalThis.sessionStorage = {
   getItem: (key) => values.has(key) ? values.get(key) : null,
   setItem: (key, value) => values.set(key, String(value)),
   removeItem: (key) => values.delete(key),
 }
 Object.defineProperty(globalThis, 'crypto', { configurable: true, value: webcrypto })
-globalThis.fetch = async (path, init) => {
-  assert.equal(path, '/api/me-v2')
-  assert.equal(init.credentials, 'include')
-  assert.equal(init.cache, 'no-store')
-  return { ok: authOk, json: async () => ({ internal_user_id: owner }) }
-}
+globalThis.fetch = async () => { throw new Error('Direct owner fetch bypassed canonical session resolver') }
 
-beforeEach(() => { values.clear(); owner = 'account-A'; authOk = true })
+beforeEach(() => { values.clear(); owner = 'account-A'; authOk = true; expiredAccess = false; refreshValid = true; refreshCount = 0 })
 
 test('concurrent same intent 2/5/10 freezes one key, seed and body per owner', async () => {
   for (const n of [2, 5, 10]) {
@@ -122,4 +125,18 @@ test('legacy unscoped v1 command is never silently reassigned between accounts',
   await assert.rejects(() => beginImageGenerationCommand('phone', { prompt: 'new' }), /предыдущей версии/)
   owner = 'account-B'
   await assert.rejects(() => beginImageGenerationCommand('phone', { prompt: 'new' }), /предыдущей версии/)
+})
+
+test('valid refresh recovers accepted paid job with original key/seed', async () => {
+  const initial = await beginImageGenerationCommand('desktop', { prompt: 'pending' }, 12)
+  acknowledgeImageGenerationCommand('desktop', initial.ownerId, initial.key, 'job_paid_1'); expiredAccess = true
+  assert.equal(await getAcceptedImageGenerationJob('desktop'), 'job_paid_1'); assert.equal(refreshCount, 1)
+  const resumed = await beginImageGenerationCommand('desktop', { prompt: 'pending' }, 999)
+  assert.deepEqual([resumed.key, resumed.seed, resumed.acceptedJobId], [initial.key, 12, 'job_paid_1'])
+})
+test('invalid refresh retains unresolved owner command without a new debit', async () => {
+  const first = await beginImageGenerationCommand('phone', { prompt: 'pending' }); expiredAccess = true; refreshValid = false
+  await assert.rejects(() => beginImageGenerationCommand('phone', { prompt: 'pending' }), /Не удалось подтвердить аккаунт/)
+  assert.equal(values.size, 1); expiredAccess = false
+  assert.equal((await beginImageGenerationCommand('phone', { prompt: 'pending' })).key, first.key)
 })

@@ -18,6 +18,8 @@ import {
   getAuthCapabilitiesV2,
   initAuthV2,
   logoutV2,
+  fetchMeV2,
+  VERIFIED_LOGOUT_EVENT_V2,
   pollBotLoginStatusV2,
   refreshAuthStateV2,
   startBotLinkV2,
@@ -297,9 +299,20 @@ export default function NewStudio(): ReactElement {
     }
   }
   const onLogout = async () => {
-    await logoutV2()
+    const confirmed = await logoutV2()
+    if (!confirmed) {
+      setNotice('Выход не подтверждён сервером. Сессия могла сохраниться: проверьте подключение и повторите выход.')
+      return
+    }
     window.location.reload()
   }
+  useEffect(() => {
+    const onVerifiedLogoutInAnotherTab = (event: StorageEvent) => {
+      if (event.key === VERIFIED_LOGOUT_EVENT_V2) window.location.reload()
+    }
+    window.addEventListener('storage', onVerifiedLogoutInAnotherTab)
+    return () => window.removeEventListener('storage', onVerifiedLogoutInAnotherTab)
+  }, [])
   const onApplyPromo = async () => {
     const code = promoCode.trim().toUpperCase()
     if (!code) { setPromoResult('Введите промокод'); return }
@@ -798,7 +811,7 @@ export default function NewStudio(): ReactElement {
         }
         setJob(next)
         if (next.status === 'completed' || next.status === 'failed' || next.status === 'cancelled') {
-          void completeImageGenerationCommand('desktop', next.id).catch(() => undefined)
+          void completeImageGenerationCommand('desktop', next.id, fetchMeV2).catch(() => undefined)
         }
         if (next.status === 'completed') {
           const completedUrl = next.resultUrl
@@ -1146,7 +1159,7 @@ export default function NewStudio(): ReactElement {
       if (!(await ensureAuthed())) return
       setIsSubmitting(true)
       setNotice('')
-      const priorJobId = await getAcceptedImageGenerationJob('desktop')
+      const priorJobId = await getAcceptedImageGenerationJob('desktop', fetchMeV2)
       if (priorJobId) {
         const receipt = await apiFetch(`/jobs/${encodeURIComponent(priorJobId)}`)
         if (!receipt.ok) {
@@ -1159,7 +1172,7 @@ export default function NewStudio(): ReactElement {
           return
         }
         if (previous.status === 'completed' || previous.status === 'failed' || previous.status === 'cancelled') {
-          await completeImageGenerationCommand('desktop', priorJobId).catch(() => undefined)
+          await completeImageGenerationCommand('desktop', priorJobId, fetchMeV2).catch(() => undefined)
           setNotice('Предыдущая генерация завершена. Проверьте историю; для нового запуска нажмите ещё раз.')
           void fetchGallery()
         } else {
@@ -1246,7 +1259,7 @@ export default function NewStudio(): ReactElement {
         canvas: mode === 'paint' && paintMode === 'sketch' ? paintCanvas : undefined,
         outpaint: mode === 'paint' && paintMode === 'outpaint' ? outpaintPaddingOnly(paintOutpaint) : undefined,
       }
-      const command = await beginImageGenerationCommand('desktop', body, effectiveSeed)
+      const command = await beginImageGenerationCommand('desktop', body, fetchMeV2, effectiveSeed)
       const response = command.acceptedJobId
         ? await apiFetch(`/jobs/${encodeURIComponent(command.acceptedJobId)}`)
         : await apiFetch('/generate', {
@@ -1280,7 +1293,7 @@ export default function NewStudio(): ReactElement {
       }
       acknowledgeImageGenerationCommand('desktop', command.ownerId, command.key, created.id)
       if (created.status === 'completed' || created.status === 'failed' || created.status === 'cancelled') {
-        await completeImageGenerationCommand('desktop', created.id).catch(() => undefined)
+        await completeImageGenerationCommand('desktop', created.id, fetchMeV2).catch(() => undefined)
         setNotice('Предыдущее задание уже завершилось. Результат доступен в истории; для нового запуска нажмите ещё раз.')
         void fetchGallery()
         return
