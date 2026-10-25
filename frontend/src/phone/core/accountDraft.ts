@@ -5,7 +5,7 @@ export type PhoneDraftKind = 'image.prompt' | 'video.prompt' | 'video.source'
 
 function verifiedOwnerKey(ownerId: string): string {
   if (typeof ownerId !== 'string' || ownerId.length === 0 || ownerId.length > 160
-    || ownerId.trim() !== ownerId || /[\u0000-\u001f\u007f]/.test(ownerId)) {
+    || ownerId.trim() !== ownerId || [...ownerId].some((ch) => ch.charCodeAt(0) < 32 || ch.charCodeAt(0) === 127)) {
     throw new Error('Не удалось подтвердить владельца мобильного черновика.')
   }
   return encodeURIComponent(ownerId)
