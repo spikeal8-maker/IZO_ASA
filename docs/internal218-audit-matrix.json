@@ -186,6 +186,13 @@
       "scope": "GitHub PR #228 verified logout StorageEvent handler in LegacyApp",
       "evidence": "Implemented source-level listener for VERIFIED_LOGOUT_EVENT_V2 with unmount cleanup; handler triggers window.reload only for matching event, not independently authorized browser E2E",
       "caveat": "Chromium navigation blocked by administrator in current test container; two-tab authenticated browser test still required."
+    },
+    {
+      "id": "PROVIDER-RECEIPT-PROCESS-FAULTS",
+      "status": "PASS",
+      "scope": "Exact #229 receipt source blob 947d0e26...; isolated actual child Python processes and temp SQLite WAL, no real providers",
+      "evidence": "5 groups PASS, 0 FAIL: process killed before commit => 0 receipt/debit; killed after committed fence before send => no retry; fake provider accepted then kill before ACK => one provider call/one dispatch fence and unknown replay blocked; 2/5/10 independent processes => exactly one claim; SQLite backup restore => 5 receipts/12 audit events/PRAGMA quick_check ok/FK violations 0",
+      "caveat": "Synthetic-only process harness, separate from actual IZO_ASA FastAPI/queue/ledger. No production migration/real provider/operator auth; not release acceptance."
     }
   ],
   "releaseVerdict": "NOT_ACCEPTED",
@@ -223,5 +230,7 @@
     "head": "a1a89123b88dc540c13548eab55c39cda6f99ece",
     "sourceBlob": "11829e315feeb5e21608ddc7d139419e68532316",
     "note": "Separate frozen compatibility one-handler fix, no full browser accepted"
-  }
+  },
+  "lastVerifiedStandaloneProviderHead": "36f9dfe3399e2cee7c0d2d71d918a91a4bc19b33",
+  "lastVerifiedIntegrationSourceBeforeEvidence": "5c0edfb0158388828bb71b669dbbb2ff0bcaa79e"
 }
