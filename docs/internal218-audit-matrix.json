@@ -123,6 +123,13 @@
       "scope": "PR #229 isolated receipt store only, 250 operations each at 1/5/10 threads",
       "evidence": "p95=5.82/28.89/57.79ms; p99=9.25/122.98/108.63ms; 1 receipt, 0 errors per batch",
       "caveat": "Not real FastAPI/worker/SQLite application load, no GPU and no user traffic; cannot infer product capacity"
+    },
+    {
+      "id": "PROVIDER-RECEIPT-HOSTED-CI",
+      "status": "FAIL",
+      "scope": "#229 exact 58c8bd2c2743d88db5b6707faa22025a2fd846de",
+      "evidence": "Workflow runs 40174442965 and 40174442974 completed failure after ~3 seconds, jobs had zero steps, logs GET returned 404 BlobNotFound",
+      "caveat": "Root cause not verified. Historic billing/spending-limit blocker suspected, but not proven on these runs; do not assert code tests failed or passed."
     }
   ],
   "releaseVerdict": "NOT_ACCEPTED",
