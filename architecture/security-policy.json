@@ -99,17 +99,18 @@
       {
         "ecosystem": "backend",
         "package": "Pillow",
-        "resolvedVersion": "12.3.0",
+        "resolvedVersion": "13.0.0",
         "license": "MIT-CMU",
         "classification": "unknown",
         "issue": "#156",
         "owner": "spikeal8-maker",
-        "reason": "Verified pinned12.3.0 upstream LICENSE and PyPI license_expression as MIT-CMU; retain copyright/permission notices and no-endorsement terms. Exact-version review only.",
+        "reason": "Verified pinned13.0.0 upstream LICENSE and PyPI license_expression as MIT-CMU; retain copyright/permission notices and no-endorsement terms. Exact-version review only.",
         "reviewBy": "2027-01-24",
         "reviewedOn": "2026-10-26",
         "verifiedLicense": "MIT-CMU",
-        "sourceUrl": "https://github.com/python-pillow/Pillow/blob/bb1d8e8ab8d29048624d96e3ee53cecf7c13d13d/LICENSE",
-        "licenseSha256": "15181e7363dca9aed78b79bebebc7fde7f1814b8bd311ea3b87ae8ccadfc185b"
+        "sourceUrl": "https://github.com/python-pillow/Pillow/blob/293218ad059d994baf1777d882911bed6a49704a/LICENSE",
+        "licenseSha256": "15181e7363dca9aed78b79bebebc7fde7f1814b8bd311ea3b87ae8ccadfc185b",
+        "artifactSha256": "d7710eb676e9bb68965cb045be0d333b4c0d7f9dfbaa7fbf121385b1588683d3"
       },
       {
         "ecosystem": "backend",

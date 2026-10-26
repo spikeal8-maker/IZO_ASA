@@ -12,8 +12,8 @@ cases now read an explicitly dated test fixture, not the active policy.
 Vite's safe floor is raised from8.0.16 to`^8.1.6`; the lockfile resolves8.3.5.
 Explicit compatible-major
 transitive floors resolve browserslist4.29.4, nanoid3.3.20, postcss8.5.31,
-zod4.6.7 and baseline-browser-mapping2.11.33. All are development-only in the
-lockfile; no production dependency or backend requirement changes.
+zod4.6.7 and baseline-browser-mapping2.11.33. The npm changes are development-only in the
+lockfile; no production npm dependency changes. Pillow is separately raised from12.3.0 to13.0.0 to remediate the actual pip-audit findings, without vulnerability exceptions. PyPI requires Python>=3.11, compatible with the pinned3.11.9 toolchain.
 
 Fresh full and production audits, build and focused checks are required on the
 final SHA. Historical counts are not accepted as fresh evidence.
@@ -23,12 +23,15 @@ final SHA. Historical counts are not accepted as fresh evidence.
 These are current reviews of primary evidence, not a blanket acceptance of
 unknown licenses. Both keep the scanner's exact classification and expire on
 2027-01-24; a different version or license still requires review. Copyright and
-permission notices must accompany redistribution. No backend dependency changes.
+permission notices must accompany redistribution. The only backend dependency change is the pinned Pillow security update.
 
-- Pillow12.3.0: [immutable upstream LICENSE](https://github.com/python-pillow/Pillow/blob/bb1d8e8ab8d29048624d96e3ee53cecf7c13d13d/LICENSE)
+- Pillow13.0.0: [immutable upstream LICENSE](https://github.com/python-pillow/Pillow/blob/293218ad059d994baf1777d882911bed6a49704a/LICENSE)
   matches PyPI's `license_expression: MIT-CMU` and the
   [SPDX MIT-CMU identifier](https://spdx.org/licenses/MIT-CMU.html).
   LICENSE SHA-256: `15181e7363dca9aed78b79bebebc7fde7f1814b8bd311ea3b87ae8ccadfc185b`.
+  The cp311 Windows wheel's combined LICENSE begins with this verified text and
+  retains bundled third-party notices; its raw LICENSE SHA-256 is
+  `988ffe8ab3480b0f4e9a0ab2702bffd73d9fb6b47198043fb3ba101a62fac236`.
   Retain notices and the license's no-endorsement condition.
 - socksio1.0.0: PyPI wheel metadata omits a license, but its bundled LICENSE
   exactly matches the [immutable upstream MIT LICENSE](https://github.com/sethmlarson/socksio/blob/e69158473125060879319368e9465d7881cee0b8/LICENSE).
@@ -43,3 +46,7 @@ permission notices must accompany redistribution. No backend dependency changes.
 Revert the dependency, lockfile and active-policy commit together. Reverting
 restores the former fail-closed expired baseline; it is not release permission.
 No runtime, database, provider, image model or text-model state is changed.
+
+Isolated Pillow13.0.0 validation:121 image/media and supply-chain regressions
+passed; a fresh audit of35 resolved requirement packages found no vulnerabilities.
+The working service virtual environment was not modified.

@@ -1,7 +1,7 @@
 manifestVersion = 1
 id = "NPM-REMEDIATION-20261026"
 baseSha = "51543df2b6a559d693e3ed75b11baeacdb9033d3"
-goal = "Remediate real frontend vulnerabilities and verify exact-version licenses blocking IZO CI."
+goal = "Remediate frontend and pinned Pillow vulnerabilities plus exact-version license blockers."
 userOutcome = "Qwen rollout can pass a fresh npm audit without expired security exceptions."
 beforeScenario = "Three expired npm exceptions plus fresh vulnerable Vite/Zod transitive findings block release."
 afterScenario = "Targeted dependency resolutions remove current findings; high/critical and scanner-unavailable gates remain fail-closed."
@@ -18,17 +18,17 @@ declaredFiles = [
   "tools/test_supply_chain_remediation.py",
   "tools/fixtures/npm-reviewed-policy-20260923.json",
   "docs/npm-remediation-20261026.md",
+  "backend/requirements.txt",
 ]
 allowedPatterns = [
 ]
 forbiddenPatterns = [
-  "backend/**",
   ".github/**",
 ]
 protectedFilesTouched = [
 ]
 domain = "supply-chain"
-riskClass = "standard"
+riskClass = "high-assurance"
 changeClass = "product"
 maxProductionFiles = 3
 maxChangedLines = 2200
@@ -63,3 +63,8 @@ forbiddenOperations = [
   "npm update",
 ]
 rollbackBoundary = "Revert this bounded dependency/lockfile and resolved-exception commit; no runtime or database state changed."
+
+[[scopeExpansions]]
+path = "backend/requirements.txt"
+reason = "Actual pip-audit finds pinned Pillow12.3.0 advisories fixed13.0.0; user authorizes genuine blocker remediation, no vulnerability exceptions"
+recordedAtUtc = "2026-10-26T18:12:23.530721Z"
