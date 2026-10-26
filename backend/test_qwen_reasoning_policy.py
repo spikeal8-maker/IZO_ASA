@@ -61,3 +61,22 @@ def test_second_request_can_use_complete_persisted_long_code(tmp_path, monkeypat
         second = client.post("/api/phone/chat", json=_payload(request_id="long-code-next", thread_id=THREAD_ID))
         assert second.status_code == 200
     assert any(item["role"] == "assistant" and item["content"] == answer.strip() for item in seen[1])
+
+
+def test_live_long_reasoning_is_not_refunded_by_retry_after_five_minutes(tmp_path):
+    from dataclasses import replace
+    from datetime import datetime, timedelta, timezone
+    from test_phone_chat_idempotency import _database, _lifecycle, _connect
+
+    path = tmp_path / "long-reasoning.sqlite3"
+    _database(path)
+    now = [datetime(2026, 10, 26, tzinfo=timezone.utc)]
+    lifecycle = replace(_lifecycle(path), clock=lambda: now[0])
+    common = {"user_id": "user-1", "request_id": "long-reasoning", "fingerprint": "a" * 64}
+    assert lifecycle.begin(**common, token_cost=0, provider="local", model="qwen3.8:27b")["state"] == "started"
+    now[0] += timedelta(seconds=600)
+    assert lifecycle.inspect(**common)["state"] == "processing"
+    with _connect(path)() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM token_ledger WHERE reason='chat_refund'").fetchone()[0] == 0
+    now[0] += timedelta(seconds=1301)
+    assert lifecycle.inspect(**common)["state"] == "failed"

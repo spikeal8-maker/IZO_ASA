@@ -22,6 +22,7 @@ declaredFiles = [
 allowedPatterns = [
   "backend/app/services/phone_chat_history.py",
   "backend/test_phone_chat_history.py",
+  "backend/app/services/chat_request_lifecycle.py",
 ]
 forbiddenPatterns = [
   ".github/**",
@@ -74,3 +75,8 @@ recordedAtUtc = "2026-10-26T17:25:27.554108Z"
 path = "backend/test_phone_chat_history.py"
 reason = "Regression for complete long-answer persistence"
 recordedAtUtc = "2026-10-26T17:25:30.464601Z"
+
+[[scopeExpansions]]
+path = "backend/app/services/chat_request_lifecycle.py"
+reason = "Independent review found300-second durable lease shorter than1860-second local inference, allowing live-request refund on retry"
+recordedAtUtc = "2026-10-26T17:42:18.655067Z"
