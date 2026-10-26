@@ -23,6 +23,7 @@ allowedPatterns = [
   "backend/app/services/phone_chat_history.py",
   "backend/test_phone_chat_history.py",
   "backend/app/services/chat_request_lifecycle.py",
+  "backend/main.py",
 ]
 forbiddenPatterns = [
   ".github/**",
@@ -30,11 +31,12 @@ forbiddenPatterns = [
 ]
 protectedFilesTouched = [
   "frontend/src/adminModels.tsx",
+  "backend/main.py",
 ]
 domain = "chat"
 riskClass = "standard"
 changeClass = "product"
-maxProductionFiles = 6
+maxProductionFiles = 7
 maxChangedLines = 350
 acceptance = [
   "Qwen xhigh transmitted even when a legacy caller disables thinking",
@@ -80,3 +82,8 @@ recordedAtUtc = "2026-10-26T17:25:30.464601Z"
 path = "backend/app/services/chat_request_lifecycle.py"
 reason = "Independent review found300-second durable lease shorter than1860-second local inference, allowing live-request refund on retry"
 recordedAtUtc = "2026-10-26T17:42:18.655067Z"
+
+[[scopeExpansions]]
+path = "backend/main.py"
+reason = "Owner explicitly asks to resolve blockers and complete installation; clean published Docker candidate write lease released through canonical finish, PR186 and checkout preserved. Adjust only local reasoning outer timeout."
+recordedAtUtc = "2026-10-26T17:59:48.869682Z"

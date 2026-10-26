@@ -80,3 +80,26 @@ def test_live_long_reasoning_is_not_refunded_by_retry_after_five_minutes(tmp_pat
         assert conn.execute("SELECT COUNT(*) FROM token_ledger WHERE reason='chat_refund'").fetchone()[0] == 0
     now[0] += timedelta(seconds=1301)
     assert lifecycle.inspect(**common)["state"] == "failed"
+
+
+def test_prompt_improvement_outer_deadline_allows_local_reasoning(monkeypatch):
+    import main
+    import pytest
+
+    class DeadlineCaptured(BaseException):
+        pass
+
+    seen = []
+
+    async def fake_wait(coroutine, *, timeout):
+        coroutine.close()
+        seen.append(timeout)
+        raise DeadlineCaptured()
+
+    monkeypatch.setattr(main, "require_trusted_user", lambda _request: {})
+    monkeypatch.setattr(main.asyncio, "wait_for", fake_wait)
+    for route in ("local", "api"):
+        monkeypatch.setattr(main, "assistant_models_config", lambda: {"improve": {"route": route}})
+        with pytest.raises(DeadlineCaptured):
+            asyncio.run(main.improve_prompt(main.ImprovePromptRequest(prompt="Test"), object()))
+    assert seen == [1860, 240]
