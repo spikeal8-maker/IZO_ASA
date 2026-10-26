@@ -40,6 +40,14 @@ updated: 2026-09-16
 
 ## Backend ownership
 
+The shared `qwen3.8:27b` profile uses the model-supported maximum reasoning
+level `xhigh`, a120000-token context and `num_predict:-1` (no fixed generation
+token cap). The integration overrides legacy short-call settings, including
+prompt improvement. Local inference can wait1800 seconds. Chat transport and
+history preserve complete assistant answers without8000/12000-character slices.
+Other model reasoning settings are unchanged. Runtime service configuration and
+the other clients must use the same context; weights and quantization are unchanged.
+
 - `backend/app/api/routers/phone_chat.py` — trusted chat HTTP/model/tool routing.
 - `backend/app/services/phone_chat_history.py` — thread/message persistence.
 - `backend/app/services/chat_billing.py` — quote/settlement semantics.

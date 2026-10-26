@@ -104,7 +104,7 @@ class PhoneChatThreadCreate(BaseModel):
     chatModelId: str = Field(default="local:izo-chat", max_length=200)
     imageModelId: str | None = Field(default=None, max_length=200)
     videoModelId: str | None = Field(default=None, max_length=200)
-    contextChars: int = Field(default=60000, ge=4000, le=240000)
+    contextChars: int = Field(default=480000, ge=4000, le=480000)
 
 
 class PhoneChatThreadUpdate(BaseModel):
@@ -112,7 +112,7 @@ class PhoneChatThreadUpdate(BaseModel):
     chatModelId: str | None = Field(default=None, max_length=200)
     imageModelId: str | None = Field(default=None, max_length=200)
     videoModelId: str | None = Field(default=None, max_length=200)
-    contextChars: int | None = Field(default=None, ge=4000, le=240000)
+    contextChars: int | None = Field(default=None, ge=4000, le=480000)
 
 
 class PhoneChatToolsUpdate(BaseModel):
@@ -185,7 +185,7 @@ def _phone_chat_image_payloads(images: list[str]) -> list[tuple[str, str]]:
 
 
 def _phone_chat_history(req: PhoneChatRequest) -> list[dict[str, Any]]:
-    remaining = 60000
+    remaining = 480000
     selected: list[dict[str, Any]] = []
     for turn in reversed(req.messages):
         content = turn.content.strip()
@@ -455,7 +455,7 @@ async def phone_chat_ollama(
         messages[-1] = {**messages[-1], "images": [encoded for _kind, encoded in images]}
     model = str(config.get("localModel") or "gemma4:31b-cloud")
     keep_alive = os.getenv("OLLAMA_KEEP_ALIVE", "-1").strip() or "-1"
-    timeout = max(10, min(180, int(config.get("localTimeoutSeconds") or 45)))
+    timeout = max(10, min(1800, int(config.get("localTimeoutSeconds") or 1800)))
     tool_runs, tool_payloads, used_tools = await _prime_required_tool(
         req, messages, deps, config, openrouter_style=False,
     )
@@ -465,13 +465,13 @@ async def phone_chat_ollama(
         body = {
             "model": model,
             "stream": False,
-            "think": False,
+            "think": "xhigh" if model == "qwen3.8:27b" else False,
             "keep_alive": int(keep_alive) if keep_alive.lstrip("+-").isdigit() else keep_alive,
             "messages": messages,
             "options": {
                 "temperature": 0.35,
-                "num_predict": 1000,
-                "num_ctx": max(4096, min(32768, int(config.get("localNumCtx") or 16384))),
+                "num_predict": -1 if model == "qwen3.8:27b" else 1000,
+                "num_ctx": max(4096, min(120000, int(config.get("localNumCtx") or 120000))),
             },
         }
         if round_tools:
@@ -504,7 +504,7 @@ async def phone_chat_ollama(
                 raise RuntimeError("Чат не вернул ответ.")
             payload["_izo_tool_runs"] = tool_runs
             payload["_izo_tool_payloads"] = tool_payloads
-            return reply[:8000], payload, model
+            return reply, payload, model
         messages.append({**_assistant_message(payload), "role": "assistant"})
         for call in calls[:2]:
             name, arguments, _call_id = _tool_call(call)
@@ -616,7 +616,7 @@ async def phone_chat_openrouter(
                 raise RuntimeError("Чат не вернул ответ.")
             payload["_izo_tool_runs"] = tool_runs
             payload["_izo_tool_payloads"] = tool_payloads
-            return reply[:8000], payload, model
+            return reply, payload, model
         messages.append({**_assistant_message(payload), "role": "assistant"})
         for call in calls[:2]:
             name, arguments, call_id = _tool_call(call)
@@ -886,8 +886,8 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
                 thread = phone_chat_history.get_thread(conn, user_id, req.threadId)
                 if thread is None:
                     raise HTTPException(404, "Чат не найден.")
-                history = phone_chat_history.bounded_history(conn, user_id, req.threadId, int(thread["contextChars"]))
-            messages = [PhoneChatTurn(**item) for item in [*history, req.messages[-1].model_dump()]][-100:]
+                history = phone_chat_history.bounded_history(conn, user_id, req.threadId, max(int(thread["contextChars"]), int(_chat_config(deps).get("contextChars") or 480000)))
+            messages = [*map(lambda item: PhoneChatTurn.model_construct(**item), history), req.messages[-1]][-100:]
             routed_req = req.model_copy(update={"messages": messages, "modelId": req.modelId or thread["chatModelId"]})
         config = _chat_config(deps)
         plan = trusted_user_plan(user_id)
@@ -937,7 +937,7 @@ def create_phone_chat_router(deps: PhoneChatDependencies) -> APIRouter:
         try:
             routed = await asyncio.wait_for(
                 route_phone_chat(routed_req, deps),
-                timeout=185,
+                timeout=1860 if selected_provider == "local" else 185,
             )
             if len(routed) == 4:  # Compatibility for older isolated route test doubles.
                 reply, provider_payload, provider, model = routed

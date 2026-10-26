@@ -1,0 +1,76 @@
+manifestVersion = 1
+id = "QWEN-XHIGH-120K-001"
+baseSha = "51543df2b6a559d693e3ed75b11baeacdb9033d3"
+goal = "Use Qwen xhigh reasoning and a shared120000-token context across text applications."
+userOutcome = "Qwen uses its supported maximum reasoning level without short output budgets disabling answers."
+beforeScenario = "IZO disables thinking and clamps context to65536 with1000 output tokens."
+afterScenario = "Qwen requests use xhigh,120000 context,no fixed output-token budget and1800-second inference timeout."
+nonGoals = [
+  "weights or quantization changes",
+  "other model behavior changes",
+  "billing/auth/schema changes",
+  "network changes",
+]
+declaredFiles = [
+  "backend/app/integrations/ollama.py",
+  "backend/app/services/chat_billing.py",
+  "backend/app/api/routers/phone_chat.py",
+  "backend/test_qwen_reasoning_policy.py",
+  "frontend/src/adminModels.tsx",
+  "docs/context/chat.md",
+]
+allowedPatterns = [
+  "backend/app/services/phone_chat_history.py",
+  "backend/test_phone_chat_history.py",
+]
+forbiddenPatterns = [
+  ".github/**",
+  "architecture/**",
+]
+protectedFilesTouched = [
+  "frontend/src/adminModels.tsx",
+]
+domain = "chat"
+riskClass = "standard"
+changeClass = "product"
+maxProductionFiles = 6
+maxChangedLines = 350
+acceptance = [
+  "Qwen xhigh transmitted even when a legacy caller disables thinking",
+  "120000 context anduncapped output survive provider transport",
+  "other models retain behavior",
+  "runtime memory and response checked separately",
+]
+requiredEvidence = [
+  "mock HTTP regression tests",
+  "focused chat tests",
+  "diff review",
+  "runtime backup and rollback",
+]
+targetedTests = [
+  "backend/test_qwen_reasoning_policy.py",
+  "backend/test_chat_billing.py",
+  "backend/test_shared_ollama_context.py",
+  "backend/test_integrations_ollama_module.py",
+  "backend/test_phone_chat_tools.py",
+]
+fileGrowthExpectations = [
+  "No protected-file line growth",
+  "New regression module remains small",
+]
+forbiddenOperations = [
+  "weights-mutation",
+  "network-mutation",
+  "direct-main",
+]
+rollbackBoundary = "Revert this source commit. Runtime config activation has a separate hash-guarded backup and rollback."
+
+[[scopeExpansions]]
+path = "backend/app/services/phone_chat_history.py"
+reason = "Owner explicitly requires removing answer truncation in persisted history as well as transport"
+recordedAtUtc = "2026-10-26T17:25:27.554108Z"
+
+[[scopeExpansions]]
+path = "backend/test_phone_chat_history.py"
+reason = "Regression for complete long-answer persistence"
+recordedAtUtc = "2026-10-26T17:25:30.464601Z"

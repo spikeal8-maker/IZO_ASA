@@ -12,6 +12,18 @@ import httpx
 DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
 
 
+def qwen_max_reasoning_body(body: dict[str, Any]) -> dict[str, Any]:
+    """Keep the shared Qwen profile authoritative over legacy short-call settings."""
+    if str(body.get("model", "")).lower() != "qwen3.8:27b":
+        return body
+    return {
+        **body,
+        "think": "xhigh",
+        "keep_alive": -1,
+        "options": {**body.get("options", {}), "num_ctx": 120000, "num_predict": -1},
+    }
+
+
 def ollama_base_url(value: str | None = None) -> str:
     """Return the configured Ollama origin without a trailing slash."""
 
@@ -56,6 +68,9 @@ async def request_ollama_chat_message(
     """POST an Ollama chat body and return legacy message content plus payload."""
 
     resolved_base_url = ollama_base_url(base_url)
+    body = qwen_max_reasoning_body(body)
+    if body.get("think") == "xhigh":
+        timeout_seconds = max(timeout_seconds, 1800)
     client_options: dict[str, Any] = {"timeout": timeout_seconds}
     if transport is not None:
         client_options["transport"] = transport
@@ -126,7 +141,7 @@ async def ensure_ollama_model_resident(
                     "think": False,
                     "keep_alive": keep_alive,
                     "messages": [{"role": "user", "content": "Ответь одним словом: готово"}],
-                    "options": {"temperature": 0, "num_predict": 2, "num_ctx": 4096},
+                    "options": {"temperature": 0, "num_predict": 2},
                 },
             )
             response.raise_for_status()

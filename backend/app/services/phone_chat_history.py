@@ -90,7 +90,7 @@ def create_thread(
         "INSERT INTO phone_chat_threads (id,user_id,title,chat_model_id,image_model_id,video_model_id,context_chars,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
         (
             thread_id, user_id, (title.strip() or "Новый чат")[:80], chat_model_id[:200],
-            (image_model_id or None), (video_model_id or None), max(4000, min(240000, int(context_chars))), now, now,
+            (image_model_id or None), (video_model_id or None), max(4000, min(480000, int(context_chars))), now, now,
         ),
     )
     row = conn.execute("SELECT * FROM phone_chat_threads WHERE id=?", (thread_id,)).fetchone()
@@ -111,7 +111,7 @@ def update_thread(conn: sqlite3.Connection, user_id: str, thread_id: str, values
         "chatModelId": ("chat_model_id", lambda value: str(value)[:200]),
         "imageModelId": ("image_model_id", lambda value: str(value)[:200] if value else None),
         "videoModelId": ("video_model_id", lambda value: str(value)[:200] if value else None),
-        "contextChars": ("context_chars", lambda value: max(4000, min(240000, int(value)))),
+        "contextChars": ("context_chars", lambda value: max(4000, min(480000, int(value)))),
     }
     assignments: list[str] = []
     params: list[Any] = []
@@ -153,7 +153,7 @@ def list_messages(conn: sqlite3.Connection, user_id: str, thread_id: str, *, lim
 
 def bounded_history(conn: sqlite3.Connection, user_id: str, thread_id: str, context_chars: int) -> list[dict[str, str]]:
     messages = list_messages(conn, user_id, thread_id, limit=500)
-    remaining = max(4000, min(240000, int(context_chars)))
+    remaining = max(4000, min(480000, int(context_chars)))
     selected: list[dict[str, str]] = []
     for item in reversed(messages):
         content = str(item["content"]).strip()
@@ -192,7 +192,7 @@ def add_exchange(
     )
     conn.execute(
         "INSERT INTO phone_chat_messages (id,thread_id,role,content,provider,model,tools_json,charged_tokens,token_kind,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-        (assistant_message_id, thread_id, "assistant", assistant_content[:12000], provider, model, json.dumps(_public_tools(tools), ensure_ascii=False), charged_tokens, token_kind, now),
+        (assistant_message_id, thread_id, "assistant", assistant_content, provider, model, json.dumps(_public_tools(tools), ensure_ascii=False), charged_tokens, token_kind, now),
     )
     conn.execute("UPDATE phone_chat_threads SET updated_at=? WHERE id=? AND user_id=?", (now, thread_id, user_id))
     return {"userMessageId": user_message_id, "assistantMessageId": assistant_message_id}
