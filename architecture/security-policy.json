@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "package": "STAB-SUPPLY-CHAIN-001",
   "slice": "complete-supply-chain-floor",
   "dependencyMutation": {
@@ -56,52 +56,7 @@
     "npm audit fix --force",
     "npm update"
   ],
-  "baselineExceptions": [
-    {
-      "package": "browserslist",
-      "severity": "high",
-      "affectedRange": "<=4.28.6",
-      "advisories": [
-        "GHSA-73wf-gq98-2v4g",
-        "GHSA-c83g-rgw3-j3cx"
-      ],
-      "classification": "dev-only",
-      "issue": "#154",
-      "owner": "spikeal8-maker",
-      "reason": "Reviewed current npm baseline; dependency mutation is intentionally deferred to the tracked remediation issue.",
-      "remediation": "Update the eslint-plugin-react-hooks/Babel chain so browserslist is outside the affected range, with a separately reviewed dependency/lockfile delta.",
-      "reviewBy": "2026-10-23"
-    },
-    {
-      "package": "nanoid",
-      "severity": "high",
-      "affectedRange": "<=3.3.17",
-      "advisories": [
-        "GHSA-28wg-ghj8-5hjv",
-        "GHSA-2v37-7h3g-55p8"
-      ],
-      "classification": "dev-only",
-      "issue": "#155",
-      "owner": "spikeal8-maker",
-      "reason": "Reviewed current npm baseline; dependency mutation is intentionally deferred to the tracked Vite/PostCSS remediation issue.",
-      "remediation": "Update the Vite/PostCSS chain so nanoid is outside all affected ranges, with a separately reviewed dependency/lockfile delta.",
-      "reviewBy": "2026-10-23"
-    },
-    {
-      "package": "postcss",
-      "severity": "high",
-      "affectedRange": "<=8.5.22",
-      "advisories": [
-        "GHSA-r28c-9q8g-f849"
-      ],
-      "classification": "dev-only",
-      "issue": "#155",
-      "owner": "spikeal8-maker",
-      "reason": "Reviewed current npm baseline; dependency mutation is intentionally deferred to the tracked Vite/PostCSS remediation issue.",
-      "remediation": "Update the Vite/PostCSS chain so postcss is outside the affected range, with a separately reviewed dependency/lockfile delta.",
-      "reviewBy": "2026-10-23"
-    }
-  ],
+  "baselineExceptions": [],
   "pythonAudit": {
     "scanner": {
       "name": "pip-audit",
@@ -149,8 +104,12 @@
         "classification": "unknown",
         "issue": "#156",
         "owner": "spikeal8-maker",
-        "reason": "Current direct backend baseline requires explicit license review; requirements.txt does not prove runtime vs dev/test classification.",
-        "reviewBy": "2026-10-23"
+        "reason": "Verified pinned12.3.0 upstream LICENSE and PyPI license_expression as MIT-CMU; retain copyright/permission notices and no-endorsement terms. Exact-version review only.",
+        "reviewBy": "2027-01-24",
+        "reviewedOn": "2026-10-26",
+        "verifiedLicense": "MIT-CMU",
+        "sourceUrl": "https://github.com/python-pillow/Pillow/blob/bb1d8e8ab8d29048624d96e3ee53cecf7c13d13d/LICENSE",
+        "licenseSha256": "15181e7363dca9aed78b79bebebc7fde7f1814b8bd311ea3b87ae8ccadfc185b"
       },
       {
         "ecosystem": "backend",
@@ -160,8 +119,13 @@
         "classification": "unknown",
         "issue": "#156",
         "owner": "spikeal8-maker",
-        "reason": "Maintained license metadata did not provide a usable SPDX expression; current direct backend baseline requires explicit review.",
-        "reviewBy": "2026-10-23"
+        "reason": "Verified pinned1.0.0 PyPI wheel LICENSE byte-for-byte against immutable upstream MIT LICENSE. Scanner UNKNOWN is retained as missing metadata, not globally accepted.",
+        "reviewBy": "2027-01-24",
+        "reviewedOn": "2026-10-26",
+        "verifiedLicense": "MIT",
+        "sourceUrl": "https://github.com/sethmlarson/socksio/blob/e69158473125060879319368e9465d7881cee0b8/LICENSE",
+        "licenseSha256": "7087f0f5f7c2993f3c4ed117baa3622c1063626e7c692e9ea116475b5fc1396c",
+        "artifactSha256": "95dc1f15f9b34e8d7b16f06d74b8ccf48f609af32ab33c608d08761c5dcbb1f3"
       }
     ]
   },
