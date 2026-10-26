@@ -104,7 +104,7 @@ class PhoneChatThreadCreate(BaseModel):
     chatModelId: str = Field(default="local:izo-chat", max_length=200)
     imageModelId: str | None = Field(default=None, max_length=200)
     videoModelId: str | None = Field(default=None, max_length=200)
-    contextChars: int = Field(default=480000, ge=4000, le=480000)
+    contextChars: int = Field(default=60000, ge=4000, le=240000)
 
 
 class PhoneChatThreadUpdate(BaseModel):
@@ -112,7 +112,7 @@ class PhoneChatThreadUpdate(BaseModel):
     chatModelId: str | None = Field(default=None, max_length=200)
     imageModelId: str | None = Field(default=None, max_length=200)
     videoModelId: str | None = Field(default=None, max_length=200)
-    contextChars: int | None = Field(default=None, ge=4000, le=480000)
+    contextChars: int | None = Field(default=None, ge=4000, le=240000)
 
 
 class PhoneChatToolsUpdate(BaseModel):

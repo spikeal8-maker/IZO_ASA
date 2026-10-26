@@ -103,3 +103,17 @@ def test_prompt_improvement_outer_deadline_allows_local_reasoning(monkeypatch):
         with pytest.raises(DeadlineCaptured):
             asyncio.run(main.improve_prompt(main.ImprovePromptRequest(prompt="Test"), object()))
     assert seen == [1860, 240]
+
+
+def test_new_thread_defaults_remain_compatible_with_existing_sqlite_schema(tmp_path):
+    from fastapi.testclient import TestClient
+    from test_phone_chat_idempotency import _database, _app, _deps
+
+    path = tmp_path / "new-thread.sqlite3"
+    _database(path, with_thread=True)
+    with TestClient(_app(_deps(path, with_db=True))) as client:
+        response = client.post("/api/phone/chat/threads", json={})
+        assert response.status_code == 200
+        assert response.json()["thread"]["contextChars"] <= 240000
+        invalid = client.post("/api/phone/chat/threads", json={"contextChars": 480000})
+        assert invalid.status_code == 422
