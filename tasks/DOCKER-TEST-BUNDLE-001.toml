@@ -1,0 +1,90 @@
+manifestVersion = 1
+id = "DOCKER-TEST-BUNDLE-001"
+baseSha = "0d134aa20cd0a1d1ca6828622fe6a435c74c415b"
+goal = "Repair Windows acceptance shipment gaps with a hash-pinned, Git-free TEST-ONLY Docker bundle derived from existing exact-source images and canonical release identity."
+userOutcome = "Owner can extract a test release ZIP on D2-R2, verify it, start an isolated loopback installation, repeat installation and inspect a stable Compose path and exact API release identity without Git on the receiving side."
+beforeScenario = "QA-WIN-01: source ZIP requires .git; QA-WIN-02: runtime labels refer to deleted temporary overrides; API version is unmanaged."
+afterScenario = "A bounded test bundle contains persistent Compose, assets/release manifest, integrity inventory and a standalone restricted launcher. Tests demonstrate Git-free verification and isolated installation with no production parity claim."
+nonGoals = [
+  "production deployment or DUAL-00/01 approval",
+  "shared runtime refactoring",
+  "changing application behavior, DB schema or provider logic",
+  "real providers, keys or user data",
+  "production automatic update/backup/rollback",
+  "changing host network or Docker daemon",
+  "merging Draft predecessors",
+  "silencing CI debt",
+]
+declaredFiles = [
+  "tasks/DOCKER-TEST-BUNDLE-001.toml",
+  "tools/docker_test_bundle.py",
+  "tools/docker_test_bundle_format.py",
+  "tools/docker_test_bundle_runtime.py",
+  "tools/test_docker_test_bundle_format.py",
+  "tools/test_docker_test_bundle_runtime.py",
+  "tools/test_docker_test_bundle_build.py",
+  "docs/docker-test-bundle.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+  ".github/**",
+  "tools/agent_system/**",
+  "tools/docker_shadow.py",
+  "tools/docker_delivery_plan.py",
+  "tools/docker_delivery_probe.py",
+  "docs/NOW.md",
+]
+protectedFilesTouched = [
+]
+domain = "docker-delivery"
+riskClass = "release-ops"
+changeClass = "tooling"
+maxProductionFiles = 0
+maxChangedLines = 1800
+acceptance = [
+  "New branch/worktree registered through agent.ps1; no existing scope overlap.",
+  "Build requires clean exact-SHA IZO_ASA Git source and verifies image labels; extraction/runtime do not require Git.",
+  "Bundle pins every payload file and image identity; input corruption or traversal/duplicates/symlinks fail closed before Docker mutation.",
+  "Runtime only manages an explicitly named izo-asa-bundle-* TEST profile with synthetic data, loopback ports and disabled external providers.",
+  "Stable installation directory retains Compose and asset manifest; no runtime config uses temporary image overrides.",
+  "Use existing application release_identity contract without changing backend or fabricating a production verification receipt.",
+  "Explicit Docker context, exclusive operation lock, ownership and namespace checks, fixed diagnostics, no secrets in receipts.",
+  "Windows isolated install/repeat/recreate/update at the same schema preserve synthetic records; changes elsewhere remain zero.",
+  "Unit tests and scope/file-hygiene pass; exact-head CI and independent review remain required before merge.",
+]
+requiredEvidence = [
+  "Owner authorization: this chat permits test install/update/delete on D2-R2, preserving valuable backups and unrelated apps.",
+  "Failing Windows shipment evidence QA-WIN-01/02 from issue #247.",
+  "Synthetic focused positive and negative tests, including bad hashes and unsupported manifests.",
+  "Exact source/image SHA and release identity, persistent Compose reconstruction, no .git in extracted package.",
+  "Before/after unrelated container fingerprints, synthetic-data preservation and cleanup receipt.",
+  "No Codex calls; author verification explicitly distinguished from independent review.",
+]
+targetedTests = [
+  "tools/test_docker_test_bundle_format.py",
+  "tools/test_docker_test_bundle_runtime.py",
+  "tools/test_docker_test_bundle_build.py",
+]
+fileGrowthExpectations = [
+  "Each new handwritten Python module under 500 lines.",
+  "Each test under 500 lines/24 KiB, document under 200 lines/12 KiB.",
+  "Generated archives and runtime evidence stay outside Git.",
+]
+forbiddenOperations = [
+  "production-deploy",
+  "real-provider-call",
+  "real-database-mutation",
+  "foreign-container-removal",
+  "global-prune",
+  "host-network-change",
+  "windows-service-change",
+  "codex-call",
+  "direct-main",
+  "merge-before-gates",
+]
+rollbackBoundary = "Revert only the eight declared new files. Test lifecycle limited to a fresh owned izo-asa-bundle-* namespace; delete only its synthetic scratch resources after verifying owner labels. Never restore or overwrite historical DB/media."

@@ -1,0 +1,91 @@
+# Docker test bundle — проверяемая ZIP-поставка
+
+Пакет DOCKER-TEST-BUNDLE-001 устраняет проверенные QA-WIN-01/02 из
+[задачи #247](https://github.com/spikeal8-maker/IZO_ASA/issues/247).
+**Это кандидат для синтетического стенда, не production-установщик.**
+Он не утверждает DUAL-00/01, не подменяет Windows promoter и не меняет приложение.
+
+## Состав и границы
+
+Один ZIP содержит постоянный compose.json, frontend из точного web-образа,
+штатный release-manifest.json, два небольших Python-модуля запуска и проверки,
+install.cmd / install.sh и (по умолчанию) images.tar с выбранными Linux/amd64 образами.
+Каждый файл перечислен с размером и SHA-256; манифест и архив имеют отдельные
+контрольные суммы в build receipt. Контрольная сумма должна поступать из
+доверенного канала: самосогласованный хеш НЕ является цифровой подписью релиза.
+
+Сборщик требует Git, чистый IZO_ASA checkout, точный SHA и локальные образы с
+совпадающими OCI labels. Получателю Git, исходники, Node и npm не требуются:
+достаточно Python 3.11+ и Docker Engine с Compose v2+ в режиме Linux containers.
+Наличие Docker Desktop/Engine и его настройка не меняются этим пакетом.
+Сборщик по умолчанию не обращается к registry и не пересобирает приложение.
+
+Разрешён только явно подтверждённый профиль TEST: CPU fixture провайдера,
+синтетические пользователи, отключённые внешние ключи/боты, порты на 127.0.0.1,
+изолированный guard и ресурсы namespace izo-asa-bundle-*.
+Рабочие БД, реальные модели, платежи, почта и production данным пакетом запрещены.
+
+## Запуск
+
+Сборка: `python -m tools.docker_test_bundle build --help`.
+Нужно передать source, sha, project, web-port, api-port, context, output.
+Для воспроизводимой передачи по умолчанию включены образы. Опция without-images
+создаёт облегчённый пакет и требует заранее загруженные точные образы на получателе.
+
+Распаковка: `python -m tools.docker_test_bundle extract --help`.
+Команда требует внешний SHA-256 архива, запрещает перезапись, выход за каталог,
+символические ссылки, дубли имён и Windows-неоднозначные имена.
+Обычная ручная распаковка допускается только после самостоятельной проверки ZIP.
+
+Из распакованного каталога: `python -B docker_test_bundle_runtime.py verify --help`
+или `python -B docker_test_bundle_runtime.py install --help`.
+Параметры install: manifest-sha256 из доверенного receipt, явный context,
+state-dir и обязательный test-only. Install-Windows wrapper — install.cmd;
+на Linux — `sh install.sh` (достаточен запуск через shell, chmod не требуется).
+
+Передача context обязательна: обычно desktop-linux на D2-R2 и default на Linux.
+Это не переключает глобальный Docker context. DOCKER_HOST, COMPOSE_*, proxy и
+provider secrets не наследуются. Неправильные аргументы не отражаются в ошибке.
+
+## Постоянное состояние
+
+State-dir должен быть отдельным пустым каталогом при первом запуске.
+Эксклюзивный operation.lock не допускает второго исполнителя; чужой/зависший
+lock автоматически не удаляется. Привязка фиксирует project и fingerprint Engine.
+Файлы копируются в state-dir/releases/manifest-sha256, проверяются повторно,
+и только затем выполняется Compose. Labels содержат именно этот постоянный путь.
+Исходный каталог распаковки после успешной установки можно убрать; state-dir нельзя.
+
+При повторной установке используются те же файлы, имена томов и project.
+Для другого source SHA требуется дополнительное allow-code-update.
+Проверяется совпадение поддерживаемой схемы; данный кандидат поддерживает только 7.
+Смена схемы, live-миграции и импорт исторической БД не являются этим сценарием.
+
+При ошибке установки сохраняется last-failure.json; active.json не выдаётся как
+успешный для неработающей версии. Автоматического восстановления БД и полноценного
+backup/rollback engine здесь НЕТ. Возврат кода/ручное восстановление на тестовом
+стенде — отдельная контролируемая операция. Старые релизы/тома не удаляются.
+
+## Идентичность приложения
+
+Манифест создаётся и валидируется существующим backend/app/release_identity.py
+из закреплённого source checkout. Backend получает read-only frontend/assets и
+манифест по штатному разрешённому пути. Web обслуживает те же файлы read-only.
+API обязан вернуть точный source SHA, release ID и schema range; дополнительно
+проверяются образы каждого контейнера и сохранённый Compose path.
+Managed identity означает идентифицированный TEST build, не production approval.
+
+## Проверки и ограничения
+
+Тесты: tools/test_docker_test_bundle_format.py,
+tools/test_docker_test_bundle_runtime.py, tools/test_docker_test_bundle_build.py.
+Проверяются bad hash, traversal, duplicate/case names, скрытые ключи, публичные
+порты, чужие ресурсы, конкурентный lock, неизменный repeated install и фиксация
+неудачи без ложного active receipt. Windows acceptance публикуется в Issue #247.
+Linux-совместимость кода не считается выполненной приёмкой отдельного Linux-хоста.
+
+Scope source/runtime отделён: новый tooling SHA, упакованный application SHA и
+запущенный release ID фиксируются независимо. Исторические резервные копии,
+чужие Docker-проекты, системные службы, сеть и настройки хоста не затрагиваются.
+Перед production нужны принятые DUAL-00/01, чистые обязательные CI/review,
+подписанная поставка/доверие, production config и rehearsed backup/rollback.
