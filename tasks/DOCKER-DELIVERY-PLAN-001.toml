@@ -1,0 +1,88 @@
+manifestVersion = 1
+id = "DOCKER-DELIVERY-PLAN-001"
+baseSha = "0d134aa20cd0a1d1ca6828622fe6a435c74c415b"
+goal = "Implement a portable, strictly read-only Docker delivery preflight and deterministic plan for the proposed ISOAS release, without installing or modifying any Docker resources."
+userOutcome = "On Windows Docker Desktop or Linux Docker Engine, the operator can inspect the selected explicit Docker context, identity, release manifest, ownership conflicts and compatibility before authorizing install or update."
+beforeScenario = "Issue #247 defines the Docker installer but main contains no verified plan/probe CLI, so an installer cannot safely reject foreign namespaces or bad manifests before mutation."
+afterScenario = "An explicit plan command validates a versioned SHA/digest/schema manifest, probes the specified Docker context with safe read-only argv, rejects foreign resource ownership and prints a stable redacted JSON plan with documented exit codes."
+nonGoals = [
+  "install or update containers",
+  "read or mutate production DB or media",
+  "implement snapshot backup, restore, rollback or project retirement",
+  "merge unreviewed Docker PRs into main",
+  "change Docker daemon, host firewall, DNS, VPN or certificates",
+  "create a new competing release authority",
+  "run real providers or copy any secret",
+  "start Linux production deployment",
+]
+declaredFiles = [
+  "tasks/DOCKER-DELIVERY-PLAN-001.toml",
+  "tools/docker_delivery_probe.py",
+  "tools/docker_delivery_plan.py",
+  "tools/test_docker_delivery_probe.py",
+  "tools/test_docker_delivery_plan.py",
+  "docs/docker-delivery-cli.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+  ".github/**",
+  "tools/agent_system/**",
+  "tools/docker_shadow.py",
+  "docs/NOW.md",
+]
+protectedFilesTouched = [
+]
+domain = "docker-delivery"
+riskClass = "low"
+changeClass = "tooling"
+maxProductionFiles = 0
+maxChangedLines = 1400
+acceptance = [
+  "The plan CLI requires an explicit Docker context and installation identity.",
+  "Only docker info, compose version and resource listing/inspect reads may be invoked; no mutating Docker or host command is allowed.",
+  "The child process never inherits DOCKER_HOST, DOCKER_CONTEXT, COMPOSE_*, proxy credentials or project secrets.",
+  "A versioned candidate manifest requires exact 40-hex source SHA, immutable OCI sha256 image digests and a nonempty inclusive schema range.",
+  "The plan distinguishes READY from invalid input, unavailable Docker engine, foreign namespace ownership and incompatible release with stable exit codes.",
+  "The generated JSON has deterministic ordering, redacted engine identity and no environment variables, secrets or local user paths.",
+  "The plan does not create, modify or delete Docker resources, files or ports.",
+  "Focused unit tests cover malformed manifests, unauthorised context, foreign labels, occupied project, and argument injection by Unicode and metacharacters.",
+  "One source-of-truth main repository, no duplicate runtime or installer code.",
+  "Exact-head CI and independent review are required before merge or implementation of install/update.",
+]
+requiredEvidence = [
+  "Fresh origin/main SHA and clean isolated Git worktree.",
+  "Tracked Task Contract with complete write ownership and no overlap.",
+  "Focused Python unit tests on an isolated test-only environment with fake subprocess outputs.",
+  "git diff --check and package enforce with 0 scope findings.",
+  "Secret-safe stdout/stderr contract tests; no use of real account tokens.",
+  "Exact-head hosted CI status and review summary, not inferred from source.",
+]
+targetedTests = [
+  "tools/test_docker_delivery_probe.py",
+  "tools/test_docker_delivery_plan.py",
+]
+fileGrowthExpectations = [
+  "Documentation under 200 lines and 12 KiB.",
+  "Each focused test under 500 lines and 24 KiB.",
+  "Both CLI and probe modules remain small, with no product source change.",
+]
+forbiddenOperations = [
+  "docker-install",
+  "docker-update",
+  "docker-restart",
+  "docker-prune",
+  "docker-remove",
+  "docker-volume-write",
+  "docker-container-exec",
+  "production-network-change",
+  "provider-call",
+  "secret-print",
+  "main-direct-edit",
+  "merge-before-review",
+]
+rollbackBoundary = "Revert only the declared Task Contract, two new read-only tooling modules, two synthetic tests and the short CLI documentation. No Docker resource or database change is part of this package."
