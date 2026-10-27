@@ -1,0 +1,68 @@
+manifestVersion = 1
+id = "DOCKER-LINUX-BUNDLE-ACCEPTANCE-001"
+baseSha = "0d134aa20cd0a1d1ca6828622fe6a435c74c415b"
+
+goal = "Prove a real GitHub-hosted Ubuntu producer-to-fresh-receiver transfer and synthetic lifecycle of the unchanged exact-SHA Docker TEST ZIP tooling."
+userOutcome = "The owner gets separate Linux producer and receiver evidence for hash-verified Git-free installation, repeat, recreate and A/B updates preserving synthetic records and media."
+beforeScenario = "Windows ZIP acceptance exists; a separate Linux receiver and cross-job artifact transport have not been operationally verified."
+afterScenario = "Two distinct GitHub-hosted Ubuntu 24.04 jobs build pinned A/B images and ZIPs, transfer exact hashes, and exercise the unchanged installer on a fresh isolated Docker Engine with a public-safe receipt."
+nonGoals = [
+  "Change the TEST bundle installer, application, Compose/Dockerfiles, dependency pins or existing CI",
+  "Run Linux acceptance against owner hardware/D2, or use production/historical data, external providers or secrets",
+  "Prove production readiness, persistent fixture uptime or Windows/Linux full parity",
+  "Publish a release, deploy, merge predecessor PRs or suppress any gate",
+]
+declaredFiles = [
+  "tasks/DOCKER-LINUX-BUNDLE-ACCEPTANCE-001.toml",
+  ".github/workflows/docker-linux-bundle-acceptance.yml",
+  "tools/docker_linux_bundle_build.py",
+  "tools/docker_linux_bundle_probe.py",
+  "tools/test_docker_linux_bundle_build.py",
+  "tools/test_docker_linux_bundle_probe.py",
+  "docs/docker-linux-bundle-acceptance.md",
+]
+allowedPatterns = []
+forbiddenPatterns = [
+  ".github/workflows/ci.yml", ".github/workflows/d0-executor-proof.yml",
+  "backend/**", "frontend/**", "ops/**", "architecture/**", "docs/NOW.md",
+  "tools/docker_test_bundle.py", "tools/docker_test_bundle_format.py",
+  "tools/docker_test_bundle_runtime.py", "tools/docker_shadow_product.py",
+  "tools/agent_system/**", "tools/agent.ps1", "tools/verify.ps1",
+]
+protectedFilesTouched = [".github/workflows/docker-linux-bundle-acceptance.yml"]
+domain = "docker-delivery"
+riskClass = "release-ops"
+changeClass = "tooling"
+maxProductionFiles = 0
+maxChangedLines = 2000
+acceptance = [
+  "Both jobs require GitHub-hosted Linux X64 and Ubuntu 24.04; candidate HEAD/origin, run metadata and actual Engine/Compose versions are recorded.",
+  "Producer uses clean source A1030abdafc32a0f11fbc4a6593acd435eb1bbdfd and Bf51c316176bf2609ccb9271c00a358a7b1f02768 plus unchanged tooling2fc621342721b1716e2ed898e24502115b71cb53 outside the candidate checkout.",
+  "Canonical source Compose/Dockerfiles build guard/backend/web without cache; the existing builder embeds exact Linux amd64 images in A/B ZIPs.",
+  "Separate artifact transfer preserves both archive and manifest hashes; receiver fingerprint differs and starts with zero Docker images, containers and volumes, without pruning.",
+  "Installer child has only Python and Docker on an allowlisted PATH; Git, Node and npm are unavailable, including Unicode/space bundle paths.",
+  "Eleven positive cases cover install identity, synthetic users/jobs/ledger/private media/favorite preservation, repeat without recreation, A-to-B update, B-to-A update and explicit container recreation with unchanged volumes.",
+  "Corrupt archive, bad pin, copied state and missing/drifted volume cases fail closed before an unintended runtime mutation.",
+  "Only the existing bounded HTTP client is imported from pinned source; no backend application imports, real provider calls, credentials or historical fixtures.",
+  "Cleanup verifies project, installer owner and installation/generation identities before removing only this job's synthetic containers/network/volumes/control claims; no global prune.",
+  "Focused deterministic tests, scope/hygiene, independent review, normal exact-head CI and real isolated Linux workflow are separate required evidence.",
+]
+requiredEvidence = [
+  "User goal/continue authorization for isolated Docker acceptance; existing D0-admitted GitHub-hosted Linux selected without production resources",
+  "Producer receipt: exact candidate/tooling/A/B SHAs, Engine/Compose, embedded archive/manifest identities",
+  "Receiver receipt: distinct runner and Engine, fresh inventory, transferred hashes, eleven case outcomes and negative controls",
+  "Synthetic HTTP persistence fingerprints and owned cleanup receipt without credentials or raw environment/log dumps",
+  "Exact-head GitHub workflow artifact, focused tests, scope/hygiene and independent review",
+]
+targetedTests = ["tools/test_docker_linux_bundle_build.py", "tools/test_docker_linux_bundle_probe.py"]
+fileGrowthExpectations = [
+  "Each new handwritten Python helper stays below 500 lines; no second installer or generic execution framework.",
+  "Each new test stays below 500 lines and 24 KiB; document below 200 lines and 12 KiB.",
+  "Generated ZIPs, Docker output and receipts remain untracked artifacts.",
+]
+forbiddenOperations = [
+  "direct-main", "production-deploy", "owner-host-runtime-or-settings-mutation", "historical-data",
+  "real-provider-call", "release-publish", "secret-use", "global-prune",
+  "foreign-resource-removal", "gate-disable", "dependency-change", "installer-reimplementation",
+]
+rollbackBoundary = "Revert only the seven declared files. Canonical repository authoring and focused checks on D2 remain allowed; operational acceptance and cleanup are confined to verified synthetic resources in the ephemeral GitHub job. No owner runtime/settings, production state or existing workflow is changed."

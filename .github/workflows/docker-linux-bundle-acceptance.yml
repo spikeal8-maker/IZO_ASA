@@ -1,0 +1,169 @@
+name: Docker Linux Bundle Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "tasks/DOCKER-LINUX-BUNDLE-ACCEPTANCE-001.toml"
+      - ".github/workflows/docker-linux-bundle-acceptance.yml"
+      - "tools/docker_linux_bundle_build.py"
+      - "tools/docker_linux_bundle_probe.py"
+      - "tools/test_docker_linux_bundle_build.py"
+      - "tools/test_docker_linux_bundle_probe.py"
+      - "docs/docker-linux-bundle-acceptance.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-linux-bundle-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+  IZO_EXPECTED_HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  producer:
+    name: Build immutable TEST ZIPs on Linux
+    if: >-
+      github.repository == 'spikeal8-maker/IZO_ASA' &&
+      github.actor == 'spikeal8-maker' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      receipt_sha256: ${{ steps.producer.outputs.receipt_sha256 }}
+    steps:
+      - name: Check out exact acceptance candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # existing reviewed v6.0.2
+        with:
+          ref: ${{ env.IZO_EXPECTED_HEAD }}
+          path: candidate
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Check out unchanged bundle tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 2fc621342721b1716e2ed898e24502115b71cb53
+          path: tooling
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Check out immutable application A
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 1030abdafc32a0f11fbc4a6593acd435eb1bbdfd
+          path: source-a
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Check out immutable application B
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: f51c316176bf2609ccb9271c00a358a7b1f02768
+          path: source-b
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Set up pinned Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # existing reviewed v7.0.0
+        with:
+          python-version-file: candidate/.python-version
+      - name: Focused acceptance helper tests
+        working-directory: candidate
+        run: python -B -m unittest tools.test_docker_linux_bundle_build tools.test_docker_linux_bundle_probe -v
+      - name: Build both embedded archives with canonical tooling
+        id: producer
+        shell: bash
+        env:
+          IZO_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          IZO_RUNNER_OS: ${{ runner.os }}
+          IZO_RUNNER_ARCH: ${{ runner.arch }}
+          IZO_RUNNER_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          python -B candidate/tools/docker_linux_bundle_build.py \
+            --candidate "$GITHUB_WORKSPACE/candidate" --tooling "$GITHUB_WORKSPACE/tooling" \
+            --source-a "$GITHUB_WORKSPACE/source-a" --source-b "$GITHUB_WORKSPACE/source-b" \
+            --output "$RUNNER_TEMP/linux-bundle-transfer"
+          python -c 'import hashlib,os,pathlib; p=pathlib.Path(os.environ["RUNNER_TEMP"])/"linux-bundle-transfer/producer.json"; h=hashlib.sha256(p.read_bytes()).hexdigest(); pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a").write("receipt_sha256="+h+"\n")'
+      - name: Transfer synthetic ZIPs and trusted build receipts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # existing reviewed v4.6.2
+        with:
+          name: linux-bundle-transfer-${{ env.IZO_EXPECTED_HEAD }}
+          path: |
+            ${{ runner.temp }}/linux-bundle-transfer/producer.json
+            ${{ runner.temp }}/linux-bundle-transfer/release-A.zip
+            ${{ runner.temp }}/linux-bundle-transfer/release-A.receipt.json
+            ${{ runner.temp }}/linux-bundle-transfer/release-B.zip
+            ${{ runner.temp }}/linux-bundle-transfer/release-B.receipt.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+      - name: Preserve bounded producer result even on failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: linux-bundle-producer-evidence-${{ env.IZO_EXPECTED_HEAD }}
+          path: ${{ runner.temp }}/linux-bundle-transfer/producer.json
+          if-no-files-found: error
+          retention-days: 30
+
+  receiver:
+    name: Fresh Linux receiver lifecycle and preservation proof
+    needs: producer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact acceptance candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.IZO_EXPECTED_HEAD }}
+          path: candidate
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Check out pinned verifier and extractor
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 2fc621342721b1716e2ed898e24502115b71cb53
+          path: tooling
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Check out pinned bounded HTTP test client
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: f51c316176bf2609ccb9271c00a358a7b1f02768
+          path: source-b
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Set up pinned Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version-file: candidate/.python-version
+      - name: Download this run's exact producer artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # official v4.3.0
+        with:
+          name: linux-bundle-transfer-${{ env.IZO_EXPECTED_HEAD }}
+          path: ${{ runner.temp }}/linux-bundle-transfer
+      - name: Execute isolated Git-free receiver matrix
+        shell: bash
+        env:
+          IZO_PRODUCER_RECEIPT_SHA256: ${{ needs.producer.outputs.receipt_sha256 }}
+          IZO_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          IZO_RUNNER_OS: ${{ runner.os }}
+          IZO_RUNNER_ARCH: ${{ runner.arch }}
+          IZO_RUNNER_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          python -B candidate/tools/docker_linux_bundle_probe.py \
+            --candidate "$GITHUB_WORKSPACE/candidate" --tooling "$GITHUB_WORKSPACE/tooling" \
+            --source-b "$GITHUB_WORKSPACE/source-b" --transfer "$RUNNER_TEMP/linux-bundle-transfer" \
+            --work "$RUNNER_TEMP/Linux receiver Тест" \
+            --receipt "$RUNNER_TEMP/linux-bundle-receiver.json"
+      - name: Preserve public-safe receiver result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: linux-bundle-receiver-evidence-${{ env.IZO_EXPECTED_HEAD }}
+          path: ${{ runner.temp }}/linux-bundle-receiver.json
+          if-no-files-found: error
+          retention-days: 30
