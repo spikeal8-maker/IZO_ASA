@@ -1,0 +1,99 @@
+manifestVersion = 1
+id = "DOCKER-LINUX-BUNDLE-ACCEPTANCE-004"
+baseSha = "7af8022e091f269e7393296381cfbaf011b7105c"
+goal = "Integrate the reviewed Linux acceptance payload from 9b7b4653290a820d84fe6f7aac393c22a4c01168 onto current main 7af8022e091f269e7393296381cfbaf011b7105c with only current-package identifier corrections and fresh exact-head gates after the separate governance and port-fixture merge."
+userOutcome = "The owner gets independent cold-build and fresh-recipient Linux evidence when stock hosted VM images share a persistent Docker Engine ID, without accepting the same boot or a remote daemon."
+beforeScenario = "Predecessor 003 actual Linux run 40552430122 passed the independent empty producer/receiver matrix and owned cleanup. Normal source CI 40552430155 had 2340 passed, 0 failed, 1 skipped, 97 warnings and cleanup0; its only violations were expired debt reviews #162-165. PR256 merged the separately reviewed debt/fixture change into main 7af8022e091f269e7393296381cfbaf011b7105c."
+afterScenario = "Three non-manifest payload files remain byte-identical. The builder CONTRACT constant, workflow task-path filter and documentation current package label/link/contract reference change only003 to004. Runtime and refusal semantics remain unchanged under the new canonical base; fresh exact-head source CI and Linux acceptance are required, and old failed source runs retain FAILURE."
+nonGoals = [
+  "Change the TEST installer, application, Compose/Dockerfiles, dependency pins, other CI or governance policy",
+  "Change the meaning of the existing persistent Engine fingerprint or installer ownership/cleanup binding",
+  "Accept the same boot, remote daemon or incomplete/malformed locality evidence; claim attestation against a malicious root-controlled proxy",
+  "Prune resources, weaken either empty-Engine gate, add a daemon, privileged jobs, sudo provisioning or host changes",
+  "Run operational acceptance on owner hardware/D2, use production/history, real providers or secrets",
+  "Promise permanent Ubuntu 22.04 availability, persistent fixture uptime, production readiness or full platform parity",
+  "Deploy, publish a release, merge predecessors or suppress any gate",
+]
+declaredFiles = [
+  "tasks/DOCKER-LINUX-BUNDLE-ACCEPTANCE-004.toml",
+  ".github/workflows/docker-linux-bundle-acceptance.yml",
+  "tools/docker_linux_bundle_build.py",
+  "tools/docker_linux_bundle_probe.py",
+  "tools/test_docker_linux_bundle_build.py",
+  "tools/test_docker_linux_bundle_probe.py",
+  "docs/docker-linux-bundle-acceptance.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "tasks/DOCKER-LINUX-BUNDLE-ACCEPTANCE-001.toml",
+  "tasks/DOCKER-LINUX-BUNDLE-ACCEPTANCE-002.toml",
+  ".github/workflows/ci.yml",
+  ".github/workflows/d0-executor-proof.yml",
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+  "docs/NOW.md",
+  "tools/docker_test_bundle.py",
+  "tools/docker_test_bundle_format.py",
+  "tools/docker_test_bundle_runtime.py",
+  "tools/docker_shadow_product.py",
+  "tools/agent_system/**",
+  "tools/agent.ps1",
+  "tools/verify.ps1",
+]
+protectedFilesTouched = [
+  ".github/workflows/docker-linux-bundle-acceptance.yml",
+]
+domain = "docker-delivery"
+riskClass = "release-ops"
+changeClass = "tooling"
+maxProductionFiles = 0
+maxChangedLines = 2000
+acceptance = [
+  "Finish task003 cleanly before starting task004 on7af8022e091f269e7393296381cfbaf011b7105c. Preserve all six prior payload files from9b7b4653290a820d84fe6f7aac393c22a4c01168 except exact current task ID replacements003 to004 in the builder CONTRACT constant, workflow task-path filter and documentation current package label/link/contract reference. No other source/test/pin/gate change is allowed; do not edit predecessor base or budget.",
+  "Both jobs require stock GitHub-hosted Ubuntu 22.04 Linux X64 and exact candidate HEAD/origin; actual run, attempt, job, boot, Engine/Compose and Python versions remain recorded.",
+  "Before build/load, default context must select unix:///var/run/docker.sock with TLS skip disabled; its resolved path must be /run/docker.sock, a root-owned socket. Docker info hostname/kernel must equal the local host, with Linux amd64 architecture.",
+  "The existing engine.fingerprint remains SHA256 of the persistent info.ID, including its installer ownership/cleanup use. A separate versioned engineInstanceFingerprint binds the boot hash, persistent hash, verified endpoint/socket evidence, local hostname hash and kernel release.",
+  "Receiver validates and recomputes both instance identities, their field types and cross-bindings; both boot hashes and instance hashes must differ. Same-boot, remote/mismatched locality, missing/malformed or tampered instance evidence refuses before load/install.",
+  "Both jobs retain complete measured image/container IDs and volume names before enforcing strict zero resources. Any existing resource refuses with role-specific evidence; no prune or daemon change occurs.",
+  "Unchanged clean source A 1030abdafc32a0f11fbc4a6593acd435eb1bbdfd and B f51c316176bf2609ccb9271c00a358a7b1f02768 plus tooling 2fc621342721b1716e2ed898e24502115b71cb53 build canonical images without cache from immutable FROM digests and embed them in ZIPs.",
+  "Same-run artifact transfer retains independent producer-receipt pin, exact contract and empty-producer evidence, archive/manifest/build-receipt pins, distinct producer/receiver roles and matching head/run/attempt.",
+  "Existing eleven-case receiver lifecycle, Python/Docker-only installer PATH, Unicode paths, synthetic private jobs/media/ledger/favorites and preservation checks retain their semantics.",
+  "Existing corrupt-archive, pin, copied-state and missing/drifted-volume refusals and ownership/generation/CreatedAt-checked synthetic cleanup remain unchanged; no foreign resources or historical data are used.",
+  "Actual predecessor receipts/logs and image 20261012.322.1 observations stay separate from upstream tag documentation; the failed 001/002 evidence is preserved and no old run is relabelled PASS.",
+  "Baseline-failing cloned-ID/locality regressions, focused tests, scope/hygiene, independent review, exact-head CI and actual Linux acceptance are separate required evidence gates.",
+]
+requiredEvidence = [
+  "Canonical clean finish of003 and start of004 on7af8022e091f269e7393296381cfbaf011b7105c; exact prior payload equality except the declared current task ID corrections; prior actual Linux PASS and expired-policy-only source CI receipt; new exact-head gates",
+  "Run 40548696908 producer 122346230432 and receiver 122347299631 receipts with verified artifact digests and exact failed-clause replay",
+  "Pinned Moby v28.0.4 persistent engine-id implementation and observed runner-image provisioning; cloning remains an explicit inference",
+  "Positive same-persistent-ID/different-boot transfer plus negative same-boot, remote endpoint, non-socket, wrong owner, host/kernel mismatch, identity tamper/type/cross-binding controls",
+  "Unchanged builder and Receiver lifecycle/cleanup AST; preserved raw Engine fingerprint and strict measured initial inventories",
+  "Exact-head producer/receiver artifacts proving complete eleven-case matrix, negative controls and owned cleanup; no credentials or raw environment dumps",
+]
+targetedTests = [
+  "tools/test_docker_linux_bundle_build.py",
+  "tools/test_docker_linux_bundle_probe.py",
+]
+fileGrowthExpectations = [
+  "Each handwritten helper below 500 lines; each test below 500 lines and 24 KiB; document below 200 lines and 12 KiB.",
+  "No second installer or generic executor; generated ZIPs, logs and receipts remain untracked evidence.",
+]
+forbiddenOperations = [
+  "direct-main",
+  "production-deploy",
+  "owner-host-runtime-or-settings-mutation",
+  "historical-data",
+  "real-provider-call",
+  "release-publish",
+  "secret-use",
+  "global-prune",
+  "extra-docker-daemon",
+  "foreign-resource-removal",
+  "gate-disable",
+  "dependency-change",
+  "installer-reimplementation",
+]
+rollbackBoundary = "Revert only these seven files; preserve predecessor contracts and actual failure evidence. Canonical authoring/focused checks on D2 remain allowed. Operational acceptance and owned cleanup run only in ephemeral GitHub jobs; no owner runtime, production state, Docker daemon settings or unrelated workflow changes."
