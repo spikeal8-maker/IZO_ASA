@@ -1,0 +1,101 @@
+manifestVersion = 1
+id = "DOCKER-SYNTHETIC-RUNTIME-003"
+baseSha = "808ec95d6eac2ee6c570684014c6e7a4b5cb83fa"
+goal = "Integrate the reviewed synthetic runtime installer payload from b517feb365eb7dcb0047f92500d73d4e82a74bff onto the verified main produced by PR258, preserving behavior and changing only the current TaskContract documentation label/link from 002 to 003."
+userOutcome = "An owner can install the ordinary application from the same Git-free delivery mechanism, keep it running beyond the acceptance fixture deadline, and verify synthetic application data across container lifecycle operations."
+beforeScenario = "Runtime002 is a clean reviewed payload at b517feb365eb7dcb0047f92500d73d4e82a74bff on prior main 7af8022e091f269e7393296381cfbaf011b7105c. Linux004 is the separate exact-head integration in PR258. A new package must bind the actual merged main instead of changing a registered base. Operational receipts retain their actual source and tooling pins."
+afterScenario = "Eight non-manifest payload files remain byte-identical to b517feb365eb7dcb0047f92500d73d4e82a74bff. Only the two current TaskContract label/link occurrences in docs/docker-synthetic-runtime.md change 002 to 003. Format1 compatibility and ordinary three-service format2 behavior remain unchanged; this package receives fresh exact-head gates."
+nonGoals = [
+  "A third installer or a new application launcher",
+  "Merging predecessor PR251, changing its registered contract/budget or copying its task manifest into this scope",
+  "Production deployment, real provider/model execution, credentials or historical data",
+  "Application, schema, worker, authentication, billing or provider implementation changes",
+  "Changing Docker daemon, host networking, Windows settings or historical preview resources",
+  "Automatic restart-policy selection, host reboot proof or production backup/rollback engine",
+  "Publishing or executing this draft on D2 before root registration, review and approval",
+]
+declaredFiles = [
+  "tasks/DOCKER-SYNTHETIC-RUNTIME-003.toml",
+  "tools/docker_test_bundle.py",
+  "tools/docker_test_bundle_format.py",
+  "tools/docker_test_bundle_runtime.py",
+  "tools/test_docker_test_bundle_build.py",
+  "tools/test_docker_test_bundle_format.py",
+  "tools/test_docker_test_bundle_runtime.py",
+  "tools/test_docker_synthetic_runtime.py",
+  "docs/docker-test-bundle.md",
+  "docs/docker-synthetic-runtime.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+  ".github/**",
+  "tools/agent_system/**",
+  "tools/agent.ps1",
+  "tools/verify.ps1",
+  "docs/NOW.md",
+  "tools/docker_shadow.py",
+  "tools/docker_delivery_plan.py",
+  "tools/docker_delivery_probe.py",
+]
+protectedFilesTouched = [
+]
+domain = "docker-delivery"
+riskClass = "release-ops"
+changeClass = "tooling"
+maxProductionFiles = 0
+maxChangedLines = 2600
+acceptance = [
+  "Before first registration, verify the accepted PR258 merge receipt and exact remote/local origin-main SHA, require green exact b517 source CI, and canonically finish Linux004 and runtime002 from their clean owned worktrees. Start task003 on that first base. Preserve all nine b517 payload files except exactly two current TaskContract label/link replacements 002 to 003 in docs/docker-synthetic-runtime.md. Do not rewrite any registered base, manifest or registry manually.",
+  "Carry all seven non-manifest task251 payload files from exact 2fc, preserve its format tests/docs, and report inherited payload and incremental profile changes separately.",
+  "Existing format-1 acceptance build/verify/install behavior and its five-service fixture command remain valid; a runtime profile cannot be smuggled into format 1.",
+  "Format 2 requires the explicit synthetic-runtime profile, exactly three services/two data volumes and ordinary pinned uvicorn; unknown versions/profiles and fixture commands fail closed.",
+  "Existing archive/path/hash/image/release identity, non-root/capability, loopback/network, provider/credential and namespace protections remain enforced.",
+  "The profile is bound to persistent owner and active receipts; copying state or changing profile during repeat/update is rejected before runtime changes.",
+  "Idle checks fail closed on NULL/unknown job states, pending video deletion and preparing video publications before a code update.",
+  "Focused deterministic tests prove v1 compatibility, v2 validation/build behavior, profile binding, cross-profile refusal and quiescence refusals without Docker/provider access.",
+  "Root-owned isolated operational acceptance must separately prove ordinary application login/generation/accounting, runtime beyond 300 seconds, namespace-correct restart/recreate and synthetic DB/media/session preservation before claiming runtime functionality.",
+  "A longer bounded synthetic observation and cold backup/restore matrix remain explicit operational gates; a passing immediate health check is not sustained uptime or production approval.",
+  "Normal exact-head source CI, scope/file hygiene and independent review remain required before merge or accepting the package; draft PR publication to run CI follows canonical registration and focused review.",
+]
+requiredEvidence = [
+  "Canonical clean finish of Linux004 and runtime002, first start of003 on the verified PR258 merge main, exact b517 Git blob/hash equality except the two declared documentation replacements, independent review, 142 focused tests and fresh exact-head scope, hygiene and source CI gates",
+  "User continuation goal and root authorization for local authoring plus isolated synthetic tests; no author D2 operations",
+  "Exact ordinary source B command, mock-fallback, role and fixture-deadline evidence; unresolved application capabilities stay explicitly unverified",
+  "Exact 2fc Git blob hashes for predecessor payload; actual-main ten-path diff, inherited 1799-line predecessor including its separately excluded 90-line task manifest, original incremental 681-line profile diff, current focused tests/scope/file budgets/review",
+  "Before/after profile-specific manifest/Compose/owner/active behavior and negative controls",
+  "Later root-run acceptance records exact tooling/application/image identities, owned synthetic data and unchanged foreign resources",
+]
+targetedTests = [
+  "tools/test_docker_test_bundle_format.py",
+  "tools/test_docker_test_bundle_build.py",
+  "tools/test_docker_test_bundle_runtime.py",
+  "tools/test_docker_synthetic_runtime.py",
+]
+fileGrowthExpectations = [
+  "Each handwritten Python module remains below 500 lines; reuse the existing installer rather than adding another runtime implementation.",
+  "Each test file remains below 500 lines and 24 KiB; each document remains below 200 lines and 12 KiB.",
+  "Generated archives, runtime receipts, synthetic databases/media and operational evidence remain outside Git.",
+]
+forbiddenOperations = [
+  "direct-main",
+  "production-deploy",
+  "release-publish",
+  "merge-before-gates",
+  "historical-data-mutation",
+  "foreign-resource-removal",
+  "global-prune",
+  "real-provider-call",
+  "secret-use",
+  "host-network-change",
+  "docker-daemon-change",
+  "windows-service-change",
+  "gate-disable",
+  "dependency-change",
+  "installer-reimplementation",
+]
+rollbackBoundary = "Revert only the ten declared files relative to this package's first verified baseSha. Preserve predecessor tasks, PRs and operational receipts. This source integration performs no Docker or data mutation. Later root-authorized synthetic acceptance remains separate; historical preview, backups and foreign resources stay outside scope."
