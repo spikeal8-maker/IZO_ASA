@@ -54,3 +54,15 @@ def test_source_guard_rejects_wrong_repository_dirty_and_wrong_sha(tmp_path, mon
         monkeypatch.setattr(build, "git", fake_git)
         with pytest.raises(BundleError, match="CLEAN_EXACT_SOURCE_REQUIRED"):
             build.source_guard(tmp_path, "a" * 40)
+
+
+def test_compose_extensions_removed_but_unknown_effective_sections_rejected(tmp_path):
+    root, _, m = make_bundle(tmp_path / "bundle")
+    config = json.loads((root / "compose.json").read_text())
+    config["x-worker"] = {"image": "mutable:tag"}
+    result = build.persistent_config(config, m["project"], m["source_sha"], m["release_id"], m["images"])
+    assert "x-worker" not in result and "mutable:tag" not in json.dumps(result)
+    validate_compose(result, m)
+    config["include"] = ["outside.yml"]
+    with pytest.raises(BundleError, match="UNSUPPORTED_COMPOSE_SECTION"):
+        build.persistent_config(config, m["project"], m["source_sha"], m["release_id"], m["images"])

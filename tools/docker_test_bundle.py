@@ -50,7 +50,12 @@ def source_guard(root: Path, sha: str) -> None:
 
 
 def persistent_config(config: dict, project: str, sha: str, release: str, images: dict) -> dict:
-    result = copy.deepcopy(config)
+    effective = {"name", "services", "networks", "volumes"}
+    require(not (set(config) - effective - {k for k in config if k.startswith("x-")}),
+            "UNSUPPORTED_COMPOSE_SECTION")
+    # Compose may retain x-* YAML extension templates after resolving anchors.
+    # They are not runtime services and must not carry mutable tags into the ZIP.
+    result = {key: copy.deepcopy(config[key]) for key in effective}
     for service, settings in result["services"].items():
         settings.pop("build", None)
         settings["image"] = images[service]
