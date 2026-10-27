@@ -70,3 +70,21 @@ def test_compose_extensions_removed_but_unknown_effective_sections_rejected(tmp_
     config["include"] = ["outside.yml"]
     with pytest.raises(BundleError, match="UNSUPPORTED_COMPOSE_SECTION"):
         build.persistent_config(config, m["project"], m["source_sha"], m["release_id"], m["images"])
+
+
+def test_target_linux_asset_hash_is_not_replaced_by_host_path_order(tmp_path):
+    source = tmp_path / "source"
+    (source / "backend/app").mkdir(parents=True)
+    (source / "ops/docker/dev").mkdir(parents=True)
+    shutil.copyfile(Path(__file__).resolve().parents[1] / "backend/app/release_identity.py",
+                    source / "backend/app/release_identity.py")
+    (source / "ops/docker/dev/Dockerfile.web").write_text("FROM node:24.14.1-bookworm-slim@sha256:test\n")
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    for name in ("AZ.js", "az.js.other", "aZ.js.other"):
+        (assets / name).write_text("controlled", encoding="utf-8")
+    evidence = (3, "sha256:" + "d" * 64)
+    result = build.release_metadata(source, assets, "a" * 40, "a" * 12 + "-20261027130000",
+                                    "2026-10-27T13:00:00+00:00", "3.11.9", target_assets=evidence)
+    assert result["frontend_asset_count"] == evidence[0]
+    assert result["frontend_asset_manifest_hash"] == evidence[1]

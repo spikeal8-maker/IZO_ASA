@@ -82,7 +82,7 @@ def persistent_config(config: dict, project: str, sha: str, release: str, images
 
 
 def release_metadata(source: Path, assets: Path, sha: str, release: str, built: str,
-                     python_version: str) -> dict:
+                     python_version: str, *, target_assets: tuple[int, str] | None = None) -> dict:
     name = "_izo_test_bundle_identity"
     spec = importlib.util.spec_from_file_location(name, source / "backend/app/release_identity.py")
     require(spec is not None and spec.loader is not None, "RELEASE_IDENTITY_MODULE_MISSING")
@@ -91,7 +91,7 @@ def release_metadata(source: Path, assets: Path, sha: str, release: str, built: 
     sys.modules[name] = module
     try:
         spec.loader.exec_module(module)
-        count, asset_hash = module.frontend_asset_manifest(assets)
+        count, asset_hash = target_assets if target_assets is not None else module.frontend_asset_manifest(assets)
         text = (source / "ops/docker/dev/Dockerfile.web").read_text(encoding="utf-8")
         node = re.search(r"^FROM node:([0-9]+\.[0-9]+\.[0-9]+)[-@]", text, re.MULTILINE)
         require(node is not None, "DECLARED_NODE_VERSION_MISSING")
@@ -163,11 +163,17 @@ def build(source: Path, sha: str, project: str, web: int, api: int, output: Path
             item = json.loads(docker.run("inspect", export))[0]
             require(item["Config"]["Labels"].get("io.izo.bundle") == OWNER, "EXPORT_OWNER_MISMATCH")
             docker.run("rm", export)
-        python_version = docker.run("run", "--rm", "--network", "none", "--read-only", "--user", "10001:10001",
-                                    "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
-                                    "--entrypoint", "python", images["backend"], "-c",
-                                    "import platform; print(platform.python_version())")
-        metadata = release_metadata(source, staging / "frontend", sha, release, now.isoformat(), python_version)
+        # Path ordering is platform-dependent. Use the pinned target Linux image's
+        # existing identity implementation, not a Windows recreation of its hash.
+        probe = json.loads(docker.run("run", "--rm", "--network", "none", "--read-only",
+            "--user", "10001:10001", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
+            "--mount", "type=bind,source=" + str(staging / "frontend") + ",target=/bundle-assets,readonly",
+            "--entrypoint", "python", images["backend"], "-c",
+            "import json,platform; from pathlib import Path; "
+            "from app.release_identity import frontend_asset_manifest; "
+            "print(json.dumps({'python':platform.python_version(),'assets':frontend_asset_manifest(Path('/bundle-assets'))}))"))
+        metadata = release_metadata(source, staging / "frontend", sha, release, now.isoformat(),
+                                    probe["python"], target_assets=tuple(probe["assets"]))
         (staging / "frontend/release-manifest.json").write_bytes(json_bytes(metadata))
         for name in ("docker_test_bundle_format.py", "docker_test_bundle_runtime.py"):
             shutil.copyfile(Path(__file__).parent / name, staging / name)
