@@ -107,9 +107,10 @@ ID, ключей, stacktrace или сырого docker inspect. Любой от
 | D2-10 | После обновления Pillow 13/npm fixes пересобраны backend/frontend/guard | Локальная сборка прошла, но не эквивалентна exact-HEAD hosted CI |
 | D2-11 | Настоящие install/update/rollback, clean Linux install и signed release | Не реализованы; следующий bounded package после приёмки planner |
 | D2-12 | Веб/API healthy, но настоящие модели и биллинг не проверены | Нельзя объявлять production Docker-релиз успешным |
-| D2-13 | GitHub push сообщил о 6 alerts в default branch (4 high, 1 moderate, 1 low) | Требуется независимая security-проверка; уведомление не доказывает уязвимость PR #250 |
+| D2-13 | GitHub: 6 alerts (4 high/1 moderate/1 low) | Нужна security-проверка, не диагноз PR |
 | D2-14 | Первоначальный argparse мог вывести сырой неверный аргумент и не-JSON отказ | Исправлено: безопасный однострочный BLOCKED JSON, без отражения значения; добавлен regression test |
 | D2-15 | Между stat и чтением могла произойти подмена манифеста | Проверки fd, inode, mtime/ctime и размера; отказ при FIFO/симлинке, нужен exact-SHA CI |
+| D2-16 | Windows: lstat/fstat дают разный стабильный ctime | ctime проверяется внутри каждого API; 15 регрессий, 100/100 файлов Windows |
 
 Исторические user data, идентификаторы, SQLite, media, cookies, API tokens,
 ключи, приватные логи/адреса и полные docker inspect в этот публичный

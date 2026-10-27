@@ -284,3 +284,54 @@ def test_manifest_swapped_to_fifo_refused_without_blocking(
     monkeypatch.setattr(system, "open", replace_with_fifo)
     with pytest.raises(PlanError, match="MANIFEST_NOT_A_REGULAR_FILE"):
         read_manifest(str(candidate))
+
+
+@pytest.mark.parametrize(("stage", "field"), [(None, None)] + [
+    (stage, field)
+    for stage in (1, 2, 3)
+    for field in ("st_dev", "st_ino", "st_size", "st_mtime_ns")
+] + [(2, "st_ctime_ns"), (3, "st_ctime_ns")])
+def test_manifest_stat_api_compatibility_and_mutation_guards(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    stage: int | None, field: str | None,
+) -> None:
+    """Stable Windows path/fd ctime disagreement is not a content race."""
+    import os
+    from types import SimpleNamespace
+
+    candidate = tmp_path / "candidate.json"
+    candidate.write_bytes(raw())
+    original_lstat = Path.lstat
+    initial = original_lstat(candidate)
+    fields = ("st_dev", "st_ino", "st_mode", "st_size", "st_mtime_ns", "st_ctime_ns")
+    values = {name: getattr(initial, name) for name in fields}
+    snapshots = [SimpleNamespace(**values) for _ in range(4)]
+    for index in (0, 3):
+        snapshots[index].st_ctime_ns = 100
+    for index in (1, 2):
+        snapshots[index].st_ctime_ns = 200
+    if stage is not None and field is not None:
+        setattr(snapshots[stage], field, getattr(snapshots[stage], field) + 1)
+    path_stats = iter((snapshots[0], snapshots[3]))
+    fd_stats = iter((snapshots[1], snapshots[2]))
+    calls = {"path": 0, "fd": 0}
+
+    def path_stat(path: Path, *args: object, **kwargs: object):
+        if path == candidate:
+            calls["path"] += 1
+            return next(path_stats)
+        return original_lstat(path, *args, **kwargs)
+
+    def descriptor_stat(fd: int):
+        calls["fd"] += 1
+        return next(fd_stats)
+
+    with monkeypatch.context() as patches:
+        patches.setattr(Path, "lstat", path_stat)
+        patches.setattr(os, "fstat", descriptor_stat)
+        if stage is None:
+            assert read_manifest(str(candidate)) == parse_manifest(raw())
+        else:
+            with pytest.raises(PlanError, match="^MANIFEST_CHANGED_DURING_READ$"):
+                read_manifest(str(candidate))
+    assert calls == {"path": 2, "fd": 2}

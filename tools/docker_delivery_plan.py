@@ -117,12 +117,16 @@ def read_manifest(path: str) -> Candidate:
             final_descriptor = os.fstat(stream.fileno())
         final_path = candidate.lstat()
         identity = lambda item: (
-            item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns, item.st_ctime_ns
+            item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns
         )
+        # Windows lstat/fstat can expose different ctime semantics. Keep common
+        # identity binding across APIs; require ctime stability within each API.
         if (
             identity(initial) != identity(opened)
             or identity(opened) != identity(final_descriptor)
             or identity(final_descriptor) != identity(final_path)
+            or initial.st_ctime_ns != final_path.st_ctime_ns
+            or opened.st_ctime_ns != final_descriptor.st_ctime_ns
         ):
             raise PlanError("MANIFEST_CHANGED_DURING_READ")
         if len(raw) > MAX_MANIFEST_BYTES:
