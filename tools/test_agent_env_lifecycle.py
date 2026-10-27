@@ -3,8 +3,6 @@ import ctypes
 import json
 import os
 import signal
-import socket
-import threading
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -20,6 +18,10 @@ from tools.agent_system.env import (
     load_environment_identity,
 )
 from tools.test_agent_env import _add_package, _known_contract, _make_control_repo
+from tools.agent_env_test_ports import (
+    available_package_id as _available_package_id, can_bind as _can_bind,
+    close_listener as _close_listener, foreign_listener as _listener,
+)
 
 TIMEOUT = 5.0
 
@@ -31,7 +33,7 @@ def _contract(tmp_path: Path):
 
 def _single(tmp_path: Path, package_id: str = "PKG-LIFE"):
     control, base = _make_control_repo(tmp_path)
-    worktree = _add_package(control, base, package_id, tmp_path / package_id.lower())
+    worktree = _add_package(control, base, package_id, tmp_path / "w")
     return worktree, _contract(tmp_path)
 
 
@@ -59,52 +61,6 @@ def _terminate_owned_test_holder(pid: int) -> None:
     assert _wait(lambda: not lifecycle._pid_alive(pid))
 
 
-def _listener(port: int):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
-    sock.bind((lifecycle.LOOPBACK, port))
-    sock.listen(8)
-    sock.settimeout(0.2)
-    stop = threading.Event()
-
-    def serve() -> None:
-        while not stop.is_set():
-            try:
-                conn, _ = sock.accept()
-            except (OSError, socket.timeout):
-                continue
-            with conn:
-                try:
-                    conn.recv(512)
-                    conn.sendall(b"FOREIGN\n")
-                except OSError:
-                    pass
-
-    thread = threading.Thread(target=serve, daemon=True)
-    thread.start()
-    return sock, stop, thread
-
-
-def _close_listener(sock, stop, thread) -> None:
-    stop.set()
-    sock.close()
-    thread.join(timeout=1)
-
-
-def _can_bind(port: int) -> bool:
-    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
-        probe.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
-    try:
-        probe.bind((lifecycle.LOOPBACK, port))
-        return True
-    except OSError:
-        return False
-    finally:
-        probe.close()
-
-
 def _cleanup(worktree: Path, contract) -> None:
     try:
         status = lifecycle.environment_status(worktree)["status"]
@@ -119,7 +75,7 @@ def _cleanup(worktree: Path, contract) -> None:
 
 
 def test_env_up_status_idempotent_down_and_cleanup(tmp_path: Path) -> None:
-    worktree, contract = _single(tmp_path)
+    worktree, contract = _single(tmp_path, _available_package_id("PKG-LIFE"))
     try:
         first = lifecycle.env_up(
             worktree, environment={}, production_contract=contract
@@ -179,7 +135,7 @@ def test_env_up_rejects_ambient_paths_without_value_leak(
 def test_port_collision_and_partial_reservation_leave_foreign_listener(
     tmp_path: Path,
 ) -> None:
-    package_id = "PKG-COLLISION"
+    package_id = _available_package_id("PKG-COLLISION")
     worktree, contract = _single(tmp_path, package_id)
     ports = derive_candidate_ports(package_id)
     foreign, stop, thread = _listener(ports["frontend"])
@@ -196,7 +152,7 @@ def test_port_collision_and_partial_reservation_leave_foreign_listener(
 
 
 def test_crash_becomes_stale_and_requires_explicit_recovery(tmp_path: Path) -> None:
-    worktree, contract = _single(tmp_path, "PKG-CRASH")
+    worktree, contract = _single(tmp_path, _available_package_id("PKG-CRASH"))
     up = lifecycle.env_up(worktree, environment={}, production_contract=contract)
     _terminate_owned_test_holder(int(up["pid"]))
     assert _wait(lambda: lifecycle.environment_status(worktree)["status"] == "STALE")
@@ -214,7 +170,7 @@ def test_crash_becomes_stale_and_requires_explicit_recovery(tmp_path: Path) -> N
 
 
 def test_stale_recovery_refuses_foreign_port_occupant(tmp_path: Path) -> None:
-    package_id = "PKG-STALE-FOREIGN"
+    package_id = _available_package_id("PKG-STALE-FOREIGN")
     worktree, contract = _single(tmp_path, package_id)
     up = lifecycle.env_up(worktree, environment={}, production_contract=contract)
     _terminate_owned_test_holder(int(up["pid"]))
@@ -275,12 +231,14 @@ def test_live_pid_without_matching_lease_fails_closed(tmp_path: Path) -> None:
 
 def test_two_packages_run_concurrently_and_down_is_isolated(tmp_path: Path) -> None:
     control, base = _make_control_repo(tmp_path)
-    a = _add_package(control, base, "PKG-LIFE-A", tmp_path / "a")
-    b = _add_package(control, base, "PKG-LIFE-B", tmp_path / "b")
+    a_id = _available_package_id("PKG-LIFE-A")
+    b_id = _available_package_id("PKG-LIFE-B", excluded_ports=derive_candidate_ports(a_id).values())
+    a = _add_package(control, base, a_id, tmp_path / "a")
+    b = _add_package(control, base, b_id, tmp_path / "b")
     contract = _contract(tmp_path)
-    up_a = lifecycle.env_up(a, environment={}, production_contract=contract)
-    up_b = lifecycle.env_up(b, environment={}, production_contract=contract)
     try:
+        up_a = lifecycle.env_up(a, environment={}, production_contract=contract)
+        up_b = lifecycle.env_up(b, environment={}, production_contract=contract)
         assert lifecycle.environment_status(a)["status"] == "ACTIVE"
         assert lifecycle.environment_status(b)["status"] == "ACTIVE"
         assert set(up_a["ports"].values()).isdisjoint(set(up_b["ports"].values()))

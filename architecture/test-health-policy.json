@@ -90,23 +90,23 @@
   "debtReviews": {
     "#162": {
       "owner": "spikeal8-maker",
-      "reason": "FastAPI lifespan/on_event deprecation baseline: backend/main.py plus fastapi/applications.py.",
-      "reviewBy": "2026-10-26"
+      "reason": "Reviewed 2026-10-27: exact e94d4d5 CI retains 8 lifespan/on_event warnings, with no growth or failing tests. Temporary carry for a bounded lifecycle migration; no warning suppression. Evidence, risks and exit criteria: docs/agent-tasks/GOV-TEST-HEALTH-REVIEW-20261027.md.",
+      "reviewBy": "2026-10-30"
     },
     "#163": {
       "owner": "spikeal8-maker",
-      "reason": "Starlette/FastAPI TestClient compatibility deprecation baseline.",
-      "reviewBy": "2026-10-26"
+      "reason": "Reviewed 2026-10-27: exact e94d4d5 CI retains 1 TestClient httpx compatibility warning on pinned dependencies. Temporary carry for a separate compatibility change; no dependency substitution here. Evidence, risks and exit criteria: docs/agent-tasks/GOV-TEST-HEALTH-REVIEW-20261027.md.",
+      "reviewBy": "2026-10-30"
     },
     "#164": {
       "owner": "spikeal8-maker",
-      "reason": "Per-request TestClient cookies deprecation across existing backend test sources.",
-      "reviewBy": "2026-10-26"
+      "reason": "Reviewed 2026-10-27: exact e94d4d5 CI retains the same 88 per-request cookie warnings across seven test sources. Temporary carry for client-level cookie isolation preserving auth/CSRF assertions. Evidence, risks and exit criteria: docs/agent-tasks/GOV-TEST-HEALTH-REVIEW-20261027.md.",
+      "reviewBy": "2026-10-30"
     },
     "#165": {
       "owner": "spikeal8-maker",
-      "reason": "pytest temporary apply-secrets cleanup PermissionError baseline.",
-      "reviewBy": "2026-10-26"
+      "reason": "Reviewed 2026-10-27: exact e94d4d5 CI reports cleanup 0 and process-leak PASS; this does not prove the Windows handle race fixed. Temporary carry pending focused teardown ownership review; the baseline allowance stays 1. Evidence and exit criteria: docs/agent-tasks/GOV-TEST-HEALTH-REVIEW-20261027.md.",
+      "reviewBy": "2026-10-30"
     }
   },
   "enforcement": {

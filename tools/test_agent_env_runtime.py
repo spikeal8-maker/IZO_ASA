@@ -45,7 +45,7 @@ def _secret_store_api():
 
 
 def test_payment_notification_outbox_exists(tmp_path: Path) -> None:
-    worktree, contract, paths = _active(tmp_path, "PKG-RUNTIME-BILLING")
+    worktree, contract, paths = _active(tmp_path, _available_package_id("PKG-RUNTIME-BILLING"))
     try:
         _prepare(worktree, contract)
         with sqlite3.connect(paths.database_path) as conn:
@@ -61,7 +61,7 @@ def test_payment_notification_outbox_exists(tmp_path: Path) -> None:
 def test_runtime_contract_routes_package_owned_state_and_disables_bots(
     tmp_path: Path,
 ) -> None:
-    worktree, contract, paths = _active(tmp_path, "PKG-RUNTIME-CONTRACT")
+    worktree, contract, paths = _active(tmp_path, _available_package_id("PKG-RUNTIME-CONTRACT"))
     try:
         _prepare(worktree, contract)
         runtime_path, runtime = _runtime(paths)
@@ -113,7 +113,7 @@ def test_runtime_contract_routes_package_owned_state_and_disables_bots(
 def test_runtime_contract_local_providers_and_credentials_are_non_production(
     tmp_path: Path,
 ) -> None:
-    worktree, contract, paths = _active(tmp_path, "PKG-RUNTIME-PROVIDERS")
+    worktree, contract, paths = _active(tmp_path, _available_package_id("PKG-RUNTIME-PROVIDERS"))
     try:
         _prepare(worktree, contract)
         _, runtime = _runtime(paths)
@@ -137,7 +137,7 @@ def test_runtime_contract_local_providers_and_credentials_are_non_production(
 def test_runtime_contract_never_copies_ambient_values_and_unisender_fails_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    worktree, contract, paths = _active(tmp_path, "PKG-RUNTIME-AMBIENT")
+    worktree, contract, paths = _active(tmp_path, _available_package_id("PKG-RUNTIME-AMBIENT"))
     try:
         marker = "ambient-value-must-not-serialize"
         ready.prepare_application_ready(
@@ -179,7 +179,7 @@ def test_planner_credentials_converge_into_exact_empty_child_environment(
     tmp_path: Path,
 ) -> None:
     assert set(CREDENTIAL_CLASSIFICATIONS) <= set(runtime_contract.EMPTY_CREDENTIAL_KEYS)
-    worktree, contract, paths = _active(tmp_path, "PKG-RUNTIME-CREDENTIAL-CONVERGENCE")
+    worktree, contract, paths = _active(tmp_path, _available_package_id("PKG-RUNTIME-CREDENTIAL-CONVERGENCE"))
     try:
         _prepare(worktree, contract)
         _, document = _runtime(paths)
@@ -194,7 +194,7 @@ def test_planner_credentials_converge_into_exact_empty_child_environment(
 def test_backend_dotenv_cannot_reintroduce_protected_or_external_values(
     tmp_path: Path,
 ) -> None:
-    worktree, contract, paths = _active(tmp_path, "PKG-RUNTIME-DOTENV-BLOCK")
+    worktree, contract, paths = _active(tmp_path, _available_package_id("PKG-RUNTIME-DOTENV-BLOCK"))
     try:
         _prepare(worktree, contract)
         _, document = _runtime(paths)
@@ -248,7 +248,7 @@ def test_backend_dotenv_cannot_reintroduce_protected_or_external_values(
 def test_runtime_alert_is_disabled_before_http_and_external_urls_are_loopback(
     tmp_path: Path,
 ) -> None:
-    worktree, contract, paths = _active(tmp_path, "PKG-RUNTIME-NETWORK-NEUTRAL")
+    worktree, contract, paths = _active(tmp_path, _available_package_id("PKG-RUNTIME-NETWORK-NEUTRAL"))
     try:
         _prepare(worktree, contract)
         _, document = _runtime(paths)
