@@ -1,0 +1,173 @@
+name: Docker Linux Ordinary Synthetic Runtime
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "tasks/DOCKER-LINUX-SYNTHETIC-RUNTIME-001.toml"
+      - ".github/workflows/docker-linux-synthetic-runtime.yml"
+      - "tools/docker_linux_runtime.py"
+      - "tools/synthetic_runtime_accept.py"
+      - "tools/synthetic_runtime_checks.py"
+      - "tools/test_docker_linux_runtime.py"
+      - "tools/test_synthetic_runtime_accept.py"
+      - "tools/test_synthetic_runtime_operations.py"
+      - "docs/docker-linux-synthetic-runtime.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-linux-runtime-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+  IZO_EXPECTED_HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  producer:
+    name: Build ordinary application ZIPs on empty Linux Engine
+    if: >-
+      github.repository == 'spikeal8-maker/IZO_ASA' &&
+      github.actor == 'spikeal8-maker' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    outputs:
+      receipt_sha256: ${{ steps.producer.outputs.receipt_sha256 }}
+    steps:
+      - name: Check out exact acceptance candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.IZO_EXPECTED_HEAD }}
+          path: candidate
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Check out unchanged format2 tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: b517feb365eb7dcb0047f92500d73d4e82a74bff
+          path: tooling
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Check out immutable source A
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 1030abdafc32a0f11fbc4a6593acd435eb1bbdfd
+          path: source-a
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Check out immutable source B
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: f51c316176bf2609ccb9271c00a358a7b1f02768
+          path: source-b
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Set up pinned Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version-file: candidate/.python-version
+      - name: Focused proof tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s candidate/tools -p 'test_synthetic_runtime*.py' -v
+          python -B -m unittest discover -s candidate/tools -p 'test_docker_linux_runtime.py' -v
+      - name: Build embedded ordinary-runtime A and B archives
+        id: producer
+        shell: bash
+        env:
+          IZO_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          IZO_RUNNER_OS: ${{ runner.os }}
+          IZO_RUNNER_ARCH: ${{ runner.arch }}
+          IZO_RUNNER_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          python -B candidate/tools/docker_linux_runtime.py producer \
+            --candidate "$GITHUB_WORKSPACE/candidate" --tooling "$GITHUB_WORKSPACE/tooling" \
+            --source-a "$GITHUB_WORKSPACE/source-a" --source-b "$GITHUB_WORKSPACE/source-b" \
+            --root "$RUNNER_TEMP/linux-runtime-transfer"
+          python -c 'import hashlib,os,pathlib; p=pathlib.Path(os.environ["RUNNER_TEMP"])/"linux-runtime-transfer/producer.json"; h=hashlib.sha256(p.read_bytes()).hexdigest(); pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a").write("receipt_sha256="+h+"\n")'
+      - name: Transfer this run's exact synthetic artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: linux-runtime-transfer-${{ env.IZO_EXPECTED_HEAD }}
+          path: |
+            ${{ runner.temp }}/linux-runtime-transfer/producer.json
+            ${{ runner.temp }}/linux-runtime-transfer/release-A.zip
+            ${{ runner.temp }}/linux-runtime-transfer/release-A.receipt.json
+            ${{ runner.temp }}/linux-runtime-transfer/release-B.zip
+            ${{ runner.temp }}/linux-runtime-transfer/release-B.receipt.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+      - name: Preserve selected producer evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: linux-runtime-producer-evidence-${{ env.IZO_EXPECTED_HEAD }}
+          path: ${{ runner.temp }}/linux-runtime-transfer/producer.json
+          if-no-files-found: error
+          retention-days: 30
+
+  receiver:
+    name: Fresh Linux ordinary nine-job lifecycle and owned cleanup
+    needs: producer
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact acceptance candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.IZO_EXPECTED_HEAD }}
+          path: candidate
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Check out unchanged format2 tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: b517feb365eb7dcb0047f92500d73d4e82a74bff
+          path: tooling
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Check out bounded source B HTTP client
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: f51c316176bf2609ccb9271c00a358a7b1f02768
+          path: source-b
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Set up pinned Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version-file: candidate/.python-version
+      - name: Download this run's exact artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: linux-runtime-transfer-${{ env.IZO_EXPECTED_HEAD }}
+          path: ${{ runner.temp }}/linux-runtime-transfer
+      - name: Execute ordinary runtime matrix and explicit owned cleanup
+        shell: bash
+        env:
+          IZO_PRODUCER_RECEIPT_SHA256: ${{ needs.producer.outputs.receipt_sha256 }}
+          IZO_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          IZO_RUNNER_OS: ${{ runner.os }}
+          IZO_RUNNER_ARCH: ${{ runner.arch }}
+          IZO_RUNNER_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          python -B candidate/tools/docker_linux_runtime.py receiver \
+            --candidate "$GITHUB_WORKSPACE/candidate" --tooling "$GITHUB_WORKSPACE/tooling" \
+            --source-b "$GITHUB_WORKSPACE/source-b" --transfer "$RUNNER_TEMP/linux-runtime-transfer" \
+            --root "$RUNNER_TEMP/Ordinary Linux runtime Тест" --receipt "$RUNNER_TEMP/linux-runtime-receiver.json"
+      - name: Preserve selected redacted receiver evidence only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: linux-runtime-receiver-evidence-${{ env.IZO_EXPECTED_HEAD }}
+          path: ${{ runner.temp }}/linux-runtime-receiver.json
+          if-no-files-found: error
+          retention-days: 30
