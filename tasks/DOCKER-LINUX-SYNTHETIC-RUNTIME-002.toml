@@ -1,0 +1,107 @@
+manifestVersion = 1
+id = "DOCKER-LINUX-SYNTHETIC-RUNTIME-002"
+baseSha = "57157b7278eb03f5e4d18b5e466f515ab608b65f"
+goal = "Prove the ordinary format-2 synthetic runtime on an independent fresh GitHub-hosted Linux receiver using the existing builder and frozen nine-job lifecycle controller."
+userOutcome = "Linux evidence covers ordinary uvicorn beyond the timed fixture deadline, real synthetic generation and persistence across lifecycle changes, plus explicit owned cleanup."
+beforeScenario = "The exact predecessor c5759ccdbcd0a561d87ef4f8cdf80aff146d9a37 is registered on808ec95d6eac2ee6c570684014c6e7a4b5cb83fa. A normal reviewed Runtime003 PR260 merge advances main; the predecessor base remains immutable and this continuation replays the same operational payload with its current task identity on the actual merged main."
+afterScenario = "A separate workflow builds ordinary A/B archives without acceptance overrides, transfers exact receipts and runs the unchanged eleven-stage nine-job matrix for420seconds on a distinct empty Linux Engine, then explicitly removes only verified owned runtime resources."
+nonGoals = [
+  "Change format-1 workflows/helpers/tests, the builder/installer, application, Compose, Dockerfiles or dependency pins",
+  "Claim Windows evidence as Linux evidence, or claim24hour uptime, cold restore, reboot recovery, ARM support or production readiness",
+  "Use real providers, secrets, historical data, privileged jobs, extra daemons or owner hardware for operational acceptance",
+  "Retain or upload synthetic credentials, cookies, raw account/session responses, databases or media",
+  "Prune resources, automatically retry failed matrices, clean ambiguous ownership or bypass any existing gate",
+  "Register before the normal exact-head Runtime003 PR260 merge is verified on actual current main, or before exact toolingb517 source CI and independent installer review pass",
+]
+declaredFiles = [
+  "tasks/DOCKER-LINUX-SYNTHETIC-RUNTIME-002.toml",
+  ".github/workflows/docker-linux-synthetic-runtime.yml",
+  "tools/docker_linux_runtime.py",
+  "tools/synthetic_runtime_accept.py",
+  "tools/synthetic_runtime_checks.py",
+  "tools/test_docker_linux_runtime.py",
+  "tools/test_synthetic_runtime_accept.py",
+  "tools/test_synthetic_runtime_operations.py",
+  "docs/docker-linux-synthetic-runtime.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+  "docs/NOW.md",
+  ".python-version",
+  ".github/workflows/ci.yml",
+  ".github/workflows/docker-linux-bundle-acceptance.yml",
+  "tools/docker_linux_bundle_build.py",
+  "tools/docker_linux_bundle_probe.py",
+  "tools/test_docker_linux_bundle_build.py",
+  "tools/test_docker_linux_bundle_probe.py",
+  "tools/docker_test_bundle.py",
+  "tools/docker_test_bundle_format.py",
+  "tools/docker_test_bundle_runtime.py",
+  "tools/agent_system/**",
+  "tools/agent.ps1",
+  "tools/verify.ps1",
+  "tasks/DOCKER-LINUX-BUNDLE-ACCEPTANCE-004.toml",
+  "tasks/DOCKER-SYNTHETIC-RUNTIME-002.toml",
+]
+protectedFilesTouched = [
+  ".github/workflows/docker-linux-synthetic-runtime.yml",
+]
+domain = "docker-delivery"
+riskClass = "release-ops"
+changeClass = "tooling"
+maxProductionFiles = 0
+maxChangedLines = 2400
+acceptance = [
+  "Before first registration, bind the accepted raw PR260 merge receipt for exact214cd2462296b3e40144f7fa7d780a3f18eafe61 on prior808ec95d6eac2ee6c570684014c6e7a4b5cb83fa to actual local and remote main. Require the predecessor clean at exactc5759ccdbcd0a561d87ef4f8cdf80aff146d9a37 with healthy canonical ownership, then canonically finish it before first start of this package. Keep exactb517feb365eb7dcb0047f92500d73d4e82a74bff tooling CI and independent review. Populate the deliberately absent first base outside the repository; never rewrite any registered base, manifest or registry.",
+  "The copied controller and checks remain exact normalized source013b4e10448d091a7e4817dde33c8002dd23437e58450826493972504e52f1e1 andd7a2f251194b2ef1e79776bd4325b126afa4d6e5cd0c725bf0111eb71b977663. Preserve all22inherited test functions/assertions while splitting whole classes below byte limits.",
+  "Both stock GitHub-hosted Ubuntu22.04 X64 jobs require a verified local root-owned Docker socket and measured ZERO images/containers/volumes before build or import. Preserve complete before evidence on refusal; never prune.",
+  "Recompute unchanged persistent Engine and boot-bound local-instance identities; producer and receiver boots/instances must differ, with the same exact candidate head/run/attempt and distinct job roles.",
+  "Build clean origin-pinned A1030abdafc32a0f11fbc4a6593acd435eb1bbdfd andBf51c316176bf2609ccb9271c00a358a7b1f02768 with pinned FROM digests and no cache; omit compose.acceptance.yml and call existing toolingb517feb365eb7dcb0047f92500d73d4e82a74bff with explicit synthetic-runtime profile.",
+  "Trusted producer job-output receipt pin binds profile2, controller/support hashes, both archive/build-receipt/manifest hashes, exact identities and empty-producer evidence before any receiver load/install.",
+  "Execute the frozen controller as a fresh direct Python CLI subprocess. Do not import its support into a wrapper that has preloaded the tools package; retain its Python/Docker-only installerchild PATH and Compose discovery.",
+  "Before controller/auth/runtime mutation require the entire1500second lifecycle deadline plus240second cleanup deadline and60second margin before UTC day rollover. Otherwise explicitly refuse without waiting/retrying/skipping; preserve daily-counter checks and record the bound as a fixture precondition, not an application limit.",
+  "Require all11stages, actual9completed owner jobs and9job-linked charges, private media/favorites/session preservation,420seconds sameStartedAt and a successful post-deadline generation, backend restart, coherent group stop/start and recreate, reinstall andB/A/B updates.",
+  "Use two synthetic accounts only in RAM with retainSyntheticCredentials=false. Upload an explicit allowlist of archives/build receipts and selected lifecycle/cleanup summaries; no private artifacts, cookies or session identifiers.",
+  "Only after an exact successful acceptance receipt invoke the existing separate cleanup CLI; preserve generation/CreatedAt/owner/claim and foreign-resource guards. Require zero containers/volumes afterward; report images retained on the ephemeral runner.",
+  "Timeout kills only the separately created local controller process group, does not call Docker stop/prune or retry, and leaves incomplete runtime state for ephemeral runner disposal without claiming owned cleanup passed.",
+  "Existing format1 source tests, actual negative controls, CI and policies remain unchanged. New focused tests, scope/file hygiene, independent review, exact-head CI and new actual Linux receipts are separate required gates before acceptance or merge.",
+]
+requiredEvidence = [
+  "User continuation goal and root authorization for isolated synthetic hosted-Linux acceptance; canonical first registration on then-current main after prerequisites",
+  "Exact copied controller/checks hashes, whole-class inherited AST preservation, new adapter failure controls and per-file budgets",
+  "Actual distinct producer/receiver hosted/boot/localEngine evidence, exact source/tooling/image/Compose identities, receiver before inventory and same artifact hashes",
+  "Actual11stage/9job ordinary lifecycle receipt with420second uptime and post-deadline generation, protected DB/media proofs and separate ownership-checked cleanup",
+  "Explicit uploaded-file allowlist, redaction regression and absence of a private credential artifact",
+  "Current exact-head source CI and isolated workflow results; old format1/Windows results retain their original scope and pins",
+]
+targetedTests = [
+  "tools/test_docker_linux_runtime.py",
+  "tools/test_synthetic_runtime_accept.py",
+  "tools/test_synthetic_runtime_operations.py",
+]
+fileGrowthExpectations = [
+  "Each handwritten Python module below500lines; each test below500lines and24KiB; documentation below200lines and12KiB.",
+  "Reuse the existing builder/installer and frozen operational controller. No second installer, production launcher or generic remote executor.",
+  "Archives, runtime data, receipts, logs and local reference copies stay outside Git.",
+]
+forbiddenOperations = [
+  "direct-main",
+  "production-deploy",
+  "release-publish",
+  "gate-disable",
+  "dependency-change",
+  "owner-host-runtime-or-settings-mutation",
+  "historical-data",
+  "real-provider-call",
+  "secret-use",
+  "global-prune",
+  "extra-docker-daemon",
+  "foreign-resource-removal",
+  "installer-reimplementation",
+]
+rollbackBoundary = "Revert only these nine new files; preserve existing v1 proof and all predecessor evidence. Canonical repository authoring/focused tests on D2 remain allowed. Operational mutation/owned cleanup is confined to fresh GitHub-hosted synthetic namespaces; failed ownership or partial runs retain evidence and never trigger broad cleanup."
