@@ -1,0 +1,100 @@
+manifestVersion = 1
+id = "DOCKER-SYNTHETIC-RUNTIME-001"
+baseSha = "0d134aa20cd0a1d1ca6828622fe6a435c74c415b"
+goal = "Carry the reviewed existing installer payload from 2fc621342721b1716e2ed898e24502115b71cb53 onto main 0d, then extend that same builder, validator and installer with an explicit unbounded synthetic-runtime profile while preserving format-1 acceptance."
+userOutcome = "An owner can install the ordinary application from the same Git-free delivery mechanism, keep it running beyond the acceptance fixture deadline, and verify synthetic application data across container lifecycle operations."
+beforeScenario = "Main 0d has no bundle installer; the reviewed unmerged task251 payload exists at exact 2fc. Its format-1 delivery requires a five-service fixture whose backend exits after 300 seconds, while the ordinary application image already runs uvicorn."
+afterScenario = "One ten-path continuation includes the reviewed installer implementation, all predecessor tests/docs and the new profile, without the predecessor task manifest. Format-1 acceptance remains compatible; explicit format-2 synthetic-runtime has three services, two data volumes, ordinary uvicorn, managed identity and profile-bound receipts."
+nonGoals = [
+  "A third installer or a new application launcher",
+  "Merging predecessor PR251, changing its registered contract/budget or copying its task manifest into this scope",
+  "Production deployment, real provider/model execution, credentials or historical data",
+  "Application, schema, worker, authentication, billing or provider implementation changes",
+  "Changing Docker daemon, host networking, Windows settings or historical preview resources",
+  "Automatic restart-policy selection, host reboot proof or production backup/rollback engine",
+  "Publishing or executing this draft on D2 before root registration, review and approval",
+]
+declaredFiles = [
+  "tasks/DOCKER-SYNTHETIC-RUNTIME-001.toml",
+  "tools/docker_test_bundle.py",
+  "tools/docker_test_bundle_format.py",
+  "tools/docker_test_bundle_runtime.py",
+  "tools/test_docker_test_bundle_build.py",
+  "tools/test_docker_test_bundle_format.py",
+  "tools/test_docker_test_bundle_runtime.py",
+  "tools/test_docker_synthetic_runtime.py",
+  "docs/docker-test-bundle.md",
+  "docs/docker-synthetic-runtime.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+  ".github/**",
+  "tools/agent_system/**",
+  "tools/agent.ps1",
+  "tools/verify.ps1",
+  "docs/NOW.md",
+  "tools/docker_shadow.py",
+  "tools/docker_delivery_plan.py",
+  "tools/docker_delivery_probe.py",
+]
+protectedFilesTouched = [
+]
+domain = "docker-delivery"
+riskClass = "release-ops"
+changeClass = "tooling"
+maxProductionFiles = 0
+maxChangedLines = 2600
+acceptance = [
+  "Review this unregistered ten-path continuation against actual main 0d; root canonically finishes task251 before registering/starting this task. No registered predecessor budget is changed.",
+  "Carry all seven non-manifest task251 payload files from exact 2fc, preserve its format tests/docs, and report inherited payload and incremental profile changes separately.",
+  "Existing format-1 acceptance build/verify/install behavior and its five-service fixture command remain valid; a runtime profile cannot be smuggled into format 1.",
+  "Format 2 requires the explicit synthetic-runtime profile, exactly three services/two data volumes and ordinary pinned uvicorn; unknown versions/profiles and fixture commands fail closed.",
+  "Existing archive/path/hash/image/release identity, non-root/capability, loopback/network, provider/credential and namespace protections remain enforced.",
+  "The profile is bound to persistent owner and active receipts; copying state or changing profile during repeat/update is rejected before runtime changes.",
+  "Idle checks fail closed on NULL/unknown job states, pending video deletion and preparing video publications before a code update.",
+  "Focused deterministic tests prove v1 compatibility, v2 validation/build behavior, profile binding, cross-profile refusal and quiescence refusals without Docker/provider access.",
+  "Root-owned isolated operational acceptance must separately prove ordinary application login/generation/accounting, runtime beyond 300 seconds, namespace-correct restart/recreate and synthetic DB/media/session preservation before claiming runtime functionality.",
+  "A longer bounded synthetic observation and cold backup/restore matrix remain explicit operational gates; a passing immediate health check is not sustained uptime or production approval.",
+  "Normal exact-head source CI, scope/file hygiene and independent review remain required before merge or accepting the package; draft PR publication to run CI follows canonical registration and focused review.",
+]
+requiredEvidence = [
+  "User continuation goal and root authorization for local authoring plus isolated synthetic tests; no author D2 operations",
+  "Exact ordinary source B command, mock-fallback, role and fixture-deadline evidence; unresolved application capabilities stay explicitly unverified",
+  "Exact 2fc Git blob hashes for predecessor payload; actual-main ten-path diff, inherited 1799-line predecessor including its separately excluded 90-line task manifest, original incremental 681-line profile diff, current focused tests/scope/file budgets/review",
+  "Before/after profile-specific manifest/Compose/owner/active behavior and negative controls",
+  "Later root-run acceptance records exact tooling/application/image identities, owned synthetic data and unchanged foreign resources",
+]
+targetedTests = [
+  "tools/test_docker_test_bundle_format.py",
+  "tools/test_docker_test_bundle_build.py",
+  "tools/test_docker_test_bundle_runtime.py",
+  "tools/test_docker_synthetic_runtime.py",
+]
+fileGrowthExpectations = [
+  "Each handwritten Python module remains below 500 lines; reuse the existing installer rather than adding another runtime implementation.",
+  "Each test file remains below 500 lines and 24 KiB; each document remains below 200 lines and 12 KiB.",
+  "Generated archives, runtime receipts, synthetic databases/media and operational evidence remain outside Git.",
+]
+forbiddenOperations = [
+  "direct-main",
+  "production-deploy",
+  "release-publish",
+  "merge-before-gates",
+  "historical-data-mutation",
+  "foreign-resource-removal",
+  "global-prune",
+  "real-provider-call",
+  "secret-use",
+  "host-network-change",
+  "docker-daemon-change",
+  "windows-service-change",
+  "gate-disable",
+  "dependency-change",
+  "installer-reimplementation",
+]
+rollbackBoundary = "Revert only the ten declared files to main 0d; preserve task251 history and the original unregistered draft/report trace. Source rollback performs no Docker or data mutation. Later root-authorized tests/cleanup are confined to fresh verified synthetic namespaces and volume identities; historical preview, backups and foreign resources remain outside the operation."
