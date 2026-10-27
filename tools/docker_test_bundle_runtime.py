@@ -11,6 +11,8 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, build_opener
@@ -102,6 +104,56 @@ def owned_resources(docker: Docker, m: dict) -> dict:
                     and labels.get("com.docker.compose.project") == project, "FOREIGN_RESOURCE")
         resources[kind + "s"] = observed
     return resources
+
+
+def claim_volume(docker: Docker, name: str, labels: dict, code: str) -> None:
+    # Engine serializes create by volume name; reuse preserves the first labels.
+    docker.run("volume", "create", "--driver", "local",
+               *[arg for key, value in labels.items() for arg in ("--label", key + "=" + value)], name)
+    item = json.loads(docker.run("volume", "inspect", name))[0]
+    require(item["Name"] == name and item["Driver"] == "local" and item["Scope"] == "local"
+            and not item.get("Options") and item.get("Labels") == labels, code)
+
+
+@contextmanager
+def engine_lock(docker: Docker, owner: dict):
+    name = owner["project"] + "-operation-lock"
+    labels = {"io.izo.bundle": OWNER, "io.izo.bundle.nonce": uuid.uuid4().hex}
+    require(docker.run("volume", "inspect", name, optional=True) is None, "INSTALLATION_BUSY")
+    claim_volume(docker, name, labels, "INSTALLATION_BUSY")
+    try:
+        claim_volume(docker, owner["project"] + "-installation", {
+            "io.izo.bundle": OWNER, "io.izo.bundle.installation": owner["id"],
+            "io.izo.bundle.state": owner["state"], "io.izo.bundle.engine": owner["engine"],
+        }, "INSTALLATION_OWNER_MISMATCH")
+        yield
+    finally:
+        item = json.loads(docker.run("volume", "inspect", name))[0]
+        require(item.get("Labels") == labels, "LOCK_OWNER_MISMATCH")
+        docker.run("volume", "rm", name)
+
+
+def volume_identity(resources: dict, m: dict, owner: dict) -> dict:
+    rows = resources["volumes"]
+    require({v["Name"] for v in rows} == {m["project"] + "_" + v for v in VOLUMES},
+            "PERSISTENT_VOLUME_MISSING")
+    result = {}
+    for item in rows:
+        labels = item.get("Labels") or {}
+        generation = labels.get("io.izo.bundle.generation", "")
+        require(labels.get("io.izo.bundle.installation") == owner["id"]
+                and re.fullmatch(r"[0-9a-f]{32}", generation) is not None
+                and item.get("Driver") == item.get("Scope") == "local"
+                and isinstance(item.get("CreatedAt"), str) and item["CreatedAt"], "PERSISTENT_VOLUME_DRIFT")
+        result[item["Name"]] = {"generation": generation, "created": item["CreatedAt"]}
+    return result
+
+
+def check_volumes(resources: dict, previous: dict | None, m: dict, owner: dict) -> None:
+    if previous:
+        require(volume_identity(resources, m, owner) == previous.get("volumes"), "PERSISTENT_VOLUME_DRIFT")
+    else:
+        require(not any(resources.values()), "UNRECEIPTED_EXISTING_RESOURCES")
 
 
 def ensure_images(docker: Docker, root: Path, m: dict) -> None:
@@ -224,71 +276,94 @@ def install(bundle: Path, pin: str, state: Path, docker: Docker, *, allow_update
         raise BundleError("INSTALLATION_BUSY") from None
     os.close(fd)
     try:
-        owner = {"project": m["project"], "engine": fingerprint, "test_only": True}
+        expected = {"project": m["project"], "engine": fingerprint, "test_only": True,
+                    "state": hashlib.sha256(os.path.normcase(str(state)).encode()).hexdigest()}
         if (state / "owner.json").exists():
-            require(load_json(state / "owner.json") == owner, "INSTALLATION_OWNER_MISMATCH")
+            owner = load_json(state / "owner.json")
+            require({k: v for k, v in owner.items() if k != "id"} == expected
+                    and re.fullmatch(r"[0-9a-f]{32}", owner.get("id", "")) is not None,
+                    "INSTALLATION_OWNER_MISMATCH")
         else:
             require(set(p.name for p in state.iterdir()) == {"operation.lock"}
                     and not any(before.values()), "INSTALLATION_NOT_FRESH")
+            owner = {**expected, "id": uuid.uuid4().hex}
             atomic_json(state / "owner.json", owner)
         previous = load_json(state / "active.json") if (state / "active.json").is_file() else None
-        if previous:
-            old_root = state / "releases" / previous["manifest_sha256"]
-            old = verify(old_root, previous["manifest_sha256"])
-            require(old["project"] == m["project"] and old["schema"] == m["schema"],
-                    "UPDATE_SCHEMA_UNSUPPORTED")
-            changed = old["source_sha"] != m["source_sha"] or old["images"] != m["images"]
-            require(not changed or allow_update, "TEST_CODE_UPDATE_NOT_AUTHORIZED")
-            for item in before["containers"]:
-                role = item["Config"]["Labels"]["com.docker.compose.service"]
-                require(item["Image"] == old["images"][role], "ACTIVE_IMAGE_DRIFT")
-            if changed:
-                backend = [x for x in before["containers"]
-                           if x["Config"]["Labels"]["com.docker.compose.service"] == "backend"]
-                require(len(backend) == 1 and backend[0]["State"]["Running"],
-                        "UPDATE_REQUIRES_RUNNING_PREVIOUS_TEST_RELEASE")
-                code = ("import sqlite3,json; d=sqlite3.connect('file:/home/izo/data/app.sqlite3?mode=ro',uri=True); "
-                        "print(json.dumps({'schema':d.execute('PRAGMA user_version').fetchone()[0],"
-                        "'busy':d.execute(\"SELECT count(*) FROM jobs WHERE status NOT IN "
-                        "('completed','failed','cancelled')\").fetchone()[0]}))")
-                proof = json.loads(docker.run("exec", backend[0]["Id"], "python", "-c", code))
-                require(proof == {"schema": 7, "busy": 0}, "UPDATE_TEST_DATA_NOT_QUIESCENT")
-        else:
-            require(not any(before.values()), "UNRECEIPTED_EXISTING_RESOURCES")
-        releases = state / "releases"
-        releases.mkdir(exist_ok=True)
-        target = releases / pin
-        if not target.exists():
-            with tempfile.TemporaryDirectory(prefix=".prepare-", dir=releases) as tmp:
-                staging = Path(tmp) / "bundle"
-                shutil.copytree(bundle, staging, symlinks=True)
-                verify(staging, pin)
-                staging.rename(target)
-        verify(target, pin)
-        ensure_images(docker, target, m)
-        owned_resources(docker, m)
-        docker.compose(target, m, "config", "--quiet")
-        stage = "fresh-schema" if previous is None else "compose-up"
-        try:
-            if previous is None:
-                initialize_empty_test_database(docker, target, m)
-            stage = "compose-up"
-            docker.compose(target, m, "up", "-d", "--wait", "--wait-timeout", "180", "--no-build", "--pull", "never")
-            stage = "readiness"
-            result = wait_health(docker, target, m)
-        except Exception as error:
-            reason = str(error) if isinstance(error, BundleError) else type(error).__name__
-            if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{1,100}", reason) is None:
-                reason = "INSTALL_STAGE_FAILED"
-            atomic_json(state / "last-failure.json", {"status": "FAILED_TEST_INSTALL", "candidate": pin,
-                        "previous": previous, "stage": stage, "reason": reason,
-                        "data_restored": False, "manual_recovery_required": True})
-            raise BundleError("TEST_INSTALL_FAILED_MANUAL_RECOVERY_REQUIRED") from None
-        receipt = {**result, "manifest_sha256": pin, "project": m["project"], "engine": fingerprint}
-        atomic_json(state / "active.json", receipt)
-        return receipt
+        check_volumes(before, previous, m, owner)
+        with engine_lock(docker, owner):
+            return install_locked(bundle, pin, state, docker, m, owner, previous, allow_update)
     finally:
         lock.unlink()
+
+
+def install_locked(bundle: Path, pin: str, state: Path, docker: Docker, m: dict,
+                   owner: dict, previous: dict | None, allow_update: bool) -> dict:
+    before = owned_resources(docker, m)
+    check_volumes(before, previous, m, owner)
+    if previous:
+        old_root = state / "releases" / previous["manifest_sha256"]
+        old = verify(old_root, previous["manifest_sha256"])
+        require(old["project"] == m["project"] and old["schema"] == m["schema"],
+                "UPDATE_SCHEMA_UNSUPPORTED")
+        changed = old["source_sha"] != m["source_sha"] or old["images"] != m["images"]
+        require(not changed or allow_update, "TEST_CODE_UPDATE_NOT_AUTHORIZED")
+        for item in before["containers"]:
+            role = item["Config"]["Labels"]["com.docker.compose.service"]
+            require(item["Image"] == old["images"][role], "ACTIVE_IMAGE_DRIFT")
+        if changed:
+            backend = [x for x in before["containers"]
+                       if x["Config"]["Labels"]["com.docker.compose.service"] == "backend"]
+            require(len(backend) == 1 and backend[0]["State"]["Running"],
+                    "UPDATE_REQUIRES_RUNNING_PREVIOUS_TEST_RELEASE")
+            code = ("import sqlite3,json; d=sqlite3.connect('file:/home/izo/data/app.sqlite3?mode=ro',uri=True); "
+                    "print(json.dumps({'schema':d.execute('PRAGMA user_version').fetchone()[0],"
+                    "'busy':d.execute(\"SELECT count(*) FROM jobs WHERE status NOT IN "
+                    "('completed','failed','cancelled')\").fetchone()[0]}))")
+            proof = json.loads(docker.run("exec", backend[0]["Id"], "python", "-c", code))
+            require(proof == {"schema": 7, "busy": 0}, "UPDATE_TEST_DATA_NOT_QUIESCENT")
+    releases = state / "releases"
+    releases.mkdir(exist_ok=True)
+    target = releases / pin
+    if not target.exists():
+        with tempfile.TemporaryDirectory(prefix=".prepare-", dir=releases) as tmp:
+            staging = Path(tmp) / "bundle"
+            shutil.copytree(bundle, staging, symlinks=True)
+            verify(staging, pin)
+            staging.rename(target)
+    verify(target, pin)
+    ensure_images(docker, target, m)
+    check_volumes(owned_resources(docker, m), previous, m, owner)
+    docker.compose(target, m, "config", "--quiet")
+    stage = "fresh-schema" if previous is None else "compose-up"
+    try:
+        if previous is None:
+            for volume in sorted(VOLUMES):
+                claim_volume(docker, m["project"] + "_" + volume, {
+                    "io.izo.bundle": OWNER, "com.docker.compose.project": m["project"],
+                    "com.docker.compose.volume": volume, "io.izo.bundle.installation": owner["id"],
+                    "io.izo.bundle.generation": uuid.uuid4().hex,
+                }, "PERSISTENT_VOLUME_DRIFT")
+        volumes = volume_identity(owned_resources(docker, m), m, owner)
+        if previous is None:
+            initialize_empty_test_database(docker, target, m)
+        stage = "compose-up"
+        docker.compose(target, m, "up", "-d", "--wait", "--wait-timeout", "180", "--no-build", "--pull", "never")
+        stage = "readiness"
+        result = wait_health(docker, target, m)
+        require(volume_identity(owned_resources(docker, m), m, owner) == volumes,
+                "PERSISTENT_VOLUME_DRIFT")
+    except Exception as error:
+        reason = str(error) if isinstance(error, BundleError) else type(error).__name__
+        if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{1,100}", reason) is None:
+            reason = "INSTALL_STAGE_FAILED"
+        atomic_json(state / "last-failure.json", {"status": "FAILED_TEST_INSTALL", "candidate": pin,
+                    "previous": previous, "stage": stage, "reason": reason,
+                    "data_restored": False, "manual_recovery_required": True})
+        raise BundleError("TEST_INSTALL_FAILED_MANUAL_RECOVERY_REQUIRED") from None
+    receipt = {**result, "manifest_sha256": pin, "project": m["project"],
+               "engine": owner["engine"], "volumes": volumes}
+    atomic_json(state / "active.json", receipt)
+    return receipt
 
 
 class SafeParser(argparse.ArgumentParser):

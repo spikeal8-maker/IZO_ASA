@@ -73,6 +73,7 @@ def safe_name(name: str) -> str:
 
 
 def plain_path(path: Path) -> Path:
+    require(".." not in path.parts, "PARENT_PATH_COMPONENT_FORBIDDEN")
     require(not any(p.is_symlink() or (hasattr(p, "is_junction") and p.is_junction())
                     for p in (path, *path.parents)), "SYMLINK_PATH_FORBIDDEN")
     require("$" not in str(path), "INTERPOLATED_PATH_FORBIDDEN")

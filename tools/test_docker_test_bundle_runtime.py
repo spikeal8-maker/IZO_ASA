@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,23 @@ class FakeDocker:
     def __init__(self):
         self.calls = []
         self.fail_up = False
+        self.volumes, self.containers, self.mutations = {}, [], []
+        self.proof = {"schema": 7, "busy": 0}
+
+    def run(self, *args, **kwargs):
+        if args[0] == "exec": return json.dumps(self.proof)
+        name = args[-1]
+        if args[:2] == ("volume", "inspect"):
+            return json.dumps([self.volumes[name]]) if name in self.volumes else None
+        self.mutations.append(args)
+        if args[:2] == ("volume", "rm"):
+            del self.volumes[name]
+        else:
+            assert args[:2] == ("volume", "create")
+            labels = dict(args[i + 1].split("=", 1) for i, arg in enumerate(args) if arg == "--label")
+            self.volumes.setdefault(name, {"Name": name, "Driver": "local", "Scope": "local",
+                                          "CreatedAt": "2026-10-27T10:00:00Z", "Labels": labels})
+        return name
 
     def engine(self):
         self.calls.append("engine")
@@ -27,11 +45,19 @@ class FakeDocker:
         self.calls.append((str(root), args))
         if self.fail_up and args[0] == "up":
             raise BundleError("DOCKER_OPERATION_FAILED")
+        if args[0] == "up":
+            for name in runtime.VOLUMES:
+                full = manifest["project"] + "_" + name
+                self.volumes.setdefault(full, {"Name": full, "Driver": "local", "Scope": "local",
+                    "CreatedAt": "2026-10-27T10:00:00Z", "Labels": {"io.izo.bundle": OWNER,
+                    "com.docker.compose.project": manifest["project"], "com.docker.compose.volume": name}})
         return ""
 
 
 def fake_runtime(monkeypatch):
-    monkeypatch.setattr(runtime, "owned_resources", lambda d, m: {"containers": [], "volumes": [], "networks": []})
+    monkeypatch.setattr(runtime, "owned_resources", lambda d, m: {
+        "containers": d.containers, "networks": [], "volumes": [v for v in d.volumes.values()
+        if v["Labels"].get("com.docker.compose.project") == m["project"]]})
     monkeypatch.setattr(runtime, "ensure_images", lambda *args: None)
     monkeypatch.setattr(runtime, "initialize_empty_test_database", lambda *args: None)
     monkeypatch.setattr(runtime, "health", lambda d, r, m: {
@@ -71,7 +97,7 @@ def test_code_update_requires_explicit_authorization(tmp_path, monkeypatch):
     assert not (state / "operation.lock").exists()
 
 
-def test_foreign_owner_lock_and_failed_install_keep_receipts(tmp_path, monkeypatch):
+def test_foreign_operation_lock_is_preserved(tmp_path, monkeypatch):
     fake_runtime(monkeypatch)
     root, pin, _ = make_bundle(tmp_path / "source")
     state = tmp_path / "state"
@@ -80,14 +106,6 @@ def test_foreign_owner_lock_and_failed_install_keep_receipts(tmp_path, monkeypat
     with pytest.raises(BundleError, match="INSTALLATION_BUSY"):
         runtime.install(root, pin, state, FakeDocker())
     assert (state / "operation.lock").read_text() == "another-writer"
-    (state / "operation.lock").unlink()
-    docker = FakeDocker()
-    docker.fail_up = True
-    with pytest.raises(BundleError, match="TEST_INSTALL_FAILED_MANUAL_RECOVERY_REQUIRED"):
-        runtime.install(root, pin, state, docker)
-    assert not (state / "active.json").exists()
-    assert json.loads((state / "last-failure.json").read_text())["data_restored"] is False
-    assert not (state / "operation.lock").exists()
 
 
 def test_bad_pin_causes_no_docker_call(tmp_path):
@@ -175,21 +193,24 @@ def test_update_requires_running_previous_and_no_unfinished_jobs(tmp_path, monke
         runtime.install(second, b, state, docker, allow_update=True)
     backend = {"Id": "a" * 64, "Image": m["images"]["backend"], "State": {"Running": True},
                "Config": {"Labels": {"com.docker.compose.service": "backend"}}}
-    monkeypatch.setattr(runtime, "owned_resources", lambda d, manifest: {"containers": [backend], "volumes": [], "networks": []})
-    docker.run = lambda *args: json.dumps({"schema": 7, "busy": 1})
+    docker.containers, docker.proof = [backend], {"schema": 7, "busy": 1}
     with pytest.raises(BundleError, match="UPDATE_TEST_DATA_NOT_QUIESCENT"):
         runtime.install(second, b, state, docker, allow_update=True)
     assert json.loads((state / "active.json").read_text())["manifest_sha256"] == a
-    docker.run = lambda *args: json.dumps({"schema": 7, "busy": 0})
+    docker.proof = {"schema": 7, "busy": 0}
     assert runtime.install(second, b, state, docker, allow_update=True)["manifest_sha256"] == b
 
 
-def test_install_state_inside_bundle_rejected(tmp_path):
+@pytest.mark.parametrize("alias", [False, True])
+def test_install_state_inside_bundle_rejected(tmp_path, monkeypatch, alias):
     root, pin, _ = make_bundle(tmp_path / "source")
     docker = FakeDocker()
-    with pytest.raises(BundleError, match="STATE_INSIDE_BUNDLE_FORBIDDEN"):
-        runtime.install(root, pin, root / "state", docker)
+    monkeypatch.setattr(runtime.shutil, "copytree", lambda *a, **k: pytest.fail("nested copy attempted"))
+    bundle = root / ".." / root.name if alias else root
+    with pytest.raises(BundleError, match="STATE_INSIDE_BUNDLE_FORBIDDEN|PARENT_PATH_COMPONENT_FORBIDDEN"):
+        runtime.install(bundle, pin, root / "state", docker)
     assert docker.calls == []
+    assert not (root / "state").exists()
 
 
 def test_only_first_install_bootstraps_canonical_empty_database(tmp_path, monkeypatch):
@@ -278,16 +299,19 @@ def test_wait_http_status_policy(status, allowed, monkeypatch, tmp_path):
     assert body.closed
 
 
-def test_failure_receipt_reports_stage_and_safe_reason(tmp_path, monkeypatch):
+@pytest.mark.parametrize("stage,reason", [("compose-up", "DOCKER_OPERATION_FAILED"),
+                                         ("readiness", "RUNTIME_VERSION_MISMATCH")])
+def test_failure_receipt_reports_stage_and_safe_reason(tmp_path, monkeypatch, stage, reason):
     fake_runtime(monkeypatch)
     root, pin, _ = make_bundle(tmp_path / 'source')
     state = tmp_path / 'state'
     def bad_identity(*args): raise BundleError('RUNTIME_VERSION_MISMATCH')
     monkeypatch.setattr(runtime, 'health', bad_identity)
+    docker = FakeDocker(); docker.fail_up = stage == "compose-up"
     with pytest.raises(BundleError, match='TEST_INSTALL_FAILED_MANUAL_RECOVERY_REQUIRED'):
-        runtime.install(root, pin, state, FakeDocker())
+        runtime.install(root, pin, state, docker)
     failure = json.loads((state / 'last-failure.json').read_text())
-    assert failure['stage'] == 'readiness' and failure['reason'] == 'RUNTIME_VERSION_MISMATCH'
+    assert failure['stage'] == stage and failure['reason'] == reason
     assert failure['manual_recovery_required'] is True and failure['data_restored'] is False
     assert not (state / 'active.json').exists()
     assert not (state / 'operation.lock').exists()
@@ -320,3 +344,100 @@ def test_windows_socket_provider_failure_is_not_a_transient_startup(monkeypatch,
     monkeypatch.setattr(runtime.time, 'sleep', lambda value: pytest.fail('permanent environment error'))
     with pytest.raises(BundleError, match='HEALTH_NETWORK_INITIALIZATION_FAILED'):
         runtime.wait_health(FakeDocker(), tmp_path, {})
+
+
+@pytest.mark.parametrize("change", ["missing", "generation", "created", "legacy"])
+def test_persistent_volume_drift_stops_before_mutations(tmp_path, monkeypatch, change):
+    fake_runtime(monkeypatch)
+    root, pin, m = make_bundle(tmp_path / "bundle")
+    state, docker = tmp_path / "state", FakeDocker()
+    runtime.install(root, pin, state, docker)
+    volume = docker.volumes[m["project"] + "_media-data"]
+    if change == "missing": del docker.volumes[volume["Name"]]
+    elif change == "generation": volume["Labels"]["io.izo.bundle.generation"] = "e" * 32
+    elif change == "created": volume["CreatedAt"] = "2026-10-27T10:00:01Z"
+    else:
+        receipt = json.loads((state / "active.json").read_text()); receipt.pop("volumes", None)
+        (state / "active.json").write_bytes(json_bytes(receipt))
+    previous, mutations = (state / "active.json").read_bytes(), list(docker.mutations)
+    with pytest.raises(BundleError, match="PERSISTENT_VOLUME_MISSING|PERSISTENT_VOLUME_DRIFT"):
+        runtime.install(root, pin, state, docker)
+    assert docker.mutations == mutations and (state / "active.json").read_bytes() == previous
+
+
+def test_copied_state_cannot_adopt_an_installation(tmp_path, monkeypatch):
+    import shutil
+    fake_runtime(monkeypatch)
+    root, pin, _ = make_bundle(tmp_path / "bundle")
+    state, docker = tmp_path / "state", FakeDocker()
+    runtime.install(root, pin, state, docker)
+    shutil.copytree(state, tmp_path / "copy")
+    mutations = list(docker.mutations)
+    with pytest.raises(BundleError, match="INSTALLATION_OWNER_MISMATCH"):
+        runtime.install(root, pin, tmp_path / "copy", docker)
+    assert docker.mutations == mutations
+
+
+LOCK_CLIENT = r'''
+import hashlib,json,sqlite3,sys
+from pathlib import Path
+from tools import docker_test_bundle_runtime as r
+class Engine:
+    def engine(self): return 'same-engine'
+    def compose(self,*args): return ''
+    def inventory(self,m):
+        with sqlite3.connect(sys.argv[1],timeout=3) as db:
+            db.execute('CREATE TABLE IF NOT EXISTS volumes(name TEXT PRIMARY KEY,labels TEXT)')
+            names=[row[0] for row in db.execute('SELECT name FROM volumes')]
+        values=[json.loads(self.run('volume','inspect',name))[0] for name in names]
+        return {'containers':[],'networks':[],'volumes':[v for v in values if v['Labels'].get('com.docker.compose.project')==m['project']]}
+    def run(self,*args,**kwargs):
+        with sqlite3.connect(sys.argv[1],timeout=3) as db:
+            db.execute('CREATE TABLE IF NOT EXISTS volumes(name TEXT PRIMARY KEY,labels TEXT)')
+            name=args[-1]
+            if args[1]=='create':
+                labels=dict(args[i+1].split('=',1) for i,a in enumerate(args) if a=='--label')
+                db.execute('INSERT OR IGNORE INTO volumes VALUES(?,?)',(name,json.dumps(labels)))
+            elif args[1]=='rm': db.execute('DELETE FROM volumes WHERE name=?',(name,))
+            else:
+                row=db.execute('SELECT labels FROM volumes WHERE name=?',(name,)).fetchone()
+                return json.dumps([{'Name':name,'Driver':'local','Scope':'local','CreatedAt':'2026-10-27T10:00:00Z','Labels':json.loads(row[0])}]) if row else None
+            return name
+def pause(*args):
+    print('ACQUIRED',flush=True)
+    sys.stdin.readline()
+r.owned_resources=lambda d,m:d.inventory(m)
+r.ensure_images=pause
+r.initialize_empty_test_database=lambda *args:None
+r.wait_health=lambda d,p,m:{'status':'TEST_RUNTIME_VERIFIED'}
+root=Path(sys.argv[2]); pin=hashlib.sha256((root/'bundle.json').read_bytes()).hexdigest()
+try:
+    r.install(root,pin,Path(sys.argv[3]),Engine())
+except r.BundleError as e: print(str(e),flush=True)
+'''
+
+
+def test_engine_lock_cross_process_binding_and_stale_refusal(tmp_path):
+    import sqlite3
+    root, _, m = make_bundle(tmp_path / "bundle")
+    args = [sys.executable, "-c", LOCK_CLIENT, str(tmp_path / "daemon.sqlite3"), str(root)]
+    paths = {key: str(tmp_path / key) for key in ("state-a", "state-b")}
+    holder = subprocess.Popen(args + [paths["state-a"]], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    def attempt(state):
+        return subprocess.run(args + [paths[state]], input="\n", capture_output=True, text=True,
+                              timeout=8, check=True).stdout.strip()
+    try:
+        assert holder.stdout.readline().strip() == "ACQUIRED"
+        assert attempt("state-b") == "INSTALLATION_BUSY"
+        holder.communicate("\n", timeout=8)
+        assert attempt("state-a") == "ACQUIRED"
+        holder = subprocess.Popen(args + [paths["state-a"]], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        assert holder.stdout.readline().strip() == "ACQUIRED"
+        holder.kill(); holder.communicate(timeout=8)
+        assert attempt("state-a") == "INSTALLATION_BUSY"
+        with sqlite3.connect(tmp_path / "daemon.sqlite3") as db:
+            db.execute("DELETE FROM volumes WHERE name != ?", (m["project"] + "-installation",))
+        assert attempt("state-b") == "INSTALLATION_OWNER_MISMATCH"
+    finally:
+        if holder.poll() is None: holder.kill()
+        holder.communicate(timeout=8)

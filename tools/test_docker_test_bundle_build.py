@@ -27,7 +27,8 @@ def test_persistent_config_removes_build_and_uses_relative_readonly_assets(tmp_p
     validate_compose(result, m)
 
 
-def test_existing_release_identity_contract_validates_real_assets(tmp_path):
+@pytest.mark.parametrize("target_hash", [False, True])
+def test_existing_release_identity_uses_host_or_exact_target_assets(tmp_path, target_hash):
     source = tmp_path / "source"
     (source / "backend/app").mkdir(parents=True)
     (source / "ops/docker/dev").mkdir(parents=True)
@@ -36,11 +37,14 @@ def test_existing_release_identity_contract_validates_real_assets(tmp_path):
     (source / "ops/docker/dev/Dockerfile.web").write_text("FROM node:24.14.1-bookworm-slim@sha256:test\n")
     assets = tmp_path / "assets"
     assets.mkdir()
-    (assets / "index.html").write_text("<p>controlled asset</p>")
+    for name in (("AZ.js", "az.js.other", "aZ.js.other") if target_hash else ("index.html",)):
+        (assets / name).write_text("controlled asset", encoding="utf-8")
+    evidence = (3, "sha256:" + "d" * 64) if target_hash else None
     result = build.release_metadata(source, assets, "a" * 40, "a" * 12 + "-20261027130000",
-                                    "2026-10-27T13:00:00+00:00", "3.11.9")
-    assert result["frontend_asset_count"] == 1
+                                    "2026-10-27T13:00:00+00:00", "3.11.9", target_assets=evidence)
+    assert result["frontend_asset_count"] == (3 if target_hash else 1)
     assert result["frontend_asset_manifest_hash"].startswith("sha256:")
+    if target_hash: assert result["frontend_asset_manifest_hash"] == evidence[1]
     assert result["python_version"] == "3.11.9" and result["node_version"] == "24.14.1"
     assert result["schema_compatibility"] == {"min_version": 7, "max_version": 7}
 
@@ -70,21 +74,3 @@ def test_compose_extensions_removed_but_unknown_effective_sections_rejected(tmp_
     config["include"] = ["outside.yml"]
     with pytest.raises(BundleError, match="UNSUPPORTED_COMPOSE_SECTION"):
         build.persistent_config(config, m["project"], m["source_sha"], m["release_id"], m["images"])
-
-
-def test_target_linux_asset_hash_is_not_replaced_by_host_path_order(tmp_path):
-    source = tmp_path / "source"
-    (source / "backend/app").mkdir(parents=True)
-    (source / "ops/docker/dev").mkdir(parents=True)
-    shutil.copyfile(Path(__file__).resolve().parents[1] / "backend/app/release_identity.py",
-                    source / "backend/app/release_identity.py")
-    (source / "ops/docker/dev/Dockerfile.web").write_text("FROM node:24.14.1-bookworm-slim@sha256:test\n")
-    assets = tmp_path / "assets"
-    assets.mkdir()
-    for name in ("AZ.js", "az.js.other", "aZ.js.other"):
-        (assets / name).write_text("controlled", encoding="utf-8")
-    evidence = (3, "sha256:" + "d" * 64)
-    result = build.release_metadata(source, assets, "a" * 40, "a" * 12 + "-20261027130000",
-                                    "2026-10-27T13:00:00+00:00", "3.11.9", target_assets=evidence)
-    assert result["frontend_asset_count"] == evidence[0]
-    assert result["frontend_asset_manifest_hash"] == evidence[1]
