@@ -109,6 +109,7 @@ ID, ключей, stacktrace или сырого docker inspect. Любой от
 | D2-12 | Веб/API healthy, но настоящие модели и биллинг не проверены | Нельзя объявлять production Docker-релиз успешным |
 | D2-13 | GitHub push сообщил о 6 alerts в default branch (4 high, 1 moderate, 1 low) | Требуется независимая security-проверка; уведомление не доказывает уязвимость PR #250 |
 | D2-14 | Первоначальный argparse мог вывести сырой неверный аргумент и не-JSON отказ | Исправлено: безопасный однострочный BLOCKED JSON, без отражения значения; добавлен regression test |
+| D2-15 | Между stat и чтением могла произойти подмена манифеста | Проверки fd, inode, mtime/ctime и размера; отказ при FIFO/симлинке, нужен exact-SHA CI |
 
 Исторические user data, идентификаторы, SQLite, media, cookies, API tokens,
 ключи, приватные логи/адреса и полные docker inspect в этот публичный

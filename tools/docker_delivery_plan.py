@@ -4,7 +4,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
+import stat
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -100,11 +102,33 @@ def parse_manifest(raw: bytes) -> Candidate:
 def read_manifest(path: str) -> Candidate:
     candidate = Path(path).expanduser()
     try:
-        if candidate.is_symlink() or not candidate.is_file():
+        initial = candidate.lstat()
+        if not stat.S_ISREG(initial.st_mode):
             raise PlanError("MANIFEST_NOT_A_REGULAR_FILE")
-        if candidate.stat().st_size > MAX_MANIFEST_BYTES:
+        if initial.st_size > MAX_MANIFEST_BYTES:
             raise PlanError("MANIFEST_SIZE_INVALID")
-        raw = candidate.read_bytes()
+        flags = (os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+                 | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0))
+        with os.fdopen(os.open(candidate, flags), "rb") as stream:
+            opened = os.fstat(stream.fileno())
+            if not stat.S_ISREG(opened.st_mode):
+                raise PlanError("MANIFEST_NOT_A_REGULAR_FILE")
+            raw = stream.read(MAX_MANIFEST_BYTES + 1)
+            final_descriptor = os.fstat(stream.fileno())
+        final_path = candidate.lstat()
+        identity = lambda item: (
+            item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns, item.st_ctime_ns
+        )
+        if (
+            identity(initial) != identity(opened)
+            or identity(opened) != identity(final_descriptor)
+            or identity(final_descriptor) != identity(final_path)
+        ):
+            raise PlanError("MANIFEST_CHANGED_DURING_READ")
+        if len(raw) > MAX_MANIFEST_BYTES:
+            raise PlanError("MANIFEST_SIZE_INVALID")
+    except FileNotFoundError:
+        raise PlanError("MANIFEST_NOT_A_REGULAR_FILE") from None
     except (OSError, ValueError):
         raise PlanError("MANIFEST_UNREADABLE") from None
     return parse_manifest(raw)

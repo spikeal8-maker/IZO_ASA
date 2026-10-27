@@ -224,3 +224,63 @@ def test_argparse_failure_is_one_redacted_json_line(
         "mutation_performed": False,
     }
     assert "sensitive-test-value" not in captured.out
+
+
+def test_manifest_modified_between_open_and_final_check_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = tmp_path / "candidate.json"
+    candidate.write_bytes(raw())
+    original_lstat = Path.lstat
+    calls = 0
+
+    def mutate_before_final_check(path: Path, *args: object, **kwargs: object):
+        nonlocal calls
+        if path == candidate:
+            calls += 1
+            if calls == 2:
+                candidate.write_bytes(raw() + b" ")
+        return original_lstat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "lstat", mutate_before_final_check)
+    with pytest.raises(PlanError, match="MANIFEST_CHANGED_DURING_READ"):
+        read_manifest(str(candidate))
+
+
+def test_manifest_size_change_at_open_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = tmp_path / "candidate.json"
+    candidate.write_bytes(raw())
+    original_open = __import__("os").open
+
+    def change_during_open(path: object, flags: int, *args: object, **kwargs: object):
+        if str(path) == str(candidate):
+            candidate.write_bytes(raw() + b" " * 20000)
+        return original_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(__import__("os"), "open", change_during_open)
+    with pytest.raises(PlanError, match="MANIFEST_CHANGED_DURING_READ|MANIFEST_SIZE_INVALID"):
+        read_manifest(str(candidate))
+
+
+def test_manifest_swapped_to_fifo_refused_without_blocking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    system = __import__("os")
+    if not hasattr(system, "mkfifo") or not hasattr(system, "O_NONBLOCK"):
+        pytest.skip("POSIX FIFO not supported by this runner")
+    candidate = tmp_path / "candidate.json"
+    candidate.write_bytes(raw())
+    original_open = system.open
+
+    def replace_with_fifo(path: object, flags: int, *args: object, **kwargs: object):
+        if str(path) == str(candidate):
+            candidate.unlink()
+            system.mkfifo(candidate)
+            assert flags & system.O_NONBLOCK, "must not block opening an attacker-swapped FIFO"
+        return original_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(system, "open", replace_with_fifo)
+    with pytest.raises(PlanError, match="MANIFEST_NOT_A_REGULAR_FILE"):
+        read_manifest(str(candidate))
