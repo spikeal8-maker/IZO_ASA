@@ -1,0 +1,76 @@
+manifestVersion = 1
+id = "GOV-TEST-HEALTH-REVIEW-20261027"
+baseSha = "0d134aa20cd0a1d1ca6828622fe6a435c74c415b"
+goal = "Record a substantive, time-bounded re-review of existing test-health debts #162-165 using exact-head Windows CI evidence without changing the accepted baseline or enforcement."
+userOutcome = "The next integration candidate can distinguish unchanged reviewed debt from a test regression, while all warning, cleanup, network, retry, process and expiry gates remain active."
+beforeScenario = "PR251 exact e94d4d5 passes 2370 tests with the unchanged 97 warnings and zero cleanup events, but the required test-health gate fails only because four debt reviews expired on 2026-10-26."
+afterScenario = "Each still-open debt has a documented current observation, risk, owner, remediation exit criterion and a next review deadline of 2026-10-30; no defect is represented as fixed and a later expired review still fails."
+nonGoals = [
+  "Fix lifecycle, TestClient, cookie or Windows teardown implementations",
+  "Change acceptedBaseline counts, categories, source SHA or artifact references",
+  "Change test-health code, workflow, thresholds, suppression, retry or network policy",
+  "Close issues or claim production, Docker, Linux or runtime acceptance",
+  "Change the Docker TEST ZIP package or its declared scope",
+  "Retroactively change any failed CI run or its evidence",
+]
+declaredFiles = [
+  "tasks/GOV-TEST-HEALTH-REVIEW-20261027.toml",
+  "architecture/test-health-policy.json",
+  "docs/agent-tasks/GOV-TEST-HEALTH-REVIEW-20261027.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  ".github/**",
+  "tools/**",
+  "docs/NOW.md",
+]
+protectedFilesTouched = [
+  "architecture/test-health-policy.json",
+]
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+maxProductionFiles = 0
+maxChangedLines = 320
+acceptance = [
+  "Only reason and reviewBy change for debts #162-165; owner remains spikeal8-maker and every policy value outside debtReviews is identical to the base.",
+  "The document records exact e94d4d5 source/run/job/artifact identity, observed category counts, non-regression evidence and explicit unresolved risks for all four debts.",
+  "All four next review dates are 2026-10-30, with earlier re-review required by affected lifecycle, dependency, cookie-test or teardown changes.",
+  "The accepted 97-warning/1-cleanup historical baseline, category limits and all enforcement remain unchanged.",
+  "The unmodified focused auditor tests pass; synthetic date controls prove expired old reviews, acceptance during the proposed window and renewed failure on 2026-10-31.",
+  "Replay of the original exact-head artifact is labelled retrospective policy evaluation, never a successful replacement for the old failed GitHub run.",
+  "Scope enforcement, file hygiene, independent diff review and new exact-head hosted CI are required before integration.",
+]
+requiredEvidence = [
+  "GitHub run 40513117243, job 122219688365, exact e94d4d5e21455bf9809990d5509ad6e5db09d453",
+  "Artifact 12740091822, SHA256 747e884961c27d283b182a114fd25c8526867efcf50051da875b9396a2405c78",
+  "Unmodified original test-health policy and exact policy-only diff",
+  "Focused auditor result, date-boundary controls and baseline/enforcement equality checks",
+  "New package enforcement, file hygiene, independent review and exact-head CI",
+]
+targetedTests = [
+  "tools/test_test_health_audit.py",
+]
+fileGrowthExpectations = [
+  "One bounded review document below 200 lines and 12 KiB; no second status router.",
+  "No handwritten source, application, test or workflow changes.",
+]
+forbiddenOperations = [
+  "direct-main",
+  "deploy",
+  "restart",
+  "production-data",
+  "provider-call",
+  "warning-suppression",
+  "cleanup-suppression",
+  "retry-addition",
+  "baseline-expansion",
+  "gate-disable",
+  "issue-closure",
+  "automatic-review-renewal",
+]
+rollbackBoundary = "Revert only these three governance files; the previous expired-review failure returns. Do not alter tests, prior receipts, accepted baseline, application code or runtime."
