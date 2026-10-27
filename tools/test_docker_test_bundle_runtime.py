@@ -218,3 +218,76 @@ def test_bootstrap_is_guarded_and_uses_existing_init_db(tmp_path):
     assert "main.db_guard_preflight()" in code and "main.init_db()" in code
     assert "==0" in code and "==7" in code and "sqlite_master" in code
     assert "PRAGMA user_version=" not in code and "DROP TABLE" not in code
+
+
+def test_wait_readiness_allows_only_transient_startup(monkeypatch, tmp_path):
+    events = iter([BundleError('RUNTIME_NOT_READY'), runtime.URLError('private network detail'), {'status': 'TEST_RUNTIME_VERIFIED'}])
+    sleeps = []
+    def health(*args):
+        event = next(events)
+        if isinstance(event, Exception): raise event
+        return event
+    monkeypatch.setattr(runtime, 'health', health)
+    monkeypatch.setattr(runtime.time, 'monotonic', lambda: 0)
+    monkeypatch.setattr(runtime.time, 'sleep', sleeps.append)
+    assert runtime.wait_health(FakeDocker(), tmp_path, {})['status'] == 'TEST_RUNTIME_VERIFIED'
+    assert sleeps == [0.5, 0.5]
+
+
+@pytest.mark.parametrize('code', ['RUNTIME_VERSION_MISMATCH', 'FOREIGN_CONTAINER', 'COMPOSE_PATH_NOT_PERSISTENT'])
+def test_wait_readiness_never_retries_identity_or_ownership(code, monkeypatch, tmp_path):
+    calls = []
+    def health(*args):
+        calls.append(True)
+        raise BundleError(code)
+    monkeypatch.setattr(runtime, 'health', health)
+    monkeypatch.setattr(runtime.time, 'sleep', lambda value: pytest.fail('permanent error must not sleep'))
+    with pytest.raises(BundleError, match=code):
+        runtime.wait_health(FakeDocker(), tmp_path, {})
+    assert calls == [True]
+
+
+def test_wait_readiness_has_bounded_deadline(monkeypatch, tmp_path):
+    clock = iter([0.0, 21.0])
+    monkeypatch.setattr(runtime.time, 'monotonic', lambda: next(clock))
+    monkeypatch.setattr(runtime.time, 'sleep', lambda value: pytest.fail('deadline reached'))
+    def unready(*args): raise BundleError('RUNTIME_NOT_READY')
+    monkeypatch.setattr(runtime, 'health', unready)
+    with pytest.raises(BundleError, match='TEST_READINESS_TIMEOUT'):
+        runtime.wait_health(FakeDocker(), tmp_path, {})
+
+
+@pytest.mark.parametrize('status,allowed', [(502, True), (503, True), (504, True), (401, False), (404, False)])
+def test_wait_http_status_policy(status, allowed, monkeypatch, tmp_path):
+    from io import BytesIO
+    body = BytesIO(b'private response')
+    error = runtime.HTTPError('http://127.0.0.1', status, 'private detail', {}, body)
+    events = iter([error, {'status': 'TEST_RUNTIME_VERIFIED'}])
+    def health(*args):
+        event = next(events)
+        if isinstance(event, Exception): raise event
+        return event
+    monkeypatch.setattr(runtime, 'health', health)
+    monkeypatch.setattr(runtime.time, 'monotonic', lambda: 0)
+    monkeypatch.setattr(runtime.time, 'sleep', lambda value: None)
+    if allowed:
+        assert runtime.wait_health(FakeDocker(), tmp_path, {})['status'] == 'TEST_RUNTIME_VERIFIED'
+    else:
+        with pytest.raises(BundleError, match='HEALTH_HTTP_STATUS_INVALID'):
+            runtime.wait_health(FakeDocker(), tmp_path, {})
+    assert body.closed
+
+
+def test_failure_receipt_reports_stage_and_safe_reason(tmp_path, monkeypatch):
+    fake_runtime(monkeypatch)
+    root, pin, _ = make_bundle(tmp_path / 'source')
+    state = tmp_path / 'state'
+    def bad_identity(*args): raise BundleError('RUNTIME_VERSION_MISMATCH')
+    monkeypatch.setattr(runtime, 'health', bad_identity)
+    with pytest.raises(BundleError, match='TEST_INSTALL_FAILED_MANUAL_RECOVERY_REQUIRED'):
+        runtime.install(root, pin, state, FakeDocker())
+    failure = json.loads((state / 'last-failure.json').read_text())
+    assert failure['stage'] == 'readiness' and failure['reason'] == 'RUNTIME_VERSION_MISMATCH'
+    assert failure['manual_recovery_required'] is True and failure['data_restored'] is False
+    assert not (state / 'active.json').exists()
+    assert not (state / 'operation.lock').exists()

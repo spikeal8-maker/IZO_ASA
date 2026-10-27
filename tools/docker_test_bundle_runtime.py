@@ -10,7 +10,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, build_opener
 
 sys.dont_write_bytecode = True
@@ -140,6 +142,27 @@ def health(docker: Docker, root: Path, m: dict) -> dict:
             "release_id": m["release_id"], "containers": len(rows), "production_authorized": False}
 
 
+def wait_health(docker: Docker, root: Path, manifest: dict, *, timeout: float = 20.0) -> dict:
+    """Wait for transient startup readiness only; identity/ownership errors fail now."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            return health(docker, root, manifest)
+        except BundleError as error:
+            if str(error) != "RUNTIME_NOT_READY":
+                raise
+        except HTTPError as error:
+            status = error.code
+            error.close()
+            if status not in {502, 503, 504}:
+                raise BundleError("HEALTH_HTTP_STATUS_INVALID") from None
+        except (URLError, TimeoutError, ConnectionError):
+            pass
+        if time.monotonic() >= deadline:
+            raise BundleError("TEST_READINESS_TIMEOUT")
+        time.sleep(0.5)
+
+
 def initialize_empty_test_database(docker: Docker, root: Path, manifest: dict) -> None:
     """Run canonical migrations only in a newly owned, empty synthetic database."""
     docker.compose(root, manifest, "up", "-d", "--wait", "--wait-timeout", "60",
@@ -237,14 +260,21 @@ def install(bundle: Path, pin: str, state: Path, docker: Docker, *, allow_update
         ensure_images(docker, target, m)
         owned_resources(docker, m)
         docker.compose(target, m, "config", "--quiet")
+        stage = "fresh-schema" if previous is None else "compose-up"
         try:
             if previous is None:
                 initialize_empty_test_database(docker, target, m)
+            stage = "compose-up"
             docker.compose(target, m, "up", "-d", "--wait", "--wait-timeout", "180", "--no-build", "--pull", "never")
-            result = health(docker, target, m)
-        except Exception:
+            stage = "readiness"
+            result = wait_health(docker, target, m)
+        except Exception as error:
+            reason = str(error) if isinstance(error, BundleError) else type(error).__name__
+            if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{1,100}", reason) is None:
+                reason = "INSTALL_STAGE_FAILED"
             atomic_json(state / "last-failure.json", {"status": "FAILED_TEST_INSTALL", "candidate": pin,
-                        "previous": previous, "data_restored": False, "manual_recovery_required": True})
+                        "previous": previous, "stage": stage, "reason": reason,
+                        "data_restored": False, "manual_recovery_required": True})
             raise BundleError("TEST_INSTALL_FAILED_MANUAL_RECOVERY_REQUIRED") from None
         receipt = {**result, "manifest_sha256": pin, "project": m["project"], "engine": fingerprint}
         atomic_json(state / "active.json", receipt)
