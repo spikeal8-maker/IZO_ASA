@@ -1,0 +1,98 @@
+manifestVersion = 1
+id = "DOCKER-LINUX-BUNDLE-ACCEPTANCE-002"
+baseSha = "0d134aa20cd0a1d1ca6828622fe6a435c74c415b"
+goal = "Complete the bounded Linux producer-to-fresh-receiver TEST ZIP proof on an available Ubuntu 22.04 runner while retaining strict empty-Engine gates and their actual failure inventory."
+userOutcome = "The owner gets separate Linux cold-build and fresh-recipient evidence for the unchanged installer without pruning pre-existing resources or altering any Docker daemon."
+beforeScenario = "Predecessor 001 run 40543794921 at 248f737228df282f7071d9737fa969a3d1c2e236 stopped before producer build on Ubuntu 24.04 because its Engine was nonempty; the failed RHS discarded the actual inventory and receiver was skipped. Official runner provisioning preloads six unrelated images outside Ubuntu 22.04, but the failed job did not record which resources it actually had."
+afterScenario = "Two distinct GitHub-hosted Ubuntu 22.04 jobs record actual images/containers/volumes before enforcing zero resources, then build unchanged pinned A/B TEST bundles without cache and transfer them to the separate fresh Engine for the existing eleven-case synthetic lifecycle."
+nonGoals = [
+  "Change the TEST bundle installer, application, Compose/Dockerfiles, dependency pins, other CI or governance policy",
+  "Prune resources, weaken either empty-Engine gate, add another daemon, privileged jobs, sudo provisioning or host settings changes",
+  "Run operational acceptance on owner hardware/D2 or use production/history, external providers or secrets",
+  "Promise permanent Ubuntu 22.04 runner availability, production readiness, fixture uptime or Windows/Linux full parity",
+  "Publish a release, deploy, merge predecessor PRs or suppress any gate",
+]
+declaredFiles = [
+  "tasks/DOCKER-LINUX-BUNDLE-ACCEPTANCE-002.toml",
+  ".github/workflows/docker-linux-bundle-acceptance.yml",
+  "tools/docker_linux_bundle_build.py",
+  "tools/docker_linux_bundle_probe.py",
+  "tools/test_docker_linux_bundle_build.py",
+  "tools/test_docker_linux_bundle_probe.py",
+  "docs/docker-linux-bundle-acceptance.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "tasks/DOCKER-LINUX-BUNDLE-ACCEPTANCE-001.toml",
+  ".github/workflows/ci.yml",
+  ".github/workflows/d0-executor-proof.yml",
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+  "docs/NOW.md",
+  "tools/docker_test_bundle.py",
+  "tools/docker_test_bundle_format.py",
+  "tools/docker_test_bundle_runtime.py",
+  "tools/docker_shadow_product.py",
+  "tools/agent_system/**",
+  "tools/agent.ps1",
+  "tools/verify.ps1",
+]
+protectedFilesTouched = [
+  ".github/workflows/docker-linux-bundle-acceptance.yml",
+]
+domain = "docker-delivery"
+riskClass = "release-ops"
+changeClass = "tooling"
+maxProductionFiles = 0
+maxChangedLines = 2000
+acceptance = [
+  "Both jobs require GitHub-hosted Linux X64 and Ubuntu 22.04; candidate HEAD/origin, boot/Engine fingerprints and actual Engine/Compose versions are recorded.",
+  "Both producer and receiver store the complete initial image-ID, container-ID and volume-name lists before a strict zero-resource gate; any existing resource refuses before build/load/install/cleanup with a role-specific reason and no prune.",
+  "The failed Ubuntu 24.04 run and missing historical inventory remain evidence; official Ubuntu 22.04 preload exemption motivates selection but only measured zero inventories prove fresh Engines.",
+  "Producer uses clean source A 1030abdafc32a0f11fbc4a6593acd435eb1bbdfd and B f51c316176bf2609ccb9271c00a358a7b1f02768 plus unchanged tooling 2fc621342721b1716e2ed898e24502115b71cb53 outside the candidate checkout.",
+  "Canonical source Compose/Dockerfiles build guard/backend/web without cache from immutable FROM digests; the existing builder embeds exact Linux amd64 images in A/B ZIPs.",
+  "Separate artifact transfer preserves archive and manifest hashes, and receiver boot and Engine fingerprints differ from the producer.",
+  "Installer child has only Python and Docker on an allowlisted PATH; Git, Node and npm are unavailable, including Unicode/space bundle paths.",
+  "Eleven positive cases cover install identity, synthetic users/jobs/ledger/private media/favorite preservation, repeat without recreation, A-to-B update, B-to-A update and container recreation with unchanged volumes.",
+  "Corrupt archive, bad pin, copied state and missing/drifted volume cases fail closed before an unintended runtime mutation.",
+  "Only the existing bounded HTTP client is imported from pinned source; no backend imports, real providers, credentials or historical fixtures.",
+  "Cleanup verifies project, owner, installation/generation identities and accepted metadata before removing only this job's synthetic resources; foreign resources and global daemon settings remain untouched.",
+  "Baseline-failing receipt regressions, focused tests, scope/hygiene, independent review, normal exact-head CI and the real Linux workflow are distinct evidence gates.",
+]
+requiredEvidence = [
+  "Continuation authorization and canonical registration after predecessor 001 stops; exact declared seven-file scope",
+  "Predecessor run 40543794921/job 122328872764 failed preflight, skipped receiver and unrecorded actual initial inventory",
+  "Official Ubuntu 22.04 runner provisioning/support evidence, including announced retirement 17 April 2027; no inference of actual empty Engine from its distribution label",
+  "Producer/receiver receipts retaining measured initial inventory on both pass and nonempty refusal, role-specific diagnostics and before/after deterministic regressions",
+  "Producer exact candidate/tooling/A/B SHAs, Engine/Compose, immutable base pins and embedded archive/manifest identities",
+  "Receiver distinct boot/Engine, fresh inventory, transferred hashes, eleven cases, negative controls and owned synthetic cleanup receipt",
+  "Exact-head workflow artifacts, focused tests, scope/hygiene and independent review without credentials or raw environment dumps",
+]
+targetedTests = [
+  "tools/test_docker_linux_bundle_build.py",
+  "tools/test_docker_linux_bundle_probe.py",
+]
+fileGrowthExpectations = [
+  "Each handwritten Python helper stays below 500 lines; no second installer or generic executor.",
+  "Each test stays below 500 lines and 24 KiB; document below 200 lines and 12 KiB.",
+  "Generated ZIPs, raw Docker output and receipts remain untracked evidence.",
+]
+forbiddenOperations = [
+  "direct-main",
+  "production-deploy",
+  "owner-host-runtime-or-settings-mutation",
+  "historical-data",
+  "real-provider-call",
+  "release-publish",
+  "secret-use",
+  "global-prune",
+  "extra-docker-daemon",
+  "foreign-resource-removal",
+  "gate-disable",
+  "dependency-change",
+  "installer-reimplementation",
+]
+rollbackBoundary = "Revert only these seven files; preserve predecessor 001 contract and failure evidence. Canonical authoring/focused checks on D2 remain allowed. Operational acceptance and owned cleanup run only in ephemeral GitHub jobs; no owner runtime, production state, Docker daemon settings or existing unrelated workflow is changed."
