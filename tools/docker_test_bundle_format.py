@@ -181,7 +181,7 @@ def validate_compose(config: dict, manifest: dict) -> None:
     for key, value in env.items():
         if re.search(r"(?:SECRET|PASSWORD|TOKEN|API_KEY|ADMIN_ONE_TIME_CODE)$", key):
             require(value == "", "NONEMPTY_CREDENTIAL_FORBIDDEN")
-        if key.endswith("BASE_URL") and key != "COMFYUI_BASE_URL":
+        if key.endswith("_BASE_URL") and key != "COMFYUI_BASE_URL":
             require(value == "http://127.0.0.1:1", "LIVE_PROVIDER_FORBIDDEN")
 
 

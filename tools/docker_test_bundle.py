@@ -58,12 +58,17 @@ def persistent_config(config: dict, project: str, sha: str, release: str, images
     result = {key: copy.deepcopy(config[key]) for key in effective}
     for service, settings in result["services"].items():
         settings.pop("build", None)
+        for default in ("entrypoint", "command"):
+            if settings.get(default) is None:
+                settings.pop(default, None)  # Explicit null means use the image default.
         settings["image"] = images[service]
         settings["pull_policy"] = "never"
         settings.setdefault("labels", {}).update({"io.izo.bundle": OWNER,
                                                    "org.opencontainers.image.revision": sha})
     for kind in ("volumes", "networks"):
         for name, settings in result[kind].items():
+            if kind == "networks" and settings.get("ipam") == {}:
+                settings.pop("ipam")  # Docker Compose emits an empty default IPAM object.
             settings["name"] = project + "_" + name
             settings.setdefault("labels", {})["io.izo.bundle"] = OWNER
     for role, target in (("backend", "/opt/izo/.runtime/releases/frontend/" + release),

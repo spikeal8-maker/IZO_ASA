@@ -41,6 +41,7 @@ def make_bundle(root: Path, sha: str = "a" * 40) -> tuple[Path, str, dict]:
                     {"host_ip": "127.0.0.1", "published": 48615, "target": 8000}])
     c["services"]["backend"].update(command=["python", "/opt/izo/fixtures/docker_shadow_fixture.py"],
         environment={"APP_ENV": "test", "ENV": "test", "MODE": "test",
+                     "DATABASE_URL": "/home/izo/data/app.sqlite3", "MEDIA_DIR": "/home/izo/media",
                      "IZO_SHADOW_FIXTURE": "controlled-comfyui-v1", "COMFYUI_BASE_URL": "http://127.0.0.1:48991",
                      "BOT_MODE": "disabled", "MAX_UPDATES_MODE": "disabled", "OPENROUTER_API_KEY": ""})
     for role in ("worker", "worker_peer"):

@@ -60,6 +60,10 @@ def test_compose_extensions_removed_but_unknown_effective_sections_rejected(tmp_
     root, _, m = make_bundle(tmp_path / "bundle")
     config = json.loads((root / "compose.json").read_text())
     config["x-worker"] = {"image": "mutable:tag"}
+    config["networks"]["shadow"]["ipam"] = {}
+    for service in config["services"].values():
+        service["entrypoint"] = None
+    config["services"]["guard"]["command"] = None
     result = build.persistent_config(config, m["project"], m["source_sha"], m["release_id"], m["images"])
     assert "x-worker" not in result and "mutable:tag" not in json.dumps(result)
     validate_compose(result, m)
