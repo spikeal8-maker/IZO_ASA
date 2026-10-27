@@ -222,8 +222,16 @@ def evaluate(
         return EXIT_CODES[kind], _safe_error(kind, error.code, action)
 
 
+class SafeArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        # Never echo malformed arguments, which might contain secrets.
+        print(json.dumps(_safe_error("INVALID_INPUT", "CLI_ARGUMENTS_INVALID", "unknown"),
+                         ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+        raise SystemExit(EXIT_CODES["INVALID_INPUT"])
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="docker-delivery", description=__doc__)
+    parser = SafeArgumentParser(prog="docker-delivery", description=__doc__)
     parser.add_argument("action", choices=("plan", "doctor"))
     parser.add_argument("--context", required=True)
     parser.add_argument("--installation", required=True)

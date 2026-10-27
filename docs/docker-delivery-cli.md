@@ -107,6 +107,8 @@ ID, ключей, stacktrace или сырого docker inspect. Любой от
 | D2-10 | После обновления Pillow 13/npm fixes пересобраны backend/frontend/guard | Локальная сборка прошла, но не эквивалентна exact-HEAD hosted CI |
 | D2-11 | Настоящие install/update/rollback, clean Linux install и signed release | Не реализованы; следующий bounded package после приёмки planner |
 | D2-12 | Веб/API healthy, но настоящие модели и биллинг не проверены | Нельзя объявлять production Docker-релиз успешным |
+| D2-13 | GitHub push сообщил о 6 alerts в default branch (4 high, 1 moderate, 1 low) | Требуется независимая security-проверка; уведомление не доказывает уязвимость PR #250 |
+| D2-14 | Первоначальный argparse мог вывести сырой неверный аргумент и не-JSON отказ | Исправлено: безопасный однострочный BLOCKED JSON, без отражения значения; добавлен regression test |
 
 Исторические user data, идентификаторы, SQLite, media, cookies, API tokens,
 ключи, приватные логи/адреса и полные docker inspect в этот публичный

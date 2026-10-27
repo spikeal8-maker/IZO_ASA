@@ -200,3 +200,27 @@ def test_read_manifest_rejects_symlink_and_missing_file(tmp_path: Path) -> None:
         pytest.skip("Symlinks not permitted on this Windows runner")
     with pytest.raises(PlanError, match="MANIFEST_NOT_A_REGULAR_FILE"):
         read_manifest(str(sym))
+
+
+@pytest.mark.parametrize("untrusted_args", [
+    ["plan", "--context", "desktop-linux", "--installation", "isoas",
+     "--unexpected-private-key", "sensitive-test-value"],
+    ["update", "--context", "desktop-linux", "--installation", "isoas"],
+    ["plan", "--installation", "isoas"],
+])
+def test_argparse_failure_is_one_redacted_json_line(
+    untrusted_args: list[str], capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as raised:
+        main(untrusted_args)
+    captured = capsys.readouterr()
+    assert raised.value.code == 2
+    assert captured.err == ""
+    assert len(captured.out.splitlines()) == 1
+    answer = json.loads(captured.out)
+    assert answer == {
+        "status": "BLOCKED", "action": "unknown", "category": "INVALID_INPUT",
+        "reason": "CLI_ARGUMENTS_INVALID", "apply_authorized": False,
+        "mutation_performed": False,
+    }
+    assert "sensitive-test-value" not in captured.out
