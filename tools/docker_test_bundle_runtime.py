@@ -31,6 +31,11 @@ HOST_KEYS = {"PATH", "SystemRoot", "WINDIR", "COMSPEC", "PATHEXT", "TEMP", "TMP"
 
 
 def clean_environment() -> dict:
+    # Windows os.environ normalizes keys to uppercase; SystemRoot must survive
+    # the allowlist so child Python processes can initialize Winsock providers.
+    if os.name == "nt":
+        allowed = {key.upper() for key in HOST_KEYS}
+        return {key: value for key, value in os.environ.items() if key.upper() in allowed}
     return {key: value for key, value in os.environ.items() if key in HOST_KEYS}
 
 
@@ -156,7 +161,10 @@ def wait_health(docker: Docker, root: Path, manifest: dict, *, timeout: float = 
             error.close()
             if status not in {502, 503, 504}:
                 raise BundleError("HEALTH_HTTP_STATUS_INVALID") from None
-        except (URLError, TimeoutError, ConnectionError):
+        except URLError as error:
+            if getattr(error.reason, "winerror", None) == 10106:
+                raise BundleError("HEALTH_NETWORK_INITIALIZATION_FAILED") from None
+        except (TimeoutError, ConnectionError):
             pass
         if time.monotonic() >= deadline:
             raise BundleError("TEST_READINESS_TIMEOUT")

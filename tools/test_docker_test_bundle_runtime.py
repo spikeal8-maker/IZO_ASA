@@ -291,3 +291,32 @@ def test_failure_receipt_reports_stage_and_safe_reason(tmp_path, monkeypatch):
     assert failure['manual_recovery_required'] is True and failure['data_restored'] is False
     assert not (state / 'active.json').exists()
     assert not (state / 'operation.lock').exists()
+
+
+@pytest.mark.parametrize('platform', ['nt', 'posix'])
+def test_environment_key_case_matches_platform_without_leaking_credentials(platform, monkeypatch):
+    from types import SimpleNamespace
+    env = {'PATH': 'safe-path', 'SYSTEMROOT': 'safe-windows-root', 'SystemRoot': 'safe-mixed-root',
+           'PROGRAMFILES': 'safe-programs', 'DOCKER_HOST': 'forbidden',
+           'COMPOSE_FILE': 'forbidden', 'HTTPS_PROXY': 'forbidden',
+           'OPENROUTER_API_KEY': 'forbidden'}
+    monkeypatch.setattr(runtime, 'os', SimpleNamespace(name=platform, environ=env))
+    result = runtime.clean_environment()
+    assert result['PATH'] == 'safe-path'
+    assert 'forbidden' not in result.values()
+    if platform == 'nt':
+        assert result['SYSTEMROOT'] == 'safe-windows-root'
+        assert result['PROGRAMFILES'] == 'safe-programs'
+    else:
+        assert 'SYSTEMROOT' not in result and 'PROGRAMFILES' not in result
+    assert result['SystemRoot'] == 'safe-mixed-root'
+
+
+def test_windows_socket_provider_failure_is_not_a_transient_startup(monkeypatch, tmp_path):
+    failure = OSError(10106, 'private system detail')
+    failure.winerror = 10106
+    def health(*args): raise runtime.URLError(failure)
+    monkeypatch.setattr(runtime, 'health', health)
+    monkeypatch.setattr(runtime.time, 'sleep', lambda value: pytest.fail('permanent environment error'))
+    with pytest.raises(BundleError, match='HEALTH_NETWORK_INITIALIZATION_FAILED'):
+        runtime.wait_health(FakeDocker(), tmp_path, {})
