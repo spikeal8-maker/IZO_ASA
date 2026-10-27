@@ -1,0 +1,102 @@
+manifestVersion = 1
+id = "GOV-TEST-HEALTH-PORT-FIXTURES-20261027"
+baseSha = "0d134aa20cd0a1d1ca6828622fe6a435c74c415b"
+goal = "Remove the fixed-host-port assumption from synthetic agent environment test fixtures and carry forward the unchanged, evidence-backed review of test-health debts #162-165."
+userOutcome = "The integration candidate exercises real environment lifecycle behavior using prepared synthetic port pairs while every runtime refusal and test-health gate remains enforced."
+beforeScenario = "GOV PR252 exact da6d1046 fails its first happy-path env_up with PORT_IN_USE. PKG-LIFE always requests host ports 56414/56415; the historical native socket cause is unknown. Other ready/runtime fixtures also assume fixed host ports. The separate reviewed debt policy is not mergeable while the test fails."
+afterScenario = "Every affected real-bind test selects a unique synthetic package ID with a bounded exclusive IPv4 loopback bind/listen probe before fixture creation; env_up failures are never retried or hidden. Original debt review dates, reasons, owners and all other policy values are preserved exactly from the reviewed GOV candidate."
+nonGoals = [
+  "Change the production allocator, environment lifecycle/runtime, application code or Docker delivery tooling",
+  "Provide atomic reservation across the test probe and holder startup or attribute an unrecorded historical Windows errno",
+  "Change acceptedBaseline, thresholds, categories, retry, network, process, warning or cleanup enforcement",
+  "Add skip, xfail, rerun, runtime port fallback, SO_REUSEADDR, host port exclusions or host settings changes",
+  "Extend the 2026-10-30 debt review deadline, close debt issues or declare their underlying defects fixed",
+  "Claim Docker, Linux, provider, deployment, production or operational acceptance",
+  "Rewrite previous failed CI runs or reuse the closed GOV package identity",
+]
+declaredFiles = [
+  "tasks/GOV-TEST-HEALTH-PORT-FIXTURES-20261027.toml",
+  "architecture/test-health-policy.json",
+  "docs/agent-tasks/GOV-TEST-HEALTH-REVIEW-20261027.md",
+  "docs/agent-tasks/GOV-TEST-HEALTH-PORT-FIXTURES-20261027.md",
+  "tools/agent_env_test_ports.py",
+  "tools/test_agent_env_port_fixtures.py",
+  "tools/test_agent_env_lifecycle.py",
+  "tools/test_agent_env_ready.py",
+  "tools/test_agent_env_runtime.py",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  ".github/**",
+  "tools/agent_system/**",
+  "tools/verify.ps1",
+  "tools/test_health_audit.py",
+  "tools/test_health_pytest_plugin.py",
+  "tools/docker_test_bundle.py",
+  "tools/docker_test_bundle_format.py",
+  "tools/docker_test_bundle_runtime.py",
+  "tools/docker_linux_bundle_build.py",
+  "tools/docker_linux_bundle_probe.py",
+  "docs/NOW.md",
+  "tasks/GOV-TEST-HEALTH-REVIEW-20261027.toml",
+]
+protectedFilesTouched = [
+  "architecture/test-health-policy.json",
+]
+domain = "agent-control-plane"
+riskClass = "standard"
+changeClass = "architecture"
+maxProductionFiles = 0
+maxChangedLines = 1400
+acceptance = [
+  "Policy and inherited review card match da6d1046f3df3871c58c8bd9fcb13a81ff50fa64 exactly; relative to main only four reason and four reviewBy scalars change, all dated 2026-10-30.",
+  "Every lifecycle/ready/runtime test that starts a real holder prepares its package ID before fixture creation; caller identity remains consistent and concurrent packages use disjoint pairs.",
+  "The test-only selector uses a unique synthetic namespace, at most 256 candidates, both ports below 49152, IPv4 127.0.0.1 TCP exclusive bind/listen and complete finally cleanup.",
+  "Occupied candidate pairs are rejected during fixture selection; exhaustion fails explicitly. Actual env_up executes once per intended lifecycle step without retry, suppression or fallback.",
+  "The deliberate collision negative retains its real listener and original refusal, foreign-listener preservation and partial-reservation-release assertions.",
+  "Focused regressions cover backend/frontend bind and listen failures, full probe cleanup, bounded exhaustion, namespace isolation, lower port range and disjoint candidate pairs.",
+  "The unchanged auditor tests and original-artifact/date controls pass; old GitHub runs remain FAILURE and no expiry or baseline gate is relaxed.",
+  "Existing lifecycle/ready/runtime assertions are preserved; Windows focused lifecycle/ready/runtime tests, scope, file hygiene, independent review and exact-head CI are required before integration.",
+]
+requiredEvidence = [
+  "GOV PR252 exact da6d1046, run40537045815/job122304990089: 1 failed,2296 passed,1 skipped,97 warnings,cleanup0; native socket errno was not recorded.",
+  "Exact-source synthetic reproduction of occupied PKG-LIFE backend/frontend and distinct native errors collapsed to PORT_IN_USE; no historical native-cause attribution.",
+  "Inherited review evidence: e94d4d5 run40513117243/job122219688365 and artifact12740091822 SHA256747e884961c27d283b182a114fd25c8526867efcf50051da875b9396a2405c78.",
+  "Focused helper regressions, real collision negative, affected Windows fixtures, unchanged auditor tests and exact eight-scalar policy diff.",
+  "Canonical finish/start ownership transition, new scope receipt, file hygiene, independent diff review and new exact-head CI.",
+]
+targetedTests = [
+  "tools/test_agent_env_port_fixtures.py",
+  "tools/test_agent_env_lifecycle.py",
+  "tools/test_agent_env_ready.py",
+  "tools/test_agent_env_runtime.py",
+  "tools/test_test_health_audit.py",
+]
+fileGrowthExpectations = [
+  "New helper and regression module each below 500 lines; new tests below 24 KiB; existing oversized lifecycle tests shrink without assertion loss.",
+  "Each new or inherited thematic document stays below 200 lines and 12 KiB; no status-router changes.",
+  "Policy changes remain the exact inherited eight scalars; no source or test-health budget exceptions.",
+]
+forbiddenOperations = [
+  "direct-main",
+  "deploy",
+  "restart",
+  "production-data",
+  "provider-call",
+  "host-runtime-or-settings-mutation",
+  "foreign-process-mutation",
+  "port-reuse-option",
+  "warning-suppression",
+  "cleanup-suppression",
+  "retry-addition",
+  "test-skip-addition",
+  "baseline-expansion",
+  "gate-disable",
+  "issue-closure",
+  "automatic-review-renewal",
+]
+rollbackBoundary = "Revert only this continuation's scoped test fixtures/helper/tests/docs and inherited eight-field review; original main behavior and expired-review failure return. Preserve all historic evidence, old package registry entries, unrelated work and production runtime."

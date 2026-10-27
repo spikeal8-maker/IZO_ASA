@@ -3,7 +3,6 @@ from __future__ import annotations
 import ast
 import json
 import os
-import socket
 import sqlite3
 import subprocess
 import sys
@@ -15,11 +14,11 @@ import pytest
 from tools.agent_system import env_lifecycle as lifecycle
 from tools.agent_system import env_ready as ready
 from tools.agent_system.env import (
-    derive_candidate_ports,
     derive_environment_paths,
     load_environment_identity,
 )
 from tools.test_agent_env import _add_package, _known_contract, _make_control_repo
+from tools.agent_env_test_ports import available_package_id as _available_package_id
 
 
 def _contract(tmp_path: Path):
@@ -29,7 +28,7 @@ def _contract(tmp_path: Path):
 
 def _package(tmp_path: Path, package_id: str):
     control, base = _make_control_repo(tmp_path)
-    worktree = _add_package(control, base, package_id, tmp_path / package_id.lower())
+    worktree = _add_package(control, base, package_id, tmp_path / "w")
     return worktree, _contract(tmp_path)
 
 
@@ -64,7 +63,7 @@ def _prepare(worktree: Path, contract, **kwargs):
 
 
 def test_prepare_creates_initialized_sqlite_fixture(tmp_path: Path) -> None:
-    worktree, contract, paths = _active(tmp_path, "PKG-READY-DB")
+    worktree, contract, paths = _active(tmp_path, _available_package_id("PKG-READY-DB"))
     try:
         result = _prepare(worktree, contract)
         assert result["applicationReady"] == "PASS"
@@ -77,7 +76,7 @@ def test_prepare_creates_initialized_sqlite_fixture(tmp_path: Path) -> None:
 
 
 def test_database_integrity_and_required_tables(tmp_path: Path) -> None:
-    worktree, contract, paths = _active(tmp_path, "PKG-READY-TABLES")
+    worktree, contract, paths = _active(tmp_path, _available_package_id("PKG-READY-TABLES"))
     try:
         _prepare(worktree, contract)
         with sqlite3.connect(paths.database_path) as conn:
@@ -94,7 +93,7 @@ def test_database_integrity_and_required_tables(tmp_path: Path) -> None:
 
 
 def test_database_initialization_is_idempotent(tmp_path: Path) -> None:
-    worktree, contract, paths = _active(tmp_path, "PKG-READY-IDEMPOTENT")
+    worktree, contract, paths = _active(tmp_path, _available_package_id("PKG-READY-IDEMPOTENT"))
     try:
         first = _prepare(worktree, contract)
         with sqlite3.connect(paths.database_path) as conn:
@@ -116,7 +115,7 @@ def test_database_initialization_is_idempotent(tmp_path: Path) -> None:
 def test_fake_secret_material_is_test_only_and_values_absent_from_receipt(
     tmp_path: Path,
 ) -> None:
-    worktree, contract, paths = _active(tmp_path, "PKG-READY-SECRETS")
+    worktree, contract, paths = _active(tmp_path, _available_package_id("PKG-READY-SECRETS"))
     try:
         _prepare(worktree, contract)
         payload = json.loads(
@@ -136,7 +135,7 @@ def test_fake_secret_material_is_test_only_and_values_absent_from_receipt(
 
 
 def test_real_provider_credentials_remain_absent(tmp_path: Path) -> None:
-    worktree, contract, paths = _active(tmp_path, "PKG-READY-CREDS")
+    worktree, contract, paths = _active(tmp_path, _available_package_id("PKG-READY-CREDS"))
     try:
         result = _prepare(worktree, contract)
         receipt = json.loads(paths.receipt_path.read_text(encoding="utf-8"))
@@ -162,7 +161,7 @@ def test_real_provider_credentials_remain_absent(tmp_path: Path) -> None:
 
 
 def test_default_local_provider_endpoints_are_loopback(tmp_path: Path) -> None:
-    worktree, contract, paths = _active(tmp_path, "PKG-READY-PROVIDERS")
+    worktree, contract, paths = _active(tmp_path, _available_package_id("PKG-READY-PROVIDERS"))
     try:
         _prepare(worktree, contract)
         providers = json.loads(
@@ -194,7 +193,7 @@ def test_default_local_provider_endpoints_are_loopback(tmp_path: Path) -> None:
 def test_non_loopback_provider_endpoint_fails_closed(
     tmp_path: Path, endpoint: str
 ) -> None:
-    worktree, contract, paths = _active(tmp_path, "PKG-READY-BAD-ENDPOINT")
+    worktree, contract, paths = _active(tmp_path, _available_package_id("PKG-READY-BAD-ENDPOINT"))
     try:
         with pytest.raises(ready.ApplicationReadyError):
             _prepare(
@@ -210,7 +209,7 @@ def test_non_loopback_provider_endpoint_fails_closed(
 
 
 def test_prepare_updates_environment_receipt_application_ready(tmp_path: Path) -> None:
-    worktree, contract, paths = _active(tmp_path, "PKG-READY-RECEIPT")
+    worktree, contract, paths = _active(tmp_path, _available_package_id("PKG-READY-RECEIPT"))
     try:
         _prepare(worktree, contract)
         state = json.loads(paths.environment_state_path.read_text(encoding="utf-8"))
@@ -245,7 +244,7 @@ def test_prepare_requires_owned_active_environment(tmp_path: Path) -> None:
 def test_prepare_failure_does_not_report_application_ready(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    worktree, contract, paths = _active(tmp_path, "PKG-READY-FAIL")
+    worktree, contract, paths = _active(tmp_path, _available_package_id("PKG-READY-FAIL"))
     original_receipt = paths.receipt_path.read_text(encoding="utf-8")
 
     def fail_database(database_path: Path, *, stamp: str):
@@ -271,7 +270,7 @@ def test_prepare_failure_does_not_report_application_ready(
 
 
 def test_env_down_removes_database_and_fake_secret_payload(tmp_path: Path) -> None:
-    worktree, contract, paths = _active(tmp_path, "PKG-READY-DOWN")
+    worktree, contract, paths = _active(tmp_path, _available_package_id("PKG-READY-DOWN"))
     _prepare(worktree, contract)
     assert paths.database_path.is_file()
     assert (paths.secret_root / "test-secrets.json").is_file()
@@ -412,29 +411,6 @@ def _agent_cli(worktree: Path, *args: str) -> subprocess.CompletedProcess[str]:
         check=False,
         timeout=30,
     )
-
-
-def _available_package_id(prefix: str) -> str:
-    for index in range(256):
-        package_id = f"{prefix}-{index}"
-        ports = derive_candidate_ports(package_id)
-        listeners: list[socket.socket] = []
-        try:
-            for port in (ports["backend"], ports["frontend"]):
-                listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
-                    listener.setsockopt(
-                        socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1
-                    )
-                listener.bind((lifecycle.LOOPBACK, int(port)))
-                listeners.append(listener)
-            return package_id
-        except OSError:
-            pass
-        finally:
-            for listener in listeners:
-                listener.close()
-    raise RuntimeError("no deterministic free package port pair found")
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Public agent CLI is Windows PowerShell.")
