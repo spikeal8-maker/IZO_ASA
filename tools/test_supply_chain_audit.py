@@ -22,7 +22,7 @@ from tools.supply_chain_audit import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
-POLICY = json.loads((ROOT / "architecture" / "security-policy.json").read_text(encoding="utf-8"))
+POLICY = json.loads((ROOT / "tools" / "fixtures" / "npm-reviewed-policy-20260923.json").read_text(encoding="utf-8"))
 REVIEW_DATE = date(2026, 9, 23)
 
 
@@ -49,7 +49,7 @@ def _report(*, counts: dict[str, int] | None = None, vulnerabilities: dict | Non
     )
 
 
-def _current_full_report() -> dict:
+def _historical_full_report() -> dict:
     raw = _report(
         counts={"critical": 0, "high": 3, "moderate": 1, "low": 0, "total": 4},
         vulnerabilities={
@@ -227,8 +227,8 @@ def test_nonzero_exit_with_valid_vulnerability_report_is_data_not_failure() -> N
     assert result["counts"]["high"] == 1
 
 
-def test_current_reviewed_baseline_passes_and_moderate_needs_no_high_exception() -> None:
-    result = evaluate_npm_policy(_current_full_report(), _clean_report(), POLICY, as_of=REVIEW_DATE)
+def test_historical_reviewed_baseline_passes_and_moderate_needs_no_high_exception() -> None:
+    result = evaluate_npm_policy(_historical_full_report(), _clean_report(), POLICY, as_of=REVIEW_DATE)
     assert result["status"] == POLICY_PASS
     assert len(POLICY["baselineExceptions"]) == 3
     moderate = next(item for item in result["classifiedFindings"] if item["package"] == "baseline-browser-mapping")
@@ -244,7 +244,7 @@ def test_current_reviewed_baseline_passes_and_moderate_needs_no_high_exception()
     ],
 )
 def test_synthetic_new_high_or_critical_fails(severity: str, package: str, advisory: str) -> None:
-    current = _current_full_report()
+    current = _historical_full_report()
     synthetic = _single_finding(package, severity=severity, affected_range="<1", advisory=advisory)
     current["findings"].extend(synthetic["findings"])
     current["counts"][severity] += 1
@@ -257,7 +257,7 @@ def test_synthetic_new_high_or_critical_fails(severity: str, package: str, advis
 def test_missing_required_exception_field_fails(field: str) -> None:
     policy = copy.deepcopy(POLICY)
     del policy["baselineExceptions"][0][field]
-    result = evaluate_npm_policy(_current_full_report(), _clean_report(), policy, as_of=REVIEW_DATE)
+    result = evaluate_npm_policy(_historical_full_report(), _clean_report(), policy, as_of=REVIEW_DATE)
     assert result["status"] == POLICY_FAIL
     assert any(f"missing-{field}" in item for item in result["violations"])
 
@@ -265,7 +265,7 @@ def test_missing_required_exception_field_fails(field: str) -> None:
 def test_expired_exception_fails() -> None:
     policy = copy.deepcopy(POLICY)
     policy["baselineExceptions"][0]["reviewBy"] = "2026-09-22"
-    result = evaluate_npm_policy(_current_full_report(), _clean_report(), policy, as_of=REVIEW_DATE)
+    result = evaluate_npm_policy(_historical_full_report(), _clean_report(), policy, as_of=REVIEW_DATE)
     assert result["status"] == POLICY_FAIL
     assert any(item.startswith("EXPIRED_EXCEPTION") for item in result["violations"])
 

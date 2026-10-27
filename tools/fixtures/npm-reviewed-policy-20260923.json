@@ -1,0 +1,199 @@
+{
+  "version": 3,
+  "package": "STAB-SUPPLY-CHAIN-001",
+  "slice": "complete-supply-chain-floor",
+  "dependencyMutation": {
+    "allowed": false,
+    "protectedFiles": [
+      "frontend/package.json",
+      "frontend/package-lock.json",
+      "backend/requirements.txt"
+    ]
+  },
+  "npmAudit": {
+    "workingDirectory": "frontend",
+    "commands": {
+      "full": [
+        "npm",
+        "audit",
+        "--json"
+      ],
+      "production": [
+        "npm",
+        "audit",
+        "--omit=dev",
+        "--json"
+      ]
+    },
+    "freshBaselineSource": "exact-head-github-ci",
+    "historicalCountsAcceptedAsFreshBaseline": false,
+    "requiredStatus": "AVAILABLE",
+    "highCriticalPolicy": "deny-unless-exact-tracked-exception",
+    "classificationValues": [
+      "production",
+      "dev-only"
+    ],
+    "severities": [
+      "critical",
+      "high",
+      "moderate",
+      "low"
+    ],
+    "findingFields": [
+      "package",
+      "severity",
+      "advisoryIds",
+      "range",
+      "fixAvailable",
+      "presentInProductionAudit",
+      "runtimeOrDev"
+    ],
+    "vulnerabilityExitCodeIsData": true,
+    "scannerUnavailableFailsRequiredGate": true
+  },
+  "forbiddenCommands": [
+    "npm audit fix",
+    "npm audit fix --force",
+    "npm update"
+  ],
+  "baselineExceptions": [
+    {
+      "package": "browserslist",
+      "severity": "high",
+      "affectedRange": "<=4.28.6",
+      "advisories": [
+        "GHSA-73wf-gq98-2v4g",
+        "GHSA-c83g-rgw3-j3cx"
+      ],
+      "classification": "dev-only",
+      "issue": "#154",
+      "owner": "spikeal8-maker",
+      "reason": "Reviewed current npm baseline; dependency mutation is intentionally deferred to the tracked remediation issue.",
+      "remediation": "Update the eslint-plugin-react-hooks/Babel chain so browserslist is outside the affected range, with a separately reviewed dependency/lockfile delta.",
+      "reviewBy": "2026-10-23"
+    },
+    {
+      "package": "nanoid",
+      "severity": "high",
+      "affectedRange": "<=3.3.17",
+      "advisories": [
+        "GHSA-28wg-ghj8-5hjv",
+        "GHSA-2v37-7h3g-55p8"
+      ],
+      "classification": "dev-only",
+      "issue": "#155",
+      "owner": "spikeal8-maker",
+      "reason": "Reviewed current npm baseline; dependency mutation is intentionally deferred to the tracked Vite/PostCSS remediation issue.",
+      "remediation": "Update the Vite/PostCSS chain so nanoid is outside all affected ranges, with a separately reviewed dependency/lockfile delta.",
+      "reviewBy": "2026-10-23"
+    },
+    {
+      "package": "postcss",
+      "severity": "high",
+      "affectedRange": "<=8.5.22",
+      "advisories": [
+        "GHSA-r28c-9q8g-f849"
+      ],
+      "classification": "dev-only",
+      "issue": "#155",
+      "owner": "spikeal8-maker",
+      "reason": "Reviewed current npm baseline; dependency mutation is intentionally deferred to the tracked Vite/PostCSS remediation issue.",
+      "remediation": "Update the Vite/PostCSS chain so postcss is outside the affected range, with a separately reviewed dependency/lockfile delta.",
+      "reviewBy": "2026-10-23"
+    }
+  ],
+  "pythonAudit": {
+    "scanner": {
+      "name": "pip-audit",
+      "version": "2.10.1"
+    },
+    "input": "backend/requirements.txt",
+    "requiredStatus": "AVAILABLE",
+    "severitySource": "scanner-only",
+    "unknownSeverityRequiresReview": true,
+    "baselineExceptions": []
+  },
+  "licenses": {
+    "scanners": {
+      "frontend": {
+        "name": "license-checker-rseidelsohn",
+        "version": "5.0.1"
+      },
+      "backend": {
+        "name": "pip-licenses",
+        "version": "5.5.5",
+        "source": "license-expression"
+      }
+    },
+    "directDependenciesOnly": true,
+    "classificationValues": [
+      "production",
+      "dev/test",
+      "unknown"
+    ],
+    "approvedExpressions": [
+      "Apache-2.0",
+      "BSD-2-Clause",
+      "BSD-3-Clause",
+      "ISC",
+      "MIT"
+    ],
+    "forbiddenExpressions": [],
+    "unlistedExpressionClass": "needs-review",
+    "reviews": [
+      {
+        "ecosystem": "backend",
+        "package": "Pillow",
+        "resolvedVersion": "12.3.0",
+        "license": "MIT-CMU",
+        "classification": "unknown",
+        "issue": "#156",
+        "owner": "spikeal8-maker",
+        "reason": "Current direct backend baseline requires explicit license review; requirements.txt does not prove runtime vs dev/test classification.",
+        "reviewBy": "2026-10-23"
+      },
+      {
+        "ecosystem": "backend",
+        "package": "socksio",
+        "resolvedVersion": "1.0.0",
+        "license": "UNKNOWN",
+        "classification": "unknown",
+        "issue": "#156",
+        "owner": "spikeal8-maker",
+        "reason": "Maintained license metadata did not provide a usable SPDX expression; current direct backend baseline requires explicit review.",
+        "reviewBy": "2026-10-23"
+      }
+    ]
+  },
+  "secretScan": {
+    "scanner": {
+      "name": "gitleaks",
+      "version": "8.30.1",
+      "asset": "gitleaks_8.30.1_windows_x64.zip",
+      "sha256": "d29144deff3a68aa93ced33dddf84b7fdc26070add4aa0f4513094c8332afc4e"
+    },
+    "scope": "event-derived-git-range-base-exclusive-head-inclusive",
+    "redactPercent": 100,
+    "rawUnredactedArtifactAllowed": false,
+    "syntheticRedactionTestRequired": true,
+    "requiredStatus": "AVAILABLE",
+    "findingPolicy": "deny",
+    "eventRange": {
+      "head": {
+        "pull_request": "github.event.pull_request.head.sha",
+        "push": "github.sha",
+        "workflow_dispatch": "github.sha"
+      },
+      "base": {
+        "pull_request": "github.event.pull_request.base.sha",
+        "push": "github.event.before; use HEAD^ fallback when before is missing, zero, invalid, or unavailable",
+        "workflow_dispatch": "HEAD^"
+      },
+      "validation": [
+        "checked-out git HEAD must equal the resolved event HEAD",
+        "resolved base must be an available commit SHA before scanning",
+        "changed-scope scan range is resolved base..exact HEAD"
+      ]
+    }
+  }
+}
