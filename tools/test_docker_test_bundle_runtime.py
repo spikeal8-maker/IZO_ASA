@@ -33,6 +33,7 @@ class FakeDocker:
 def fake_runtime(monkeypatch):
     monkeypatch.setattr(runtime, "owned_resources", lambda d, m: {"containers": [], "volumes": [], "networks": []})
     monkeypatch.setattr(runtime, "ensure_images", lambda *args: None)
+    monkeypatch.setattr(runtime, "initialize_empty_test_database", lambda *args: None)
     monkeypatch.setattr(runtime, "health", lambda d, r, m: {
         "status": "TEST_RUNTIME_VERIFIED", "source_sha": m["source_sha"],
         "release_id": m["release_id"], "containers": 5, "production_authorized": False})
@@ -189,3 +190,31 @@ def test_install_state_inside_bundle_rejected(tmp_path):
     with pytest.raises(BundleError, match="STATE_INSIDE_BUNDLE_FORBIDDEN"):
         runtime.install(root, pin, root / "state", docker)
     assert docker.calls == []
+
+
+def test_only_first_install_bootstraps_canonical_empty_database(tmp_path, monkeypatch):
+    fake_runtime(monkeypatch)
+    calls = []
+    monkeypatch.setattr(runtime, "initialize_empty_test_database", lambda d, r, m: calls.append(m["source_sha"]))
+    root, pin, manifest = make_bundle(tmp_path / "source")
+    state, docker = tmp_path / "state", FakeDocker()
+    runtime.install(root, pin, state, docker)
+    runtime.install(root, pin, state, docker)
+    assert calls == [manifest["source_sha"]]
+
+
+def test_bootstrap_is_guarded_and_uses_existing_init_db(tmp_path):
+    root, _, manifest = make_bundle(tmp_path / "source")
+    class BootstrapDocker:
+        def __init__(self): self.calls = []
+        def compose(self, directory, m, *args):
+            self.calls.append(args)
+            return "FRESH_TEST_SCHEMA_7_VERIFIED" if args[0] == "run" else ""
+    docker = BootstrapDocker()
+    runtime.initialize_empty_test_database(docker, root, manifest)
+    assert docker.calls[0][0] == "up" and docker.calls[0][-1] == "guard"
+    assert docker.calls[1][:4] == ("run", "--rm", "--no-deps", "-T")
+    code = docker.calls[1][-1]
+    assert "main.db_guard_preflight()" in code and "main.init_db()" in code
+    assert "==0" in code and "==7" in code and "sqlite_master" in code
+    assert "PRAGMA user_version=" not in code and "DROP TABLE" not in code

@@ -140,6 +140,35 @@ def health(docker: Docker, root: Path, m: dict) -> dict:
             "release_id": m["release_id"], "containers": len(rows), "production_authorized": False}
 
 
+def initialize_empty_test_database(docker: Docker, root: Path, manifest: dict) -> None:
+    """Run canonical migrations only in a newly owned, empty synthetic database."""
+    docker.compose(root, manifest, "up", "-d", "--wait", "--wait-timeout", "60",
+                   "--no-build", "--pull", "never", "guard")
+    code = """import os,sqlite3
+from pathlib import Path
+p=Path(os.environ['DATABASE_URL'])
+assert os.environ['APP_ENV']=='test' and os.environ['ENV']=='test' and os.environ['MODE']=='test'
+assert str(p)=='/home/izo/data/app.sqlite3'
+if p.exists():
+    c=sqlite3.connect('file:'+str(p)+'?mode=ro',uri=True)
+    assert c.execute('PRAGMA user_version').fetchone()[0]==0
+    assert c.execute(\"SELECT count(*) FROM sqlite_master WHERE type='table'\").fetchone()[0]==0
+    c.close()
+import main
+main.db_guard_preflight()
+main.init_db()
+c=sqlite3.connect('file:'+str(p)+'?mode=ro',uri=True)
+assert c.execute('PRAGMA user_version').fetchone()[0]==7
+assert c.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
+assert not c.execute('PRAGMA foreign_key_check').fetchone()
+c.close()
+print('FRESH_TEST_SCHEMA_7_VERIFIED')
+"""
+    output = docker.compose(root, manifest, "run", "--rm", "--no-deps", "-T", "--entrypoint",
+                            "python", "backend", "-c", code)
+    require(output.splitlines()[-1:] == ["FRESH_TEST_SCHEMA_7_VERIFIED"], "FRESH_SCHEMA_INITIALIZATION_FAILED")
+
+
 def atomic_json(path: Path, value: dict) -> None:
     temporary = path.with_suffix(".writing")
     with temporary.open("xb") as stream:
@@ -209,6 +238,8 @@ def install(bundle: Path, pin: str, state: Path, docker: Docker, *, allow_update
         owned_resources(docker, m)
         docker.compose(target, m, "config", "--quiet")
         try:
+            if previous is None:
+                initialize_empty_test_database(docker, target, m)
             docker.compose(target, m, "up", "-d", "--wait", "--wait-timeout", "180", "--no-build", "--pull", "never")
             result = health(docker, target, m)
         except Exception:
