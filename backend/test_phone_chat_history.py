@@ -29,6 +29,18 @@ def test_chat_threads_are_owned_persisted_and_deleted_with_messages() -> None:
     assert conn.execute("SELECT COUNT(*) FROM phone_chat_messages").fetchone()[0] == 0
 
 
+def test_long_code_answer_is_preserved_without_silent_truncation() -> None:
+    conn = _database()
+    thread = phone_chat_history.create_thread(conn, "user-1")
+    answer = "print('complete code')\n" * 3000
+    phone_chat_history.add_exchange(
+        conn, "user-1", thread["id"], user_content="Write code",
+        assistant_content=answer, provider="local", model="qwen3.8:27b",
+        tools=[], charged_tokens=0, token_kind="daily",
+    )
+    assert phone_chat_history.list_messages(conn, "user-1", thread["id"])[-1]["content"] == answer
+
+
 def test_context_history_is_bounded_from_the_newest_messages() -> None:
     conn = _database()
     thread = phone_chat_history.create_thread(conn, "user-1", context_chars=4000)

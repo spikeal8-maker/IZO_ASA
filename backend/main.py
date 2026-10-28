@@ -7942,7 +7942,7 @@ async def improve_prompt(req: ImprovePromptRequest, request: Request) -> dict[st
     try:
         improved, provider_payload, provider, model = await asyncio.wait_for(
             improve_prompt_routed(req.model_copy(update={"prompt": original})),
-            timeout=240,
+            timeout=1860 if requested_route != "api" else 240,
         )
     except asyncio.TimeoutError as exc:
         routing = {"requestedRoute": requested_route, "attempts": [], "fallbackUsed": False, "errorType": "TimeoutError"}
