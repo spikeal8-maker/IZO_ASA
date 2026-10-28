@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import sys
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ BACKEND = ROOT / "backend"
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
+from app.storage import backup  # noqa: E402
 from app.storage.backup import (  # noqa: E402
     BackupError,
     create_backup,
@@ -210,3 +212,204 @@ def test_tools_never_offer_in_place_production_restore() -> None:
     assert "--destination" in restore_source
     assert "DATABASE_URL" not in restore_source
     assert "--create-config" in backup_source
+
+
+def tree_checksums(root: Path) -> dict[str, str]:
+    return {
+        path.relative_to(root).as_posix(): sha256_file(path)
+        for path in root.rglob("*")
+        if path.is_file()
+    }
+
+
+@pytest.fixture
+def snapshot_sources(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> tuple[Path, backup.BackupResult, tuple[Path, Path]]:
+    snapshot_ids = iter(("20260101T000000.000000Z", "20260102T000000.000000Z"))
+    monkeypatch.setattr(backup, "_snapshot_id", lambda: next(snapshot_ids))
+    sources = []
+    for label, payload in (("A", b"media-from-A"), ("B", b"media-from-B-is-newer")):
+        database, media = create_source(tmp_path / "sources" / label)
+        with closing(sqlite3.connect(database)) as connection:
+            connection.execute("UPDATE users SET name = ?", (f"snapshot-{label}",))
+            connection.commit()
+        (media / "one.webp").write_bytes(payload)
+        sources.append((database, media))
+    backup_root = tmp_path / "backup"
+    first = create_backup(*sources[0], backup_root, require_separate_volume=False)
+    return backup_root, first, sources[1]
+
+
+@pytest.mark.parametrize("selector", ("latest", "explicit"))
+@pytest.mark.parametrize("publish_newer", (False, True), ids=("steady", "competing"))
+@pytest.mark.parametrize("legacy_marker", (False, True), ids=("checksummed", "legacy"))
+@pytest.mark.parametrize("rehearsal", (False, True), ids=("direct", "rehearsal"))
+def test_restore_stays_bound_to_verified_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, snapshot_sources,
+    selector: str, publish_newer: bool, legacy_marker: bool, rehearsal: bool,
+) -> None:
+    backup_root, first, newer_source = snapshot_sources
+    if legacy_marker:
+        (first.snapshot_dir / backup.COMPLETE_MARKER).write_text("ok\n", encoding="ascii")
+    sources_before = tree_checksums(tmp_path / "sources")
+    backup_initial = tree_checksums(backup_root)
+    backup_before: dict[str, str] = {}
+    verifications = []
+    original_verify = backup.verify_snapshot
+
+    def verify_then_publish(root: Path, snapshot: str = "latest"):
+        verified = original_verify(root, snapshot)
+        verifications.append(verified)
+        if len(verifications) == 1:
+            if publish_newer:
+                create_backup(*newer_source, backup_root, require_separate_volume=False)
+            backup_before.update(tree_checksums(backup_root))
+        return verified
+
+    monkeypatch.setattr(backup, "verify_snapshot", verify_then_publish)
+    observations = []
+    restored_hashes = []
+    destinations = []
+    original_restore = backup.restore_snapshot
+
+    def observe_restore(root: Path, destination: Path, snapshot: str = "latest"):
+        result = original_restore(root, destination, snapshot)
+        destinations.append(destination)
+        with closing(sqlite3.connect(destination / "database.sqlite3")) as connection:
+            rows = connection.execute("SELECT name FROM users ORDER BY id").fetchall()
+        media_bytes = (destination / "media" / "one.webp").read_bytes()
+        observations.append((result.snapshot_id, rows, media_bytes))
+        restored_hashes.append((
+            sha256_file(destination / "database.sqlite3"), tree_checksums(destination / "media"),
+        ))
+        assert (destination / backup.RESTORE_COMPLETE_MARKER).read_text(encoding="ascii") == "ok\n"
+        return result
+
+    monkeypatch.setattr(backup, "restore_snapshot", observe_restore)
+    work_root = tmp_path / "rehearsals"
+    foreign = work_root / "izo-restore-rehearsal-foreign"
+    foreign.mkdir(parents=True)
+    (foreign / "keep.txt").write_text("foreign rehearsal", encoding="utf-8")
+    (work_root / "keep.txt").write_text("unrelated file", encoding="utf-8")
+    work_before = tree_checksums(work_root)
+    requested = first.snapshot_id if selector == "explicit" else "latest"
+    if rehearsal:
+        result = backup.rehearse_restore(backup_root, requested, work_root)
+    else:
+        result = backup.restore_snapshot(backup_root, tmp_path / "restored", requested)
+
+    expected = (first.snapshot_id, [("snapshot-A",)], b"media-from-A")
+    assert observations == [expected], f"verified/restored observations: {observations!r}"
+    assert result == verifications[0]
+    assert all(item.snapshot_id == first.snapshot_id for item in verifications)
+    assert result.media_bytes == len(b"media-from-A") + len(b"second-image")
+    manifest = json.loads((first.snapshot_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert restored_hashes == [(
+        manifest["database"]["sha256"],
+        {entry["path"]: entry["sha256"] for entry in manifest["media"]["files"]},
+    )]
+    if rehearsal:
+        assert not destinations[0].parent.exists()
+    assert tree_checksums(tmp_path / "sources") == sources_before
+    assert tree_checksums(backup_root) == backup_before
+    assert {path: backup_before[path] for path in backup_initial} == backup_initial
+    assert tree_checksums(work_root) == work_before
+    assert sorted(path.name for path in work_root.iterdir()) == [foreign.name, "keep.txt"]
+    if publish_newer:
+        assert original_verify(backup_root).snapshot_id != first.snapshot_id
+
+
+@pytest.mark.parametrize("rehearsal", (False, True), ids=("direct", "rehearsal"))
+@pytest.mark.parametrize(("damage", "error"), (
+    ("missing", "snapshot_not_found_or_incomplete"),
+    ("incomplete", "snapshot_not_found_or_incomplete"),
+    ("marker", "snapshot_marker_invalid"),
+    ("manifest", "manifest_checksum_mismatch"),
+    ("database", "restored_database_checksum_mismatch"),
+    ("media", "restored_media_checksum_mismatch"),
+    ("symlink", "snapshot_not_found_or_incomplete"),
+    ("media-path", "unsafe_manifest_media_path"),
+))
+def test_restore_rejects_unusable_selected_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, snapshot_sources,
+    rehearsal: bool, damage: str, error: str,
+) -> None:
+    backup_root, first, newer_source = snapshot_sources
+    sources_before = tree_checksums(tmp_path / "sources")
+    backup_before: dict[str, str] = {}
+    original_verify = backup.verify_snapshot
+    original_is_symlink = Path.is_symlink
+    published = []
+
+    def verify_then_damage(root: Path, snapshot: str = "latest"):
+        verified = original_verify(root, snapshot)
+        assert verified.snapshot_id == first.snapshot_id
+        if published:
+            return verified
+        published.append(create_backup(*newer_source, backup_root, require_separate_volume=False))
+        marker = first.snapshot_dir / backup.COMPLETE_MARKER
+        manifest_path = first.snapshot_dir / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if damage == "missing":
+            first.snapshot_dir.rename(tmp_path / "removed-A")
+        elif damage == "incomplete":
+            marker.unlink()
+        elif damage == "marker":
+            marker.write_text("invalid\n", encoding="ascii")
+        elif damage == "manifest":
+            manifest_path.write_bytes(manifest_path.read_bytes() + b" ")
+        elif damage in {"database", "media"}:
+            target = first.snapshot_dir / "database.sqlite3"
+            if damage == "media":
+                entry = next(item for item in manifest["media"]["files"] if item["path"] == "one.webp")
+                checksum = entry["sha256"]
+                target = backup_root / "media-objects" / checksum[:2] / checksum
+            contents = target.read_bytes()
+            target.write_bytes(bytes((contents[0] ^ 1,)) + contents[1:])
+        elif damage == "symlink":
+            monkeypatch.setattr(Path, "is_symlink", lambda path: (
+                path == first.snapshot_dir or original_is_symlink(path)
+            ))
+        elif damage == "media-path":
+            manifest["media"]["files"][0]["path"] = "../outside.txt"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            marker.write_text(sha256_file(manifest_path) + "\n", encoding="ascii")
+        backup_before.update(tree_checksums(backup_root))
+        return verified
+
+    monkeypatch.setattr(backup, "verify_snapshot", verify_then_damage)
+    original_restore = backup.restore_snapshot
+    destinations = []
+    completion_markers = []
+
+    def observe_restore(root: Path, destination: Path, snapshot: str = "latest"):
+        destinations.append(destination)
+        try:
+            return original_restore(root, destination, snapshot)
+        finally:
+            completion_markers.append((destination / backup.RESTORE_COMPLETE_MARKER).exists())
+
+    monkeypatch.setattr(backup, "restore_snapshot", observe_restore)
+    work_root = tmp_path / "rehearsals"
+    foreign = work_root / "izo-restore-rehearsal-foreign"
+    foreign.mkdir(parents=True)
+    (foreign / "keep.txt").write_text("foreign rehearsal", encoding="utf-8")
+    (work_root / "keep.txt").write_text("unrelated file", encoding="utf-8")
+    work_before = tree_checksums(work_root)
+    with pytest.raises(BackupError, match=error):
+        if rehearsal:
+            backup.rehearse_restore(backup_root, work_root=work_root)
+        else:
+            backup.restore_snapshot(backup_root, tmp_path / "restored")
+
+    assert completion_markers == [False]
+    assert not (destinations[0] / "outside.txt").exists()
+    if rehearsal:
+        assert not destinations[0].parent.exists()
+    assert len(published) == 1
+    assert original_verify(backup_root).snapshot_id == published[0].snapshot_id
+    assert tree_checksums(tmp_path / "sources") == sources_before
+    assert tree_checksums(backup_root) == backup_before
+    assert tree_checksums(work_root) == work_before
+    assert sorted(path.name for path in work_root.iterdir()) == [foreign.name, "keep.txt"]
