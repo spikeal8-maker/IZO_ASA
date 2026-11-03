@@ -1,0 +1,89 @@
+manifestVersion = 1
+id = "DOCKER-CANONICAL-BUILD-INPUTS-001"
+baseSha = "b308359e7466b78ecce06c9ae41b4a4b73cbe6ec"
+goal = "Integrate the seven missing canonical source inputs for the existing format-2 synthetic-runtime Docker delivery."
+userOutcome = "One exact application checkout contains the ordinary backend/web/guard Compose, Dockerfile and COPY input chain."
+beforeScenario = "Actual main lacks compose.shadow.yml, web/guard Dockerfiles, nginx/guard sources and their Dockerfile-specific ignore files."
+afterScenario = "The seven inputs equal donor 1030abdafc32a0f11fbc4a6593acd435eb1bbdfd; focused source checks pass with current main application and installer unchanged. Container acceptance remains separate."
+nonGoals = [
+  "New installer, changed application behavior, dependencies, image digest pins, backend Dockerfile or bundle format",
+  "Changing fixed A/B workflow source selection or importing acceptance fixtures and product features from B",
+  "Claiming a Docker build, runtime acceptance, independent approval, production readiness, merge or deployment",
+]
+declaredFiles = [
+  "ops/docker/dev/compose.shadow.yml",
+  "ops/docker/dev/Dockerfile.web",
+  "ops/docker/dev/nginx.shadow.conf",
+  "ops/docker/dev/Dockerfile.web.dockerignore",
+  "ops/docker/dev/Dockerfile.guard",
+  "ops/docker/dev/network_guard.py",
+  "ops/docker/dev/Dockerfile.guard.dockerignore",
+  "tools/test_docker_canonical_source_inputs.py",
+  "tasks/DOCKER-CANONICAL-BUILD-INPUTS-001.toml",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  ".github/**",
+  "docs/**",
+  "architecture/**",
+  "ops/docker/dev/Dockerfile.backend",
+  "ops/docker/dev/compose.yml",
+  ".dockerignore",
+  "tools/docker_test_bundle.py",
+  "tools/docker_test_bundle_format.py",
+  "tools/docker_test_bundle_runtime.py",
+  "tools/agent.ps1",
+  "tools/agent_system/**",
+  "tools/verify.ps1",
+  "tasks/BACKUP-RESTORE-SNAPSHOT-BINDING-001.toml",
+]
+protectedFilesTouched = [
+]
+domain = "docker-delivery"
+riskClass = "release-ops"
+changeClass = "tooling"
+maxProductionFiles = 0
+maxChangedLines = 600
+acceptance = [
+  "Before integration, a deterministic RED reads the real base tree and names the missing input and its consumer; no mocked Path existence or checkout deletion.",
+  "Copy exactly seven Git blobs from donor 1030abdafc32a0f11fbc4a6593acd435eb1bbdfd and record blob identity; do not use a mutable historical worktree.",
+  "Traverse actual Compose build declarations and literal Dockerfile COPY inputs; missing files fail with dependency diagnostics, including deletion cases in temporary minimal trees.",
+  "Keep exactly backend/web/guard and sqlite-data/media-data, ordinary backend command and backend-only COPY, source labels and digest-pinned FROM images.",
+  "Read Dockerfile-specific ignore allowlists and declared secret/data exclusions structurally; do not emulate Compose merging or Docker/BuildKit ignore matching.",
+  "Preserve guard default-deny policy, privilege drop, readiness checks and final SIGCHLD fix; review every transferred file in main context.",
+  "Run the six requested focused test modules, package/scope verification, syntax, file hygiene and whitespace checks without changing existing tests or limits.",
+  "Publish a clean commit and Draft PR; inspect CI on its exact HEAD and distinguish source readiness from the unaccepted container gate.",
+]
+requiredEvidence = [
+  "Fresh canonical origin/main, clean existing worktrees, non-overlapping registry ownership and tools/agent.ps1 start registration.",
+  "RED before donor transfer; GREEN with individually removed required inputs; seven donor and candidate Git blob IDs.",
+  "Complete authored diff review, exact nine-path scope, unchanged application/backend/installer and applicable workflow filters.",
+  "Record donor web ignore's missing .db-wal/.db-shm/.db-journal exclusions; a separately scoped three-line hardening change is required before claiming full local-data exclusion.",
+  "Static tests do not prove actual build contexts or network behavior; Compose render, three-image build at the new exact SHA and isolated startup acceptance remain pending.",
+  "Final commit, Draft PR and observed exact-head CI status; author review is not independent approval.",
+]
+targetedTests = [
+  "python -m pytest tools/test_docker_canonical_source_inputs.py tools/test_docker_dev_contract.py tools/test_docker_test_bundle_build.py tools/test_docker_test_bundle_format.py tools/test_docker_test_bundle_runtime.py tools/test_docker_synthetic_runtime.py -q",
+  "python -m py_compile ops/docker/dev/network_guard.py tools/test_docker_canonical_source_inputs.py",
+  "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/agent.ps1 verify",
+  "python -m tools.agent_system.enforce --repo-root . ci --target-base b308359e7466b78ecce06c9ae41b4a4b73cbe6ec",
+  # file_hygiene requires full 40-hex SHAs; resolve HEAD before executing this gate.
+  # PowerShell: python -m tools.file_hygiene --base b308359e7466b78ecce06c9ae41b4a4b73cbe6ec --head (git rev-parse HEAD)
+  "python -m tools.file_hygiene --base b308359e7466b78ecce06c9ae41b4a4b73cbe6ec --head HEAD",
+  "git diff --check",
+]
+fileGrowthExpectations = [
+  "Exactly seven donor files totaling 280 lines, one focused test module below 500 lines/24 KiB and this contract; no size exceptions.",
+  "Temporary fixtures, tool runtimes, receipts and logs remain outside tracked source; no generated architecture changes.",
+]
+forbiddenOperations = [
+  "Change the observed instance, its containers/images/volumes/data/configuration, observer, schedule or timer",
+  "Read secrets or use historical databases/media; call real models, paid APIs, payments, mail, bots or Codex",
+  "Change Windows, Docker daemon, VPN, DNS, firewall, other projects, or run local Full/heavy builds/load on D2-R2",
+  "Run the old A/B Docker workflow as acceptance of the new SHA, merge old PRs wholesale, expand PR263, merge or deploy",
+  "Overwrite others' changes, bypass registry/locks, alter donor contents silently, raise existing limits or add gate exceptions",
+]
+rollbackBoundary = "Revert only this nine-file source integration. No running application, data, observation, host settings or installer state is changed."
