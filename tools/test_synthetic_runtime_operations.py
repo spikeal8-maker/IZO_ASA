@@ -37,6 +37,7 @@ class OperationTests(unittest.TestCase):
         self.c = object.__new__(accept.Controller)
         self.c.root = self.root; self.c.state = self.root / "installed"; self.c.project = "izo-asa-bundle-runtime-test"
         self.c.plan = {"observationSeconds": 360, "bundles": {"B": {"manifestSha256": "b" * 64}}}; self.c.pin = "a" * 64
+        self.c.sources = dict(accept.SOURCES)
         self.c.active = "B"; self.c.manifests = {"B": {}}; self.c.owner = {"id": "owner"}; self.c.before = {x: {} for x in ("containers", "volumes", "networks")}
         self.c.product = None; self.c.claim = volume(self.c.project + "-installation")
         self.c.docker = Mock(); self.c.fmt = Mock(); self.c.runtime = Mock()
@@ -134,7 +135,8 @@ class OperationTests(unittest.TestCase):
         with patch.object(checks, "inventory", return_value=self.c.before):
             self.c.scope_check()
             for target, field, value, reason in (("owner", "id", "b" * 32, "OWNER_BINDING_CHANGED"),
-                ("active", "manifest_sha256", "c" * 64, "ACTIVE_RECEIPT_CHANGED")):
+                ("active", "manifest_sha256", "c" * 64, "ACTIVE_RECEIPT_CHANGED"),
+                ("active", "source_sha", "f" * 40, "ACTIVE_RECEIPT_CHANGED")):
                 original = self.c.owner if target == "owner" else active
                 write_json(self.c.state / (target + ".json"), {**original, field: value})
                 with self.assertRaisesRegex(checks.CheckFailure, reason): self.c.scope_check()
@@ -172,6 +174,24 @@ class OperationTests(unittest.TestCase):
         self.assertEqual(result["removedVolumes"], ["data", "media"])
         self.assertEqual(result["claimsRemoved"], 1)
         self.assertEqual(self.c.docker.compose.call_args.args[-1], "down")
+
+    def test_selected_source_controls_install_result_and_change_evidence(self):
+        selected = {"A": "96314d9414df2954d3d8abbf3db20cf2e5e7dce0", "B": "f" * 40}
+        self.c.sources = selected; self.c.scope = {"context": "default"}; self.c.environment = {}
+        self.c.capture = Mock(); self.c.owner = None
+        write_json(self.c.state / "owner.json", {"id": "fresh-owner"})
+        value = {"status": "TEST_RUNTIME_VERIFIED", "profile": "synthetic-runtime", "release_id": "new-release",
+                 "source_sha": accept.SOURCES["B"]}
+        with patch.object(accept.subprocess, "run", return_value=types.SimpleNamespace(returncode=0, stdout=json.dumps(value))):
+            with self.assertRaisesRegex(checks.CheckFailure, "INSTALLER_DID_NOT_VERIFY"):
+                self.c.install("B")
+        self.c.capture.assert_not_called()
+        value["source_sha"] = selected["B"]
+        with patch.object(accept.subprocess, "run", return_value=types.SimpleNamespace(returncode=0, stdout=json.dumps(value))):
+            result = self.c.install("B")
+        self.assertEqual(result["sourceSha"], selected["B"])
+        self.c.install = Mock(); self.c.persist = Mock(); self.c.next_generation = Mock(return_value={}); self.c.repeat = Mock()
+        self.assertEqual(self.c.change("B")["sourceSha"], selected["B"])
 
     def test_idempotency_header_restored_after_request_error_without_retry(self):
         product = object.__new__(checks.Product); original = [("Accept", "application/json")]

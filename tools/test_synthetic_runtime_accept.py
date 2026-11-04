@@ -35,7 +35,7 @@ class PlanAndPrivateTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
 
-    def plan(self):
+    def plan(self, *, sources=None):
         plan = {"version": 1, "scope": {"os": platform.system().lower(), "host": platform.node(), "context": "default",
                 "engineFingerprint": "e" * 64, "project": "izo-asa-bundle-runtime-test", "root": str(self.root),
                 "ports": {"web": 48754, "api": 48755}}, "toolingSha": "f" * 40, "bundles": {},
@@ -45,10 +45,13 @@ class PlanAndPrivateTests(unittest.TestCase):
                 "controllerHashes": {name: checks.digest(Path(__file__).parent / name, canonical=True)
                                      for name in ("synthetic_runtime_accept.py", "synthetic_runtime_checks.py")},
                 "observationSeconds": 360, "retainSyntheticCredentials": True}
+        if sources is not None:
+            plan.update(version=2, sources=dict(sources))
+        selected = sources if sources is not None else accept.SOURCES
         for label in ("A", "B"):
             archive = self.root / ("release-" + label + ".zip"); archive.write_bytes(label.encode())
             item = {"archiveSha256": checks.digest(archive), "manifestSha256": label.lower() * 64}
-            receipt = {"status": "TEST_BUNDLE_BUILT", "source_sha": accept.SOURCES[label], "tooling_sha": plan["toolingSha"],
+            receipt = {"status": "TEST_BUNDLE_BUILT", "source_sha": selected[label], "tooling_sha": plan["toolingSha"],
                        "project": plan["scope"]["project"], "images_embedded": True, "production_authorized": False,
                        "manifest_sha256": item["manifestSha256"], "archive_sha256": item["archiveSha256"], "archive_bytes": 1}
             path = archive.with_suffix(".receipt.json"); write_json(path, receipt)
@@ -70,6 +73,28 @@ class PlanAndPrivateTests(unittest.TestCase):
                          lambda p: p.update(observationSeconds=300), lambda p: p["bundles"].pop("B")):
             plan = self.plan(); mutation(plan)
             with self.subTest(plan=plan["observationSeconds"]), self.assertRaises(checks.CheckFailure): self.load(plan)
+
+    def test_version2_pins_selected_sources_and_rejects_legacy_receipt(self):
+        selected = {"A": "96314d9414df2954d3d8abbf3db20cf2e5e7dce0", "B": "f" * 40}
+        plan = self.plan(sources=selected)
+        self.assertEqual(self.load(plan), plan)
+        path = self.root / "release-B.receipt.json"
+        receipt = checks.read_json(path); receipt["source_sha"] = accept.SOURCES["B"]
+        write_json(path, receipt)
+        plan["bundles"]["B"]["receiptSha256"] = checks.digest(path)
+        with self.assertRaisesRegex(checks.CheckFailure, "ARCHIVE_IDENTITY_MISMATCH"):
+            self.load(plan)
+
+    def test_version2_requires_distinct_full_pins_and_legacy_cannot_override_sources(self):
+        selected = {"A": "a" * 40, "B": "b" * 40}
+        for values in ({"A": "a" * 40}, {"A": "a" * 40, "B": "a" * 40},
+                       {"A": "a" * 40, "B": "main"}, {"A": "a" * 40, "B": "B" * 40}):
+            plan = self.plan(sources=selected); plan["sources"] = values
+            with self.subTest(values=values), self.assertRaisesRegex(checks.CheckFailure, "SOURCE_PINS_REQUIRED"):
+                self.load(plan)
+        plan = self.plan(); plan["sources"] = selected
+        with self.assertRaisesRegex(checks.CheckFailure, "PLAN_SHAPE_INVALID"):
+            self.load(plan)
 
     def test_dotdot_and_symlink_path_refused(self):
         with self.assertRaisesRegex(checks.CheckFailure, "UNSAFE_PATH"): checks.plain(self.root / "missing/../private")

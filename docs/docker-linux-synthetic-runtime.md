@@ -1,114 +1,145 @@
-# Обычное синтетическое приложение на Linux
+# Канонический Docker candidate на Linux
 
-Пакет `DOCKER-LINUX-SYNTHETIC-RUNTIME-002` добавляет отдельную проверку
-обычного приложения из формата 2. Границы:
-[Task Contract](../tasks/DOCKER-LINUX-SYNTHETIC-RUNTIME-002.toml).
+Пакет `DOCKER-CANONICAL-CANDIDATE-002` связывает существующую приёмку
+format 2 с текущим точным application SHA. Границы:
+[Task Contract](../tasks/DOCKER-CANONICAL-CANDIDATE-002.toml).
 
-Исходная Linux-матрица формата 1 остается самостоятельной проверкой.
-Ее backend с ограничением 300 секунд не подтверждает постоянный uvicorn.
-Новая матрица требует обычный процесс, успешную генерацию после 420 секунд
-и новые задания после каждого изменения жизненного цикла.
+Исходная Linux-матрица формата 1 остаётся отдельной проверкой. Installer,
+bundle format и Linux004 common helper не меняются. Старые A/B и Windows
+receipts сохраняют свои исходные SHA и не подтверждают новый candidate.
 
-## Неизменяемые входы
+## Закреплённые входы
 
 | Компонент | Фиксация |
 |---|---|
-| Application A | `1030abdafc32a0f11fbc4a6593acd435eb1bbdfd` |
-| Application B | `f51c316176bf2609ccb9271c00a358a7b1f02768` |
+| Previous application A | `96314d9414df2954d3d8abbf3db20cf2e5e7dce0` |
+| Current application B | `IZO_EXPECTED_HEAD`: точный PR head или dispatch SHA |
 | Format-2 tooling | `b517feb365eb7dcb0047f92500d73d4e82a74bff` |
-| Lifecycle controller SHA256 | `013b4e10448d091a7e4817dde33c8002dd23437e58450826493972504e52f1e1` |
+| Lifecycle controller SHA256 | `b794b18f435159cc23c5b607909c71a21c49867961f1dccb941bcf67c9f2ce58` |
 | Common checks SHA256 | `d7a2f251194b2ef1e79776bd4325b126afa4d6e5cd0c725bf0111eb71b977663` |
 | Linux004 common helper SHA256 | `2192a7aef412442850e25b73945c2c8e773859844ca77bcb5849d681ae2e6913` |
+| HTTP helper SHA256 | `cef42d3f1eff18f853c76cb55d611065d38cbdb8c847176c40acae94712ff506` |
 
-Python-код контроллера и проверок переносится без изменений. Его исходный
-тестовый файл превышал 24 KiB: четыре целых класса распределены между
-двумя файлами с сохранением AST всех методов и утверждений. Добавлены
-проверки границ нового адаптера; существующие тесты формата 1 сохранены.
+Producer получает явные `--source-a-sha` и `--source-b-sha`. A должен
+совпадать с предыдущим canonical pin, B — с exact candidate head; SHA
+должны различаться. Candidate, tooling и два application checkout находятся
+в разных, не вложенных каталогах. Каждый checkout проходит существующий
+origin/HEAD/clean guard до Docker, application — также до и после сборки.
 
-## Producer и независимый receiver
+Producer receipt и закреплённый plan версии 2 содержат одинаковый `sources`
+с ключами A/B. Controller сверяет этот mapping с build receipts, archive
+manifests, installer results и active receipt на всех этапах. Expected SHA
+не выводится из непроверенного архива. Legacy plan версии 1 сохраняет старые
+фиксированные A/B и не допускает подмены через дополнительное поле `sources`.
 
-Оба задания используют GitHub-hosted Ubuntu 22.04 X64. В начале каждого
-задания записывается полный список image/container IDs и volume names.
-Любой непустой список завершает проверку отказом; `prune` отсутствует.
-Проверка локального сокета, владельца UID0, hostname/kernel и boot hash
-повторно использует неизмененный Linux004 helper. Persistent Engine ID
-может совпадать у образов VM; boot и проверенный Engine instance обязаны
-различаться. Это проверка конкретных hosted runners, не root-attestation.
+HTTP-клиент находится в `candidate/tools/synthetic_http_client.py`.
+Он содержит только stdlib `HttpClient`, `path_id` и их защитные определения;
+его hash проверяется перед использованием. Receiver не получает application
+checkout B. ProductFlow, acceptance fixtures и worker IPC в поставку не входят.
 
-Producer собирает guard/backend/web без кеша по двум каноническим Compose
-файлам: `compose.yml` и `compose.shadow.yml`. Acceptance override не
-подключается. Текущий builder вызывается с `--profile synthetic-runtime`.
-Образы включаются в A/B ZIP; фиксируются их digests, source/tooling SHA,
-Dockerfile FROM digests, build receipts, manifest hashes и версии Engine/Compose.
+## Producer и отдельный receiver
 
-Хеш producer receipt передается независимым job output. Receiver проверяет
-его до доверия содержимому скачанного artifact, затем сверяет тот же
-head/run/attempt, разные роли/boots/instances, пустой producer inventory,
-обе цепочки receipt→archive→manifest и явный формат 2.
+Оба job используют GitHub-hosted Ubuntu 22.04 X64. До работы сохраняются
+полные image/container IDs и volume names. Непустой Engine приводит к отказу;
+`prune` отсутствует. Проверки локального сокета, UID0, hostname/kernel и boot
+hash повторно используют неизменённый Linux004 helper. Persistent Engine ID
+может совпадать у образов VM; проверенные boot и Engine instance различаются.
+
+После `fresh_engine` и до сборки обоих приложений producer запускает
+`tools.docker_canonical_context_probe` только для CURRENT B: временный
+синтетический context, `FROM scratch`, `--network=none`, без pull базового
+образа. Проверяются точные положительные файлы web/guard и исключение
+синтетических sidecars/посторонних ops-файлов. Вложенные ignore-правила
+не получают allowances для неожиданного содержимого.
+
+Gate требует `PASS_CONTEXT_EXPORT_ONLY`, правильный contract и CURRENT SHA,
+`sourceDirty=false`. Source guard повторяется непосредственно до/после probe;
+три ignore hash сверяются с файлами CURRENT до/после операции. Полный
+`context.json` и его hash входят в producer
+receipt; receiver сверяет переданный context receipt с этой закреплённой
+копией. Context proof относится только к CURRENT, прежний A неизменяем.
+
+Для каждого приложения сначала рендерится merged Compose из `compose.yml`
+и `compose.shadow.yml`; сервисов ровно три. Затем без кеша собираются
+`guard/backend/web`. Acceptance override не подключается. Existing builder
+вызывается с `--profile synthetic-runtime`; A/B ZIP включают images.tar.
+Receipt фиксирует source/tooling SHA, manifest/archive hashes, image IDs,
+Dockerfile FROM digests, hash rendered Compose и Engine/Compose metadata.
+
+Хеш producer receipt передаётся отдельным job output. Receiver проверяет
+его до доверия artifact, затем сверяет head/run/attempt, разные роли,
+boots/instances, исходный пустой Engine, explicit source mapping, context
+receipt и обе цепочки receipt → archive → manifest.
 
 ## Обычная матрица
 
-На receiver создается новый каталог с Unicode в пути и отдельный проект
-`izo-asa-bundle-runtime-linux01`, порты loopback `48774/48775`.
-Контроллер вызывается отдельным `python -B .../synthetic_runtime_accept.py`.
-Это сохраняет изоляцию его импортов: `checks.support` запрещает заранее
-загруженный пакет `tools`. Установщику доступен отдельный PATH только с
-Python и Docker; Git/Node/npm через этот PATH недоступны.
+Receiver использует новый каталог с Unicode в пути, проект
+`izo-asa-bundle-runtime-linux01` и loopback-порты `48774/48775`.
+Controller запускается отдельным `python -B .../synthetic_runtime_accept.py`.
+Его support loader не допускает заранее импортированный пакет `tools`.
+Installer получает PATH только с Python/Docker, без Git/Node/npm.
 
-Матрица сохраняет все 11 этапов контроллера: install B; два аккаунта и два
-задания; удаление входной распаковки и повторная установка; наблюдение 420
-секунд и новое задание; restart backend; совместные stop/start и recreate;
-down/reinstall с прежними томами; переходы B→A→B. Итог — девять завершенных
-заданий A и девять job-linked charges, ноль изображений B. Проверяются
-private media, favorite, хеши, ledger, исходные сессии, volume generation и
-CreatedAt, актуальная привязка к guard и равенство network namespace.
+Сохраняются все 11 этапов: install B; два аккаунта и два задания;
+удаление incoming B и exact repeat; 420 секунд непрерывной работы с новым
+заданием; backend restart; group stop/start и recreate; down/reinstall с
+прежними томами; B → A → B. Итог — девять завершённых заданий и связанных
+списаний у owner, ноль изображений у other. Проверяются private media,
+favorite, хеши, ledger, исходные сессии, volume generation/CreatedAt,
+актуальная привязка к guard и равенство network namespace.
 
-Короткая исходная матрица строго сравнивает счетчики дневного allowance.
-Перед первым запуском требуется более 1800 секунд до следующих суток UTC:
-1500 секунд на lifecycle, 240 на cleanup и 60 запаса. При меньшем окне
-получается явный отказ до изменения runtime или входа в аккаунты, без
-ожидания, повтора и skip. Это граница тестовой фикстуры, не ограничение
-приложения. Workflow сохраняет прежние 30 минут бюджета receiver.
+До запуска требуется более 1800 секунд до следующих суток UTC:
+1500 на lifecycle, 240 на cleanup и 60 запаса. При меньшем окне — отказ
+до runtime/auth mutation без ожидания, повтора или skip. Это ограничение
+фикстуры дневных счетчиков, а не приложения. Budget receiver — 30 минут.
 
-Выполняется локальный mock fallback обычного приложения. Попытка проверки
-провайдера направлена на loopback `127.0.0.1:1`; реальное исполнение модели
-не заявляется. Worker доказывается завершенными заданиями, поскольку
-одного healthy-ответа combined-процесса недостаточно.
+Используется локальный mock fallback обычного приложения; endpoints
+реальных провайдеров направлены на loopback `127.0.0.1:1`. Реальная модель
+не вызывается. Работу обработки заданий подтверждает их завершение,
+а не один healthy-ответ combined-процесса. Browser proof — отдельный gate:
+текущий controller проверяет API и данные, но не управляет браузером.
 
-## Доказательства и очистка
+## Одна поставка для Windows и Linux
 
-`retainSyntheticCredentials=false`: два пароля живут только в памяти
-контроллера; файл учетных записей не создается. Workflow загружает только
-явно перечисленные ZIP/build receipts, producer receipt и выбранный
-receiver summary. Полные аккаунты, session IDs, cookies, БД и медиа в
-artifact не включаются. Состояние данных представлено счетчиками, хешами
-и проверенными job-linked charges.
+Тот же ZIP с Linux/amd64 image IDs передаётся Windows Docker Desktop
+(Linux containers) и Linux receiver без пересборки. В archive уже есть
+`install.cmd` и `install.sh`; receiver нужны Python 3.11+ и Docker/Compose.
+На каждом host создаются свой state-dir, owner и Engine binding. Plan
+содержит фактические OS/host/context/paths, Windows не использует Linux plan.
+Копировать installed state между Engines запрещает существующий installer.
 
-Только после успешной матрицы вызывается отдельный `cleanup` с точным
-хешем acceptance receipt. Он повторно сверяет owner/active, container IDs,
-namespace, volume generation/CreatedAt, installation claim и данные,
-затем удаляет собственные контейнеры, сеть, два data volumes и claim.
-Неиспользуемые образы остаются на временном runner и отдельно учитываются.
+Для повторной установки используется тот же manifest pin; смена кода
+выполняется `install --allow-code-update` при неизменной схеме 7 и idle
+предыдущем backend. Down/reinstall сохраняет тома и использует штатный lock.
+B → A проверяет возврат кода, не восстановление БД из резервной копии.
 
-При отказе или timeout повторного запуска и автоматической очистки нет.
-Ограничение времени может завершить только собственную process group
-контроллера; Docker-ресурсы тогда сохраняются до удаления временного runner.
-Такое удаление runner не засчитывается как успешная проверенная очистка.
+## Доказательства и границы
 
-`PASS_ORDINARY_SYNTHETIC_RUNTIME_LINUX_ONLY` требует одновременно успешные
-11 этапов, девять заданий, 420 секунд, последующую генерацию и явную
-очистку. Он не означает 24-часовую устойчивость, backup/restore, перезагрузку
-хоста, production или работу реальных моделей. Windows и format-1 receipts
-остаются отдельными доказательствами с их собственными исходными SHA.
+`retainSyntheticCredentials=false`: пароли остаются в памяти controller.
+Workflow загружает только allowlist: ZIP/build receipts, producer/context
+receipts, неизменённый format-модуль и redacted receiver summary. БД, медиа, cookies и полные аккаунты
+не загружаются. Хеши и счётчики описывают проверенное сохранение данных.
 
-## Граница регистрации
+`linux-runtime-transfer-${{ env.IZO_EXPECTED_HEAD }}` хранит оба ZIP, build receipts,
+producer.json, context.json и штатный format-модуль для безопасной распаковки
+7 дней. Producer/context evidence и выбранный
+receiver summary хранятся 30 дней. Срок хранения не является гарантией
+наличия artifacts после его истечения.
 
-Этот первоначальный проект намеренно не содержит `baseSha`. Перед первой
-регистрацией root проверяет интеграцию Linux004 в фактический текущий main,
-успешный source CI exact `b517feb365eb7dcb0047f92500d73d4e82a74bff`
-и независимое review установщика. Installer берется из отдельного checkout
-с этим SHA; его интеграция в базу candidate технически не требуется.
-Root заполняет исходную базу через обычную подготовку Task Contract.
-Изменения зарегистрированных баз и ручное редактирование registry запрещены.
-Exact-head source CI нового пакета, независимое review и новый реальный
-Linux run остаются обязательными до принятия результата или merge.
+Только после успешной матрицы отдельный `cleanup` с точным acceptance hash
+повторно сверяет owner/active, container IDs, namespace, volume identity,
+installation claim и данные. Он удаляет только собственные контейнеры,
+сеть, два data volumes и claim; образы остаются на временном runner.
+При отказе/timeout нет повторного запуска или автоматической очистки.
+Timeout может завершить только созданную process group controller;
+исчезновение ephemeral runner не засчитывается как проверенная очистка.
+
+Workflow paths включают scoped candidate tools/task и `ops/docker/dev/**`.
+Stdlib controller/adapter/HTTP tests идут в producer; pytest context tests
+идут в обычном source CI. Реальный context export является отдельным
+обязательным producer gate и не заменяется моками либо нулём собранных тестов.
+
+`PASS_ORDINARY_SYNTHETIC_RUNTIME_LINUX_ONLY` требует 11 этапов, девять
+заданий, 420 секунд, последующую генерацию и явную очистку. Он не доказывает
+Windows/browser acceptance, backup/restore, reboot, production или модели.
+Обязательные exact-head source CI и review остаются самостоятельными gates;
+этот пакет не продлевает policy debts и не меняет их даты либо пороги.

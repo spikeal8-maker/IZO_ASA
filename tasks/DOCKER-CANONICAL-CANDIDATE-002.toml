@@ -1,0 +1,106 @@
+manifestVersion = 1
+id = "DOCKER-CANONICAL-CANDIDATE-002"
+baseSha = "b308359e7466b78ecce06c9ae41b4a4b73cbe6ec"
+goal = "Carry the canonical build inputs through real BuildKit context verification and the existing format-2 installer acceptance chain on Windows and Linux."
+userOutcome = "An exact canonical application candidate has reproducible embedded images, checksums, executed install/lifecycle commands and explicit release blockers instead of inherited A/B claims."
+beforeScenario = "PR265 adds missing source inputs but its web ignore admits three SQLite sidecars and both ignore allowlists admit unintended ops descendants; the acceptance chain still selects old A/B and loads its HTTP client from B. CI265 failed only because four debt reviews expired."
+afterScenario = "Five unchanged donor inputs and two explicitly hardened Dockerfile-specific ignores feed the existing builder. Real context tests exclude synthetic sidecars, the canonical candidate SHA is selected explicitly, the HTTP helper is in current source, and identical bundle bytes are checked on Windows and Linux. Source CI and production acceptance remain fail-closed."
+nonGoals = [
+  "A new installer, application features, schema or dependency updates, an architecture rewrite or wholesale old-branch integration",
+  "An automatic extension of debt review deadlines, disabled checks, false CI success or author review presented as independent approval",
+  "Production switching, historical-data consumption, host/network changes, paid calls or real integration changes without explicit authorization",
+]
+declaredFiles = [
+  "ops/docker/dev/compose.shadow.yml",
+  "ops/docker/dev/Dockerfile.web",
+  "ops/docker/dev/nginx.shadow.conf",
+  "ops/docker/dev/Dockerfile.web.dockerignore",
+  "ops/docker/dev/Dockerfile.guard",
+  "ops/docker/dev/network_guard.py",
+  "ops/docker/dev/Dockerfile.guard.dockerignore",
+  "tools/test_docker_canonical_source_inputs.py",
+  "tools/docker_canonical_context_probe.py",
+  "tools/test_docker_canonical_context_probe.py",
+  "tools/synthetic_http_client.py",
+  "tools/test_synthetic_http_client.py",
+  "tools/docker_linux_runtime.py",
+  "tools/test_docker_linux_runtime.py",
+  "tools/synthetic_runtime_accept.py",
+  "tools/test_synthetic_runtime_accept.py",
+  "tools/test_synthetic_runtime_operations.py",
+  ".github/workflows/docker-linux-synthetic-runtime.yml",
+  "docs/docker-linux-synthetic-runtime.md",
+  "docs/docker-canonical-candidate.md",
+  "tasks/DOCKER-CANONICAL-CANDIDATE-002.toml",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "architecture/**",
+  "docs/NOW.md",
+  "ops/docker/dev/Dockerfile.backend",
+  "ops/docker/dev/compose.yml",
+  ".dockerignore",
+  "tools/docker_test_bundle.py",
+  "tools/docker_test_bundle_format.py",
+  "tools/docker_test_bundle_runtime.py",
+  "tools/docker_linux_bundle_build.py",
+  "tools/docker_linux_bundle_probe.py",
+  "tools/agent.ps1",
+  "tools/agent_system/**",
+  "tools/verify.ps1",
+  "tools/test_health_audit.py",
+  ".github/workflows/ci.yml",
+  ".github/workflows/file-hygiene.yml",
+  ".github/workflows/docker-linux-bundle-acceptance.yml",
+  "tasks/DOCKER-CANONICAL-BUILD-INPUTS-001.toml",
+  "tasks/BACKUP-RESTORE-SNAPSHOT-BINDING-001.toml",
+]
+protectedFilesTouched = [
+]
+domain = "docker-delivery"
+riskClass = "release-ops"
+changeClass = "tooling"
+maxProductionFiles = 0
+maxChangedLines = 2000
+acceptance = [
+  "Register a new continuation from fresh main; carry only the eight non-manifest payload files from exact PR265 HEAD 96314d9414df2954d3d8abbf3db20cf2e5e7dce0. Do not reopen closed ownership or import its task manifest.",
+  "Record equality of five untouched files with donor 1030abdafc32a0f11fbc4a6593acd435eb1bbdfd. Web adds three db-wal/db-shm/db-journal exclusions; both specific ignores add three bounded parent-directory exclusions because real BuildKit exposed unintended ops descendants. No unrelated Dockerfile or network-policy change.",
+  "Before the ignore fix, a real BuildKit export of a temporary synthetic context must expose the three sidecars; afterwards web/guard exports must have exactly the permitted positive inputs. No mocked Dockerignore matcher or historical data.",
+  "Preserve source guards, immutable SHA/hash binding, controller identity, fresh hosted Linux engine checks, namespace ownership and cleanup boundaries. Keep format-1 acceptance and installer modules unchanged.",
+  "Select exact canonical candidate application SHA explicitly in the existing format-2 workflow and use a reviewed local HTTP helper instead of old checkout B. Update/return tests must identify both actual source revisions.",
+  "Build real backend/web/guard images, render ordinary Compose, embed images with the existing builder using explicit synthetic-runtime, and verify identical archive/image identities on Windows Docker Desktop and Linux Docker Engine.",
+  "Check clean install, repeat install, code update/manual code return, ordinary API jobs, ownership and one job-linked charge using disposable data. Preserve other projects and the observed instance.",
+  "Inspect a browser-rendered installation and record frontend/backend identity, login and supported user actions. Mock fallback remains TEST ONLY and cannot prove real-model or production readiness.",
+  "Review the complete diff and run source, package, exact-base/head hygiene and container gates. Merge/release acceptance requires mandatory CI/review and all release blockers resolved; no automatic debt waiver.",
+]
+requiredEvidence = [
+  "Fresh origin/main, clean source/worktree status, non-overlapping registry ownership and exact source/tooling/application/image identities",
+  "CI265 artifact13260437943 SHA256 8aa47e3c19a74b2a411c2045706c6d2a9f6b5e4a563e996d0d7b1c4c94229a5d: 2560 passed, verify exit0, only DEBT_REVIEW_EXPIRED_162/163/164/165; preserve original failure",
+  "BuildKit RED and GREEN receipts, actual context file lists, full focused test results, scope/hygiene receipts and reviewed donor delta",
+  "Bundle ZIP/manifest SHA256, three image identities, Windows/Linux executed commands and receipts, browser/API outcomes and synthetic data fingerprints",
+  "Actual source CI status and explicitly unresolved debt-review/independent-review/provider blockers; a built TEST candidate is not an accepted production release",
+]
+targetedTests = [
+  "python -m pytest tools/test_docker_canonical_source_inputs.py tools/test_docker_canonical_context_probe.py tools/test_synthetic_http_client.py tools/test_docker_dev_contract.py tools/test_docker_test_bundle_build.py tools/test_docker_test_bundle_format.py tools/test_docker_test_bundle_runtime.py tools/test_docker_synthetic_runtime.py tools/test_docker_linux_runtime.py tools/test_synthetic_runtime_accept.py tools/test_synthetic_runtime_operations.py -q",
+  "python -B -m tools.docker_canonical_context_probe --source . --context desktop-linux --receipt .runtime/docker-canonical-context.json",
+  "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/agent.ps1 verify",
+  "python -m tools.agent_system.enforce --repo-root . ci --target-base b308359e7466b78ecce06c9ae41b4a4b73cbe6ec",
+  "python -m unittest -v tools.test_file_hygiene",
+  "PowerShell: python -m tools.file_hygiene --base b308359e7466b78ecce06c9ae41b4a4b73cbe6ec --head (git rev-parse HEAD)",
+  "git diff --check b308359e7466b78ecce06c9ae41b4a4b73cbe6ec HEAD",
+]
+fileGrowthExpectations = [
+  "Separate inherited PR265 payload from new changes; all Python modules stay below 500 lines, tests below 24KiB, docs below 200 lines/12KiB; no new size exceptions.",
+  "Generated images, archives, data, credentials and runtime receipts stay outside tracked source. Use the existing installer and acceptance controller.",
+]
+forbiddenOperations = [
+  "Modify the observed instance, its resources, observer, schedule or timer, or consume historical data",
+  "Change Docker daemon, Windows, VPN, DNS, firewall, existing provider services or other projects; global prune or guessed cleanup",
+  "Bypass source guards, registry, locks, review or CI; change debt deadlines automatically; relabel historical A/B evidence as new-source PASS",
+  "Paid APIs, payments, mail, bots, Codex or secret disclosure; real integration changes beyond explicit owner authorization",
+  "Production switch before separately confirmed data transfer; merge before exact-head required gates and review",
+]
+rollbackBoundary = "Revert only this registered source continuation; owned disposable acceptance resources may be cleaned only after identity verification. Code return is manual and must preserve synthetic data; no automatic database rollback is claimed."
