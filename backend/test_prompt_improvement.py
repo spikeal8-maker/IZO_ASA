@@ -55,11 +55,10 @@ def test_prompt_improvement_replaces_text_and_records_sanitized_usage(prompt_use
         )
 
     monkeypatch.setattr(main, "improve_prompt_routed", fake_improve)
-    with TestClient(main.app) as client:
+    with TestClient(main.app, cookies={"onenode_session": prompt_user["cookie"]}) as client:
         response = client.post(
             "/api/tools/improve-prompt",
             json={"prompt": "красная машина", "mode": "text", "language": "ru"},
-            cookies={"onenode_session": prompt_user["cookie"]},
             headers=BROWSER_ORIGIN,
         )
 
@@ -79,11 +78,10 @@ def test_prompt_improvement_provider_error_does_not_echo_or_replace_prompt(promp
         raise RuntimeError("OpenRouter временно недоступен")
 
     monkeypatch.setattr(main, "improve_prompt_routed", failed_improve)
-    with TestClient(main.app) as client:
+    with TestClient(main.app, cookies={"onenode_session": prompt_user["cookie"]}) as client:
         response = client.post(
             "/api/tools/improve-prompt",
             json={"prompt": "исходный пользовательский текст", "mode": "i2i"},
-            cookies={"onenode_session": prompt_user["cookie"]},
             headers=BROWSER_ORIGIN,
         )
     assert response.status_code == 502
@@ -170,11 +168,10 @@ def test_phone_chat_returns_real_provider_answer_without_logging_message(prompt_
         return await fake_chat(req)
 
     monkeypatch.setattr(phone_chat_router, "route_phone_chat", routed)
-    with TestClient(main.app) as client:
+    with TestClient(main.app, cookies={"onenode_session": prompt_user["cookie"]}) as client:
         response = client.post(
             "/api/phone/chat",
             json={"messages": [{"role": "user", "content": "Секретная идея пользователя"}], "route": "auto"},
-            cookies={"onenode_session": prompt_user["cookie"]},
             headers=BROWSER_ORIGIN,
         )
 
@@ -197,11 +194,10 @@ def test_phone_chat_provider_failure_is_neutral(prompt_user, monkeypatch):
         return await failed_chat(req)
 
     monkeypatch.setattr(phone_chat_router, "route_phone_chat", routed)
-    with TestClient(main.app) as client:
+    with TestClient(main.app, cookies={"onenode_session": prompt_user["cookie"]}) as client:
         response = client.post(
             "/api/phone/chat",
             json={"messages": [{"role": "user", "content": "Ответь"}]},
-            cookies={"onenode_session": prompt_user["cookie"]},
             headers=BROWSER_ORIGIN,
         )
     assert response.status_code == 502
@@ -217,14 +213,13 @@ def test_phone_chat_rejects_non_image_attachment(prompt_user, monkeypatch):
         return await should_not_run(req)
 
     monkeypatch.setattr(phone_chat_router, "route_phone_chat", routed)
-    with TestClient(main.app) as client:
+    with TestClient(main.app, cookies={"onenode_session": prompt_user["cookie"]}) as client:
         response = client.post(
             "/api/phone/chat",
             json={
                 "messages": [{"role": "user", "content": "Что на картинке?"}],
                 "images": ["data:text/plain;base64,dGVzdA=="],
             },
-            cookies={"onenode_session": prompt_user["cookie"]},
             headers=BROWSER_ORIGIN,
         )
     assert response.status_code == 400
@@ -318,8 +313,8 @@ def test_admin_assistant_catalog_contains_ollama_and_openrouter_prices(prompt_us
     monkeypatch.setattr(main, "openrouter_audio_models", fake_openrouter_audio_models)
     monkeypatch.setattr(main, "usd_rub_rate_snapshot", lambda: {"rate": 100.0, "fetchedAt": "2026-08-28T10:00:00+00:00"})
     monkeypatch.setattr(main, "openrouter_economy_settings", lambda: {"usdFeePercent": 30.0, "minMarginPercent": 50.0, "tokenRub": 5.0})
-    with TestClient(main.app) as client:
-        response = client.get("/api/admin/assistants", cookies={"onenode_session": prompt_user["cookie"]})
+    with TestClient(main.app, cookies={"onenode_session": prompt_user["cookie"]}) as client:
+        response = client.get("/api/admin/assistants")
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["ollama"]["models"][0]["name"] == "gemma4:31b-cloud"
@@ -344,11 +339,10 @@ def test_admin_voice_test_uses_unsaved_selected_route(prompt_user, monkeypatch):
         return "точная проверка", {"usage": {}}, "api", "google/gemini-audio"
 
     monkeypatch.setattr(main, "transcribe_audio_routed", fake_routed)
-    with TestClient(main.app) as client:
+    with TestClient(main.app, cookies={"onenode_session": prompt_user["cookie"]}) as client:
         response = client.post(
             "/api/admin/assistants/voice-test?provider=auto&language=ru",
             files={"file": ("voice.wav", b"test-wav", "audio/wav")},
-            cookies={"onenode_session": prompt_user["cookie"]},
             headers=BROWSER_ORIGIN,
         )
 
@@ -358,11 +352,10 @@ def test_admin_voice_test_uses_unsaved_selected_route(prompt_user, monkeypatch):
 
 
 def test_voice_transcription_rejects_too_short_recording(prompt_user):
-    with TestClient(main.app) as client:
+    with TestClient(main.app, cookies={"onenode_session": prompt_user["cookie"]}) as client:
         response = client.post(
             "/api/tools/transcribe?duration_ms=400&language=ru",
             files={"file": ("voice.webm", b"audio", "audio/webm")},
-            cookies={"onenode_session": prompt_user["cookie"]},
             headers=BROWSER_ORIGIN,
         )
     assert response.status_code == 400
@@ -375,11 +368,10 @@ def test_voice_transcription_rejects_unpublished_operation(prompt_user):
             "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('assistant_models', ?, '2026-08-28T00:00:00+00:00')",
             ('{"voice":{"transcriptionPublished":false,"minRecordingSeconds":1}}',),
         )
-    with TestClient(main.app) as client:
+    with TestClient(main.app, cookies={"onenode_session": prompt_user["cookie"]}) as client:
         response = client.post(
             "/api/tools/transcribe?duration_ms=1400&language=ru",
             files={"file": ("voice.webm", b"audio", "audio/webm")},
-            cookies={"onenode_session": prompt_user["cookie"]},
             headers=BROWSER_ORIGIN,
         )
     assert response.status_code == 403
@@ -398,11 +390,10 @@ def test_voice_transcription_returns_provider_text(prompt_user, monkeypatch):
         return "девушка у вечернего окна", {"usage": {"cost": 0.0002}}
 
     monkeypatch.setattr(main, "transcribe_audio_openrouter", fake_transcribe)
-    with TestClient(main.app) as client:
+    with TestClient(main.app, cookies={"onenode_session": prompt_user["cookie"]}) as client:
         response = client.post(
             "/api/tools/transcribe?duration_ms=1400&language=ru",
             files={"file": ("voice.webm", b"not-real-audio", "audio/webm")},
-            cookies={"onenode_session": prompt_user["cookie"]},
             headers=BROWSER_ORIGIN,
         )
     assert response.status_code == 200, response.text
@@ -423,11 +414,10 @@ def test_voice_transcription_uses_local_ollama_route(prompt_user, monkeypatch):
         return "локальная расшифровка", {"message": {"content": "локальная расшифровка"}}
 
     monkeypatch.setattr(main, "transcribe_audio_ollama", fake_local)
-    with TestClient(main.app) as client:
+    with TestClient(main.app, cookies={"onenode_session": prompt_user["cookie"]}) as client:
         response = client.post(
             "/api/tools/transcribe?duration_ms=1600&language=ru",
             files={"file": ("voice.webm", b"not-real-audio", "audio/webm")},
-            cookies={"onenode_session": prompt_user["cookie"]},
             headers=BROWSER_ORIGIN,
         )
     assert response.status_code == 200, response.text
@@ -448,11 +438,10 @@ def test_voice_transcription_uses_qwen_service_route(prompt_user, monkeypatch):
         return "Qwen расшифровка", {"usage": {}}
 
     monkeypatch.setattr(main, "transcribe_audio_qwen", fake_qwen)
-    with TestClient(main.app) as client:
+    with TestClient(main.app, cookies={"onenode_session": prompt_user["cookie"]}) as client:
         response = client.post(
             "/api/tools/transcribe?duration_ms=1600&language=ru",
             files={"file": ("voice.webm", b"not-real-audio", "audio/webm")},
-            cookies={"onenode_session": prompt_user["cookie"]},
             headers=BROWSER_ORIGIN,
         )
     assert response.status_code == 200, response.text

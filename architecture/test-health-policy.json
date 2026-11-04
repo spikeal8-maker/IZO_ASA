@@ -10,7 +10,7 @@
     "artifactId": 10890620713,
     "artifactName": "test-health-evidence-ab1aab849e634918247c4a420fd6b1094ff9bb65",
     "warnings": {
-      "total": 97,
+      "total": 8,
       "categories": [
         {
           "category": "DeprecationWarning",
@@ -20,57 +20,9 @@
         },
         {
           "category": "DeprecationWarning",
-          "source": "backend/test_admin_bots_v2.py",
-          "count": 12,
-          "issue": "#164"
-        },
-        {
-          "category": "DeprecationWarning",
-          "source": "backend/test_admin_password_reset.py",
-          "count": 15,
-          "issue": "#164"
-        },
-        {
-          "category": "DeprecationWarning",
-          "source": "backend/test_admin_v2.py",
-          "count": 8,
-          "issue": "#164"
-        },
-        {
-          "category": "DeprecationWarning",
-          "source": "backend/test_auth_sessions.py",
-          "count": 1,
-          "issue": "#164"
-        },
-        {
-          "category": "DeprecationWarning",
-          "source": "backend/test_generation_protection.py",
-          "count": 16,
-          "issue": "#164"
-        },
-        {
-          "category": "DeprecationWarning",
-          "source": "backend/test_ownership_protection.py",
-          "count": 24,
-          "issue": "#164"
-        },
-        {
-          "category": "DeprecationWarning",
-          "source": "backend/test_prompt_improvement.py",
-          "count": 12,
-          "issue": "#164"
-        },
-        {
-          "category": "DeprecationWarning",
           "source": "site-packages/fastapi/applications.py",
           "count": 4,
           "issue": "#162"
-        },
-        {
-          "category": "StarletteDeprecationWarning",
-          "source": "site-packages/fastapi/testclient.py",
-          "count": 1,
-          "issue": "#163"
         }
       ]
     },
@@ -91,16 +43,6 @@
     "#162": {
       "owner": "spikeal8-maker",
       "reason": "Reviewed 2026-10-27: exact e94d4d5 CI retains 8 lifespan/on_event warnings, with no growth or failing tests. Temporary carry for a bounded lifecycle migration; no warning suppression. Evidence, risks and exit criteria: docs/agent-tasks/GOV-TEST-HEALTH-REVIEW-20261027.md.",
-      "reviewBy": "2026-10-30"
-    },
-    "#163": {
-      "owner": "spikeal8-maker",
-      "reason": "Reviewed 2026-10-27: exact e94d4d5 CI retains 1 TestClient httpx compatibility warning on pinned dependencies. Temporary carry for a separate compatibility change; no dependency substitution here. Evidence, risks and exit criteria: docs/agent-tasks/GOV-TEST-HEALTH-REVIEW-20261027.md.",
-      "reviewBy": "2026-10-30"
-    },
-    "#164": {
-      "owner": "spikeal8-maker",
-      "reason": "Reviewed 2026-10-27: exact e94d4d5 CI retains the same 88 per-request cookie warnings across seven test sources. Temporary carry for client-level cookie isolation preserving auth/CSRF assertions. Evidence, risks and exit criteria: docs/agent-tasks/GOV-TEST-HEALTH-REVIEW-20261027.md.",
       "reviewBy": "2026-10-30"
     },
     "#165": {

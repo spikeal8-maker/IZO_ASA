@@ -1,0 +1,76 @@
+manifestVersion = 1
+id = "LINUX-TEST-HEALTH-001"
+baseSha = "b308359e7466b78ecce06c9ae41b4a4b73cbe6ec"
+goal = "Resolve reproduced HTTP test client warning debt 163 and 164 without weakening authentication, privacy or CI gates."
+userOutcome = "Linux candidate verification uses supported test-client dependencies and isolated cookie jars with preserved negative security tests."
+beforeScenario = "Pinned Starlette falls back to deprecated httpx TestClient transport and seven test modules send per-request cookies, producing 1 plus 88 accepted warnings."
+afterScenario = "A verified pinned httpx2 transport and per-client cookie jars eliminate those warnings while assertions and security scenarios remain effective; resolved baseline entries are retired using actual receipts."
+nonGoals = [
+  "No backend/main.py or OpenRouter scope changes",
+  "No production provider or source database operations",
+  "No Windows or D2 verification",
+  "No automatic date changes or warning suppression",
+  "No claim to resolve lifecycle debt162 or cleanup debt165 without evidence",
+]
+declaredFiles = [
+  "tasks/LINUX-TEST-HEALTH-001.toml",
+  "backend/requirements.txt",
+  "backend/test_admin_bots_v2.py",
+  "backend/test_admin_password_reset.py",
+  "backend/test_admin_v2.py",
+  "backend/test_auth_sessions.py",
+  "backend/test_generation_protection.py",
+  "backend/test_ownership_protection.py",
+  "backend/test_prompt_improvement.py",
+  "architecture/test-health-policy.json",
+  "docs/agent-tasks/GOV-TEST-HEALTH-REVIEW-20261104.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/main.py",
+  "backend/app/**",
+  "frontend/**",
+  "tools/**",
+  ".github/**",
+  "architecture/contract.json",
+  "docs/NOW.md",
+]
+protectedFilesTouched = [
+]
+domain = "test-health"
+riskClass = "high-assurance"
+changeClass = "dependency"
+maxProductionFiles = 1
+maxChangedLines = 700
+acceptance = [
+  "Use ordinary agent start and existing repository lock from exact main.",
+  "Preserve every assertion, request payload, CSRF header and anonymous/spoof-cookie negative scenario; client cookie jars remain isolated.",
+  "Retain production httpx dependency and add only a compatible exact pinned test-client transport after primary-source verification.",
+  "Run all seven affected modules with isolated DB/media and fake providers; show eliminated warning categories and unchanged tests.",
+  "Update only resolved debt baseline entries with measured provenance; retain unresolved checks and dates.",
+  "No mutation of foreign worktrees, databases, Docker projects or production runtime.",
+]
+requiredEvidence = [
+  "Registered exact scope",
+  "AST comparison of security assertions and request semantics",
+  "Exact dependency versions and primary-source rationale",
+  "Focused test-health receipt with category counts",
+  "Complete diff and independent review findings",
+]
+targetedTests = [
+  "pytest backend/test_admin_bots_v2.py backend/test_admin_password_reset.py backend/test_admin_v2.py backend/test_auth_sessions.py backend/test_generation_protection.py backend/test_ownership_protection.py backend/test_prompt_improvement.py",
+  "tools/agent.ps1 verify",
+  "git diff --check",
+]
+fileGrowthExpectations = [
+  "Affected tests stay within existing file hygiene budgets",
+  "No CI or protected budget changes",
+]
+forbiddenOperations = [
+  "Write remote main or foreign package scope",
+  "Suppress warnings, disable CI or renew dates automatically",
+  "Run Windows/D2 checks",
+  "Touch live user data or external providers",
+]
+rollbackBoundary = "Revert only test client dependency, test cookie setup and measured test-health baseline changes; no deployed data is affected."

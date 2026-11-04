@@ -221,11 +221,10 @@ def test_session_events_lifecycle(temp_db):
 # Extra: resolver must ignore X-OneNode-User / legacy cookie entirely.
 def test_resolver_ignores_legacy_identity_headers(temp_db):
     make_user(internal_user_id="iuid-admin", legacy_user_id="admin")
-    with TestClient(main.app) as client:
+    with TestClient(main.app, cookies={"onenode_user": "admin"}) as client:
         r = client.get(
             "/api/auth/sessions-v2",
             headers={"X-OneNode-User": "admin"},
-            cookies={"onenode_user": "admin"},
         )
     assert r.status_code == 401
 

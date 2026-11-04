@@ -92,12 +92,11 @@ def test_default_modes_are_disabled_and_token_save_is_inert(bot_admin_env, monke
 
     monkeypatch.setattr(main, "probe_telegram_bot", fake_probe)
     started_before = dict(main.BOT_RUNTIME.polling_tasks)
-    with TestClient(main.app) as client:
-        config = client.get("/api/admin/bots/config-v2", cookies=bot_admin_env["cookies"])
+    with TestClient(main.app, cookies=bot_admin_env["cookies"]) as client:
+        config = client.get("/api/admin/bots/config-v2")
         saved = client.put(
             "/api/admin/bots/telegram/token-v2",
             json={"token": "telegram-test-token", "verify": True},
-            cookies=bot_admin_env["cookies"],
             headers=BROWSER_ORIGIN,
         )
 
@@ -122,19 +121,17 @@ def test_bot_secret_can_be_replaced_and_deleted(bot_admin_env, monkeypatch):
         return healthy(bot_id=7, username="safe_bot")
 
     monkeypatch.setattr(main, "probe_telegram_bot", fake_probe)
-    with TestClient(main.app) as client:
+    with TestClient(main.app, cookies=bot_admin_env["cookies"]) as client:
         for token in ("telegram-token-one", "telegram-token-two"):
             response = client.put(
                 "/api/admin/bots/telegram/token-v2",
                 json={"token": token},
-                cookies=bot_admin_env["cookies"],
             headers=BROWSER_ORIGIN,
             )
             assert response.status_code == 200
             assert token not in response.text
         deleted = client.delete(
             "/api/admin/bots/telegram/token-v2",
-            cookies=bot_admin_env["cookies"],
             headers=BROWSER_ORIGIN,
         )
     assert deleted.status_code == 200
@@ -146,11 +143,10 @@ def test_max_token_is_saved_without_exposure(bot_admin_env, monkeypatch):
         return healthy()
 
     monkeypatch.setattr(main, "probe_max_bot", fake_probe)
-    with TestClient(main.app) as client:
+    with TestClient(main.app, cookies=bot_admin_env["cookies"]) as client:
         response = client.put(
             "/api/admin/bots/max/token-v2",
             json={"token": "max-private-test-token"},
-            cookies=bot_admin_env["cookies"],
             headers=BROWSER_ORIGIN,
         )
     assert response.status_code == 200
@@ -197,10 +193,9 @@ def test_safe_status_contains_diagnostics_but_no_secrets(bot_admin_env, monkeypa
     monkeypatch.setattr(main, "_admin_telegram_probe", telegram_probe)
     monkeypatch.setattr(main, "_admin_max_probe", max_probe)
     monkeypatch.setattr(main, "_admin_bot_public_https_status", public_status)
-    with TestClient(main.app) as client:
+    with TestClient(main.app, cookies=bot_admin_env["cookies"]) as client:
         response = client.get(
             "/api/admin/bots/status-v2",
-            cookies=bot_admin_env["cookies"],
         )
     assert response.status_code == 200
     assert response.json()["telegram"]["probe"]["username"] == "safe_telegram_bot"
@@ -274,17 +269,15 @@ def test_polling_and_webhook_require_complete_configuration(bot_admin_env):
         },
         production=False,
     )
-    with TestClient(main.app) as client:
+    with TestClient(main.app, cookies=bot_admin_env["cookies"]) as client:
         polling = client.put(
             "/api/admin/bots/config-v2",
             json={"config": polling_config, "confirmModeChange": True},
-            cookies=bot_admin_env["cookies"],
             headers=BROWSER_ORIGIN,
         )
         webhook = client.put(
             "/api/admin/bots/config-v2",
             json={"config": webhook_config, "confirmModeChange": True},
-            cookies=bot_admin_env["cookies"],
             headers=BROWSER_ORIGIN,
         )
     assert polling.status_code == 400
@@ -300,21 +293,19 @@ def test_mode_change_requires_explicit_confirmation(bot_admin_env):
             "pollingEnabled": True,
         },
     }
-    with TestClient(main.app) as client:
+    with TestClient(main.app, cookies=bot_admin_env["cookies"]) as client:
         response = client.put(
             "/api/admin/bots/config-v2",
             json={"config": config, "confirmModeChange": False},
-            cookies=bot_admin_env["cookies"],
             headers=BROWSER_ORIGIN,
         )
     assert response.status_code == 409
 
 
 def test_generated_webhook_secret_is_never_returned(bot_admin_env):
-    with TestClient(main.app) as client:
+    with TestClient(main.app, cookies=bot_admin_env["cookies"]) as client:
         response = client.post(
             "/api/admin/bots/max/webhook-secret-v2",
-            cookies=bot_admin_env["cookies"],
             headers=BROWSER_ORIGIN,
         )
     assert response.status_code == 200
@@ -354,11 +345,10 @@ def test_secret_store_failure_returns_safe_error(bot_admin_env, monkeypatch):
         raise main.SecretStoreError("sensitive internal failure")
 
     monkeypatch.setattr(bot_admin_env["store"], "set", fail_set)
-    with TestClient(main.app) as client:
+    with TestClient(main.app, cookies=bot_admin_env["cookies"]) as client:
         response = client.put(
             "/api/admin/bots/max/token-v2",
             json={"token": "max-test-token"},
-            cookies=bot_admin_env["cookies"],
             headers=BROWSER_ORIGIN,
         )
     assert response.status_code == 503
