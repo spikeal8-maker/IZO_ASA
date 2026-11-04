@@ -67,8 +67,8 @@ def test_no_session_401(temp_db):
 def test_non_admin_403(temp_db):
     iuid, legacy = make_user(temp_db)
     user_sess = main.create_auth_session(iuid, legacy, provider="web_email")
-    with TestClient(main.app) as c:
-        r = c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": "test"}, cookies={"onenode_session": user_sess["session_token"]}, headers=BROWSER_ORIGIN)
+    with TestClient(main.app, cookies={"onenode_session": user_sess["session_token"]}) as c:
+        r = c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": "test"}, headers=BROWSER_ORIGIN)
     assert r.status_code == 403
 
 
@@ -77,8 +77,8 @@ def test_admin_reset_ok(temp_db):
     iuid, _ = make_user(temp_db)
     admin_sess = make_admin_session()
     assert count("auth_passwords", "WHERE internal_user_id=? AND disabled_at IS NULL", (iuid,)) == 1
-    with TestClient(main.app) as c:
-        r = c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": "user forgot password"}, cookies={"onenode_session": admin_sess["session_token"]}, headers=BROWSER_ORIGIN)
+    with TestClient(main.app, cookies={"onenode_session": admin_sess["session_token"]}) as c:
+        r = c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": "user forgot password"}, headers=BROWSER_ORIGIN)
     assert r.status_code == 200
     assert r.json()["ok"] is True
     assert r.json()["sessions_revoked"] >= 1
@@ -88,8 +88,8 @@ def test_admin_reset_ok(temp_db):
 def test_old_password_fails_after_reset(temp_db):
     iuid, legacy = make_user(temp_db)
     admin_sess = make_admin_session()
-    with TestClient(main.app) as c:
-        c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": "test"}, cookies={"onenode_session": admin_sess["session_token"]}, headers=BROWSER_ORIGIN)
+    with TestClient(main.app, cookies={"onenode_session": admin_sess["session_token"]}) as c:
+        c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": "test"}, headers=BROWSER_ORIGIN)
     # Try login with old password
     main.create_auth_session(  # need identity for the user
         iuid, legacy, provider="web_email"
@@ -103,8 +103,8 @@ def test_old_password_fails_after_reset(temp_db):
 def test_new_password_works_after_reset(temp_db):
     iuid, _ = make_user(temp_db)
     admin_sess = make_admin_session()
-    with TestClient(main.app) as c:
-        c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": "test"}, cookies={"onenode_session": admin_sess["session_token"]}, headers=BROWSER_ORIGIN)
+    with TestClient(main.app, cookies={"onenode_session": admin_sess["session_token"]}) as c:
+        c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": "test"}, headers=BROWSER_ORIGIN)
     with TestClient(main.app) as c2:
         r = c2.post("/api/auth/password/login-v2", json={"email": "user@test.local", "password": NEW_PW})
     assert r.status_code == 200 and r.json()["ok"] is True
@@ -115,8 +115,8 @@ def test_reset_revokes_sessions(temp_db):
     iuid, _ = make_user(temp_db)
     assert count("auth_sessions", "WHERE internal_user_id=? AND revoked_at IS NULL", (iuid,)) >= 1
     admin_sess = make_admin_session()
-    with TestClient(main.app) as c:
-        r = c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": "test"}, cookies={"onenode_session": admin_sess["session_token"]}, headers=BROWSER_ORIGIN)
+    with TestClient(main.app, cookies={"onenode_session": admin_sess["session_token"]}) as c:
+        r = c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": "test"}, headers=BROWSER_ORIGIN)
     assert r.json()["sessions_revoked"] >= 1
     assert count("auth_sessions", "WHERE internal_user_id=? AND revoked_at IS NULL", (iuid,)) == 0
 
@@ -127,8 +127,8 @@ def test_disabled_user_stays_disabled(temp_db):
     with main.db() as conn:
         conn.execute("UPDATE users SET banned=1 WHERE internal_user_id=?", (iuid,))
     admin_sess = make_admin_session()
-    with TestClient(main.app) as c:
-        r = c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": "test"}, cookies={"onenode_session": admin_sess["session_token"]}, headers=BROWSER_ORIGIN)
+    with TestClient(main.app, cookies={"onenode_session": admin_sess["session_token"]}) as c:
+        r = c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": "test"}, headers=BROWSER_ORIGIN)
     assert r.status_code == 200
     with main.db() as conn:
         banned = conn.execute("SELECT banned FROM users WHERE internal_user_id=?", (iuid,)).fetchone()["banned"]
@@ -139,8 +139,8 @@ def test_disabled_user_stays_disabled(temp_db):
 def test_password_policy_enforced(temp_db):
     iuid, _ = make_user(temp_db)
     admin_sess = make_admin_session()
-    with TestClient(main.app) as c:
-        r = c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": "short", "reason": "test"}, cookies={"onenode_session": admin_sess["session_token"]}, headers=BROWSER_ORIGIN)
+    with TestClient(main.app, cookies={"onenode_session": admin_sess["session_token"]}) as c:
+        r = c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": "short", "reason": "test"}, headers=BROWSER_ORIGIN)
     assert r.status_code == 400
 
 
@@ -148,8 +148,8 @@ def test_password_policy_enforced(temp_db):
 def test_reason_required(temp_db):
     iuid, _ = make_user(temp_db)
     admin_sess = make_admin_session()
-    with TestClient(main.app) as c:
-        r = c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": ""}, cookies={"onenode_session": admin_sess["session_token"]}, headers=BROWSER_ORIGIN)
+    with TestClient(main.app, cookies={"onenode_session": admin_sess["session_token"]}) as c:
+        r = c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": ""}, headers=BROWSER_ORIGIN)
     assert r.status_code == 400
 
 
@@ -157,8 +157,8 @@ def test_reason_required(temp_db):
 def test_audit_logs_written(temp_db):
     iuid, _ = make_user(temp_db)
     admin_sess = make_admin_session()
-    with TestClient(main.app) as c:
-        c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": "test"}, cookies={"onenode_session": admin_sess["session_token"]}, headers=BROWSER_ORIGIN)
+    with TestClient(main.app, cookies={"onenode_session": admin_sess["session_token"]}) as c:
+        c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": "test"}, headers=BROWSER_ORIGIN)
     assert count("audit_logs", "WHERE action='admin_password_reset'") == 1
 
 
@@ -166,8 +166,8 @@ def test_audit_logs_written(temp_db):
 def test_security_events_written(temp_db):
     iuid, _ = make_user(temp_db)
     admin_sess = make_admin_session()
-    with TestClient(main.app) as c:
-        c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": "test"}, cookies={"onenode_session": admin_sess["session_token"]}, headers=BROWSER_ORIGIN)
+    with TestClient(main.app, cookies={"onenode_session": admin_sess["session_token"]}) as c:
+        c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": "test"}, headers=BROWSER_ORIGIN)
     assert count("security_events", "WHERE event_type='admin_password_reset'") == 1
 
 
@@ -175,8 +175,8 @@ def test_security_events_written(temp_db):
 def test_event_logs_written(temp_db):
     iuid, _ = make_user(temp_db)
     admin_sess = make_admin_session()
-    with TestClient(main.app) as c:
-        c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": "test"}, cookies={"onenode_session": admin_sess["session_token"]}, headers=BROWSER_ORIGIN)
+    with TestClient(main.app, cookies={"onenode_session": admin_sess["session_token"]}) as c:
+        c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": "test"}, headers=BROWSER_ORIGIN)
     assert count("event_logs", "WHERE event_name='admin_password_reset_succeeded'") == 1
 
 
@@ -184,8 +184,8 @@ def test_event_logs_written(temp_db):
 def test_no_raw_password_in_logs(temp_db):
     iuid, _ = make_user(temp_db)
     admin_sess = make_admin_session()
-    with TestClient(main.app) as c:
-        c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": "test"}, cookies={"onenode_session": admin_sess["session_token"]}, headers=BROWSER_ORIGIN)
+    with TestClient(main.app, cookies={"onenode_session": admin_sess["session_token"]}) as c:
+        c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": "test"}, headers=BROWSER_ORIGIN)
     with main.db() as conn:
         for table in ("audit_logs", "security_events", "event_logs"):
             for row in conn.execute(f"SELECT * FROM {table}").fetchall():
@@ -197,8 +197,8 @@ def test_no_raw_password_in_logs(temp_db):
 def test_no_password_hash_in_logs(temp_db):
     iuid, _ = make_user(temp_db)
     admin_sess = make_admin_session()
-    with TestClient(main.app) as c:
-        c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": "test"}, cookies={"onenode_session": admin_sess["session_token"]}, headers=BROWSER_ORIGIN)
+    with TestClient(main.app, cookies={"onenode_session": admin_sess["session_token"]}) as c:
+        c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": "test"}, headers=BROWSER_ORIGIN)
     with main.db() as conn:
         pwhash = conn.execute("SELECT password_hash FROM auth_passwords WHERE internal_user_id=? AND disabled_at IS NULL", (iuid,)).fetchone()["password_hash"]
         for table in ("audit_logs", "security_events", "event_logs"):
@@ -214,8 +214,8 @@ def test_users_id_unchanged(temp_db):
         before = sorted(r["id"] for r in conn.execute("SELECT id FROM users"))
     iuid, _ = make_user(temp_db)
     admin_sess = make_admin_session()
-    with TestClient(main.app) as c:
-        c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": "test"}, cookies={"onenode_session": admin_sess["session_token"]}, headers=BROWSER_ORIGIN)
+    with TestClient(main.app, cookies={"onenode_session": admin_sess["session_token"]}) as c:
+        c.post(f"/api/admin/users/{iuid}/password-reset-v2", json={"new_password": NEW_PW, "reason": "test"}, headers=BROWSER_ORIGIN)
     with main.db() as conn:
         after = sorted(r["id"] for r in conn.execute("SELECT id FROM users"))
     assert "telegram_legacy3" in after
@@ -225,6 +225,6 @@ def test_users_id_unchanged(temp_db):
 # 16. User not found → 404
 def test_user_not_found_404(temp_db):
     admin_sess = make_admin_session()
-    with TestClient(main.app) as c:
-        r = c.post("/api/admin/users/nonexistent-iuid/password-reset-v2", json={"new_password": NEW_PW, "reason": "test"}, cookies={"onenode_session": admin_sess["session_token"]}, headers=BROWSER_ORIGIN)
+    with TestClient(main.app, cookies={"onenode_session": admin_sess["session_token"]}) as c:
+        r = c.post("/api/admin/users/nonexistent-iuid/password-reset-v2", json={"new_password": NEW_PW, "reason": "test"}, headers=BROWSER_ORIGIN)
     assert r.status_code == 404

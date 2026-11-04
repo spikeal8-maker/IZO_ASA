@@ -87,8 +87,8 @@ SHA. Это не `DEPLOYED` и не `OPERATIONALLY VERIFIED`.
   "evidence_artifacts": [
     {"path": "backend/main.py", "fingerprint": "sha256:8de1431470ef71f63cf5d81839e81607f8d7bbc18524beb6a0471cdd537b5532"},
     {"path": "backend/SYMBOL_MAP.md", "fingerprint": "sha256:5fe904946be6399ea4e3ebf25d5f36ccbc4152fc7daeac03b32e6a2043f1fd32"},
-    {"path": "backend/test_admin_v2.py", "fingerprint": "sha256:95662d4a3f7ffc28b93bf215b0b53bde276fee4d635decb5b18fd366e88481b2"},
-    {"path": "backend/test_admin_password_reset.py", "fingerprint": "sha256:42625c68b02dc766e87f50b5d063ce51c5d41afac781268e8e566c225e9f8145"},
+    {"path": "backend/test_admin_v2.py", "fingerprint": "sha256:e1321c2f90fee6c812ff286b97748521cc510897b9792a505d0b28e53fbaf5ad"},
+    {"path": "backend/test_admin_password_reset.py", "fingerprint": "sha256:d4402e432c242407474c5847952ea81bb707ac40303b55d38f4f46ca16106628"},
     {"path": "backend/test_admin_actions.py", "fingerprint": "sha256:6379e9bd7ed0c5788e830b56c1d2ba1d2707361e934ba74a62cedd48dd2f5912"},
     {"path": "backend/test_product_consistency_20e2b.py", "fingerprint": "sha256:1d237962b0a3c458361fb7206db2f09c4a2e946563cd33602c20762d498f524a"},
     {"path": "backend/test_billing_simulator_checkout_v2.py", "fingerprint": "sha256:da7881cbf71550d1de001e2aaba3816e239a05f768b9a1a8649756989fdd9946"},

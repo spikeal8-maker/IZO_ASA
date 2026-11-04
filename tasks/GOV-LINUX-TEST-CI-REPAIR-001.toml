@@ -1,0 +1,114 @@
+manifestVersion = 1
+id = "GOV-LINUX-TEST-CI-REPAIR-001"
+baseSha = "b308359e7466b78ecce06c9ae41b4a4b73cbe6ec"
+goal = "Repair the confirmed CI task-manifest ambiguity while preserving all approved test-health source and governance content unchanged."
+userOutcome = "PR270 can run its existing exact-head gates with one registered machine authority and retain both reviewed predecessor commits and their evidence."
+beforeScenario = "Exact HEAD78682a205cb1a20d9b09a704a4a296273ced664e fails CI41903055025 at scope enforcement with PACKAGE_MANIFEST_UNRESOLVED because two new task manifests remain in the final diff; file hygiene passed and test-health was not measured."
+afterScenario = "A new registered package retains both prior commits, retires their two finished task manifests from the final tree, adds its own single manifest and a repair receipt, and passes unchanged CI-mode enforcement before PR270 receives the reviewed descendant."
+nonGoals = [
+  "Change carried policy, requirements, tests, source or the two existing review documents; alter review dates, owners, warning/cleanup allowances or issue state.",
+  "Rewrite either predecessor commit, fabricate clean/CI/runtime evidence, bypass registry ownership, mutate a registered manifest fingerprint, or weaken enforcement or workflows.",
+  "Modify backend/main.py, backend/app, frontend, ops, providers, data, startup/no-replay behavior or any foreign package scope.",
+  "Run manual Windows/D2 checks, duplicate Full verification, change runtime resources, or declare deployment or acceptance from GitHub.",
+]
+declaredFiles = [
+  "tasks/LINUX-TEST-HEALTH-001.toml",
+  "backend/requirements.txt",
+  "backend/test_admin_bots_v2.py",
+  "backend/test_admin_password_reset.py",
+  "backend/test_admin_v2.py",
+  "backend/test_auth_sessions.py",
+  "backend/test_generation_protection.py",
+  "backend/test_ownership_protection.py",
+  "backend/test_prompt_improvement.py",
+  "architecture/test-health-policy.json",
+  "docs/agent-tasks/GOV-TEST-HEALTH-REVIEW-20261104.md",
+  "tasks/GOV-LINUX-TEST-REVIEW-20261104.toml",
+  "docs/agent-tasks/GOV-LINUX-TEST-REVIEW-20261104.md",
+  "tasks/GOV-LINUX-TEST-CI-REPAIR-001.toml",
+  "docs/agent-tasks/GOV-LINUX-TEST-CI-REPAIR-001.md",
+]
+allowedPatterns = [
+  "docs/admin-mutation-audit.md",
+]
+forbiddenPatterns = [
+  "backend/main.py",
+  "backend/app/**",
+  "frontend/**",
+  "ops/**",
+  "tools/**",
+  ".github/**",
+  "architecture/contract.json",
+  "docs/NOW.md",
+]
+protectedFilesTouched = [
+  "architecture/test-health-policy.json",
+]
+domain = "test-health-ci-repair"
+riskClass = "high-assurance"
+changeClass = "governance"
+maxProductionFiles = 1
+maxChangedLines = 900
+acceptance = [
+  "Confirm fresh remote main and local origin/main equal b308359e7466b78ecce06c9ae41b4a4b73cbe6ec; abort on drift. Verify clean GOV predecessor HEAD78682a205cb1a20d9b09a704a4a296273ced664e and its exact tree cd0b8921a99ff0958e5111e1b1df878bbb398be9.",
+  "Preserve the exact failed CI41903055025 receipt, run ordinary local verify, then ordinary finish of GOV-LINUX-TEST-REVIEW-20261104 as clean source with CI FAIL, not as integrated or accepted work.",
+  "Start this unique package through tools/agent.ps1 from fresh main and fast-forward only its new branch to78682a205cb1a20d9b09a704a4a296273ced664e. Preserve source donor be44c22025949f6cff09273bf12aa944a65f3a8f and both predecessor commits unchanged.",
+  "Retire only tasks/LINUX-TEST-HEALTH-001.toml and tasks/GOV-LINUX-TEST-REVIEW-20261104.toml from the new final tree, after both registered packages are closed. Preserve their bytes and metadata through exact immutable history links; do not rewrite old local worktrees or refs.",
+  "Carry the other eleven paths byte-for-byte from78682a205cb1a20d9b09a704a4a296273ced664e, including policy SHA25669a2a2a37fd816bb6a72309564b3842c06286c123b46085162c608e0098b600c and both original review documents.",
+  "Against the carry commit, change exactly four paths: two completed manifest deletions, this new manifest and the new repair document. Against real main, exactly one existing changed task manifest must resolve.",
+  "Use only the ordinary common registry lock for repository mutations. Keep the real index unstaged during preparation; bind the reviewed candidate tree using a separate GIT_INDEX_FILE under owned runtime evidence.",
+  "Require local scope verify, complete actual diff review and exact carried hashes before publication. Root may create the exact reviewed commit/tree with parent78682 on this registered repair branch without a new PR; adopt that exact clean immutable HEAD.",
+  "Run native python -m tools.agent_system.enforce --repo-root . ci --target-base b308359e7466b78ecce06c9ae41b4a4b73cbe6ec and changed-file hygiene on that clean immutable HEAD before updating PR270.",
+  "Publication route preserves PR270: only an expected non-force fast-forward of remote refs/heads/agent/gov-linux-test-review-20261104 from78682a205cb1a20d9b09a704a4a296273ced664e to the reviewed repair descendant, after native CI-mode PASS. The old local branch and worktree remain untouched; abort on remote head drift.",
+  "Require both hosted exact-head checks and independent actual-diff review before merge. Existing failures remain visible; no rerun or retry merely to obtain green.",
+  "Keep reviewBy2026-11-07, warning8 and cleanup1 unchanged; both debts remain open and expire on2026-11-08. Any later lifecycle, relevant dependency, Windows teardown or startup/no-replay change requires a fresh applicability review.",
+]
+requiredEvidence = [
+  "CI41903055025/job126830294922 on78682a205cb1a20d9b09a704a4a296273ced664e: PACKAGE_MANIFEST_UNRESOLVED before tests; file-hygiene41903055010 SUCCESS; failure receipt SHA256f7cef39339ccb0b21f25832a6aad858968b93eb9c08cde0a2bbe00e3e21803f6.",
+  "Ordinary finish/start receipts, registry closed-state checks, fresh-main proof, exact carry parent/tree identity and untouched old local ref.",
+  "Eleven carried file hashes, two retired task hashes and immutable historical links, four-path repair patch and reviewed candidate tree.",
+  "Native local and ci-mode enforcement receipts, changed-file hygiene, actual independent review and both required hosted checks on the final exact head.",
+]
+targetedTests = [
+  "Byte comparison of all eleven carried paths and exact four-path repair delta; unchanged policy hash and all prior behavior.",
+  "Read-only precommit selector proof: exactly one existing changed tasks/[ID].toml against real base; this is not represented as CI-mode PASS.",
+  "pwsh -NoProfile -File tools/agent.ps1 verify",
+  "python -m tools.agent_system.enforce --repo-root . ci --target-base b308359e7466b78ecce06c9ae41b4a4b73cbe6ec after immutable clean HEAD exists.",
+  "python -m tools.file_hygiene --base b308359e7466b78ecce06c9ae41b4a4b73cbe6ec --head HEAD after immutable clean HEAD exists.",
+  "git diff --check and mandatory exact-head hosted CI/file hygiene; no repeat application suite for this manifest/document-only repair.",
+]
+fileGrowthExpectations = [
+  "No growth or byte changes to carried policy, requirements, tests or existing review documents.",
+  "New repair document at most120 lines and8KiB UTF-8; one new manifest, two manifest retirements, cumulative maxChangedLines900 unchanged.",
+  "No code, architecture, file-size, warning/cleanup, enforcement or CI limit changes.",
+]
+forbiddenOperations = [
+  "direct-main",
+  "force-push",
+  "rewrite-predecessor-commits",
+  "foreign-scope-write",
+  "registered-manifest-rewrite",
+  "manual-registry-edit",
+  "old-local-branch-rewrite",
+  "production-data",
+  "deploy",
+  "restart",
+  "provider-call",
+  "manual-windows-d2-verification",
+  "duplicate-full-run",
+  "warning-suppression",
+  "cleanup-suppression",
+  "retry-addition",
+  "skip-addition",
+  "baseline-expansion",
+  "gate-disable",
+  "issue-closure-162-165",
+  "automatic-review-renewal",
+  "fake-installer-or-ci-receipt",
+]
+rollbackBoundary = "Reverting only the repair commit restores the two historical manifests and their known CI ambiguity; it leaves all prior source remediation and policy values unchanged. Preserve both predecessor commits, completed registry evidence and all unrelated runtime/data. This is source recovery, not automatic runtime rollback."
+
+[[scopeExpansions]]
+path = "docs/admin-mutation-audit.md"
+reason = "CI41906564323 exact5d574ef00f6de2f6f37bac7ae62dfcfedf70c633 STALE_FINGERPRINT: recompute only two evidence_artifacts fingerprints in docs/admin-mutation-audit.md using unchanged tools.test_admin_mutation_audit._artifact_fingerprint after approved test-only cookie migration. Preserve the ten-artifact set, route statuses, source SHA/fingerprints, findings, evidence, policy, review dates and budgets; no new audit or runtime claim."
+recordedAtUtc = "2026-11-04T20:56:31.240484Z"

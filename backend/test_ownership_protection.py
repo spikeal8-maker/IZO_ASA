@@ -122,8 +122,8 @@ def test_get_job_spoofed_header_401(temp_db, two_users):
 # --- 3. GET own job with valid session → 200 ---
 def test_get_own_job_200(temp_db, two_users):
     sa = sess_a(two_users)
-    with TestClient(main.app) as c:
-        r = c.get("/api/jobs/job-a-001", cookies={"onenode_session": sa["session_token"]})
+    with TestClient(main.app, cookies={"onenode_session": sa["session_token"]}) as c:
+        r = c.get("/api/jobs/job-a-001")
     assert r.status_code == 200
     assert r.json()["id"] == "job-a-001"
 
@@ -131,15 +131,15 @@ def test_get_own_job_200(temp_db, two_users):
 # --- 4. GET other user's job with valid session → 404 ---
 def test_get_other_job_404(temp_db, two_users):
     sb = sess_b(two_users)
-    with TestClient(main.app) as c:
-        r = c.get("/api/jobs/job-a-001", cookies={"onenode_session": sb["session_token"]})
+    with TestClient(main.app, cookies={"onenode_session": sb["session_token"]}) as c:
+        r = c.get("/api/jobs/job-a-001")
     assert r.status_code == 404
 
 
 # --- 5. Cancel own job → success (200) ---
 def test_cancel_own_job_200(temp_db, two_users):
     sa = sess_a(two_users)
-    with TestClient(main.app) as c:
+    with TestClient(main.app, cookies={"onenode_session": sa["session_token"]}) as c:
         with main.db() as conn:
             conn.execute(
                 "INSERT INTO jobs (id, user_id, mode, provider, status, progress, settings_json, created_at) "
@@ -147,7 +147,7 @@ def test_cancel_own_job_200(temp_db, two_users):
                 "'2026-01-01T03:00:00+00:00')"
             )
         main.load_db_state()
-        r = c.post("/api/jobs/job-a-cancel/cancel", cookies={"onenode_session": sa["session_token"]}, headers=BROWSER_ORIGIN)
+        r = c.post("/api/jobs/job-a-cancel/cancel", headers=BROWSER_ORIGIN)
     assert r.status_code == 200
     assert r.json()["status"] == "cancelled"
 
@@ -155,8 +155,8 @@ def test_cancel_own_job_200(temp_db, two_users):
 # --- 6. Cancel other user's job → 404 ---
 def test_cancel_other_job_404(temp_db, two_users):
     sb = sess_b(two_users)
-    with TestClient(main.app) as c:
-        r = c.post("/api/jobs/job-a-001/cancel", cookies={"onenode_session": sb["session_token"]}, headers=BROWSER_ORIGIN)
+    with TestClient(main.app, cookies={"onenode_session": sb["session_token"]}) as c:
+        r = c.post("/api/jobs/job-a-001/cancel", headers=BROWSER_ORIGIN)
     assert r.status_code == 404
 
 
@@ -183,15 +183,15 @@ def test_media_query_user_id_without_session_401(temp_db, two_users):
 
 def test_media_query_user_id_with_other_session_404(temp_db, two_users):
     sb = sess_b(two_users)
-    with TestClient(main.app) as c:
-        r = c.get("/api/media/a.png?userId=web_a", cookies={"onenode_session": sb["session_token"]})
+    with TestClient(main.app, cookies={"onenode_session": sb["session_token"]}) as c:
+        r = c.get("/api/media/a.png?userId=web_a")
     assert r.status_code == 404
 
 
 def test_media_own_session_200(temp_db, two_users):
     sa = sess_a(two_users)
-    with TestClient(main.app) as c:
-        r = c.get("/api/media/a.png?userId=web_a", cookies={"onenode_session": sa["session_token"]})
+    with TestClient(main.app, cookies={"onenode_session": sa["session_token"]}) as c:
+        r = c.get("/api/media/a.png?userId=web_a")
     assert r.status_code == 200
     assert r.content == b"fake-png"
 
@@ -199,10 +199,9 @@ def test_media_own_session_200(temp_db, two_users):
 def test_media_owner_prefix_does_not_authorize_different_filename(temp_db, two_users):
     (main.MEDIA / "a.png.evil").write_bytes(b"must-not-leak")
     sa = sess_a(two_users)
-    with TestClient(main.app) as c:
+    with TestClient(main.app, cookies={"onenode_session": sa["session_token"]}) as c:
         r = c.get(
             "/api/media/a.png.evil?userId=web_a",
-            cookies={"onenode_session": sa["session_token"]},
         )
     assert r.status_code == 404
 
@@ -215,15 +214,15 @@ def test_legacy_media_path_without_session_401(temp_db, two_users):
 
 def test_legacy_media_path_with_other_session_404(temp_db, two_users):
     sb = sess_b(two_users)
-    with TestClient(main.app) as c:
-        r = c.get("/media/a.png", cookies={"onenode_session": sb["session_token"]})
+    with TestClient(main.app, cookies={"onenode_session": sb["session_token"]}) as c:
+        r = c.get("/media/a.png")
     assert r.status_code == 404
 
 
 def test_legacy_media_path_with_owner_session_200(temp_db, two_users):
     sa = sess_a(two_users)
-    with TestClient(main.app) as c:
-        r = c.get("/media/a.png", cookies={"onenode_session": sa["session_token"]})
+    with TestClient(main.app, cookies={"onenode_session": sa["session_token"]}) as c:
+        r = c.get("/media/a.png")
     assert r.status_code == 200
     assert r.content == b"fake-png"
 
@@ -251,8 +250,8 @@ def test_unreferenced_custom_avatar_is_not_public(temp_db, two_users):
 # --- 10. Gallery list returns only own images ---
 def test_gallery_own_images_only(temp_db, two_users):
     sa = sess_a(two_users)
-    with TestClient(main.app) as c:
-        r = c.get("/api/gallery", cookies={"onenode_session": sa["session_token"]})
+    with TestClient(main.app, cookies={"onenode_session": sa["session_token"]}) as c:
+        r = c.get("/api/gallery")
     assert r.status_code == 200
     items = r.json()
     ids = {img["id"] for img in items}
@@ -263,8 +262,8 @@ def test_gallery_own_images_only(temp_db, two_users):
 # --- 10. Gallery favorite own image → success ---
 def test_favorite_own_image_200(temp_db, two_users):
     sa = sess_a(two_users)
-    with TestClient(main.app) as c:
-        r = c.post("/api/gallery/img-a-001/favorite", json={"isFavorite": True}, cookies={"onenode_session": sa["session_token"]}, headers=BROWSER_ORIGIN)
+    with TestClient(main.app, cookies={"onenode_session": sa["session_token"]}) as c:
+        r = c.post("/api/gallery/img-a-001/favorite", json={"isFavorite": True}, headers=BROWSER_ORIGIN)
     assert r.status_code == 200
     assert r.json()["isFavorite"] is True
 
@@ -272,16 +271,16 @@ def test_favorite_own_image_200(temp_db, two_users):
 # --- 11. Gallery favorite other user's image → 404 ---
 def test_favorite_other_image_404(temp_db, two_users):
     sa = sess_a(two_users)
-    with TestClient(main.app) as c:
-        r = c.post("/api/gallery/img-b-001/favorite", json={"isFavorite": True}, cookies={"onenode_session": sa["session_token"]}, headers=BROWSER_ORIGIN)
+    with TestClient(main.app, cookies={"onenode_session": sa["session_token"]}) as c:
+        r = c.post("/api/gallery/img-b-001/favorite", json={"isFavorite": True}, headers=BROWSER_ORIGIN)
     assert r.status_code == 404
 
 
 # --- 12. Gallery delete own image → success ---
 def test_delete_own_image_200(temp_db, two_users):
     sa = sess_a(two_users)
-    with TestClient(main.app) as c:
-        r = c.delete("/api/gallery/img-a-001", cookies={"onenode_session": sa["session_token"]}, headers=BROWSER_ORIGIN)
+    with TestClient(main.app, cookies={"onenode_session": sa["session_token"]}) as c:
+        r = c.delete("/api/gallery/img-a-001", headers=BROWSER_ORIGIN)
     assert r.status_code == 200
     assert r.json()["ok"] is True
 
@@ -289,16 +288,16 @@ def test_delete_own_image_200(temp_db, two_users):
 # --- 13. Gallery delete other user's image → 404 ---
 def test_delete_other_image_404(temp_db, two_users):
     sa = sess_a(two_users)
-    with TestClient(main.app) as c:
-        r = c.delete("/api/gallery/img-b-001", cookies={"onenode_session": sa["session_token"]}, headers=BROWSER_ORIGIN)
+    with TestClient(main.app, cookies={"onenode_session": sa["session_token"]}) as c:
+        r = c.delete("/api/gallery/img-b-001", headers=BROWSER_ORIGIN)
     assert r.status_code == 404
 
 
 # --- 14. Gallery use-as own image → success ---
 def test_use_as_own_image_200(temp_db, two_users):
     sa = sess_a(two_users)
-    with TestClient(main.app) as c:
-        r = c.post("/api/gallery/img-a-001/use-as", json={"target": "image_to_image"}, cookies={"onenode_session": sa["session_token"]}, headers=BROWSER_ORIGIN)
+    with TestClient(main.app, cookies={"onenode_session": sa["session_token"]}) as c:
+        r = c.post("/api/gallery/img-a-001/use-as", json={"target": "image_to_image"}, headers=BROWSER_ORIGIN)
     assert r.status_code == 200
     assert r.json()["ok"] is True
 
@@ -306,8 +305,8 @@ def test_use_as_own_image_200(temp_db, two_users):
 # --- 15. Gallery use-as other user's image → 404 ---
 def test_use_as_other_image_404(temp_db, two_users):
     sa = sess_a(two_users)
-    with TestClient(main.app) as c:
-        r = c.post("/api/gallery/img-b-001/use-as", json={"target": "image_to_image"}, cookies={"onenode_session": sa["session_token"]}, headers=BROWSER_ORIGIN)
+    with TestClient(main.app, cookies={"onenode_session": sa["session_token"]}) as c:
+        r = c.post("/api/gallery/img-b-001/use-as", json={"target": "image_to_image"}, headers=BROWSER_ORIGIN)
     assert r.status_code == 404
 
 
@@ -334,16 +333,14 @@ def test_source_library_item_remains_usable_after_parent_gallery_image_is_delete
         conn.execute("UPDATE images SET deleted_at = ? WHERE id = ?", ("2026-02-01", "img-a-001"))
 
     sa = sess_a(two_users)
-    with TestClient(main.app) as c:
+    with TestClient(main.app, cookies={"onenode_session": sa["session_token"]}) as c:
         use_as = c.post(
             "/api/gallery/sources/source-a-001/use-as",
             json={"target": "image_to_image"},
-            cookies={"onenode_session": sa["session_token"]},
             headers=BROWSER_ORIGIN,
         )
         media = c.get(
             "/api/media/source-a.webp?userId=web_a",
-            cookies={"onenode_session": sa["session_token"]},
         )
 
     assert use_as.status_code == 200
@@ -355,8 +352,8 @@ def test_source_library_item_remains_usable_after_parent_gallery_image_is_delete
 # --- 16. Gallery send own image → success (local delivery) ---
 def test_send_own_image_200(temp_db, two_users):
     sa = sess_a(two_users)
-    with TestClient(main.app) as c:
-        r = c.post("/api/gallery/img-a-001/send", json={"platform": "telegram"}, cookies={"onenode_session": sa["session_token"]}, headers=BROWSER_ORIGIN)
+    with TestClient(main.app, cookies={"onenode_session": sa["session_token"]}) as c:
+        r = c.post("/api/gallery/img-a-001/send", json={"platform": "telegram"}, headers=BROWSER_ORIGIN)
     assert r.status_code == 200
     assert r.json()["ok"] is True
 
@@ -364,8 +361,8 @@ def test_send_own_image_200(temp_db, two_users):
 # --- 17. Gallery send other user's image → 404 ---
 def test_send_other_image_404(temp_db, two_users):
     sa = sess_a(two_users)
-    with TestClient(main.app) as c:
-        r = c.post("/api/gallery/img-b-001/send", json={"platform": "telegram"}, cookies={"onenode_session": sa["session_token"]}, headers=BROWSER_ORIGIN)
+    with TestClient(main.app, cookies={"onenode_session": sa["session_token"]}) as c:
+        r = c.post("/api/gallery/img-b-001/send", json={"platform": "telegram"}, headers=BROWSER_ORIGIN)
     assert r.status_code == 404
 
 
@@ -374,16 +371,16 @@ def test_banned_user_403(temp_db, two_users):
     with main.db() as conn:
         conn.execute("UPDATE users SET banned=1 WHERE internal_user_id=?", ("iuid-a",))
     sa = sess_a(two_users)
-    with TestClient(main.app) as c:
-        r = c.get("/api/gallery", cookies={"onenode_session": sa["session_token"]})
+    with TestClient(main.app, cookies={"onenode_session": sa["session_token"]}) as c:
+        r = c.get("/api/gallery")
     assert r.status_code == 403
 
 
 # --- 19. Spoofed X-OneNode-User with valid session does not override ---
 def test_spoofed_header_does_not_override_session(temp_db, two_users):
     sa = sess_a(two_users)
-    with TestClient(main.app) as c:
-        r = c.get("/api/gallery", headers={"X-OneNode-User": "web_b"}, cookies={"onenode_session": sa["session_token"]})
+    with TestClient(main.app, cookies={"onenode_session": sa["session_token"]}) as c:
+        r = c.get("/api/gallery", headers={"X-OneNode-User": "web_b"})
     assert r.status_code == 200
     items = r.json()
     ids = {img["id"] for img in items}
@@ -412,9 +409,9 @@ def test_users_id_unchanged(temp_db, two_users):
         conn.execute("INSERT INTO users (id, internal_user_id, language, role, created_at, last_login_at) VALUES ('telegram_legacy','iuid-legacy','ru','user','2026-01-01','2026-01-01')")
         before = sorted(r["id"] for r in conn.execute("SELECT id FROM users"))
     sa = sess_a(two_users)
-    with TestClient(main.app) as c:
-        c.get("/api/gallery", cookies={"onenode_session": sa["session_token"]})
-        c.post("/api/gallery/img-a-001/favorite", json={"isFavorite": True}, cookies={"onenode_session": sa["session_token"]}, headers=BROWSER_ORIGIN)
+    with TestClient(main.app, cookies={"onenode_session": sa["session_token"]}) as c:
+        c.get("/api/gallery")
+        c.post("/api/gallery/img-a-001/favorite", json={"isFavorite": True}, headers=BROWSER_ORIGIN)
     with main.db() as conn:
         after = sorted(r["id"] for r in conn.execute("SELECT id FROM users"))
     assert "telegram_legacy" in after

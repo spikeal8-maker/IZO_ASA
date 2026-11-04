@@ -4,6 +4,7 @@ anyio==4.15.1
 uvicorn[standard]==0.38.0
 pydantic==2.12.5
 httpx==0.28.1
+httpx2==2.16.0
 socksio==1.0.0
 Pillow==13.0.0
 python-multipart==0.0.32
