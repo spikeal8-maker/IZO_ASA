@@ -1,0 +1,99 @@
+manifestVersion = 1
+id = "DOCKER-PORTABLE-IMAGE-IDENTITY-001"
+baseSha = "b308359e7466b78ecce06c9ae41b4a4b73cbe6ec"
+goal = "Make the existing embedded-image installer verify and install the same three images across classic Docker and containerd stores."
+userOutcome = "The canonical application archive installs without source edits or Docker host changes on Windows Docker Desktop and Linux Docker Engine."
+beforeScenario = "Run41800527232 built application7faf354ef1e9438adae1d9a4bbf2346b6e843bbe successfully. D2 Engine29.8.2 loaded only the sole OCI index entry from the Docker28.0.4 anonymous multi-image export, and producer config IDs were not valid containerd image IDs; installation failed before application resources."
+afterScenario = "The existing builder exports every role with a verified immutable content binding; the existing installer verifies archive and loaded image identity on both stores and runs only verified local references, preserving all source, platform, command, ownership and data guards."
+nonGoals = [
+  "A second installer, application changes, new product features or a different Docker host configuration",
+  "Resolving backend idempotency, adding real provider access, waiving test-health debt, accepting the full release or switching production",
+  "Copying historical application branches or modifying the source payload of PR266",
+]
+declaredFiles = [
+  "tools/docker_test_bundle.py",
+  "tools/docker_test_bundle_format.py",
+  "tools/docker_test_bundle_runtime.py",
+  "tools/docker_test_bundle_images.py",
+  "tools/test_docker_test_bundle_build.py",
+  "tools/test_docker_test_bundle_format.py",
+  "tools/test_docker_test_bundle_runtime.py",
+  "tools/test_docker_test_bundle_images.py",
+  "docs/docker-portable-image-identity.md",
+  "tasks/DOCKER-PORTABLE-IMAGE-IDENTITY-001.toml",
+]
+allowedPatterns = [
+  ".github/workflows/docker-portable-image-identity.yml",
+  "tools/docker_portable_image_proof.py",
+  "tools/test_docker_portable_image_proof.py",
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+  "docs/NOW.md",
+  "tools/agent.ps1",
+  "tools/agent_system/**",
+  "tools/verify.ps1",
+  "tools/test_health_audit.py",
+  ".github/workflows/ci.yml",
+  ".github/workflows/file-hygiene.yml",
+  "tasks/DOCKER-CANONICAL-CANDIDATE-002.toml",
+  "tasks/BACKUP-RESTORE-SNAPSHOT-BINDING-001.toml",
+]
+protectedFilesTouched = [
+]
+domain = "docker-delivery"
+riskClass = "high-assurance"
+changeClass = "tooling"
+maxProductionFiles = 0
+maxChangedLines = 1500
+acceptance = [
+  "Register from the newly verified main with no overlapping ownership; keep application7faf354ef1e9438adae1d9a4bbf2346b6e843bbe as a separate exact read-only build input.",
+  "Preserve the original failed Windows receipt and reproduce both an incomplete OCI index and differing classic/config versus containerd/manifest identity in deterministic regressions.",
+  "Export all three roles; verify their immutable archive identity and post-load contents. A mutable tag is never the sole trust proof.",
+  "Preserve legacy format compatibility and existing source labels, platform, backend command, installer ownership, lifecycle, hash, path and non-empty destination guards.",
+  "Reject missing, substituted, duplicate, malformed or mismatched role/config/manifest identities before creating application containers or data volumes.",
+  "Use the same new archive on actual Windows containerd and Linux Docker Engine. Record exact application/tooling SHA, archive hash and loaded role identities; actual probes do not replace the separate product lifecycle gate.",
+  "Review complete diff, run targeted tests and package/scope/hygiene/syntax gates, then commit and publish a Draft PR. Merge requires exact-head required CI and independent review.",
+]
+requiredEvidence = [
+  "Source main, origin, worktrees and clean state; registered ownership and precise base/head scope receipt",
+  "Original Windows failure receipt SHA256 ba12d4f34901d7f34b4fe6cf7f75702f9827d34926643da935681564d90e9dca and exact archive dca84ba97e5fd7ec2f0c923e7ca1a6126a9b524dc8e67c9481aa8c2faa4d846e",
+  "Deterministic RED/GREEN, preserved negative tests, full author diff review and independent review status stated separately",
+  "Actual cross-store install evidence with source/tooling/archive identity, no foreign-resource changes and remaining product/provider/governance limitations explicit",
+]
+targetedTests = [
+  "python -m pytest tools/test_docker_test_bundle_build.py tools/test_docker_test_bundle_format.py tools/test_docker_test_bundle_runtime.py tools/test_docker_test_bundle_images.py tools/test_docker_synthetic_runtime.py -q",
+  "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/agent.ps1 verify",
+  "python -m tools.agent_system.enforce --repo-root . ci --target-base b308359e7466b78ecce06c9ae41b4a4b73cbe6ec",
+  "python -m unittest -v tools.test_file_hygiene",
+  "Exact base/head file_hygiene, changed Python syntax and git diff --check",
+]
+fileGrowthExpectations = [
+  "Keep new modules below500lines, tests below24KiB and documentation below200lines/12KiB. Extract cohesive image proof into one small helper; do not raise existing limits or remove tests.",
+  "Expected changed scope approximately900-1400lines including negative tests and contract. Operational receipts and image fixtures remain outside tracked source.",
+]
+forbiddenOperations = [
+  "Changing Docker daemon/store/settings, Windows, network, VPN, DNS, firewall, other projects or observed instance resources",
+  "Historical DB/media fixtures, secret disclosure, paid API calls, provider mutations, bots, email, payments or Codex",
+  "Bypassing source/image/ownership guards, manual receipt patching, production switching or automatic merge",
+  "Changing governance deadlines or claiming author/team review as independent APPROVE",
+]
+rollbackBoundary = "Revert only this tooling package. Preserve failed acceptance evidence and all unrelated resources; any temporary cleanup must verify ownership. No automatic database rollback is claimed."
+
+[[scopeExpansions]]
+path = ".github/workflows/docker-portable-image-identity.yml"
+reason = "Observed cross-store failure requires a targeted real producer/receiver proof with exact current tooling and canonical application7faf; preserve the existing nine-job workflow and its product FAIL, use the existing installer, do not substitute old A/B or fake workflow identity."
+recordedAtUtc = "2026-11-04T09:15:29.041116Z"
+
+[[scopeExpansions]]
+path = "tools/docker_portable_image_proof.py"
+reason = "Observed cross-store failure requires a targeted real producer/receiver proof with exact current tooling and canonical application7faf; preserve the existing nine-job workflow and its product FAIL, use the existing installer, do not substitute old A/B or fake workflow identity."
+recordedAtUtc = "2026-11-04T09:15:30.430092Z"
+
+[[scopeExpansions]]
+path = "tools/test_docker_portable_image_proof.py"
+reason = "Observed cross-store failure requires a targeted real producer/receiver proof with exact current tooling and canonical application7faf; preserve the existing nine-job workflow and its product FAIL, use the existing installer, do not substitute old A/B or fake workflow identity."
+recordedAtUtc = "2026-11-04T09:15:31.771614Z"

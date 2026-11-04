@@ -23,11 +23,13 @@ try:
         ACCEPTANCE, RUNTIME, UVICORN, BundleError, OWNER, SERVICES, VOLUMES, bundle_profile,
         expected_services, expected_volumes, profile_fields, json_bytes, load_json, plain_path, require, verify,
     )
+    from tools.docker_test_bundle_images import ensure_portable_images, resolve_images, runtime_compose
 except ModuleNotFoundError:
     from docker_test_bundle_format import (
         ACCEPTANCE, RUNTIME, UVICORN, BundleError, OWNER, SERVICES, VOLUMES, bundle_profile,
         expected_services, expected_volumes, profile_fields, json_bytes, load_json, plain_path, require, verify,
     )
+    from docker_test_bundle_images import ensure_portable_images, resolve_images, runtime_compose
 
 HOST_KEYS = {"PATH", "SystemRoot", "WINDIR", "COMSPEC", "PATHEXT", "TEMP", "TMP",
              "USERPROFILE", "APPDATA", "LOCALAPPDATA", "HOME", "ProgramData", "ProgramFiles",
@@ -81,8 +83,9 @@ class Docker:
         return hashlib.sha256(info["ID"].encode()).hexdigest()
 
     def compose(self, root: Path, m: dict, *args: str) -> str:
+        path = runtime_compose(root, m, resolve_images(self, m), create=True)
         return self.run("compose", "--env-file", os.devnull, "--project-name", m["project"],
-                        "--project-directory", str(root), "-f", str(root / "compose.json"),
+                        "--project-directory", str(root), "-f", str(path),
                         *args, timeout=240)
 
 
@@ -182,6 +185,9 @@ def check_volumes(resources: dict, previous: dict | None, m: dict, owner: dict) 
 
 
 def ensure_images(docker: Docker, root: Path, m: dict) -> None:
+    if "image_identity" in m:
+        ensure_portable_images(docker, root, m)
+        return
     missing = [image for image in set(m["images"].values())
                if docker.run("image", "inspect", image, optional=True) is None]
     if missing:
@@ -201,6 +207,8 @@ def ensure_images(docker: Docker, root: Path, m: dict) -> None:
 
 
 def health(docker: Docker, root: Path, m: dict) -> dict:
+    images = resolve_images(docker, m)
+    compose_path = runtime_compose(root, m, images)
     current = owned_resources(docker, m)
     rows = current["containers"]
     services = expected_services(m)
@@ -214,9 +222,9 @@ def health(docker: Docker, root: Path, m: dict) -> dict:
     for item in rows:
         role = item["Config"]["Labels"]["com.docker.compose.service"]
         require(item["State"]["Running"] and item["State"].get("Health", {}).get("Status") == "healthy"
-                and item["Image"] == m["images"][role], "RUNTIME_NOT_READY")
+                and item["Image"] == images[role], "RUNTIME_NOT_READY")
         paths = item["Config"]["Labels"].get("com.docker.compose.project.config_files", "").split(",")
-        require(len(paths) == 1 and Path(paths[0]).resolve() == (root / "compose.json").resolve()
+        require(len(paths) == 1 and Path(paths[0]).resolve() == compose_path.resolve()
                 and Path(paths[0]).is_file(), "COMPOSE_PATH_NOT_PERSISTENT")
     opener = build_opener(ProxyHandler({}))
     origin = "http://127.0.0.1:" + str(m["ports"]["web"])
@@ -229,7 +237,8 @@ def health(docker: Docker, root: Path, m: dict) -> dict:
             and version.get("schema_compatibility") == {"min_version": 7, "max_version": 7},
             "RUNTIME_VERSION_MISMATCH")
     return {"status": "TEST_RUNTIME_VERIFIED", "source_sha": m["source_sha"],
-            "release_id": m["release_id"], "containers": len(rows), "production_authorized": False, **profile_fields(m)}
+            "release_id": m["release_id"], "containers": len(rows), "production_authorized": False, **profile_fields(m),
+            **({"resolved_images": images, "image_identity_version": 1} if "image_identity" in m else {})}
 
 
 def wait_health(docker: Docker, root: Path, manifest: dict, *, timeout: float = 20.0) -> dict:
@@ -342,11 +351,14 @@ def install_locked(bundle: Path, pin: str, state: Path, docker: Docker, m: dict,
         require(bundle_profile(old) == bundle_profile(m), "INSTALLATION_PROFILE_MISMATCH")
         require(old["project"] == m["project"] and old["schema"] == m["schema"],
                 "UPDATE_SCHEMA_UNSUPPORTED")
-        changed = old["source_sha"] != m["source_sha"] or old["images"] != m["images"]
+        changed = (old["source_sha"] != m["source_sha"] or old["images"] != m["images"]
+                   or old.get("image_identity") != m.get("image_identity"))
         require(not changed or allow_update, "TEST_CODE_UPDATE_NOT_AUTHORIZED")
+        old_images = resolve_images(docker, old)
+        runtime_compose(old_root, old, old_images)
         for item in before["containers"]:
             role = item["Config"]["Labels"]["com.docker.compose.service"]
-            require(item["Image"] == old["images"][role], "ACTIVE_IMAGE_DRIFT")
+            require(item["Image"] == old_images[role], "ACTIVE_IMAGE_DRIFT")
         if changed or (bundle_profile(m) == RUNTIME and previous["manifest_sha256"] != pin):
             backend = [x for x in before["containers"]
                        if x["Config"]["Labels"]["com.docker.compose.service"] == "backend"]

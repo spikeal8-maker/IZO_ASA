@@ -23,12 +23,14 @@ try:
         inventory, json_bytes, plain_path, require, validate_compose, verify,
     )
     from tools.docker_test_bundle_runtime import Docker, SafeParser, clean_environment
+    from tools.docker_test_bundle_images import archive_identity
 except ModuleNotFoundError:
     from docker_test_bundle_format import (
         ACCEPTANCE, RUNTIME, RUNTIME_ENV, UVICORN, BundleError, IMAGE, OWNER, PROJECT, REPOSITORY, SHA, extract, file_hash,
         inventory, json_bytes, plain_path, require, validate_compose, verify,
     )
     from docker_test_bundle_runtime import Docker, SafeParser, clean_environment
+    from docker_test_bundle_images import archive_identity
 
 
 def git(root: Path, *args: str) -> str:
@@ -138,6 +140,7 @@ def build(source: Path, sha: str, project: str, web: int, api: int, output: Path
                               capture_output=True, text=True, encoding="utf-8", timeout=30)
     require(rendered.returncode == 0, "SOURCE_COMPOSE_RENDER_FAILED")
     config = json.loads(rendered.stdout)
+    references = {role: settings["image"] for role, settings in config["services"].items()}
     images = {}
     for role, settings in config["services"].items():
         image = json.loads(docker.run("image", "inspect", settings["image"]))[0]
@@ -185,12 +188,25 @@ def build(source: Path, sha: str, project: str, web: int, api: int, output: Path
         metadata = release_metadata(source, staging / "frontend", sha, release, now.isoformat(),
                                     probe["python"], target_assets=tuple(probe["assets"]))
         (staging / "frontend/release-manifest.json").write_bytes(json_bytes(metadata))
-        for name in ("docker_test_bundle_format.py", "docker_test_bundle_runtime.py"):
+        for name in ("docker_test_bundle_format.py", "docker_test_bundle_runtime.py", "docker_test_bundle_images.py"):
             shutil.copyfile(Path(__file__).parent / name, staging / name)
         (staging / "install.cmd").write_text('@echo off\r\npython -B "%~dp0docker_test_bundle_runtime.py" install %*\r\n', encoding="ascii")
         (staging / "install.sh").write_text('#!/bin/sh\nexec python3 -B "$(dirname "$0")/docker_test_bundle_runtime.py" install "$@"\n', encoding="ascii")
         if embed_images:
-            docker.run("save", "--output", str(staging / "images.tar"), *sorted(set(images.values())), timeout=240)
+            portable = profile == RUNTIME
+            docker.run("save", "--output", str(staging / "images.tar"),
+                       *sorted(set(references.values() if portable else images.values())), timeout=240)
+            if portable:
+                identity = archive_identity(staging / "images.tar", references, sha)
+                for role, item in identity["roles"].items():
+                    require(images[role] in {item["config_digest"], item["manifest_digest"]}
+                            and json.loads(docker.run("image", "inspect", references[role]))[0]["Id"] == images[role],
+                            "SOURCE_IMAGE_MISMATCH")
+                manifest["image_identity"] = identity
+                manifest["images"] = {role: item["config_digest"] for role, item in identity["roles"].items()}
+                for role, image in manifest["images"].items():
+                    config["services"][role]["image"] = image
+                (staging / "compose.json").write_bytes(json_bytes(config))
         manifest["files"] = inventory(staging)
         (staging / "bundle.json").write_bytes(json_bytes(manifest))
         pin = file_hash(staging / "bundle.json")[1]
