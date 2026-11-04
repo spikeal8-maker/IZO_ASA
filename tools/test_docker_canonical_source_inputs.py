@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import re
 import runpy
 import shlex
@@ -205,7 +206,11 @@ def test_nginx_copy_declares_readable_image_mode_even_for_private_context(minima
     config = minimal_source / DEV / "nginx.shadow.conf"
     config.chmod(context_mode)
     inputs, _ = source_inputs(minimal_source, profile=RUNTIME)
-    assert config.stat().st_mode & 0o777 == context_mode
+    if os.name == "nt":
+        # Windows chmod controls the read-only flag, not POSIX permission bits.
+        assert config.stat().st_mode & 0o200
+    else:
+        assert config.stat().st_mode & 0o777 == context_mode
     assert (DEV / "nginx.shadow.conf").as_posix() in inputs
     dockerfile = (minimal_source / DEV / "Dockerfile.web").read_text()
     copy = next(shlex.split(line) for line in dockerfile.splitlines()
