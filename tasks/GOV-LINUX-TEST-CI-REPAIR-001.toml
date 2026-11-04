@@ -29,6 +29,7 @@ declaredFiles = [
   "docs/agent-tasks/GOV-LINUX-TEST-CI-REPAIR-001.md",
 ]
 allowedPatterns = [
+  "docs/admin-mutation-audit.md",
 ]
 forbiddenPatterns = [
   "backend/main.py",
@@ -106,3 +107,8 @@ forbiddenOperations = [
   "fake-installer-or-ci-receipt",
 ]
 rollbackBoundary = "Reverting only the repair commit restores the two historical manifests and their known CI ambiguity; it leaves all prior source remediation and policy values unchanged. Preserve both predecessor commits, completed registry evidence and all unrelated runtime/data. This is source recovery, not automatic runtime rollback."
+
+[[scopeExpansions]]
+path = "docs/admin-mutation-audit.md"
+reason = "CI41906564323 exact5d574ef00f6de2f6f37bac7ae62dfcfedf70c633 STALE_FINGERPRINT: recompute only two evidence_artifacts fingerprints in docs/admin-mutation-audit.md using unchanged tools.test_admin_mutation_audit._artifact_fingerprint after approved test-only cookie migration. Preserve the ten-artifact set, route statuses, source SHA/fingerprints, findings, evidence, policy, review dates and budgets; no new audit or runtime claim."
+recordedAtUtc = "2026-11-04T20:56:31.240484Z"
