@@ -181,9 +181,22 @@ def verify_javascript(data: bytes, release: str) -> None:
         text = data.decode("utf-8")
     except UnicodeError:
         raise BundleError("FRONTEND_JAVASCRIPT_INVALID") from None
-    literals = {release.join((quote, quote)) for quote in ("'", '"')}
-    require(any(value in text for value in literals)
-            and set(RELEASE.findall(text)) == {release}, "FRONTEND_RELEASE_MISMATCH")
+    # Vite can emit a static template literal; accept only exact raw release IDs.
+    found = False
+    for quote in ("'", '"', "`"):
+        literal = quote + release + quote
+        position = text.find(literal)
+        while position >= 0:
+            boundary = position
+            while boundary > 0 and text[boundary - 1] == "\\":
+                boundary -= 1
+            if (position - boundary) % 2 == 0:
+                found = True
+                break
+            position = text.find(literal, position + 1)
+        if found:
+            break
+    require(found and set(RELEASE.findall(text)) == {release}, "FRONTEND_RELEASE_MISMATCH")
 
 
 def verify_frontend(read, release: str, expected: dict | None = None) -> dict:

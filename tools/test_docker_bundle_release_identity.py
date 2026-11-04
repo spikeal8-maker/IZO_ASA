@@ -278,3 +278,43 @@ def test_real_slow_stream_has_total_deadline_and_closes_connection():
         server.server_close()
         thread.join(timeout=1)
     assert not thread.is_alive()
+
+
+
+def test_actual_vite_static_template_literal_is_accepted():
+    from tools.docker_bundle_release_identity import verify_javascript
+    # Exact emitted fragment from clean 9f20dfd5a8d749134e07c320c1ed0e080f4ac777.
+    release = "9f20dfd5a8d7-20261104195840"
+    data = b"var Ce=`9f20dfd5a8d7-20261104195840`,we=`/api`,Te=new Set;"
+    verify_javascript(data, release)
+
+
+@pytest.mark.parametrize("body", [
+    "`RELEASE${suffix}`",
+    "`${prefix}RELEASE`",
+    r"`\u0039f20dfd5a8d7-20261104195840`",
+    r"`\x39f20dfd5a8d7-20261104195840`",
+    r"`RELEASE\``",
+    "`prefix-RELEASE`",
+    "`RELEASE-suffix`",
+    '`RELEASE"',
+    "`RELEASE",
+    "`bbbbbbbbbbbb-20261104195840`",
+    "`RELEASE`,old=`bbbbbbbbbbbb-20261104195840`",
+])
+def test_nonstatic_or_wrong_javascript_release_fails(body):
+    from tools.docker_bundle_release_identity import verify_javascript
+    release = "9f20dfd5a8d7-20261104195840"
+    data = ("var Ce=" + body.replace("RELEASE", release) + ";").encode()
+    with pytest.raises(BundleError, match="FRONTEND_RELEASE_MISMATCH"):
+        verify_javascript(data, release)
+
+
+@pytest.mark.parametrize("quote", ["'", '"', "`"])
+@pytest.mark.parametrize("backslashes", [1, 3])
+def test_escaped_javascript_release_delimiter_fails(quote, backslashes):
+    from tools.docker_bundle_release_identity import verify_javascript
+    release = "9f20dfd5a8d7-20261104195840"
+    data = ("var Ce=" + "\\" * backslashes + quote + release + quote + ";").encode()
+    with pytest.raises(BundleError, match="FRONTEND_RELEASE_MISMATCH"):
+        verify_javascript(data, release)
