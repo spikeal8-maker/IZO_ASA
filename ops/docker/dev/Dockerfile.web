@@ -1,0 +1,17 @@
+FROM node:24.14.1-bookworm-slim@sha256:b506e7321f176aae77317f99d67a24b272c1f09f1d10f1761f2773447d8da26c AS frontend
+ARG IZO_SOURCE_SHA
+ENV NODE_OPTIONS="--max-old-space-size=1024"
+WORKDIR /build
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY frontend/ ./
+RUN test -n "${IZO_SOURCE_SHA}" && FRONTEND_BUILD_LABEL="${IZO_SOURCE_SHA}" npm run build
+
+FROM nginxinc/nginx-unprivileged:1.29-alpine@sha256:0c79d56aee561a1d81c63f00eee5fb5fe29279560cdc55e91425133104c7fbe6
+ARG IZO_SOURCE_SHA
+LABEL org.opencontainers.image.revision="${IZO_SOURCE_SHA}" \
+      org.opencontainers.image.source="spikeal8-maker/IZO_ASA"
+COPY --from=frontend /build/dist/ /usr/share/nginx/html/
+COPY ops/docker/dev/nginx.shadow.conf /etc/nginx/nginx.conf
+USER 101:101
+ENTRYPOINT ["nginx", "-g", "daemon off;"]

@@ -1,4 +1,4 @@
-"""Hosted Linux ordinary-runtime proof using the existing builder and frozen controller."""
+"""Hosted Linux canonical application proof using the unchanged format-2 installer."""
 from __future__ import annotations
 
 import argparse
@@ -18,14 +18,16 @@ import zipfile
 import docker_linux_bundle_build as linux
 
 sys.dont_write_bytecode = True
-CONTRACT = "DOCKER-LINUX-SYNTHETIC-RUNTIME-002"
+CONTRACT = "DOCKER-CANONICAL-CANDIDATE-002"
+PREVIOUS_SOURCE = "96314d9414df2954d3d8abbf3db20cf2e5e7dce0"
+HTTP_CLIENT = "cef42d3f1eff18f853c76cb55d611065d38cbdb8c847176c40acae94712ff506"
 TOOLING = "b517feb365eb7dcb0047f92500d73d4e82a74bff"
 PROJECT = "izo-asa-bundle-runtime-linux01"
 PORTS = {"web": 48774, "api": 48775}
 SECONDS = 420
 RUN_TIMEOUT, CLEANUP_TIMEOUT, DAY_MARGIN = 1500, 240, 60
 COMMON = "2192a7aef412442850e25b73945c2c8e773859844ca77bcb5849d681ae2e6913"
-CONTROLLERS = {"synthetic_runtime_accept.py": "013b4e10448d091a7e4817dde33c8002dd23437e58450826493972504e52f1e1",
+CONTROLLERS = {"synthetic_runtime_accept.py": "b794b18f435159cc23c5b607909c71a21c49867961f1dccb941bcf67c9f2ce58",
                "synthetic_runtime_checks.py": "d7a2f251194b2ef1e79776bd4325b126afa4d6e5cd0c725bf0111eb71b977663"}
 PASS = "PASS_ORDINARY_SYNTHETIC_RUNTIME_LINUX_ONLY"
 require = linux.require
@@ -47,25 +49,67 @@ def safe(error):
     return value if re.fullmatch(r"[A-Z][A-Z0-9_]{1,100}", value) else "RUNTIME_LINUX_CONTRACT_FAILED"
 
 
+def source_selection(args, head=None):
+    selected = {"A": args.source_a_sha, "B": args.source_b_sha}
+    require(all(type(value) is str and re.fullmatch(r"[0-9a-f]{40}", value) for value in selected.values())
+            and selected["A"] == PREVIOUS_SOURCE and selected["A"] != selected["B"]
+            and (head is None or selected["B"] == head), "CANONICAL_SOURCE_SELECTION_INVALID")
+    return selected
+
+
 def sources(args, runner):
-    for path, sha in ((args.candidate, runner["head"]), (args.tooling, TOOLING), (args.source_b, linux.SOURCES["B"])):
+    selected = source_selection(args, runner["head"])
+    checkouts = [(args.candidate, runner["head"]), (args.tooling, TOOLING)]
+    if args.action == "producer":
+        require(args.source_a is not None and args.source_b is not None, "APPLICATION_CHECKOUTS_REQUIRED")
+        checkouts += [(args.source_a, selected["A"]), (args.source_b, selected["B"])]
+    paths = [path.resolve() for path, _ in checkouts]
+    require(all(not left.is_relative_to(right) and not right.is_relative_to(left)
+                for index, left in enumerate(paths) for right in paths[index + 1:]), "SOURCE_CHECKOUTS_NOT_DISTINCT")
+    require(all(not args.root.resolve().is_relative_to(path) for path in paths), "WORK_OR_SOURCE_INSIDE_CHECKOUT")
+    for path, sha in checkouts:
         linux.source_guard(path, sha)
     common = args.candidate / "tools/docker_linux_bundle_build.py"
     require(Path(linux.__file__).resolve() == common.resolve() and canonical(common) == COMMON, "COMMON_PROOF_HELPER_CHANGED")
     require(platform.python_version() == (args.candidate / ".python-version").read_text().strip(), "PINNED_PYTHON_REQUIRED")
     for name, pin in CONTROLLERS.items():
         require(canonical(args.candidate / "tools" / name) == pin, "FROZEN_CONTROLLER_CHANGED")
-    require(not args.root.resolve().is_relative_to(args.tooling.resolve())
-            and not args.root.resolve().is_relative_to(args.candidate.resolve())
-            and not args.source_b.resolve().is_relative_to(args.tooling.resolve()), "WORK_OR_SOURCE_INSIDE_CHECKOUT")
+    require(canonical(args.candidate / "tools/synthetic_http_client.py") == HTTP_CLIENT, "HTTP_CLIENT_CHANGED")
+    return selected
 
 
 def support(args):
+    path = args.candidate / "tools/synthetic_http_client.py"
+    require(path.is_file() and not path.is_symlink() and canonical(path) == HTTP_CLIENT, "HTTP_CLIENT_CHANGED")
     return {"toolingRoot": str(args.tooling),
             "moduleHashes": {name: canonical(args.tooling / "tools" / (name + ".py"))
                              for name in ("docker_test_bundle_format", "docker_test_bundle_runtime")},
-            "httpClientPath": str(args.source_b / "tools/docker_shadow_product.py"),
-            "httpClientSha256": canonical(args.source_b / "tools/docker_shadow_product.py")}
+            "httpClientPath": str(path), "httpClientSha256": HTTP_CLIENT}
+
+
+def context_proof(root, source):
+    path = root / "context.json"; receipt = read(path)
+    require(receipt.get("contract") == CONTRACT and receipt.get("status") == "PASS_CONTEXT_EXPORT_ONLY"
+            and receipt.get("sourceSha") == source and receipt.get("sourceDirty") is False,
+            "CANONICAL_CONTEXT_NOT_PROVEN")
+    return {"receipt": receipt, "receiptSha256": linux.digest(path)}
+
+
+def run_context_probe(args, report):
+    report["stage"] = "canonical_context_export"
+    source = source_selection(args)["B"]
+    linux.source_guard(args.source_b, source)
+    paths = {"root": args.source_b / ".dockerignore",
+             **{role: args.source_b / "ops/docker/dev" / ("Dockerfile." + role + ".dockerignore") for role in ("web", "guard")}}
+    pins = {role: linux.digest(path) for role, path in paths.items()}
+    linux.run([sys.executable, "-B", "-m", "tools.docker_canonical_context_probe",
+               "--source", str(args.source_b), "--context", "default", "--receipt", str(args.root / "context.json")],
+              cwd=args.candidate, timeout=300)
+    linux.source_guard(args.source_b, source)
+    proof = context_proof(args.root, source)
+    require(proof["receipt"].get("ignoreSha256") == pins
+            and {role: linux.digest(path) for role, path in paths.items()} == pins, "CONTEXT_IGNORE_PINS_CHANGED")
+    return proof
 
 
 def manifest(archive, receipt, source):
@@ -85,45 +129,52 @@ def manifest(archive, receipt, source):
     return value
 
 
-def validate_release(root, label, record):
+def validate_release(root, label, record, selected):
     archive = root / ("release-" + label + ".zip")
     path = archive.with_suffix(".receipt.json"); receipt = read(path)
     require(record["receiptSha256"] == linux.digest(path) and record["receipt"] == receipt
-            and receipt.get("status") == "TEST_BUNDLE_BUILT" and receipt.get("source_sha") == linux.SOURCES[label]
+            and receipt.get("status") == "TEST_BUNDLE_BUILT" and receipt.get("source_sha") == selected[label]
             and receipt.get("tooling_sha") == TOOLING and receipt.get("project") == PROJECT
             and receipt.get("images_embedded") is True and receipt.get("production_authorized") is False
             and receipt.get("archive_bytes") == archive.stat().st_size
             and receipt.get("archive_sha256") == linux.digest(archive), "TRANSFER_RELEASE_CHANGED")
-    return manifest(archive, receipt, linux.SOURCES[label])
+    return manifest(archive, receipt, selected[label])
 
 
 def build_release(args, label, report):
+    selected = source_selection(args)
     source = args.source_a if label == "A" else args.source_b
-    linux.source_guard(source, linux.SOURCES[label])
+    linux.source_guard(source, selected[label])
     require(not source.resolve().is_relative_to(args.tooling.resolve()), "SOURCE_INSIDE_TOOLING")
     pins = linux.pinned_dockerfiles(source)
-    environment = {**linux.environment(), "IZO_SOURCE_SHA": linux.SOURCES[label], "IZO_COMPOSE_PROJECT": PROJECT,
+    environment = {**linux.environment(), "IZO_SOURCE_SHA": selected[label], "IZO_COMPOSE_PROJECT": PROJECT,
                    "IZO_SHADOW_WEB_PORT": str(PORTS["web"]), "IZO_SHADOW_API_PORT": str(PORTS["api"])}
     command = ["docker", "--context", "default", "compose", "--env-file", os.devnull, "--project-name", PROJECT]
     for name in ("compose.yml", "compose.shadow.yml"):
         command += ["-f", str(source / "ops/docker/dev" / name)]
+    report["stage"] = "ordinary_compose_" + label
+    rendered = linux.run(command + ["config", "--format", "json"], env=environment)
+    config = json.loads(rendered)
+    require(type(config) is dict and set(config.get("services", {})) == {"guard", "backend", "web"}, "ORDINARY_COMPOSE_REQUIRED")
     report["stage"] = "ordinary_images_" + label
     linux.run(command + ["build", "--no-cache", "guard", "backend", "web"], env=environment, timeout=1800)
     archive = args.root / ("release-" + label + ".zip")
     report["stage"] = "ordinary_archive_" + label
     linux.run([sys.executable, "-B", "-m", "tools.docker_test_bundle", "build", "--source", str(source),
-               "--sha", linux.SOURCES[label], "--project", PROJECT, "--web-port", str(PORTS["web"]),
+               "--sha", selected[label], "--project", PROJECT, "--web-port", str(PORTS["web"]),
                "--api-port", str(PORTS["api"]), "--context", "default", "--output", str(archive),
                "--profile", "synthetic-runtime"], cwd=args.tooling, timeout=600)
     path = archive.with_suffix(".receipt.json")
-    record = {"receipt": read(path), "receiptSha256": linux.digest(path), "dockerfiles": pins}
-    value = validate_release(args.root, label, record)
+    record = {"receipt": read(path), "receiptSha256": linux.digest(path), "dockerfiles": pins,
+              "composeSha256": hashlib.sha256(rendered.encode("utf-8")).hexdigest()}
+    value = validate_release(args.root, label, record, selected)
     record["profile"] = value["profile"]
-    linux.source_guard(source, linux.SOURCES[label])
+    linux.source_guard(source, selected[label])
     return record
 
 
 def transfer(args, runner, engine):
+    selected = source_selection(args, runner["head"])
     expected = os.environ.get("IZO_PRODUCER_RECEIPT_SHA256", "")
     require(re.fullmatch(r"[0-9a-f]{64}", expected) and linux.digest(args.transfer / "producer.json") == expected,
             "PRODUCER_RECEIPT_PIN_MISMATCH")
@@ -131,6 +182,8 @@ def transfer(args, runner, engine):
     require(producer.get("contract") == CONTRACT and producer.get("status") == "PASS_ORDINARY_PRODUCER_ONLY"
             and producer.get("toolingSha") == TOOLING and producer.get("profile") == "synthetic-runtime"
             and producer.get("before") == {"images": [], "containers": [], "volumes": []}, "PRODUCER_CONTRACT_CHANGED")
+    require(producer.get("sources") == selected, "APPLICATION_SOURCE_TRANSFER_CHANGED")
+    require(producer.get("contextProof") == context_proof(args.transfer, selected["B"]), "CONTEXT_PROOF_CHANGED")
     prior = producer["runner"]
     require(all(prior[k] == runner[k] for k in ("head", "runId", "attempt"))
             and prior["job"] == "producer" and runner["job"] == "receiver", "SEPARATE_JOB_REQUIRED")
@@ -143,12 +196,14 @@ def transfer(args, runner, engine):
     require(producer["moduleHashes"] == actual["moduleHashes"] and producer["httpClientSha256"] == actual["httpClientSha256"]
             and producer["controllerHashes"] == CONTROLLERS, "SUPPORT_TRANSFER_CHANGED")
     for label in ("A", "B"):
-        validate_release(args.transfer, label, producer["releases"][label])
+        validate_release(args.transfer, label, producer["releases"][label], selected)
     return producer
 
 
 def make_plan(args, producer, engine):
-    return {"version": 1, "scope": {"os": "linux", "host": platform.node(), "context": "default",
+    selected = source_selection(args, producer["runner"]["head"])
+    require(producer["sources"] == selected, "APPLICATION_SOURCE_TRANSFER_CHANGED")
+    return {"version": 2, "sources": selected, "scope": {"os": "linux", "host": platform.node(), "context": "default",
                 "engineFingerprint": engine["fingerprint"], "project": PROJECT, "root": str(args.root), "ports": PORTS},
             "toolingSha": TOOLING, "support": support(args), "controllerHashes": CONTROLLERS,
             "observationSeconds": SECONDS, "retainSyntheticCredentials": False,
@@ -211,6 +266,7 @@ def receiver(args, report):
     producer = transfer(args, report["runner"], report["engine"])
     report["producerReceiptSha256"] = linux.digest(args.transfer / "producer.json")
     report["producerIdentity"] = {k: producer[k] for k in ("runner", "engine", "before")}
+    report["contextProof"] = producer["contextProof"]
     for label in ("A", "B"):
         for suffix in (".zip", ".receipt.json"):
             name = "release-" + label + suffix
@@ -240,9 +296,12 @@ def receiver(args, report):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("producer", "receiver"))
-    for name in ("candidate", "tooling", "source-b", "root"):
+    for name in ("candidate", "tooling", "root"):
         parser.add_argument("--" + name, required=True, type=Path)
-    parser.add_argument("--source-a", type=Path); parser.add_argument("--transfer", type=Path); parser.add_argument("--receipt", type=Path)
+    for name in ("source-a-sha", "source-b-sha"):
+        parser.add_argument("--" + name, required=True)
+    parser.add_argument("--source-a", type=Path); parser.add_argument("--source-b", type=Path)
+    parser.add_argument("--transfer", type=Path); parser.add_argument("--receipt", type=Path)
     args = parser.parse_args(argv)
     report = {"status": "FAIL", "contract": CONTRACT, "profile": "synthetic-runtime", "toolingSha": TOOLING,
               "stage": "preflight", "startedAt": datetime.now(timezone.utc).isoformat(), "productionAuthorized": False,
@@ -252,14 +311,14 @@ def main(argv=None):
         require(not args.root.exists(), "RUN_ROOT_NOT_FRESH")
         args.root.mkdir(parents=True, mode=0o700); created = True
         report["runner"] = linux.runner_metadata(args.action)
-        sources(args, report["runner"])
+        report["sources"] = sources(args, report["runner"])
         report["engine"] = linux.engine_metadata(report["runner"]["bootFingerprint"])
         report["before"] = linux.inventory()
         linux.fresh_engine(report["before"], args.action)
         if args.action == "producer":
-            require(args.source_a is not None, "SOURCE_A_REQUIRED")
             data = support(args)
             report.update(moduleHashes=data["moduleHashes"], httpClientSha256=data["httpClientSha256"], controllerHashes=CONTROLLERS, releases={})
+            report["contextProof"] = run_context_probe(args, report)
             for label in ("A", "B"):
                 report["releases"][label] = build_release(args, label, report)
             require(not linux.inventory()["containers"] and not linux.inventory()["volumes"], "PRODUCER_RUNTIME_RESOURCES_REMAIN")

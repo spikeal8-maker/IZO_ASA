@@ -32,12 +32,25 @@ def safe_reason(error):
     return code if re.fullmatch(r"[A-Z][A-Z0-9_]{1,100}", code) else type(error).__name__
 
 
+def plan_sources(plan):
+    if plan["version"] == 1:
+        require("sources" not in plan, "PLAN_SHAPE_INVALID")
+        return dict(SOURCES)
+    values = plan.get("sources")
+    require(plan["version"] == 2 and type(values) is dict and set(values) == {"A", "B"}
+            and all(sha(value, 40) for value in values.values()) and values["A"] != values["B"], "SOURCE_PINS_REQUIRED")
+    return dict(values)
+
+
 def load_plan(path, pin):
     require(sha(pin) and checks.digest(checks.plain(path)) == pin, "PLAN_PIN_MISMATCH")
     plan = checks.read_json(path)
-    require(set(plan) == {"version", "scope", "toolingSha", "bundles", "support", "controllerHashes",
-                          "observationSeconds", "retainSyntheticCredentials"}
-            and type(plan["version"]) is int and plan["version"] == 1, "PLAN_SHAPE_INVALID")
+    version = plan.get("version")
+    require(type(version) is int and version in (1, 2), "PLAN_SHAPE_INVALID")
+    fields = {"version", "scope", "toolingSha", "bundles", "support", "controllerHashes",
+              "observationSeconds", "retainSyntheticCredentials"}
+    require(set(plan) == fields | ({"sources"} if version == 2 else set()), "PLAN_SHAPE_INVALID")
+    selected = plan_sources(plan)
     scope = plan["scope"]
     require(scope["os"] == platform.system().lower() and scope["host"].casefold() == platform.node().casefold()
             and sha(scope["engineFingerprint"]), "HOST_SCOPE_MISMATCH")
@@ -63,7 +76,7 @@ def load_plan(path, pin):
         receipt = archive.with_suffix(".receipt.json")
         require(checks.digest(checks.plain(receipt)) == item["receiptSha256"], "BUILD_RECEIPT_PIN_MISMATCH")
         value = checks.read_json(receipt)
-        require(value.get("status") == "TEST_BUNDLE_BUILT" and value.get("source_sha") == SOURCES[label]
+        require(value.get("status") == "TEST_BUNDLE_BUILT" and value.get("source_sha") == selected[label]
                 and value.get("tooling_sha") == plan["toolingSha"] and value.get("project") == scope["project"]
                 and value.get("images_embedded") is True and value.get("production_authorized") is False
                 and value.get("manifest_sha256") == item["manifestSha256"]
@@ -96,6 +109,7 @@ def installer_environment(runtime, root):
 class Controller:
     def __init__(self, plan, plan_pin, support):
         self.plan, self.pin = plan, plan_pin
+        self.sources = plan_sources(plan)
         self.fmt, self.runtime, self.http = support
         self.scope = plan["scope"]; self.root = checks.plain(self.scope["root"])
         self.state = self.root / "installed"; self.project = self.scope["project"]
@@ -104,7 +118,7 @@ class Controller:
         self.claim = None
         self.product = None; self.before = None
         self.receipt = self.root / "runtime-acceptance.json"
-        self.report = {"status": "RUNNING", "planSha256": plan_pin, "project": self.project,
+        self.report = {"status": "RUNNING", "planSha256": plan_pin, "project": self.project, "sources": self.sources,
                        "startedAt": datetime.now(timezone.utc).isoformat(), "steps": [],
                        "productionAuthorized": False, "realModelExecution": False, "automaticCleanup": False}
 
@@ -160,10 +174,10 @@ class Controller:
             manifest = self.fmt.verify(path, record["manifestSha256"])
             require(manifest["format"] == 2 and self.fmt.bundle_profile(manifest) == self.fmt.RUNTIME
                     and manifest["project"] == self.project and manifest["ports"] == self.scope["ports"]
-                    and manifest["source_sha"] == SOURCES[label] and manifest["tooling_sha"] == self.plan["toolingSha"]
+                    and manifest["source_sha"] == self.sources[label] and manifest["tooling_sha"] == self.plan["toolingSha"]
                     and not (path / ".git").exists(), "RUNTIME_BUNDLE_IDENTITY_MISMATCH")
             self.manifests[label] = manifest
-        return {"profiles": ["synthetic-runtime", "synthetic-runtime"], "sources": SOURCES, "gitDirectory": False}
+        return {"profiles": ["synthetic-runtime", "synthetic-runtime"], "sources": self.sources, "gitDirectory": False}
 
     def install(self, label, *, update=False, persistent=False):
         root = self.release(label) if persistent else self.root / ("incoming-" + label)
@@ -175,13 +189,13 @@ class Controller:
                                 encoding="utf-8", errors="replace", timeout=300, check=False)
         value = json.loads(result.stdout)
         require(result.returncode == 0 and value.get("status") == "TEST_RUNTIME_VERIFIED"
-                and value.get("profile") == "synthetic-runtime" and value.get("source_sha") == SOURCES[label], "INSTALLER_DID_NOT_VERIFY")
+                and value.get("profile") == "synthetic-runtime" and value.get("source_sha") == self.sources[label], "INSTALLER_DID_NOT_VERIFY")
         self.active = label
         owner = checks.read_json(self.state / "owner.json")
         require(self.owner is None or self.owner == owner, "OWNER_RECEIPT_CHANGED")
         self.owner = owner
         self.capture()  # Verify actual ordinary process, locality and idle DB before any new HTTP mutation.
-        return {"releaseId": value["release_id"], "sourceSha": SOURCES[label], "profile": value["profile"]}
+        return {"releaseId": value["release_id"], "sourceSha": self.sources[label], "profile": value["profile"]}
 
     def scope_check(self, *, lease=False):
         manifest = self.manifests[self.active]
@@ -194,7 +208,7 @@ class Controller:
         active = checks.read_json(self.state / "active.json")
         require(active.get("manifest_sha256") == self.plan["bundles"][self.active]["manifestSha256"]
                 and active.get("profile") == "synthetic-runtime" and active.get("engine") == self.owner["engine"]
-                and active.get("source_sha") == SOURCES[self.active] and active.get("project") == self.project
+                and active.get("source_sha") == self.sources[self.active] and active.get("project") == self.project
                 and active.get("status") == "TEST_RUNTIME_VERIFIED" and active.get("production_authorized") is False,
                 "ACTIVE_RECEIPT_CHANGED")
         self.namespace_names(installed=True, lease=lease)
@@ -307,7 +321,7 @@ class Controller:
     def change(self, label):
         self.persist(); self.install(label, update=True, persistent=self.release(label).exists())
         self.persist(); generated = self.next_generation(); self.repeat()
-        return {"sourceSha": SOURCES[label], "generation": generated, "exactPinRepeat": "PASS"}
+        return {"sourceSha": self.sources[label], "generation": generated, "exactPinRepeat": "PASS"}
 
     def run(self):
         self.preflight()
