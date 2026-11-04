@@ -153,6 +153,7 @@ jobs:
           import json, os
           from pathlib import Path
           from tools.docker_test_bundle_format import OWNER, load_json, require, verify
+          from tools.docker_test_bundle_images import resolve_images, runtime_compose
           from tools.docker_test_bundle_runtime import Docker, engine_lock, owned_resources
           root = Path(os.environ["RUNNER_TEMP"]) / "linux-release-identity"
           if not root.exists():
@@ -172,10 +173,12 @@ jobs:
                   for row in resources["volumes"]:
                       require(row["Labels"].get("io.izo.bundle.installation") == owner["id"],
                               "CLEANUP_DATA_OWNER_MISMATCH")
-                  for row in resources["containers"]:
-                      paths = row["Config"]["Labels"].get("com.docker.compose.project.config_files", "").split(",")
-                      require(len(paths) == 1 and Path(paths[0]).resolve().parent == target.resolve(),
-                              "CLEANUP_CONTAINER_OWNER_MISMATCH")
+                  if resources["containers"]:
+                      expected_compose = runtime_compose(target, manifest, resolve_images(docker, manifest), create=False)
+                      for row in resources["containers"]:
+                          paths = row["Config"]["Labels"].get("com.docker.compose.project.config_files", "").split(",")
+                          require(len(paths) == 1 and Path(paths[0]).resolve() == expected_compose.resolve(),
+                                  "CLEANUP_CONTAINER_OWNER_MISMATCH")
                   if any(resources.values()):
                       docker.compose(target, manifest, "down", "--volumes", "--timeout", "30")
                   require(not any(owned_resources(docker, manifest).values()), "OWNED_CLEANUP_INCOMPLETE")
