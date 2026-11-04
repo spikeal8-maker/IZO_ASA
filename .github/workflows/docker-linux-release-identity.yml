@@ -35,8 +35,6 @@ jobs:
       run:
         shell: bash
         working-directory: candidate
-    env:
-      IZO_RUNNER_ENVIRONMENT: ${{ runner.environment }}
     steps:
       - name: Check out the same exact source and tooling HEAD
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -50,6 +48,8 @@ jobs:
         with:
           python-version-file: candidate/.python-version
       - name: Verify ephemeral Linux context and exact clean source
+        env:
+          IZO_RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: |
           set -euo pipefail
           python -B - <<'PY'
