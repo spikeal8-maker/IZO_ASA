@@ -1,0 +1,95 @@
+manifestVersion = 1
+id = "LINUX-RELEASE-IDENTITY-INTEGRATION-001"
+baseSha = "f28d7c2702da5479c72d71aba390bb116d4f7c22"
+goal = "Integrate the reviewed Linux Docker identity fixes onto the current governed main through fresh registered scope."
+userOutcome = "An accepted exact-head Docker identity candidate is available for the separately authorized permanent Linux deployment."
+beforeScenario = "Reviewed donor ce8d33c6c59612aec998bc82af648298b449753c belongs to an earlier-base package; main advances through the reviewed GOV merge. Donor CI evidence is retained with its observed state."
+afterScenario = "A fresh-main registered candidate carries exact reviewed inputs, one current task contract and the corrected documentation link; required new-head checks precede merge."
+nonGoals = [
+  "No backend/main.py, OpenRouter ownership, idempotency, copied-history or provider-runtime changes.",
+  "No new installer, Windows Docker, D2 checks, paid calls or manual duplicate Full run.",
+  "No permanent deployment claim, live data changes, foreign Docker resources or source production actions.",
+  "No gate weakening, debt-date edits, old local worktree mutation or force-push.",
+]
+declaredFiles = [
+  "tasks/LINUX-RELEASE-IDENTITY-INTEGRATION-001.toml",
+  ".github/workflows/docker-linux-release-identity.yml",
+  "docs/docker-linux-release-identity.md",
+  "ops/docker/dev/Dockerfile.guard",
+  "ops/docker/dev/Dockerfile.guard.dockerignore",
+  "ops/docker/dev/Dockerfile.web",
+  "ops/docker/dev/Dockerfile.web.dockerignore",
+  "ops/docker/dev/compose.shadow.yml",
+  "ops/docker/dev/network_guard.py",
+  "ops/docker/dev/nginx.shadow.conf",
+  "tools/docker_bundle_release_identity.py",
+  "tools/docker_canonical_context_probe.py",
+  "tools/docker_test_bundle.py",
+  "tools/docker_test_bundle_format.py",
+  "tools/docker_test_bundle_images.py",
+  "tools/docker_test_bundle_runtime.py",
+  "tools/test_docker_bundle_release_identity.py",
+  "tools/test_docker_canonical_context_probe.py",
+  "tools/test_docker_canonical_source_inputs.py",
+  "tools/test_docker_synthetic_runtime.py",
+  "tools/test_docker_test_bundle_build.py",
+  "tools/test_docker_test_bundle_format.py",
+  "tools/test_docker_test_bundle_images.py",
+  "tools/test_docker_test_bundle_runtime.py",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "architecture/**",
+  "docs/NOW.md",
+  "tools/agent.ps1",
+  "tools/agent_system/**",
+  "tools/repository-operation-lock.ps1",
+  "tools/verify.ps1",
+  "tools/test_health_audit.py",
+  ".github/workflows/ci.yml",
+  ".github/workflows/file-hygiene.yml",
+  "tasks/LINUX-RELEASE-IDENTITY-001.toml",
+]
+protectedFilesTouched = [
+]
+domain = "docker-delivery"
+riskClass = "high-assurance"
+changeClass = "tooling"
+maxProductionFiles = 14
+maxChangedLines = 3000
+acceptance = [
+  "Validate the actual main merge parents and exact GOV tree; register with that actual base using normal finish/start and overlap checks.",
+  "Close old ownership only for scope handoff; preserve its source commit, local branch, index and historical CI/runtime evidence without declaring deployment accepted.",
+  "Carry exactly 23 reviewed donor files and modes; only the first documentation task link changes. Do not copy the retired task manifest.",
+  "Keep every other candidate-tree path identical to fresh main, including GOV records and backend runtime. Unexpected main or carried-path drift blocks the operation.",
+  "Pass the existing bounded release/installer suite, scope enforcement and complete diff review; leave the real index unstaged.",
+  "On the new exact source/tooling HEAD, use the existing Linux workflow for actual Compose/context, images/ZIP, synthetic install, real API/HTML/JS, UID101 nginx, guard and owned cleanup.",
+  "Publish PR269 by expected-head force-false fast-forward using parents actual-main and reviewed-donor under the normal repository lock; preserve the new registered branch ownership and old local branch.",
+  "Required exact-head CI, file hygiene and independent review must pass before authorized integration merge. Permanent application acceptance remains separate.",
+]
+requiredEvidence = [
+  "Actual-main identity, old-close/new-start receipts and registered bounded scope.",
+  "Immutable 23-file hashes, modes and whole-tree reconciliation with fresh main.",
+  "Complete diff, focused test result, ENFORCE_OK and independent review.",
+  "Exact candidate parents/tree, mandatory checks and Linux runtime artifact receipts.",
+  "Timestamped donor proof and honest unresolved deployment/main-ownership status.",
+]
+targetedTests = [
+  "python -B -m pytest -p no:cacheprovider tools/test_docker_bundle_release_identity.py tools/test_docker_test_bundle_build.py tools/test_docker_test_bundle_format.py tools/test_docker_test_bundle_runtime.py tools/test_docker_test_bundle_images.py tools/test_docker_synthetic_runtime.py tools/test_docker_canonical_context_probe.py tools/test_docker_canonical_source_inputs.py -q",
+  "tools/agent.ps1 verify",
+  "git diff --check",
+]
+fileGrowthExpectations = [
+  "Preserve reviewed source/test sizes apart from the task-link correction; no protected-file growth or budget increase.",
+  "Keep runtime data, credentials and operational receipts outside tracked source.",
+]
+forbiddenOperations = [
+  "Direct writes to remote main, forced ref updates, old donor local branch/worktree writes or registry hand edits.",
+  "Take over backend/main.py or OPENROUTER-LINUX-SHADOW-001 ownership.",
+  "Provider charges, messages, Codex invocation, Windows Docker/D2 or foreign server-resource changes.",
+  "Disable checks, rewrite debt dates, assert donor CI equals new-head CI or claim automatic application rollback.",
+]
+rollbackBoundary = "Revert only the reviewed source integration through the normal process if needed; preserve donor history and GOV state. No application data is changed or restored by this package."

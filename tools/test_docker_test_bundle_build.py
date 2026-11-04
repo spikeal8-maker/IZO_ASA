@@ -77,22 +77,32 @@ def test_compose_extensions_removed_but_unknown_effective_sections_rejected(tmp_
 
 
 @pytest.mark.parametrize("profile,files", [("acceptance-fixture", 3), ("synthetic-runtime", 2)])
-def test_builder_selects_only_the_declared_source_overlays(tmp_path, monkeypatch, profile, files):
+@pytest.mark.parametrize("build_images", [False, True])
+def test_builder_selects_only_the_declared_source_overlays(tmp_path, monkeypatch, profile, files, build_images):
     from types import SimpleNamespace
     from tools.test_docker_synthetic_runtime import make_runtime
     root, _, _ = (make_runtime if profile == "synthetic-runtime" else make_bundle)(tmp_path / "config")
     config = json.loads((root / "compose.json").read_text())
-    commands = []
-    monkeypatch.setattr(build, "git", lambda *args: "b" * 40)
+    config["services"]["web"]["build"] = {"args": {
+        "IZO_SOURCE_SHA": "a" * 40, "IZO_RELEASE_ID": "a" * 12 + "-20261027130000"}}
+    commands, environments = [], []
+    monkeypatch.setattr(build, "git", lambda *args: "1793106000" if "--format=%ct" in args else "b" * 40)
     monkeypatch.setattr(build, "source_guard", lambda *args: None)
     monkeypatch.setattr(build.shutil, "disk_usage", lambda path: SimpleNamespace(free=20 * 1024**3))
-    monkeypatch.setattr(build.subprocess, "run", lambda args, **kwargs: commands.append(args) or SimpleNamespace(returncode=0, stdout=json.dumps(config)))
+    def process(args, **kwargs):
+        commands.append(args); environments.append(kwargs["env"])
+        return SimpleNamespace(returncode=0, stdout=json.dumps(config))
+    monkeypatch.setattr(build.subprocess, "run", process)
     class Images:
         context = "explicit-context"
         def engine(self): return "synthetic-engine"
         def run(self, *args): raise BundleError("TEST_REACHED_IMAGE_INSPECTION")
     with pytest.raises(BundleError, match="TEST_REACHED_IMAGE_INSPECTION"):
-        build.build(tmp_path, "a" * 40, "izo-asa-bundle-test001", 48614, 48615, tmp_path / "bundle.zip", Images(), profile=profile)
+        build.build(tmp_path, "a" * 40, "izo-asa-bundle-test001", 48614, 48615, tmp_path / "bundle.zip", Images(), profile=profile, build_images=build_images)
+    assert len(commands) == (2 if build_images else 1)
+    if build_images: assert commands[1][-2:] == ["build", "--pull"]
+    assert all(env["IZO_SOURCE_SHA"] == "a" * 40 and env["IZO_RELEASE_ID"] == "a" * 12 + "-20261027130000"
+               for env in environments)
     assert commands[0].count("-f") == files
     assert any("compose.acceptance.yml" in value for value in commands[0]) is (profile == "acceptance-fixture")
 
@@ -101,3 +111,69 @@ def test_unknown_build_profile_refused_before_source_or_docker(tmp_path, monkeyp
     monkeypatch.setattr(build, "source_guard", lambda *args: pytest.fail("source read before invalid profile refusal"))
     with pytest.raises(BundleError, match="BUNDLE_PROFILE_INVALID"):
         build.build(tmp_path, "a" * 40, "izo-asa-bundle-test001", 48614, 48615, tmp_path / "bundle.zip", None, profile="unknown")
+
+
+@pytest.mark.parametrize("failure", [None, "missing-index-entry", "tag-moved", "image-release", "html", "javascript"])
+def test_portable_builder_exports_named_complete_bound_archive(tmp_path, monkeypatch, failure):
+    import zipfile
+    from types import SimpleNamespace
+    from tools.docker_test_bundle_format import OWNER, RUNTIME
+    from tools.test_docker_test_bundle_images import make_portable, tar_bytes
+    root, _, manifest, inspections, blobs = make_portable(tmp_path / "source")
+    references = {role: item["archive_ref"] for role, item in manifest["image_identity"]["roles"].items()}
+    config = json.loads((root / "compose.json").read_text())
+    for role, reference in references.items(): config["services"][role]["image"] = reference
+    config["services"]["web"]["build"] = {"args": {
+        "IZO_SOURCE_SHA": manifest["source_sha"], "IZO_RELEASE_ID": manifest["release_id"]}}
+    # persistent_config adds these two mounts during packaging.
+    for role in ("backend", "web"):
+        config["services"][role]["volumes"] = [m for m in config["services"][role]["volumes"] if m["type"] != "bind"]
+    if failure == "missing-index-entry":
+        index = json.loads(blobs["index.json"]); index["manifests"] = index["manifests"][:1]
+        blobs["index.json"] = build.json_bytes(index)
+    monkeypatch.setattr(build, "source_guard", lambda *args: None)
+    monkeypatch.setattr(build, "git", lambda *args: "1793106000" if "--format=%ct" in args else "b" * 40)
+    monkeypatch.setattr(build.shutil, "disk_usage", lambda path: SimpleNamespace(free=20 * 1024**3))
+    monkeypatch.setattr(build.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=json.dumps(config)))
+    monkeypatch.setattr(build, "release_metadata", lambda *args, **kwargs: {"controlled": "release"})
+    class Exporter:
+        context, saved, calls = "synthetic", False, []
+        def engine(self): return "synthetic-engine"
+        def run(self, *args, **kwargs):
+            self.calls.append(args)
+            if args[:2] == ("image", "inspect"):
+                role = next(role for role, reference in references.items() if reference == args[2])
+                row = copy.deepcopy(inspections[role]); row["Id"] = manifest["images"][role]
+                if failure == "tag-moved" and self.saved: row["Id"] = "sha256:" + "f" * 64
+                if failure == "image-release" and role == "web":
+                    row["Config"]["Labels"]["org.opencontainers.image.version"] = manifest["source_sha"]
+                return json.dumps([row])
+            if args[0] == "create": return "owned-export"
+            if args[0] == "cp":
+                target = Path(args[2]); shutil.copytree(root / "frontend", target)
+                if failure in {"html", "javascript"}:
+                    path = target / ("index.html" if failure == "html" else "assets/index-unit.js")
+                    path.write_text(path.read_text().replace(manifest["release_id"], manifest["source_sha"]))
+                return ""
+            if args[0] == "inspect": return json.dumps([{"Config": {"Labels": {"io.izo.bundle": OWNER}}}])
+            if args[0] == "rm": return "owned-export"
+            if args[0] == "run": return json.dumps({"python": "3.11.9", "assets": [1, "sha256:" + "d" * 64]})
+            assert args[:2] == ("save", "--output") and set(args[3:]) == set(references.values())
+            Path(args[2]).write_bytes(tar_bytes(blobs)); self.saved = True
+            return ""
+    engine, output = Exporter(), tmp_path / "new.zip"
+    arguments = (root, manifest["source_sha"], manifest["project"], 48614, 48615, output, engine)
+    if failure:
+        reason = {"image-release": "SOURCE_IMAGE_RELEASE_MISMATCH", "html": "FRONTEND_RELEASE_MISMATCH",
+                  "javascript": "FRONTEND_RELEASE_MISMATCH"}.get(failure)
+        with pytest.raises(BundleError, match=reason): build.build(*arguments, profile=RUNTIME)
+        assert not output.exists() and not output.with_suffix(".receipt.json").exists()
+    else:
+        build.build(*arguments, profile=RUNTIME)
+        with zipfile.ZipFile(output) as archive:
+            result = json.loads(archive.read("bundle.json"))
+            assert result["image_identity"] == manifest["image_identity"] and result["images"] == manifest["images"]
+            assert "docker_test_bundle_images.py" in archive.namelist()
+            assert "docker_bundle_release_identity.py" in archive.namelist()
+            assert result["release_id"] == manifest["release_id"]
+    assert not any(call[0] == "tag" for call in engine.calls)

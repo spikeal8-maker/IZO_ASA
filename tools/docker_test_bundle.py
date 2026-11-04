@@ -13,7 +13,6 @@ import sys
 import tempfile
 import uuid
 import zipfile
-from datetime import datetime, timezone
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -23,12 +22,16 @@ try:
         inventory, json_bytes, plain_path, require, validate_compose, verify,
     )
     from tools.docker_test_bundle_runtime import Docker, SafeParser, clean_environment
+    from tools.docker_test_bundle_images import archive_identity
+    from tools.docker_bundle_release_identity import source_release_identity, verify_frontend_directory
 except ModuleNotFoundError:
     from docker_test_bundle_format import (
         ACCEPTANCE, RUNTIME, RUNTIME_ENV, UVICORN, BundleError, IMAGE, OWNER, PROJECT, REPOSITORY, SHA, extract, file_hash,
         inventory, json_bytes, plain_path, require, validate_compose, verify,
     )
     from docker_test_bundle_runtime import Docker, SafeParser, clean_environment
+    from docker_test_bundle_images import archive_identity
+    from docker_bundle_release_identity import source_release_identity, verify_frontend_directory
 
 
 def git(root: Path, *args: str) -> str:
@@ -113,7 +116,8 @@ def release_metadata(source: Path, assets: Path, sha: str, release: str, built: 
 
 
 def build(source: Path, sha: str, project: str, web: int, api: int, output: Path,
-          docker: Docker, *, embed_images: bool = True, profile: str = ACCEPTANCE) -> dict:
+          docker: Docker, *, embed_images: bool = True, profile: str = ACCEPTANCE,
+          build_images: bool = False) -> dict:
     require(profile in {ACCEPTANCE, RUNTIME}, "BUNDLE_PROFILE_INVALID")
     source = plain_path(source)
     output = plain_path(output)
@@ -121,13 +125,14 @@ def build(source: Path, sha: str, project: str, web: int, api: int, output: Path
     tooling_sha = git(tool_root, "rev-parse", "HEAD")
     source_guard(tool_root, tooling_sha)
     source_guard(source, sha)
+    release, built_at = source_release_identity(sha, git(source, "show", "-s", "--format=%ct", sha))
     require(PROJECT.fullmatch(project or "") is not None and web != api
             and all(type(p) is int and 20000 <= p <= 65535 for p in (web, api)), "BUNDLE_PARAMETERS_INVALID")
     require(not output.exists() and not output.with_suffix(".receipt.json").exists(), "BUILD_OUTPUT_EXISTS")
     output.parent.mkdir(parents=True, exist_ok=True)
     require(shutil.disk_usage(output.parent).free >= 12 * 1024**3, "BUILD_DISK_RESERVE_REQUIRED")
     docker.engine()
-    env = {**clean_environment(), "IZO_SOURCE_SHA": sha, "IZO_COMPOSE_PROJECT": project,
+    env = {**clean_environment(), "IZO_SOURCE_SHA": sha, "IZO_RELEASE_ID": release, "IZO_COMPOSE_PROJECT": project,
            "IZO_SHADOW_WEB_PORT": str(web), "IZO_SHADOW_API_PORT": str(api)}
     args = ["docker", "--context", docker.context, "compose", "--env-file", os.devnull,
             "--project-name", project]
@@ -138,6 +143,14 @@ def build(source: Path, sha: str, project: str, web: int, api: int, output: Path
                               capture_output=True, text=True, encoding="utf-8", timeout=30)
     require(rendered.returncode == 0, "SOURCE_COMPOSE_RENDER_FAILED")
     config = json.loads(rendered.stdout)
+    web_args = config["services"]["web"].get("build", {}).get("args", {})
+    require(web_args.get("IZO_RELEASE_ID") == release and web_args.get("IZO_SOURCE_SHA") == sha,
+            "SOURCE_RELEASE_BUILD_ARGS_MISMATCH")
+    if build_images:
+        built = subprocess.run(args + ["build", "--pull"], env=env, capture_output=True, text=True,
+                               encoding="utf-8", errors="replace", timeout=3600)
+        require(built.returncode == 0, "SOURCE_IMAGE_BUILD_FAILED")
+    references = {role: settings["image"] for role, settings in config["services"].items()}
     images = {}
     for role, settings in config["services"].items():
         image = json.loads(docker.run("image", "inspect", settings["image"]))[0]
@@ -147,11 +160,11 @@ def build(source: Path, sha: str, project: str, web: int, api: int, output: Path
                 and labels.get("org.opencontainers.image.revision") == sha
                 and labels.get("org.opencontainers.image.source") == REPOSITORY,
                 "SOURCE_IMAGE_MISMATCH")
+        if role == "web":
+            require(labels.get("org.opencontainers.image.version") == release, "SOURCE_IMAGE_RELEASE_MISMATCH")
         if profile == RUNTIME and role == "backend":
             require(image["Config"].get("Cmd") == UVICORN and not image["Config"].get("Entrypoint"), "RUNTIME_IMAGE_COMMAND_INVALID")
         images[role] = image["Id"]
-    now = datetime.now(timezone.utc)
-    release = sha[:12] + "-" + now.strftime("%Y%m%d%H%M%S")
     manifest = {"format": 1 if profile == ACCEPTANCE else 2, "kind": "isoas-test-bundle", "repository": REPOSITORY,
                 "source_sha": sha, "tooling_sha": tooling_sha, "release_id": release,
                 "project": project, "ports": {"web": web, "api": api}, "schema": 7,
@@ -173,6 +186,7 @@ def build(source: Path, sha: str, project: str, web: int, api: int, output: Path
             item = json.loads(docker.run("inspect", export))[0]
             require(item["Config"]["Labels"].get("io.izo.bundle") == OWNER, "EXPORT_OWNER_MISMATCH")
             docker.run("rm", export)
+        frontend = verify_frontend_directory(staging / "frontend", release)
         # Path ordering is platform-dependent. Use the pinned target Linux image's
         # existing identity implementation, not a Windows recreation of its hash.
         probe = json.loads(docker.run("run", "--rm", "--network", "none", "--read-only",
@@ -182,15 +196,29 @@ def build(source: Path, sha: str, project: str, web: int, api: int, output: Path
             "import json,platform; from pathlib import Path; "
             "from app.release_identity import frontend_asset_manifest; "
             "print(json.dumps({'python':platform.python_version(),'assets':frontend_asset_manifest(Path('/bundle-assets'))}))"))
-        metadata = release_metadata(source, staging / "frontend", sha, release, now.isoformat(),
+        metadata = release_metadata(source, staging / "frontend", sha, release, built_at,
                                     probe["python"], target_assets=tuple(probe["assets"]))
         (staging / "frontend/release-manifest.json").write_bytes(json_bytes(metadata))
-        for name in ("docker_test_bundle_format.py", "docker_test_bundle_runtime.py"):
+        for name in ("docker_test_bundle_format.py", "docker_test_bundle_runtime.py", "docker_test_bundle_images.py",
+                     "docker_bundle_release_identity.py"):
             shutil.copyfile(Path(__file__).parent / name, staging / name)
         (staging / "install.cmd").write_text('@echo off\r\npython -B "%~dp0docker_test_bundle_runtime.py" install %*\r\n', encoding="ascii")
         (staging / "install.sh").write_text('#!/bin/sh\nexec python3 -B "$(dirname "$0")/docker_test_bundle_runtime.py" install "$@"\n', encoding="ascii")
         if embed_images:
-            docker.run("save", "--output", str(staging / "images.tar"), *sorted(set(images.values())), timeout=240)
+            portable = profile == RUNTIME
+            docker.run("save", "--output", str(staging / "images.tar"),
+                       *sorted(set(references.values() if portable else images.values())), timeout=240)
+            if portable:
+                identity = archive_identity(staging / "images.tar", references, sha)
+                for role, item in identity["roles"].items():
+                    require(images[role] in {item["config_digest"], item["manifest_digest"]}
+                            and json.loads(docker.run("image", "inspect", references[role]))[0]["Id"] == images[role],
+                            "SOURCE_IMAGE_MISMATCH")
+                manifest["image_identity"] = identity
+                manifest["images"] = {role: item["config_digest"] for role, item in identity["roles"].items()}
+                for role, image in manifest["images"].items():
+                    config["services"][role]["image"] = image
+                (staging / "compose.json").write_bytes(json_bytes(config))
         manifest["files"] = inventory(staging)
         (staging / "bundle.json").write_bytes(json_bytes(manifest))
         pin = file_hash(staging / "bundle.json")[1]
@@ -206,7 +234,8 @@ def build(source: Path, sha: str, project: str, web: int, api: int, output: Path
         staged_zip.rename(output)
     receipt = {"status": "TEST_BUNDLE_BUILT", "source_sha": sha, "tooling_sha": tooling_sha,
                "release_id": release, "project": project, "archive_sha256": digest, "archive_bytes": size,
-               "manifest_sha256": pin, "images_embedded": embed_images, "production_authorized": False}
+               "manifest_sha256": pin, "images_embedded": embed_images, "frontend": frontend,
+               "production_authorized": False}
     output.with_suffix(".receipt.json").write_bytes(json_bytes(receipt))
     return receipt
 
@@ -224,6 +253,7 @@ def main(argv=None) -> int:
         b.add_argument("--context", required=True)
         b.add_argument("--output", type=Path, required=True)
         b.add_argument("--without-images", action="store_true")
+        b.add_argument("--build-images", action="store_true", help="Build the rendered exact source before packaging")
         b.add_argument("--profile", choices=(ACCEPTANCE, RUNTIME), default=ACCEPTANCE)
         e = sub.add_parser("extract")
         e.add_argument("--archive", type=Path, required=True)
@@ -232,7 +262,8 @@ def main(argv=None) -> int:
         a = p.parse_args(argv)
         if a.action == "build":
             result = build(a.source, a.sha, a.project, a.web_port, a.api_port, a.output,
-                           Docker(a.context), embed_images=not a.without_images, profile=a.profile)
+                           Docker(a.context), embed_images=not a.without_images, profile=a.profile,
+                           build_images=a.build_images)
         else:
             extract(a.archive, a.sha256, a.destination)
             result = {"status": "ARCHIVE_EXTRACTED", "production_authorized": False}
