@@ -1,0 +1,95 @@
+manifestVersion = 1
+id = "LINUX-RELEASE-IDENTITY-001"
+baseSha = "b308359e7466b78ecce06c9ae41b4a4b73cbe6ec"
+goal = "Complete the existing Linux Docker release identity chain and reproducible unprivileged nginx configuration."
+userOutcome = "A closed Linux candidate exposes one exact release in actual frontend HTML/JS, Docker image labels, ZIP manifest and backend API."
+beforeScenario = "Application 7faf354 builds full SHA into frontend while portable builder 8667c47 invents a post-build timestamp release; nginx configuration mode can become unreadable to UID101."
+afterScenario = "Existing builder computes the commit-derived release before building, requires matching real frontend bytes and image metadata, and packages nginx configuration with explicit readable mode."
+nonGoals = [
+  "No backend/main.py or active OpenRouter scope edits",
+  "No Windows or D2 checks",
+  "No provider calls or historical database activation",
+  "No new installer, foreign project changes, debt date renewal or disabled checks",
+]
+declaredFiles = [
+  "tasks/LINUX-RELEASE-IDENTITY-001.toml",
+  "ops/docker/dev/compose.shadow.yml",
+  "ops/docker/dev/Dockerfile.web",
+  "ops/docker/dev/nginx.shadow.conf",
+  "ops/docker/dev/Dockerfile.web.dockerignore",
+  "ops/docker/dev/Dockerfile.guard",
+  "ops/docker/dev/network_guard.py",
+  "ops/docker/dev/Dockerfile.guard.dockerignore",
+  "tools/docker_test_bundle.py",
+  "tools/docker_test_bundle_format.py",
+  "tools/docker_test_bundle_runtime.py",
+  "tools/docker_test_bundle_images.py",
+  "tools/docker_bundle_release_identity.py",
+  "tools/test_docker_bundle_release_identity.py",
+  "tools/test_docker_test_bundle_build.py",
+  "tools/test_docker_test_bundle_format.py",
+  "tools/test_docker_test_bundle_images.py",
+  "tools/test_docker_test_bundle_runtime.py",
+  "tools/test_docker_synthetic_runtime.py",
+  "tools/docker_canonical_context_probe.py",
+  "tools/test_docker_canonical_context_probe.py",
+  "tools/test_docker_canonical_source_inputs.py",
+  "docs/docker-linux-release-identity.md",
+  ".github/workflows/docker-linux-release-identity.yml",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "architecture/**",
+  "docs/NOW.md",
+  "tools/agent.ps1",
+  "tools/agent_system/**",
+  "tools/repository-operation-lock.ps1",
+  "tools/verify.ps1",
+  "tools/test_health_audit.py",
+  ".github/workflows/ci.yml",
+  ".github/workflows/file-hygiene.yml",
+]
+protectedFilesTouched = [
+]
+domain = "docker-delivery"
+riskClass = "high-assurance"
+changeClass = "tooling"
+maxProductionFiles = 14
+maxChangedLines = 4000
+acceptance = [
+  "Register from fresh main using existing agent CLI and lock; preserve all donor branches and known foreign scope.",
+  "Carry exact canonical Docker inputs and context/source proof files from PR266 and portable installer modules/tests from PR267; record their hashes and separate identity delta.",
+  "Use one source-derived sha12-UTC-commit-timestamp release ID before existing optional image build and ZIP packaging; preserve all identity, image archive, egress and data ownership checks.",
+  "Set nginx configuration mode explicitly and verify under UID101 inside real image.",
+  "Compare actual served HTML/meta and entry JavaScript to manifest and API; reject stale frontend or substituted bytes.",
+  "Use focused RED/GREEN identity and existing bundle/portable/runtime regressions; no hosted runner is treated as permanent installation.",
+  "Deployment target is explicitly assigned asa-test/admins-MS-7D22; application startup remains a separate 1Panel native managed operation.",
+]
+requiredEvidence = [
+  "Base/source/tooling identities and registered bounded scope",
+  "Actual regression and deterministic release tests",
+  "Unprivileged nginx test and served HTML/JS checks",
+  "Focused gates, complete diff and independent review findings",
+  "Exact candidate SHA and honest integration/deployment status",
+]
+targetedTests = [
+  "python -m pytest tools/test_docker_bundle_release_identity.py tools/test_docker_test_bundle_build.py tools/test_docker_test_bundle_format.py tools/test_docker_test_bundle_runtime.py tools/test_docker_test_bundle_images.py tools/test_docker_synthetic_runtime.py tools/test_docker_canonical_context_probe.py tools/test_docker_canonical_source_inputs.py -q",
+  "tools/agent.ps1 verify",
+  "git diff --check",
+]
+fileGrowthExpectations = [
+  "New helper and tests remain within existing file hygiene budgets",
+  "No protected file growth or budget increase",
+  "Runtime data and credentials remain outside tracked source",
+]
+forbiddenOperations = [
+  "Write remote main or donor branches",
+  "Take over OPENROUTER-LINUX-SHADOW-001",
+  "Modify foreign server resources",
+  "Paid calls, messages, Codex invocation, D2/Windows Docker",
+  "Disable gates or automatically move debt dates",
+]
+rollbackBoundary = "Revert this registered source package only. Source work does not mutate application data; deployment and any manual data return are recorded separately."

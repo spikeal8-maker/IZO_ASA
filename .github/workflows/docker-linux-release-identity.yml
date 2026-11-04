@@ -1,0 +1,217 @@
+name: Docker Linux Release Identity
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/docker-linux-release-identity.yml"
+      - "tasks/LINUX-RELEASE-IDENTITY-001.toml"
+      - "ops/docker/dev/**"
+      - "tools/docker_test_bundle*.py"
+      - "tools/docker_bundle_release_identity.py"
+      - "tools/docker_canonical_context_probe.py"
+      - "tools/test_docker_*.py"
+      - "docs/docker-linux-release-identity.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: docker-linux-release-identity-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+  IZO_EXPECTED_HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  identity:
+    name: Exact source Linux images and served release identity
+    if: >-
+      github.repository == 'spikeal8-maker/IZO_ASA' && github.actor == 'spikeal8-maker' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+        working-directory: candidate
+    env:
+      IZO_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+    steps:
+      - name: Check out the same exact source and tooling HEAD
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.IZO_EXPECTED_HEAD }}
+          path: candidate
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Set up pinned Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version-file: candidate/.python-version
+      - name: Verify ephemeral Linux context and exact clean source
+        run: |
+          set -euo pipefail
+          python -B - <<'PY'
+          import json, os
+          from pathlib import Path
+          from tools.docker_test_bundle import source_guard
+          from tools.docker_test_bundle_format import require
+          from tools.docker_test_bundle_runtime import Docker
+          require(os.environ["IZO_RUNNER_ENVIRONMENT"] == "github-hosted"
+                  and os.environ["RUNNER_OS"] == "Linux" and os.environ["RUNNER_ARCH"] == "X64",
+                  "EPHEMERAL_LINUX_RUNNER_REQUIRED")
+          source_guard(Path.cwd(), os.environ["IZO_EXPECTED_HEAD"])
+          root = Path(os.environ["RUNNER_TEMP"]) / "linux-release-identity"
+          root.mkdir(mode=0o700)
+          docker = Docker("default")
+          require(not docker.run("ps", "-aq") and not docker.run("volume", "ls", "-q"),
+                  "EMPTY_EPHEMERAL_ENGINE_REQUIRED")
+          proof = {"source_sha": os.environ["IZO_EXPECTED_HEAD"], "tooling_sha": os.environ["IZO_EXPECTED_HEAD"],
+                   "engine": docker.engine(), "compose": docker.run("compose", "version", "--short"),
+                   "production_authorized": False, "permanent_installation_proven": False}
+          (root / "preflight.json").write_text(json.dumps(proof, sort_keys=True) + "\n")
+          PY
+      - name: Install pinned focused test dependencies
+        run: python -m pip install --disable-pip-version-check pytest==8.4.2 PyYAML==6.0.3
+      - name: Focused release and existing installer regressions
+        run: |
+          python -B -m pytest -p no:cacheprovider \
+            tools/test_docker_bundle_release_identity.py tools/test_docker_test_bundle_build.py \
+            tools/test_docker_test_bundle_format.py tools/test_docker_test_bundle_runtime.py \
+            tools/test_docker_test_bundle_images.py tools/test_docker_synthetic_runtime.py \
+            tools/test_docker_canonical_context_probe.py tools/test_docker_canonical_source_inputs.py -q
+      - name: Prove actual Docker context exclusions
+        run: |
+          python -B -m tools.docker_canonical_context_probe --source "$PWD" --context default \
+            --receipt "$RUNNER_TEMP/linux-release-identity/context.json"
+      - name: Build exact images and embedded ZIP with the existing builder
+        run: |
+          set -euo pipefail
+          chmod 0600 ops/docker/dev/nginx.shadow.conf
+          python -B -m tools.docker_test_bundle build --source "$PWD" --sha "$IZO_EXPECTED_HEAD" \
+            --project izo-asa-bundle-identity01 --web-port 48786 --api-port 48787 --context default \
+            --profile synthetic-runtime --build-images \
+            --output "$RUNNER_TEMP/linux-release-identity/release.zip" \
+            > "$RUNNER_TEMP/linux-release-identity/build-command.json"
+      - name: Install empty synthetic state and verify real served identity
+        run: |
+          set -euo pipefail
+          python -B - <<'PY'
+          import json, os, subprocess, sys
+          from pathlib import Path
+          from urllib.request import ProxyHandler, build_opener
+          from tools.docker_bundle_release_identity import DeadlineHTTPHandler, NoRedirect, read_http
+          from tools.docker_test_bundle import source_guard
+          from tools.docker_test_bundle_format import extract, load_json, require, verify
+          from tools.docker_test_bundle_runtime import Docker, clean_environment, owned_resources
+          root = Path(os.environ["RUNNER_TEMP"]) / "linux-release-identity"
+          receipt = load_json(root / "release.receipt.json")
+          sha = os.environ["IZO_EXPECTED_HEAD"]
+          require(receipt["source_sha"] == receipt["tooling_sha"] == sha, "EXACT_HEAD_REQUIRED")
+          require((Path.cwd() / "ops/docker/dev/nginx.shadow.conf").stat().st_mode & 0o777 == 0o600,
+                  "RESTRICTIVE_NGINX_INPUT_REQUIRED")
+          extract(root / "release.zip", receipt["archive_sha256"], root / "bundle")
+          manifest = verify(root / "bundle", receipt["manifest_sha256"])
+          installed = subprocess.run([
+              sys.executable, "-B", str(root / "bundle/docker_test_bundle_runtime.py"), "install",
+              "--manifest-sha256", receipt["manifest_sha256"], "--context", "default",
+              "--state-dir", str(root / "state"), "--test-only"],
+              env=clean_environment(), capture_output=True, text=True, timeout=420, check=False)
+          result = json.loads(installed.stdout)
+          (root / "installed.json").write_text(json.dumps(result, sort_keys=True) + "\n")
+          require(installed.returncode == 0 and result["status"] == "TEST_RUNTIME_VERIFIED",
+                  "EMBEDDED_INSTALLER_FAILED")
+          docker = Docker("default")
+          roles = {row["Config"]["Labels"]["com.docker.compose.service"]: row
+                   for row in owned_resources(docker, manifest)["containers"]}
+          require(roles["web"]["Config"]["User"] == "101:101", "WEB_UID_CHANGED")
+          nginx = docker.run("exec", "--user", "101:101", roles["web"]["Id"], "/bin/sh", "-c",
+              'test "$(id -u)" = 101 && test "$(stat -c %a /etc/nginx/nginx.conf)" = 644'
+              ' && nginx -t && echo NGINX_UID101_MODE0644_CONFIG_OK')
+          require(nginx == "NGINX_UID101_MODE0644_CONFIG_OK", "NGINX_UNPRIVILEGED_CHECK_FAILED")
+          guard = json.loads(docker.run("exec", roles["guard"]["Id"], "python", "/network_guard.py", "--check"))
+          require(guard["policy"] == "VERIFIED", "EGRESS_GUARD_CHECK_FAILED")
+          opener = build_opener(ProxyHandler({}), NoRedirect(), DeadlineHTTPHandler())
+          version = json.loads(read_http(opener, "http://127.0.0.1:48786/api/version", 65536))
+          require(version["backend_commit"] == sha and version["release_id"] == manifest["release_id"]
+                  and version["frontend_build"] == manifest["release_id"], "SERVED_VERSION_CHANGED")
+          source_guard(Path.cwd(), sha)
+          proof = {"status": "PASS_EPHEMERAL_LINUX_RELEASE_IDENTITY", "source_sha": sha, "tooling_sha": sha,
+                   "release_id": manifest["release_id"], "image_identity": manifest["image_identity"],
+                   "frontend": result["frontend"], "nginx": nginx, "guard": guard,
+                   "version": {key: version[key] for key in
+                               ("backend_commit", "release_id", "frontend_build", "schema_compatibility")},
+                   "production_authorized": False, "permanent_installation_proven": False}
+          (root / "runtime-proof.json").write_text(json.dumps(proof, sort_keys=True) + "\n")
+          PY
+      - name: Remove only this owned disposable project
+        if: always()
+        run: |
+          set -euo pipefail
+          python -B - <<'PY'
+          import json, os
+          from pathlib import Path
+          from tools.docker_test_bundle_format import OWNER, load_json, require, verify
+          from tools.docker_test_bundle_runtime import Docker, engine_lock, owned_resources
+          root = Path(os.environ["RUNNER_TEMP"]) / "linux-release-identity"
+          if not root.exists():
+              raise SystemExit(0)
+          proof = {"status": "NO_INSTALLATION_STARTED", "production_authorized": False}
+          if (root / "state/owner.json").exists():
+              receipt = load_json(root / "release.receipt.json")
+              manifest = verify(root / "bundle", receipt["manifest_sha256"])
+              owner = load_json(root / "state/owner.json")
+              docker = Docker("default")
+              require(owner["project"] == manifest["project"] == "izo-asa-bundle-identity01"
+                      and owner["engine"] == docker.engine() and owner["test_only"] is True,
+                      "CLEANUP_OWNER_MISMATCH")
+              target = root / "state/releases" / receipt["manifest_sha256"]
+              with engine_lock(docker, owner):
+                  resources = owned_resources(docker, manifest)
+                  for row in resources["volumes"]:
+                      require(row["Labels"].get("io.izo.bundle.installation") == owner["id"],
+                              "CLEANUP_DATA_OWNER_MISMATCH")
+                  for row in resources["containers"]:
+                      paths = row["Config"]["Labels"].get("com.docker.compose.project.config_files", "").split(",")
+                      require(len(paths) == 1 and Path(paths[0]).resolve().parent == target.resolve(),
+                              "CLEANUP_CONTAINER_OWNER_MISMATCH")
+                  if any(resources.values()):
+                      docker.compose(target, manifest, "down", "--volumes", "--timeout", "30")
+                  require(not any(owned_resources(docker, manifest).values()), "OWNED_CLEANUP_INCOMPLETE")
+                  marker_name = owner["project"] + "-installation"
+                  marker = json.loads(docker.run("volume", "inspect", marker_name))[0]
+                  require(marker["Labels"] == {
+                      "io.izo.bundle": OWNER, "io.izo.bundle.installation": owner["id"],
+                      "io.izo.bundle.state": owner["state"], "io.izo.bundle.engine": owner["engine"],
+                      "io.izo.bundle.profile": owner["profile"]}, "CLEANUP_MARKER_OWNER_MISMATCH")
+                  docker.run("volume", "rm", marker_name)
+              proof["status"] = "OWNED_EPHEMERAL_PROJECT_REMOVED"
+          (root / "cleanup.json").write_text(json.dumps(proof, sort_keys=True) + "\n")
+          PY
+      - name: Preserve the exact verified transferable synthetic bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: linux-release-identity-bundle-${{ env.IZO_EXPECTED_HEAD }}
+          path: |
+            ${{ runner.temp }}/linux-release-identity/release.zip
+            ${{ runner.temp }}/linux-release-identity/release.receipt.json
+            ${{ runner.temp }}/linux-release-identity/runtime-proof.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+      - name: Preserve public-safe evidence only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: linux-release-identity-evidence-${{ env.IZO_EXPECTED_HEAD }}
+          path: |
+            ${{ runner.temp }}/linux-release-identity/preflight.json
+            ${{ runner.temp }}/linux-release-identity/context.json
+            ${{ runner.temp }}/linux-release-identity/build-command.json
+            ${{ runner.temp }}/linux-release-identity/release.receipt.json
+            ${{ runner.temp }}/linux-release-identity/installed.json
+            ${{ runner.temp }}/linux-release-identity/runtime-proof.json
+            ${{ runner.temp }}/linux-release-identity/cleanup.json
+          if-no-files-found: error
+          retention-days: 30

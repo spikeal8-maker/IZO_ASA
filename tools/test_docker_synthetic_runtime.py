@@ -259,8 +259,14 @@ def test_v2_health_checks_current_guard_namespace(tmp_path, monkeypatch):
     origin = "http://127.0.0.1:" + str(manifest["ports"]["web"]) + "/api/version"
     version = {"backend_commit": manifest["source_sha"], "release_id": manifest["release_id"],
                "frontend_build": manifest["release_id"], "schema_compatibility": {"min_version": 7, "max_version": 7}}
-    response = SimpleNamespace(geturl=lambda: origin, read=lambda limit: json_bytes(version))
-    monkeypatch.setattr(runtime, "build_opener", lambda *args: SimpleNamespace(open=lambda *args, **kwargs: contextlib.nullcontext(response)))
+    def open_response(request, **kwargs):
+        url = request.full_url
+        relative = url[len(origin.removesuffix("/api/version")):]
+        data = json_bytes(version) if relative == "/api/version" else (
+            root / "frontend" / ("index.html" if relative == "/" else relative[1:])).read_bytes()
+        return contextlib.nullcontext(SimpleNamespace(geturl=lambda: url, read1=io.BytesIO(data).read1, status=200,
+            read_deadline=request.izo_read_deadline))
+    monkeypatch.setattr(runtime, "build_opener", lambda *args: SimpleNamespace(open=open_response, handlers=args))
     assert runtime.health(None, root, manifest)["profile"] == RUNTIME
     rows[2]["Id"] = "new-guard-id"
     with pytest.raises(BundleError, match="RUNTIME_GUARD_NAMESPACE_CHANGED"):

@@ -48,10 +48,29 @@ def make_bundle(root: Path, sha: str = "a" * 40) -> tuple[Path, str, dict]:
         c["services"][role]["command"] = ["python", "-m", "app.generation_worker"]
     (root / "compose.json").write_bytes(json_bytes(c))
     (root / "frontend").mkdir()
-    (root / "frontend/index.html").write_text("test-assets", encoding="utf-8")
+    (root / "frontend/assets").mkdir()
+    (root / "frontend/index.html").write_text(
+        '<meta name="izo-release" content="' + m["release_id"] +
+        '"><script type="module" src="/assets/index-unit.js"></script>', encoding="utf-8")
+    (root / "frontend/assets/index-unit.js").write_text(
+        'const release="' + m["release_id"] + '";export{release};', encoding="utf-8")
     m["files"] = inventory(root)
     (root / "bundle.json").write_bytes(json_bytes(m))
     return root, file_hash(root / "bundle.json")[1], m
+
+
+def test_portable_extension_is_optional_but_forbidden_in_format1(tmp_path):
+    from tools.test_docker_synthetic_runtime import make_runtime, repin
+    from tools.test_docker_test_bundle_images import make_portable
+    portable, pin, manifest, _, _ = make_portable(tmp_path / "portable")
+    assert verify(portable, pin) == manifest
+    for version, factory in ((1, make_bundle), (2, make_runtime)):
+        root, pin, legacy = factory(tmp_path / ("legacy-" + str(version)))
+        assert verify(root, pin) == legacy and "image_identity" not in legacy
+        if version == 1:
+            legacy["image_identity"] = manifest["image_identity"]
+            with pytest.raises(BundleError, match="IMAGE_IDENTITY_SCHEMA_INVALID"):
+                verify(root, repin(root, legacy))
 
 
 @pytest.mark.parametrize("name", ["../x", "/x", "C:/x", "a\\b", "a//b", "a/./b", "NUL.txt", "a:stream",

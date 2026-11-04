@@ -255,7 +255,8 @@ def test_wait_readiness_allows_only_transient_startup(monkeypatch, tmp_path):
     assert sleeps == [0.5, 0.5]
 
 
-@pytest.mark.parametrize('code', ['RUNTIME_VERSION_MISMATCH', 'FOREIGN_CONTAINER', 'COMPOSE_PATH_NOT_PERSISTENT'])
+@pytest.mark.parametrize('code', ['RUNTIME_VERSION_MISMATCH', 'FRONTEND_BYTES_MISMATCH', 'FRONTEND_RELEASE_MISMATCH',
+                                            'FOREIGN_CONTAINER', 'COMPOSE_PATH_NOT_PERSISTENT'])
 def test_wait_readiness_never_retries_identity_or_ownership(code, monkeypatch, tmp_path):
     calls = []
     def health(*args):
