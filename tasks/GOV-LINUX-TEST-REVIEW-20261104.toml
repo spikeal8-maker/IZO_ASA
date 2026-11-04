@@ -1,0 +1,103 @@
+manifestVersion = 1
+id = "GOV-LINUX-TEST-REVIEW-20261104"
+baseSha = "b308359e7466b78ecce06c9ae41b4a4b73cbe6ec"
+goal = "Import the independently approved LINUX-TEST-HEALTH-001 donor unchanged and propose a separately reviewed, time-limited carry of the two remaining test-health debts #162 and #165."
+userOutcome = "The Linux integration candidate has measured TestClient/cookie remediation and an explicit, accountable remaining-debt decision without weakening functional, security or CI gates."
+beforeScenario = "Approved donor be44c22025949f6cff09273bf12aa944a65f3a8f removes warnings #163/#164 while #162/#165 correctly remain expired since 2026-10-30. Their relevant lifecycle and teardown sources match historical exact-CI code."
+afterScenario = "The approved donor remains the first commit; a second governance-only commit changes exactly two reasons and two reviewBy values through 2026-11-07, preserves allowances 8/1 and all enforcement, and requires exact-head CI and independent review before merge."
+nonGoals = [
+  "Fix lifespan/on_event behavior or Windows apply-secrets cleanup, close #162/#165, or claim Linux evidence proves Windows teardown.",
+  "Modify backend/main.py, backend/app, provider behavior, startup/no-replay hooks, product data, deployment or foreign package scope.",
+  "Rewrite or amend the approved donor commit, change its ten non-policy files, or silently broaden its completed task contract.",
+  "Increase accepted warning/cleanup ceilings, suppress warnings, add retry/skip, relax exact-head/network/process gates, or renew dates automatically.",
+  "Run new manual Windows/D2 checks, duplicate Full verification, send provider requests, or publish runtime acceptance.",
+]
+declaredFiles = [
+  "tasks/LINUX-TEST-HEALTH-001.toml",
+  "backend/requirements.txt",
+  "backend/test_admin_bots_v2.py",
+  "backend/test_admin_password_reset.py",
+  "backend/test_admin_v2.py",
+  "backend/test_auth_sessions.py",
+  "backend/test_generation_protection.py",
+  "backend/test_ownership_protection.py",
+  "backend/test_prompt_improvement.py",
+  "architecture/test-health-policy.json",
+  "docs/agent-tasks/GOV-TEST-HEALTH-REVIEW-20261104.md",
+  "tasks/GOV-LINUX-TEST-REVIEW-20261104.toml",
+  "docs/agent-tasks/GOV-LINUX-TEST-REVIEW-20261104.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/main.py",
+  "backend/app/**",
+  "frontend/**",
+  "ops/**",
+  "tools/**",
+  ".github/**",
+  "architecture/contract.json",
+  "docs/NOW.md",
+]
+protectedFilesTouched = [
+  "architecture/test-health-policy.json",
+]
+domain = "test-health-governance"
+riskClass = "high-assurance"
+changeClass = "governance"
+maxProductionFiles = 1
+maxChangedLines = 900
+acceptance = [
+  "Finish LINUX-TEST-HEALTH-001 with ordinary agent finish only after its donor is the clean worktree HEAD; start this new package from freshly verified origin/main with a non-overlapping registered scope.",
+  "Import exact approved donor be44c22025949f6cff09273bf12aa944a65f3a8f, parent b308359e7466b78ecce06c9ae41b4a4b73cbe6ec and tree 553702753d0ce7f5292597b90e60e2d94a79955a by fast-forward; preserve the first commit.",
+  "Carry all eleven declared donor paths explicitly. Against the donor, the second commit changes only architecture/test-health-policy.json plus the new task manifest and new governance review document.",
+  "Against donor policy, change exactly debtReviews.#162.reason, debtReviews.#162.reviewBy, debtReviews.#165.reason and debtReviews.#165.reviewBy; owners remain spikeal8-maker and reviewBy is 2026-11-07.",
+  "Keep acceptedBaseline warnings total=8 with only #162 categories, cleanup total=1 with only #165, provenance and all enforcement exactly unchanged; do not restore retired #163/#164 entries.",
+  "Keep #162/#165 OPEN; record historical evidence, current focused evidence, bounded risk rationale and remediation exit criteria without declaring defects fixed or old failed CI green.",
+  "Date controls show donor policy expired on 2026-11-04; proposal valid on 2026-11-04 and 2026-11-07; both debts expired again on 2026-11-08.",
+  "Any later lifecycle, relevant dependency, Windows teardown or no-replay/startup change requires a new applicability review; this governance package does not grant foreign main.py ownership or runtime safety acceptance.",
+  "Unchanged auditor tests, scope/file hygiene, complete diff review and mandatory exact-head CI are required before merge; test failures, new warning sources, growth, network/retry/process failures remain blocking.",
+  "Budget 900 changed lines covers the measured approved carry of 563 lines plus at most 337 governance lines; no architecture/file-size limit changes.",
+]
+requiredEvidence = [
+  "Published donor be44c22025949f6cff09273bf12aa944a65f3a8f and tree 553702753d0ce7f5292597b90e60e2d94a79955a; approved full patch SHA256 04b7c9b614b9ee9dd1ebe619f076e9a05bffc194741cacd1854a6e5a735d7f2e.",
+  "Canonical finish/start registry receipts, fresh main verification, exact donor parent/tree verification and unchanged carried-file hashes.",
+  "Historical original receipt CI41813574349 at 1a6931df500d61b7c3b18036d6af9a8a1089360f: 2548 passed,2 skipped,97 warnings,cleanup0; receipt SHA256 b1190e5482421fd7f8e309ad3eea2f2fee579c3f8c62d231f6fa4af7405c856d, retained as historical FAILURE.",
+  "Read-only source-continuity proof from historical exact-CI SHA to b308: eight relevant files byte-identical and startup/shutdown AST-identical; proof SHA256 109cae93c0c1c1996b2907e00b6138e63bd9eae395408f99d355618adef42ef5.",
+  "Approved donor evidence: Linux focused207 PASS/4 known lifecycle warnings, TestClient httpx2 adapter proof and pip check PASS, auditor27 PASS,438 assertions preserved,scope11 files/563 lines.",
+  "Exact four-scalar policy diff, date controls for04/07/08November, unchanged gate values, independent governance diff review and new exact-head CI.",
+]
+targetedTests = [
+  "python -m pytest -q tools/test_test_health_audit.py",
+  "Existing tools.test_health_audit._validate_debt_reviews date controls on donor and proposed policy for 2026-11-04,2026-11-07,2026-11-08.",
+  "Exact donor-to-candidate diff: ten carried non-policy files unchanged; only four declared policy scalars changed; owner/categories/ceilings/provenance/enforcement equal.",
+  "pwsh -NoProfile -File tools/agent.ps1 verify",
+  "git diff --check",
+  "Mandatory exact-head GitHub CI and file-hygiene checks for the two-commit integration candidate.",
+]
+fileGrowthExpectations = [
+  "Carry the already approved seven tests and requirements byte-for-byte from the donor; no source/test growth in the second commit.",
+  "New governance document at most200 lines and12KiB UTF-8; original donor review document and task manifest remain byte-identical.",
+  "Policy changes remain four scalar replacements; new task plus review card fit within337 additional changed lines and cumulative900.",
+]
+forbiddenOperations = [
+  "direct-main",
+  "amend-approved-donor",
+  "foreign-scope-write",
+  "production-data",
+  "deploy",
+  "restart",
+  "provider-call",
+  "manual-windows-d2-verification",
+  "duplicate-full-run",
+  "warning-suppression",
+  "cleanup-suppression",
+  "retry-addition",
+  "skip-addition",
+  "baseline-expansion",
+  "gate-disable",
+  "issue-closure-162-165",
+  "automatic-review-renewal",
+  "fake-installer-or-ci-receipt",
+]
+rollbackBoundary = "Revert only the second governance commit: the approved donor and its #163/#164 remediation remain; the two review reasons/dates return to donor values and expiry FAIL is restored. Preserve all historical evidence, completed registry entries and unrelated runtime/data."
