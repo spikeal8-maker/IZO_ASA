@@ -267,6 +267,12 @@ def verify(root: Path, pin: str) -> dict:
             "INVENTORY_INVALID")
     require(inventory(root) == m["files"], "PAYLOAD_HASH_MISMATCH")
     validate_compose(load_json(root / "compose.json"), m)
+    if "image_identity" in m:
+        try:
+            from tools.docker_test_bundle_images import verify_archive
+        except ModuleNotFoundError:
+            from docker_test_bundle_images import verify_archive
+        verify_archive(root, m)
     return m
 
 

@@ -54,6 +54,20 @@ def make_bundle(root: Path, sha: str = "a" * 40) -> tuple[Path, str, dict]:
     return root, file_hash(root / "bundle.json")[1], m
 
 
+def test_portable_extension_is_optional_but_forbidden_in_format1(tmp_path):
+    from tools.test_docker_synthetic_runtime import make_runtime, repin
+    from tools.test_docker_test_bundle_images import make_portable
+    portable, pin, manifest, _, _ = make_portable(tmp_path / "portable")
+    assert verify(portable, pin) == manifest
+    for version, factory in ((1, make_bundle), (2, make_runtime)):
+        root, pin, legacy = factory(tmp_path / ("legacy-" + str(version)))
+        assert verify(root, pin) == legacy and "image_identity" not in legacy
+        if version == 1:
+            legacy["image_identity"] = manifest["image_identity"]
+            with pytest.raises(BundleError, match="IMAGE_IDENTITY_SCHEMA_INVALID"):
+                verify(root, repin(root, legacy))
+
+
 @pytest.mark.parametrize("name", ["../x", "/x", "C:/x", "a\\b", "a//b", "a/./b", "NUL.txt", "a:stream",
                                  "x. ", "COM1", "a/$x", "a\x00b", "a\nb", ""])
 def test_unsafe_portable_members_rejected(name):
