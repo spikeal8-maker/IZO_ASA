@@ -25,7 +25,7 @@ DEV = Path("ops/docker/dev")
 DONOR_INPUTS = (
     "compose.shadow.yml", "Dockerfile.web", "nginx.shadow.conf",
     "Dockerfile.web.dockerignore", "Dockerfile.guard", "network_guard.py",
-    "Dockerfile.guard.dockerignore",
+    "Dockerfile.guard.dockerignore", "comfyui_proxy.py",
 )
 
 
@@ -152,14 +152,14 @@ def test_declared_ignore_allowlists_and_exclusion_order(role):
     assert len(rules) == len(set(rules)), "Repeated rules can reverse the declared ignore boundary"
     parents = {"!ops/", "!ops/docker/", "!ops/docker/dev/"}
     allowed = ({"!frontend/", "!frontend/**", "!ops/docker/dev/nginx.shadow.conf"} if role == "web"
-               else {"!ops/docker/dev/network_guard.py"})
+               else {"!ops/docker/dev/network_guard.py", "!ops/docker/dev/comfyui_proxy.py"})
     assert rules[0] == "**" and {rule for rule in rules if rule.startswith("!")} == parents | allowed
     boundaries = {"ops/**", "ops/docker/**", "ops/docker/dev/**"}
     for parent, boundary, child in (("!ops/", "ops/**", "!ops/docker/"),
                                     ("!ops/docker/", "ops/docker/**", "!ops/docker/dev/")):
         assert rules.index(parent) < rules.index(boundary) < rules.index(child)
-    leaf = "!ops/docker/dev/" + ("nginx.shadow.conf" if role == "web" else "network_guard.py")
-    assert rules.index("!ops/docker/dev/") < rules.index("ops/docker/dev/**") < rules.index(leaf)
+    for leaf in (rule for rule in allowed if rule.startswith("!ops/docker/dev/")):
+        assert rules.index("!ops/docker/dev/") < rules.index("ops/docker/dev/**") < rules.index(leaf)
     if role == "web":
         # The separate real BuildKit export proves matching and context boundaries.
         excluded = {"**/.env", "**/.env.*", "**/.npmrc", "**/secrets", "**/media",

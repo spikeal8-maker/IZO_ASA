@@ -24,7 +24,9 @@ POSITIVE = {
     "frontend/src/keep.txt": b"public frontend source\n",
     "ops/docker/dev/nginx.shadow.conf": b"synthetic nginx input\n",
     "ops/docker/dev/network_guard.py": b"# synthetic guard input\n",
+    "ops/docker/dev/comfyui_proxy.py": b"# synthetic Comfy proxy input\n",
 }
+GUARD_INPUTS = {"ops/docker/dev/network_guard.py", "ops/docker/dev/comfyui_proxy.py"}
 EXCLUDED = (
     "frontend/probe.db", "frontend/probe.sqlite-wal",
     "frontend/probe.db-wal", "frontend/probe.db-shm", "frontend/probe.db-journal",
@@ -68,7 +70,7 @@ def fixture(root, policy):
 
 def inspect_export(output, role):
     expected = {name: content for name, content in POSITIVE.items()
-                if (name == "ops/docker/dev/network_guard.py") == (role == "guard")}
+                if (name in GUARD_INPUTS) == (role == "guard")}
     root = output / "context"
     files, unsafe = [], []
     if root.is_dir() and not root.is_symlink():

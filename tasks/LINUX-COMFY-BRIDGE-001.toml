@@ -27,6 +27,9 @@ declaredFiles = [
   "docs/agent-tasks/LINUX-COMFY-BRIDGE-001.md",
 ]
 allowedPatterns = [
+  "tools/test_docker_canonical_source_inputs.py",
+  "tools/docker_canonical_context_probe.py",
+  "tools/test_docker_canonical_context_probe.py",
 ]
 forbiddenPatterns = [
   "backend/**",
@@ -109,3 +112,18 @@ forbiddenOperations = [
   "Direct main push, Codex dispatch, disabling required checks or weakening version comparison",
 ]
 rollbackBoundary = "Restore only the owned Linux test project's previous reviewed 1Panel Compose and exact image digests; preserve all database/media volumes, keep the default-deny guard, and perform no provider cancellation or historical data rollback."
+
+[[scopeExpansions]]
+path = "tools/test_docker_canonical_source_inputs.py"
+reason = "PR272 Linux job127598582528 reproduced missing exact Comfy proxy context declaration. Verify both allowed guard inputs and retain rejection of all foreign, database, media and secret inputs."
+recordedAtUtc = "2026-11-05T23:20:10.139812Z"
+
+[[scopeExpansions]]
+path = "tools/docker_canonical_context_probe.py"
+reason = "PR272 Linux job127598582528 reproduced missing exact Comfy proxy context declaration. Verify both allowed guard inputs and retain rejection of all foreign, database, media and secret inputs."
+recordedAtUtc = "2026-11-05T23:20:11.731930Z"
+
+[[scopeExpansions]]
+path = "tools/test_docker_canonical_context_probe.py"
+reason = "PR272 Linux job127598582528 reproduced missing exact Comfy proxy context declaration. Verify both allowed guard inputs and retain rejection of all foreign, database, media and secret inputs."
+recordedAtUtc = "2026-11-05T23:20:13.338603Z"
