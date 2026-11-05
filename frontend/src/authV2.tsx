@@ -356,12 +356,17 @@ function passwordResultFromPayload(res: Response, data: PasswordResponsePayload)
 
 // Browser email+password. Cookies are set by the backend; no tokens kept in JS.
 export async function passwordLoginV2(email: string, password: string): Promise<PasswordResult> {
-  const res = await authFetch('/auth/password/login-v2', {
-    method: 'POST',
-    body: JSON.stringify({ email, password, platform: detectPlatform() }),
-  })
-  const data = await res.json().catch(() => ({})) as PasswordResponsePayload
-  return passwordResultFromPayload(res, data)
+  beginAuthMutation()
+  try {
+    const res = await authFetch('/auth/password/login-v2', {
+      method: 'POST',
+      body: JSON.stringify({ email, password, platform: detectPlatform() }),
+    })
+    const data = await res.json().catch(() => ({})) as PasswordResponsePayload
+    return passwordResultFromPayload(res, data)
+  } finally {
+    endAuthMutation()
+  }
 }
 
 export async function passwordRegisterV2(
@@ -369,20 +374,25 @@ export async function passwordRegisterV2(
   password: string,
   passwordRepeat: string,
 ): Promise<PasswordResult> {
-  const res = await authFetch('/auth/password/register-v2', {
-    method: 'POST',
-    body: JSON.stringify({
-      email,
-      password,
-      password_repeat: passwordRepeat,
-      accepted_terms: true,
-      accepted_privacy: true,
-      accepted_personal_data: true,
-      platform: detectPlatform(),
-    }),
-  })
-  const data = await res.json().catch(() => ({})) as PasswordResponsePayload
-  return passwordResultFromPayload(res, data)
+  beginAuthMutation()
+  try {
+    const res = await authFetch('/auth/password/register-v2', {
+      method: 'POST',
+      body: JSON.stringify({
+        email,
+        password,
+        password_repeat: passwordRepeat,
+        accepted_terms: true,
+        accepted_privacy: true,
+        accepted_personal_data: true,
+        platform: detectPlatform(),
+      }),
+    })
+    const data = await res.json().catch(() => ({})) as PasswordResponsePayload
+    return passwordResultFromPayload(res, data)
+  } finally {
+    endAuthMutation()
+  }
 }
 
 export async function changePasswordV2(
@@ -589,11 +599,18 @@ export async function fetchMeV2(): Promise<MeV2 | null> {
 }
 
 export async function logoutV2(): Promise<void> {
+  beginAuthMutation()
+  // Unmount private Studio state immediately, but do not mount a fresh login
+  // form until the old logout response has finished clearing its cookies.
+  setAuthState('loading', null)
   try {
     // Empty body: backend reads the session cookie and clears both cookies.
     await authFetch('/auth/session/logout-v2', { method: 'POST', body: JSON.stringify({}) })
   } catch {
     /* ignore network errors on logout */
+  } finally {
+    endAuthMutation()
+    setAuthState('anon', null)
   }
   // installation_id / anonymous_id are intentionally retained.
 }
@@ -646,11 +663,31 @@ export type AuthStatusV2 = 'loading' | 'anon' | 'authed'
 let authStatus: AuthStatusV2 = 'loading'
 let authMe: MeV2 | null = null
 let authRevision = 0
+let identityRevision = 0
+let authReadRevision = 0
+let authMutations = 0
+function beginAuthMutation(): void {
+  authMutations += 1
+  authReadRevision += 1
+}
+function endAuthMutation(): void {
+  authMutations -= 1
+  authReadRevision += 1
+}
+function authReadCurrent(revision: number): boolean {
+  return revision === authReadRevision && authMutations === 0
+}
+export function getAuthStateV2(): { status: AuthStatusV2; me: MeV2 | null; identityRevision: number } {
+  return { status: authStatus, me: authMe, identityRevision }
+}
 const authListeners = new Set<() => void>()
 function emitAuth(): void {
   authListeners.forEach((l) => l())
 }
 function setAuthState(status: AuthStatusV2, me: MeV2 | null): void {
+  const previousOwner = authStatus === 'authed' ? `account:${authMe?.internal_user_id}` : authStatus
+  const nextOwner = status === 'authed' ? `account:${me?.internal_user_id}` : status
+  if (previousOwner !== nextOwner) identityRevision += 1
   authStatus = status
   authMe = me
   authRevision += 1
@@ -676,22 +713,29 @@ let initAuthPromise: Promise<void> | null = null
 // installation_id/anonymous_id are NOT auth; only a 200 from /api/me-v2 authenticates.
 export function initAuthV2(): Promise<void> {
   if (!initAuthPromise) {
+    const revision = ++authReadRevision
     initAuthPromise = (async () => {
       await bootstrapV2()
+      if (!authReadCurrent(revision)) return
       let me = await fetchMeV2()
+      if (!authReadCurrent(revision)) return
       if (!me) me = await resumeApprovedBotLoginV2()
+      if (!authReadCurrent(revision)) return
       if (!me) {
         const ok = (await loginTelegramV2()) || (await loginMaxV2())
         me = ok ? await fetchMeV2() : null
       }
-      setAuthState(me ? 'authed' : 'anon', me)
-    })().catch(() => setAuthState('anon', null))
+      if (authReadCurrent(revision)) setAuthState(me ? 'authed' : 'anon', me)
+    })().catch(() => { if (authReadCurrent(revision)) setAuthState('anon', null) })
   }
   return initAuthPromise
 }
 
 export async function refreshAuthStateV2(): Promise<MeV2 | null> {
+  if (authMutations) return authMe
+  const revision = ++authReadRevision
   const me = await fetchMeV2()
+  if (!authReadCurrent(revision)) return authMe
   setAuthState(me ? 'authed' : 'anon', me)
   return me
 }

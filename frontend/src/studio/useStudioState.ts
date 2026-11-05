@@ -15,7 +15,7 @@ import {
 } from '../profileSupport'
 import { normalizeModels } from '../runtimeContracts'
 import { apiFetch } from './studioApi'
-import { writeStudioDraft } from './studioDraft'
+import { captureStudioDraftOwner, writeStudioDraft } from './studioDraft'
 import { pricingMapFromPayload } from './studioHelpers'
 import type { ModelsPayload, PublicModelPricing, StudioDraft, UserModelChoices } from './studioTypes'
 
@@ -137,11 +137,13 @@ export function useModelPreferences(): ModelPreferences {
 
 // Debounced persistence of the in-progress studio draft to sessionStorage.
 export function useStudioDraftAutosave(draft: StudioDraft): void {
+  const owner = captureStudioDraftOwner()
   useEffect(() => {
+    if (!owner) return
     const timer = window.setTimeout(() => {
-      writeStudioDraft(draft)
+      writeStudioDraft(draft, owner)
     }, 120)
     return () => window.clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft.editFaceStrengthPct, draft.editSlots, draft.prompts, draft.quality, draft.resolutionId, draft.seed, draft.sourceImage, draft.strengthPct, draft.styleId])
+  }, [owner?.owner, owner?.generation, draft.editFaceStrengthPct, draft.editSlots, draft.prompts, draft.quality, draft.resolutionId, draft.seed, draft.sourceImage, draft.strengthPct, draft.styleId])
 }

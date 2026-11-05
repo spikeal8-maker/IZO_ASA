@@ -6,6 +6,13 @@ function assert(condition, message) {
   if (!condition) throw new Error(message)
 }
 
+function holdNextResponse(state, key) {
+  return new Promise((ready, reject) => {
+    const timeout = setTimeout(() => reject(new Error(`Timed out waiting for ${key}`)), 20000)
+    state[key] = (release) => { clearTimeout(timeout); ready(release) }
+  })
+}
+
 const mePayload = {
   internal_user_id: 'iuid-profile-e2e',
   legacy_user_id: 'web_profile_e2e',
@@ -84,7 +91,7 @@ const videoModel = {
 }
 
 async function mockApi(page, { authenticated = true } = {}) {
-  const authState = { authenticated }
+  const authState = { authenticated, me: structuredClone(mePayload), gallery: [] }
   await page.route('**/media/avatars/**', async (route) => {
     await route.fulfill({
       contentType: 'image/svg+xml',
@@ -98,17 +105,43 @@ async function mockApi(page, { authenticated = true } = {}) {
       return
     }
     if (url.pathname === '/api/me-v2') {
-      if (!authState.authenticated) {
+      const payload = authState.authenticated ? structuredClone(authState.me) : null
+      if (authState.holdMe) {
+        const pause = authState.holdMe; authState.holdMe = null
+        await new Promise(pause)
+      }
+      if (!payload) {
         await route.fulfill({ status: 401, json: { detail: 'Not authenticated' } })
         return
       }
-      await route.fulfill({ json: mePayload })
+      await route.fulfill({ json: payload })
       return
     }
-    if (url.pathname === '/api/auth/password/login-v2') {
+    if (url.pathname === '/api/auth/password/login-v2' || url.pathname === '/api/auth/password/register-v2') {
+      authState.passwordRequests = (authState.passwordRequests || 0) + 1
       authState.authenticated = true
+      if (authState.nextMe) authState.me = authState.nextMe
       await route.fulfill({ json: { ok: true } })
       return
+    }
+    if (url.pathname === '/api/auth/session/logout-v2') {
+      if (authState.holdLogout) {
+        const pause = authState.holdLogout; authState.holdLogout = null
+        await new Promise(pause)
+      }
+      authState.authenticated = false
+      await route.fulfill({ json: { ok: true } }); return
+    }
+    if (url.pathname === '/api/gallery/items') {
+      const items = authState.authenticated ? structuredClone(authState.gallery) : []
+      if (authState.holdGallery) {
+        const pause = authState.holdGallery; authState.holdGallery = null
+        await new Promise(pause)
+      }
+      await route.fulfill({ json: { items } }); return
+    }
+    if (url.pathname.startsWith('/api/media/privacy-')) {
+      await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="green"/></svg>' }); return
     }
     if (url.pathname === '/api/auth/bot-login/status') {
       await route.fulfill({ status: 401, json: { detail: 'bot_login_challenge_missing' } })
@@ -170,6 +203,83 @@ async function mockApi(page, { authenticated = true } = {}) {
     await route.fulfill({ json: { ok: true, items: [], images: [] } })
   })
   return authState
+}
+
+// This focused fixture suite uses Vite's actual auth module and browser UI.
+// Installed real-backend acceptance is a separate release gate.
+async function accountPrivacy(browser, device) {
+  const page = await browser.newPage({ viewport: device.viewport, isMobile: device.isMobile, hasTouch: device.isMobile })
+  page.setDefaultTimeout(20000)
+  const state = await mockApi(page)
+  const accountB = { ...mePayload, internal_user_id: 'iuid-profile-B', profile: { ...mePayload.profile, display_name: 'Борис Приватность' }, account: { ...mePayload.account, gallery_used: 0 } }
+  const privateImage = { id: 'privacy-A', url: '/api/media/privacy-A.svg', promptOriginal: 'PRIVATE_A_RESULT', width: 32, height: 32 }
+  state.gallery = [privateImage]
+  const refresh = () => page.evaluate(async () => (await import('/src/authV2.tsx')).refreshAuthStateV2())
+  const oldLinks = page.locator('a[download][href*="privacy-A"]')
+  const prompt = page.locator('.prompt-section textarea')
+  await page.goto(`${base}/`, { waitUntil: 'networkidle' })
+  await oldLinks.first().waitFor()
+  await prompt.fill('PRIVATE_A_DRAFT')
+  await page.waitForFunction(() => JSON.parse(sessionStorage.getItem('izo:studio-draft-v1') || '{}').prompts?.text === 'PRIVATE_A_DRAFT')
+  await page.evaluate(() => { window.__privacyDocument = 'same-document' })
+  await refresh()
+  assert(await prompt.inputValue() === 'PRIVATE_A_DRAFT' && await oldLinks.count() > 0, 'Same-owner refresh lost private state')
+  await page.getByRole('button', { name: /^Дневные токены:/ }).click()
+  const logoutHeld = holdNextResponse(state, 'holdLogout')
+  await page.locator('.account-logout').click()
+  const releaseLogout = await logoutHeld
+  const dialog = page.getByRole('dialog')
+  try {
+    await page.getByText('Проверяем аккаунт...', { exact: true }).waitFor()
+    assert(await oldLinks.count() === 0 && await dialog.count() === 0, 'Pending logout exposed private state or a concurrent login form')
+    assert((state.passwordRequests || 0) === 0, 'A new password request raced the unfinished logout')
+  } finally { releaseLogout() }
+  await dialog.waitFor()
+  assert(await oldLinks.count() === 0 && await prompt.inputValue() === '', 'Logout exposed A result or draft to guest')
+  assert(!(await page.locator('body').innerText()).includes('PRIVATE_A_RESULT'), 'Logout retained A history prompt')
+  state.nextMe = accountB; state.gallery = []
+  await dialog.getByRole('button', { name: 'Регистрация', exact: true }).click()
+  await dialog.getByLabel('Email', { exact: true }).fill('privacy-b@example.test')
+  await dialog.getByLabel('Пароль', { exact: true }).fill('Synthetic-only-password-123')
+  await dialog.getByLabel('Повторите пароль', { exact: true }).fill('Synthetic-only-password-123')
+  await dialog.getByRole('button', { name: 'Создать аккаунт', exact: true }).click()
+  await dialog.waitFor({ state: 'hidden' })
+  assert(await page.evaluate(() => window.__privacyDocument) === 'same-document', 'Account-switch test unexpectedly reloaded the document')
+  assert((await refresh()).internal_user_id === accountB.internal_user_id, 'B did not authenticate')
+  assert(await oldLinks.count() === 0 && await prompt.inputValue() === '', 'B inherited A cached result or draft')
+  await page.evaluate(() => sessionStorage.setItem('izo:studio-draft-v1', JSON.stringify({ prompts: { text: 'LEGACY_PRIVATE_A' } })))
+  await page.reload({ waitUntil: 'networkidle' })
+  assert(await prompt.inputValue() === '', 'B hydrated an unattributed legacy draft after reload')
+  for (const stored of [null, '{broken']) {
+    await page.evaluate((value) => {
+      if (value === null) sessionStorage.removeItem('izo:studio-draft-v1')
+      else sessionStorage.setItem('izo:studio-draft-v1', value)
+      sessionStorage.setItem('izoUseAsDraft', JSON.stringify({ target: 'prompt', prompt: 'UNOWNED_PRIVATE_A' }))
+    }, stored)
+    await page.reload({ waitUntil: 'networkidle' })
+    assert(await prompt.inputValue() === '' && await page.evaluate(() => sessionStorage.getItem('izoUseAsDraft')) === null, 'B hydrated an unowned prompt handoff')
+  }
+
+  state.me = mePayload; state.gallery = [privateImage]
+  const galleryHeld = holdNextResponse(state, 'holdGallery')
+  await refresh()
+  const releaseGallery = await galleryHeld
+  const meHeld = holdNextResponse(state, 'holdMe')
+  const staleAuthRead = refresh()
+  const releaseMe = await meHeld
+  state.me = accountB; state.gallery = []
+  assert((await refresh()).internal_user_id === accountB.internal_user_id, 'Direct trusted A to B transition failed')
+  const delayedGalleryResponse = page.waitForResponse(async (response) => response.url().includes('/api/gallery/items') && (await response.json()).items?.[0]?.id === 'privacy-A')
+  releaseGallery(); releaseMe()
+  await (await delayedGalleryResponse).finished()
+  assert((await staleAuthRead).internal_user_id === accountB.internal_user_id, 'Stale A auth response replaced B identity')
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  assert(await oldLinks.count() === 0 && !(await page.locator('body').innerText()).includes('PRIVATE_A_RESULT'), 'Late A gallery repopulated B Studio')
+  await prompt.fill('PRIVATE_B_DRAFT')
+  state.authenticated = false
+  await refresh()
+  assert(await prompt.inputValue() === '' && await oldLinks.count() === 0, 'Expired session retained private Studio state')
+  await page.close()
 }
 
 async function run() {
@@ -245,6 +355,7 @@ async function run() {
       }
 
       await page.close()
+      await accountPrivacy(browser, device)
     }
 
     for (const device of [

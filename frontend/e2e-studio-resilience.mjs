@@ -128,6 +128,8 @@ try {
   await context.addInitScript((draft) => {
     window.sessionStorage.setItem('izo:studio-draft-v1', JSON.stringify(draft))
   }, {
+    _studioVersion: 2,
+    _studioOwner: 'anonymous',
     prompts: { text: 'Черновик должен сохраниться', i2i: '', edit: '', paint: '' },
     styleId: '',
     resolutionId: 'h-1280',

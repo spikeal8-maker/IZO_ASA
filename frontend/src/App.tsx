@@ -1,5 +1,24 @@
-import { lazy, Suspense, useEffect } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { appShellSeo, applyClientSeo } from './seo'
+import { getAuthStateV2, initAuthV2, useAuthV2 } from './authV2'
+import { bindStudioDraftOwner, captureStudioDraftOwner, prepareStudioHandoffs, type StudioHandoffRequest } from './studio/studioDraft'
+import { apiFetch } from './studio/studioApi'
+
+bindStudioDraftOwner(() => {
+  const { status, me, identityRevision } = getAuthStateV2()
+  const userId = typeof me?.internal_user_id === 'string' ? me.internal_user_id.trim() : ''
+  if (status === 'loading' || (status === 'authed' && !userId)) return null
+  return { owner: status === 'authed' ? `account:${userId}` : 'anonymous', generation: identityRevision }
+})
+
+async function resolveStudioHandoff(request: StudioHandoffRequest, signal: AbortSignal): Promise<unknown> {
+  const id = encodeURIComponent(request.id)
+  const path = request.source === 'gallery' ? `/gallery/${id}/use-as`
+    : request.source === 'uploaded' ? `/gallery/sources/${id}/use-as` : `/feed/publications/${id}/use-as`
+  const response = await apiFetch(path, { method: 'POST', cache: 'no-store', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: request.target }) })
+  if (!response.ok) throw new Error('Handoff unavailable')
+  return response.json()
+}
 
 const NewStudio = lazy(() => import('./newUi'))
 const LegacyApp = lazy(() => import('./LegacyApp'))
@@ -64,6 +83,24 @@ function NotFound() {
 
 function App() {
   const path = window.location.pathname
+  useAuthV2()
+  const studioRoute = isNewStudioRoute(path)
+  const studioOwner = studioRoute ? captureStudioDraftOwner() : null
+  const studioOwnerName = studioOwner?.owner
+  const studioGeneration = studioOwner?.generation
+  const [preparedOwner, setPreparedOwner] = useState<string | null>(null)
+  const ownerKey = studioOwner ? `${studioOwner.owner}:${studioOwner.generation}` : null
+  useEffect(() => {
+    if (studioOwnerName === undefined || studioGeneration === undefined) return undefined
+    let cancelled = false
+    void prepareStudioHandoffs({ owner: studioOwnerName, generation: studioGeneration }, resolveStudioHandoff).then(() => {
+      if (!cancelled) setPreparedOwner(`${studioOwnerName}:${studioGeneration}`)
+    })
+    return () => { cancelled = true }
+  }, [studioOwnerName, studioGeneration])
+  useEffect(() => {
+    if (studioRoute) void initAuthV2()
+  }, [studioRoute])
   const legacyNewRoute = path === '/new' || path.startsWith('/new/')
   useEffect(() => {
     if (legacyNewRoute) {
@@ -90,9 +127,13 @@ function App() {
     return <NotFound />
   }
 
+  if (studioRoute && (!studioOwner || preparedOwner !== ownerKey)) {
+    return <div className="app-loading">Проверяем аккаунт...</div>
+  }
+
   return (
     <Suspense fallback={<div className="app-loading">Загружаем интерфейс...</div>}>
-      <Target />
+      <Target key={studioOwner ? `${studioOwner.owner}:${studioOwner.generation}` : undefined} />
     </Suspense>
   )
 }

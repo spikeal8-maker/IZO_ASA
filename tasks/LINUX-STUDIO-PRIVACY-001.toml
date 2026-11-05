@@ -1,0 +1,106 @@
+manifestVersion = 1
+id = "LINUX-STUDIO-PRIVACY-001"
+baseSha = "d5119571ec0aabecc114b1a5be65d98b313aa6c9"
+goal = "Isolate desktop Studio memory and draft persistence across trusted account transitions."
+userOutcome = "After account A logs out and B signs in or registers, B sees no cached A result, prompt, gallery, source image, or download handle."
+beforeScenario = "On the closed Linux test stand B has gallery zero, but the existing Studio mount shows A result and download URL; hard reload removes the result while A prompt returns from the unowned sessionStorage draft."
+afterScenario = "The Studio subtree has a trusted-owner lifecycle boundary and drafts can only hydrate or persist for their captured current owner; stale A callbacks cannot populate B state."
+nonGoals = [
+  "Change backend authorization, idempotency, billing, workers, startup, migrations, or provider behavior",
+  "Edit newUi.tsx or other packages' registered manifests and generated maps",
+  "Redesign Studio, change route predicates or lazy entry modules, or refactor unrelated features",
+  "Make historical restored volumes safe to start or claim provider acceptance from synthetic generation",
+]
+declaredFiles = [
+  "frontend/src/App.tsx",
+  "frontend/src/authV2.tsx",
+  "frontend/src/studio/studioDraft.ts",
+  "frontend/src/studio/useStudioState.ts",
+  "frontend/test_studio_identity_privacy.mjs",
+  "frontend/e2e-profile-auth.mjs",
+  "docs/agent-tasks/LINUX-STUDIO-PRIVACY-001.md",
+  "tasks/LINUX-STUDIO-PRIVACY-001.toml",
+]
+allowedPatterns = [
+  "frontend/e2e-studio-resilience.mjs",
+  "frontend/src/studio/studioApi.ts",
+  "frontend/e2e-video-image-handoff.mjs",
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/src/newUi.tsx",
+  "frontend/src/LegacyApp.tsx",
+  "frontend/src/phone/**",
+  "ops/**",
+  "architecture/**",
+  "docs/generated/**",
+  "tools/**",
+  "tasks/OPENROUTER-LINUX-SHADOW-001.toml",
+  "tasks/INTERNAL-219-IMAGE-IDEMPOTENCY-001.toml",
+]
+protectedFilesTouched = [
+]
+domain = "frontend-studio"
+riskClass = "high-assurance"
+changeClass = "product"
+maxProductionFiles = 4
+maxChangedLines = 900
+acceptance = [
+  "A logout to guest to B registration or login clears A result, gallery, source state, prompt and private handles without a reload",
+  "Direct A to B trusted identity change and session expiry isolate state even when the coarse auth status is unchanged",
+  "Same-owner profile and balance refresh preserve the current Studio draft and result",
+  "Unattributed legacy drafts and another owner's drafts never hydrate for the current account",
+  "Autosave captures its owner and rejects a stale A write after a B transition",
+  "Old asynchronous responses cannot repopulate the new Studio instance or restore a superseded trusted auth identity",
+  "Read-only draft unit tests do not require importing React TSX or the browser application",
+  "Desktop and mobile focused real-browser acceptance use the real backend and retain foreign-media and foreign-job denial",
+  "Route predicates, lazy entry modules, existing generated frontend maps and protected hotspot files remain byte-identical outside the declared scope",
+]
+requiredEvidence = [
+  "Exact d511 base and Git blob equivalence for the inspected frontend source",
+  "Before-fix closed-stand two-user reproduction and focused regression failures",
+  "Focused draft ownership tests including same-owner recovery, legacy rejection, storage failure and stale autosave",
+  "Focused browser account-switch and delayed-response regressions plus real closed-stand desktop and mobile evidence",
+  "TypeScript, ESLint, frontend production build and generator --check with zero map diff",
+  "Native scope verification, file hygiene, independent privacy review and required exact-head hosted CI",
+  "No backend, restored-history, owner registry, foreign scope, release format or generated-map mutation",
+]
+targetedTests = [
+  "frontend/test_studio_identity_privacy.mjs",
+  "frontend/e2e-profile-auth.mjs",
+]
+fileGrowthExpectations = [
+  "Use the existing App boundary and auth store exports without adding a runtime module or changing the static import closure",
+  "Keep studioDraft serialization independent of React TSX; bind a read-only owner resolver and require a captured owner for writes",
+  "Keep App.tsx, studioDraft.ts and useStudioState.ts bounded; add only the necessary snapshot and stale-response guards to authV2.tsx",
+  "Keep each changed or new test at or below 500 lines and 24 KiB; do not add a size exception",
+  "Do not grow or edit newUi.tsx and do not edit architecture budgets or generated maps",
+]
+forbiddenOperations = [
+  "production-data mutation",
+  "historical-volume backend startup",
+  "paid-provider-call",
+  "external message or publication",
+  "D2 or Windows operation",
+  "Codex dispatch",
+  "ownership-token borrowing or registry editing",
+  "foreign branch or worktree mutation",
+  "direct main push",
+  "disable checks or alter mandatory gate policy",
+]
+rollbackBoundary = "Revert only this reviewed frontend package and rebuild the exact prior release; server authorization and SQLite/media data remain outside the change."
+
+[[scopeExpansions]]
+path = "frontend/e2e-studio-resilience.mjs"
+reason = "Preserve guest draft recovery regression with owner-attributed format while rejecting legacy unattributed drafts"
+recordedAtUtc = "2026-11-05T05:53:32.321453Z"
+
+[[scopeExpansions]]
+path = "frontend/src/studio/studioApi.ts"
+reason = "Require a fresh authenticated media check because browser cache can survive a trusted account transition"
+recordedAtUtc = "2026-11-05T06:10:17.628555Z"
+
+[[scopeExpansions]]
+path = "frontend/e2e-video-image-handoff.mjs"
+reason = "Prove that private media authorization is rechecked after warming the previous owner browser cache while preserving existing gallery video handoff cases"
+recordedAtUtc = "2026-11-05T06:10:19.227039Z"
