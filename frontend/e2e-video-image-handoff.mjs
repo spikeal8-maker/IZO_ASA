@@ -98,7 +98,8 @@ async function installFixtures(context, { missingMedia = false } = {}) {
     if (url.pathname === '/api/gallery/secondary') return route.fulfill({ json: { feedItems: [], uploadedItems: [], uploadedUnavailableCount: 0 } })
     if (url.pathname === `/api/gallery/${image.id}/use-as` && method === 'POST') {
       state.useAsRequests += 1
-      return route.fulfill({ json: { ok: true, imageId: image.id, target: 'image', inputImage: image.url, prompt: image.promptOriginal, width: image.width, height: image.height } })
+      if (state.denyUseAs) return route.fulfill({ status: 404, json: { detail: 'not found for current owner' } })
+      return route.fulfill({ json: { ok: true, imageId: image.id, target: route.request().postDataJSON().target, inputImage: image.url, prompt: image.promptOriginal, width: image.width, height: image.height } })
     }
     if (url.pathname === `/api/gallery/${image.id}`) return route.fulfill({ json: { ...image, sources: [] } })
     if (url.pathname === '/api/video/config') return route.fulfill({ json: { modes: { text_to_video: [model], image_to_video: [model], first_last_frame: [model], reference_to_video: [model] }, plan: 'business', videoSlots: 50, feedPublicationEnabled: true, economy: { tokenRub: 5, minMarginPercent: 40 }, availability: {} } })
@@ -127,7 +128,7 @@ async function assertVideoSourceApplied(page, state, placement) {
   assert((await source.getAttribute('src'))?.includes('/api/media/product-video/source.png'), `${placement}: first-frame URL was not applied`)
   const dimensions = await source.evaluate((element) => ({ width: element.naturalWidth, height: element.naturalHeight, fit: getComputedStyle(element).objectFit }))
   assert(dimensions.width === 900 && dimensions.height === 1600 && dimensions.fit === 'contain', `${placement}: source aspect ratio preview was not preserved`)
-  await page.getByText('Исходный кадр добавлен', { exact: true }).waitFor({ state: 'visible' })
+  await page.locator('.video-stage-message').getByText('Кадр готов', { exact: true }).waitFor({ state: 'visible' })
   assert(await page.locator('.video-prompt textarea').inputValue() === 'Плавно оживи изображение. Сохрани внешность, форму объектов и композицию. Добавь естественное движение камеры, света и деталей окружения.', `${placement}: starter prompt was not applied`)
   assert((await page.locator('.video-format-tabs button.active').textContent())?.includes('9:16'), `${placement}: closest source aspect ratio was not selected`)
   assert(await page.evaluate(() => sessionStorage.getItem('izo:video-source-v1')) === null, `${placement}: handoff was not consumed`)
@@ -217,6 +218,28 @@ async function runPreservedDraftPromptFlow(browser) {
   await context.close()
 }
 
+// Media remains available in this fixture. The ownership decision must come
+// from a fresh use-as response, even if an old media read could still succeed.
+async function runImageHandoffOwnership(browser, denyUseAs) {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+  const state = await installFixtures(context); state.denyUseAs = denyUseAs
+  await context.addInitScript((imageId) => {
+    sessionStorage.setItem('izo:studio-draft-v1', JSON.stringify({ prompts: { text: 'LEGACY_PRIVATE_TEXT' } }))
+    sessionStorage.setItem('izoUseAsDraft', JSON.stringify({ source: 'gallery', imageId, target: 'image', inputImage: '/api/media/product-video/old-cached.png', prompt: 'CACHED_PRIVATE_TEXT' }))
+  }, image.id)
+  const page = await context.newPage()
+  await page.goto(`${base}/`, { waitUntil: 'networkidle' })
+  const prompt = page.locator('.prompt-section textarea')
+  await prompt.waitFor({ state: 'visible' })
+  if (!denyUseAs) await page.waitForFunction((value) => document.querySelector('.prompt-section textarea')?.value === value, image.promptOriginal)
+  assert(await prompt.inputValue() === (denyUseAs ? '' : image.promptOriginal), 'Image handoff used cached or unauthorized prompt')
+  assert(await page.locator('img[src*="old-cached.png"]').count() === 0, 'Cached image handoff was rendered')
+  assert(await page.evaluate(() => sessionStorage.getItem('izoUseAsDraft')) === null, 'Image handoff was not consumed or discarded')
+  assert(state.useAsRequests === 1, 'Image handoff did not perform one fresh ownership check')
+  assert(state.generateRequests === 0, 'Image handoff started generation')
+  await context.close()
+}
+
 await mkdir(evidenceDir, { recursive: true })
 let previewProcess
 if (!process.env.PRODUCT_VIDEO_E2E_BASE_URL) {
@@ -233,7 +256,9 @@ try {
   await runGalleryFlow(browser, { width: 390, height: 844 }, 'mobile')
   await runUnavailableSourceFlow(browser)
   await runPreservedDraftPromptFlow(browser)
-  console.log(JSON.stringify({ ok: true, scenarios: ['studio-result', 'gallery', 'unavailable', 'one-time-reload', 'no-video-action', 'saved-prompt'], viewports: ['1440x900', '390x844'], providerCalls: 0, evidenceDir }))
+  await runImageHandoffOwnership(browser, false)
+  await runImageHandoffOwnership(browser, true)
+  console.log(JSON.stringify({ ok: true, scenarios: ['studio-result', 'gallery', 'unavailable', 'one-time-reload', 'no-video-action', 'saved-prompt', 'fresh-image-owner-allowed', 'fresh-image-owner-denied'], viewports: ['1440x900', '390x844'], providerCalls: 0, evidenceDir }))
 } finally {
   await browser.close()
   if (previewProcess && !previewProcess.killed) previewProcess.kill()
