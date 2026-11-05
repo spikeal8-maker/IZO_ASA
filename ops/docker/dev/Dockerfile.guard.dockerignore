@@ -6,3 +6,4 @@ ops/docker/**
 !ops/docker/dev/
 ops/docker/dev/**
 !ops/docker/dev/network_guard.py
+!ops/docker/dev/comfyui_proxy.py

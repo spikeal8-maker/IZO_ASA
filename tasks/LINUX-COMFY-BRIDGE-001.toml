@@ -1,0 +1,111 @@
+manifestVersion = 1
+id = "LINUX-COMFY-BRIDGE-001"
+baseSha = "bd0a8132b8779f8589e1f8ee9f440689573d79ca"
+goal = "Add an opt-in, instance-scoped ComfyUI bridge for the existing native 1Panel Linux deployment while preserving the closed default bundle."
+userOutcome = "The closed Linux test application can reach the verified H-04 ComfyUI through a constrained proxy, without direct backend egress or global provider control."
+beforeScenario = "Linux reaches 192.168.1.112:8188, but the accepted guard denies application egress; directly permitting backend traffic would also expose global interrupt/free and unrelated provider media."
+afterScenario = "A separate non-root proxy service reuses the exact guard image and namespace; only its fixed UID can reach one configured private IPv4:port, and its protocol policy admits accepted requests and instance-owned results."
+nonGoals = [
+  "Implement or claim application request idempotency, billing correctness, durable external-operation recovery, historical no-replay or historical login",
+  "Start historical volumes, mutate H-04, publish the test site, switch the public domain, or call a paid provider",
+  "Introduce a second generator, queue, application database or installer",
+  "Change existing synthetic-bundle profile semantics, weaken image/version/Compose validation, or reuse foreign OpenRouter package paths",
+]
+declaredFiles = [
+  "ops/docker/dev/network_guard.py",
+  "ops/docker/dev/comfyui_proxy.py",
+  "ops/docker/dev/Dockerfile.guard",
+  "ops/docker/dev/Dockerfile.guard.dockerignore",
+  "ops/docker/dev/compose.comfyui-shadow.yml",
+  "tools/docker_comfy_bridge_profile.py",
+  "tools/docker_test_bundle.py",
+  "tools/test_comfyui_proxy_policy.py",
+  "tools/test_comfyui_guard_profile.py",
+  "tools/test_docker_comfy_bridge_profile.py",
+  "tools/test_docker_test_bundle_build.py",
+  "tasks/LINUX-COMFY-BRIDGE-001.toml",
+  "docs/agent-tasks/LINUX-COMFY-BRIDGE-001.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "architecture/**",
+  "docs/generated/**",
+  "ops/windows/**",
+  "ops/release/**",
+  "ops/docker/dev/openrouter_https_proxy.py",
+  "ops/docker/dev/openrouter_network_guard.py",
+  "ops/docker/dev/compose.openrouter-shadow.yml",
+  "ops/docker/dev/Dockerfile.guard.openrouter",
+  "ops/docker/dev/Dockerfile.guard.openrouter.dockerignore",
+  "ops/docker/dev/Dockerfile.proxy.openrouter",
+  "ops/docker/dev/Dockerfile.proxy.openrouter.dockerignore",
+  "tools/docker_test_bundle_format.py",
+  "tools/docker_test_bundle_images.py",
+  "tools/docker_test_bundle_runtime.py",
+  "tasks/OPENROUTER-LINUX-SHADOW-001.toml",
+  "tasks/INTERNAL-219-IMAGE-IDEMPOTENCY-001.toml",
+]
+protectedFilesTouched = [
+]
+domain = "release-ops"
+riskClass = "high-assurance"
+changeClass = "provider-integration"
+maxProductionFiles = 7
+maxChangedLines = 1800
+acceptance = [
+  "Default guard renders the identical canonical nft policy and retains non-root/capability/readback checks",
+  "Opt-in guard permits only fixed proxy UID 10002 to one validated private IPv4 and TCP port; backend UID 10001 and web UID 101 retain direct-egress denial",
+  "Proxy shares only the guard network namespace, has no published host port and no application data/media/secret mounts, and runs with all capabilities dropped",
+  "Proxy pins the upstream and rejects CONNECT, absolute URLs, redirects, alternate upstreams, duplicate/invalid framing, unauthorized methods/paths and excessive bodies",
+  "Global interrupt/free and management APIs remain denied in every mode; no request is forwarded for a rejected operation",
+  "Read-only capability mode performs no generation; accepted generation mode never permits mock fallback",
+  "History/media responses are restricted to a stable deployment namespace, including after proxy restart, without a second queue or financial ledger",
+  "Optional 1Panel profile preserves exact source SHA, release ID, frontend binding and three canonical image identities; proxy reuses the guard image digest",
+  "Core synthetic compose and TEST manifest remain valid and unchanged in semantics; optional profile and validator are inventory-hashed passive ZIP assets and are never automatically activated by the existing installer",
+  "A separate strict profile validator rejects altered identity, extra egress, exposed proxy ports, foreign volumes, secret mounts, unsupported upstreams and unapproved Compose changes",
+  "Only the owned closed Linux test project receives the explicit 1Panel configuration; existing historical volumes and neighboring projects remain unchanged",
+]
+requiredEvidence = [
+  "Root 1Panel operation 67a41da5989144b5a09d38d9115c9ae0 verifies real ComfyUI 0.19.3, FluxKleinOneNode, 4B checkpoint, RTX3060 and empty queue at 192.168.1.112:8188",
+  "Native package registration, exact base SHA and normal overlap receipt before source edits",
+  "Complete Compose render and positive/negative profile validation with exact image/source/frontend identity",
+  "Focused HTTP behavior tests with an isolated fake upstream; blocked interrupt/free/redirect/arbitrary paths never reach upstream",
+  "History/media ownership and path traversal tests, including cold proxy process restart with the same immutable instance namespace",
+  "Actual Linux namespace UID-specific positive/negative egress proof with default policy comparison",
+  "Build-context probe proves only declared guard/proxy build inputs and no DB/media/secrets",
+  "Existing bundle build/format/image/runtime regressions remain required and pass without changing their rejection policy",
+  "Independent security review, exact-head CI and clean canonical integration before runtime candidate activation",
+  "Native 1Panel read-only probe receipt and, only after root authorizes the isolated acceptance request, actual provider generation receipt kept separate from idempotency/history acceptance",
+]
+targetedTests = [
+  "tools/test_comfyui_proxy_policy.py",
+  "tools/test_comfyui_guard_profile.py",
+  "tools/test_docker_comfy_bridge_profile.py",
+  "tools/test_docker_test_bundle_build.py",
+  "tools/test_docker_test_bundle_format.py",
+  "tools/test_docker_test_bundle_images.py",
+  "tools/test_docker_test_bundle_runtime.py",
+]
+fileGrowthExpectations = [
+  "Keep every new handwritten source at or below the existing architecture limit; keep new tests at or below 500 lines and 24 KiB",
+  "Keep network_guard.py a bounded policy renderer/initializer; preserve default policy bytes and exact comparison",
+  "Proxy transport performs protocol filtering and deployment-level ownership only, with bounded concurrency and memory; no application lifecycle implementation",
+  "Keep the profile helper a read-only renderer/validator; it must not install, start, stop, delete or manage 1Panel/Docker resources",
+  "Limit existing bundle builder change to explicit passive optional-asset inclusion under inventory hashes; do not alter TEST authorization/profile flags or core validator files",
+  "Use the existing guard image for the proxy command; retain exactly three canonical image archives and do not add a separate image builder",
+]
+forbiddenOperations = [
+  "Foreign registry/token/worktree mutation or backend ownership bypass",
+  "Historical or production database/media mutation",
+  "Windows or D2 Docker, installer or host mutation",
+  "H-04 process/model/service restart, unload, interrupt or configuration change",
+  "Paid provider call, real payment, mail, messenger or social send",
+  "Public access/DNS/domain cutover",
+  "Host-global firewall/network mutation or foreign Docker project mutation",
+  "Automatic real generation during tests, healthcheck, package build or installation",
+  "Direct main push, Codex dispatch, disabling required checks or weakening version comparison",
+]
+rollbackBoundary = "Restore only the owned Linux test project's previous reviewed 1Panel Compose and exact image digests; preserve all database/media volumes, keep the default-deny guard, and perform no provider cancellation or historical data rollback."
