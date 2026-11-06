@@ -52,6 +52,10 @@ class Upstream(BaseHTTPRequestHandler):
         self.server.calls.append((self.command, self.path, dict(self.headers), raw))
         if self.server.delay:
             time.sleep(self.server.delay)
+        if self.server.hold_response is not None:
+            self.server.response_waiting.set()
+            if not self.server.hold_response.wait(5):
+                return
         if self.path == "/prompt":
             value = json.loads(raw)
             self.server.history = {PID: {"prompt": [0, PID, value["prompt"],
@@ -75,16 +79,16 @@ class Upstream(BaseHTTPRequestHandler):
         body = PNG if self.path.startswith("/view?") else json.dumps(data).encode()
         if self.server.large:
             body = b"x" * 1024
-        self.send_response(self.server.status)
-        self.send_header("Location", "http://forbidden.invalid/private")
-        self.send_header("Set-Cookie", "provider-secret=never-forward")
-        self.send_header("Content-Type", "image/png" if self.path.startswith("/view?") else "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
         try:
+            self.send_response(self.server.status)
+            self.send_header("Location", "http://forbidden.invalid/private")
+            self.send_header("Set-Cookie", "provider-secret=never-forward")
+            self.send_header("Content-Type", "image/png" if self.path.startswith("/view?") else "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
             self.wfile.write(body)
-        except (BrokenPipeError, ConnectionResetError):
-            pass
+        except OSError:
+            pass  # The timeout case intentionally closes the peer before this reply.
 
     do_GET = do_POST = handle_fake
 
@@ -93,6 +97,7 @@ class Upstream(BaseHTTPRequestHandler):
 def upstream():
     server = ThreadingHTTPServer(("127.0.0.1", 0), Upstream)
     server.calls, server.history, server.status, server.delay, server.large = [], {}, 200, 0, False
+    server.hold_response, server.response_waiting = None, threading.Event()
     with serving(server):
         yield server
 
@@ -223,7 +228,7 @@ def test_raw_http_ambiguous_framing_never_forwarded(upstream, headers):
     assert not upstream.calls
 
 
-def test_upstream_redirect_size_and_slow_response_fail_closed(upstream, monkeypatch):
+def test_upstream_redirect_and_size_fail_closed(upstream, monkeypatch):
     with serving(bridge(upstream)) as server:
         upstream.status = 302
         status, headers, body = request(server, "GET", "/object_info")
@@ -231,12 +236,23 @@ def test_upstream_redirect_size_and_slow_response_fail_closed(upstream, monkeypa
         upstream.status, upstream.large = 200, True
         monkeypatch.setattr(proxy, "JSON_LIMIT", 32)
         assert request(server, "GET", "/object_info")[0] == 502
-        upstream.large, upstream.delay = False, 0.4
-        monkeypatch.setattr(proxy, "UPSTREAM_DEADLINE", 0.1)
-        started = time.monotonic()
-        assert request(server, "GET", "/object_info")[0] == 502
-        assert time.monotonic() - started < 0.35
-    assert len(upstream.calls) == 3
+    assert len(upstream.calls) == 2
+
+
+def test_upstream_deadline_closes_waiting_response(upstream, monkeypatch):
+    upstream.hold_response = threading.Event()
+    monkeypatch.setattr(proxy, "UPSTREAM_DEADLINE", 0.1)
+    with serving(bridge(upstream)) as server:
+        try:
+            status, _, body = request(server, "GET", "/object_info")
+            # The provider cannot finish until this test releases it. The
+            # client's own socket timeout fails the test if the proxy waits.
+            assert upstream.response_waiting.is_set() and not upstream.hold_response.is_set()
+            assert status == 502 and json.loads(body) == {"error": "COMFY_UPSTREAM_UNAVAILABLE"}
+            assert len(upstream.calls) == 1
+            assert request(server, "GET", "/healthz")[0] == 200
+        finally:
+            upstream.hold_response.set()
 
 
 def test_deep_request_and_upstream_json_are_bounded_without_tracebacks(upstream, capsys):
