@@ -1,0 +1,98 @@
+manifestVersion = 1
+id = "LINUX-CAPABILITIES-ATOMIC-001"
+baseSha = "2f9fa70a21c13af0d496eb8d8fabf935e7377840"
+goal = "After actual acceptance and normal finish of PR276, perform one independently reviewed npm diagnostic and one fresh source-bound capabilities release of the existing izo-asa-linux-test-a project through native 1Panel."
+userOutcome = "The existing five-test-account Linux instance receives the accepted serialized-recovery source and verified transport without losing data, or the first failed stage stops with exact preserved evidence; this is not historical-user or GPU beta acceptance."
+beforeScenario = "PR276 candidate 96cfb305b8bd963972f393ccfb69dafdd122dd66 has tree 2d3330bb65fbd8831bbb7a4cce4dd6e1513e8eb2 and parent bf2d60b508da4e4de52905561b8db0a9f27ea721. Its actual required CI, normal merge and source finish are execution prerequisites, not claims made by this proposal. The closed prior operations owner fedbeaa9678cc572a2408f192ae6fbfe97c2880d failed at npm ETIMEDOUT; the installed application remains on the separately verified original source."
+afterScenario = "One new owned attempt either verifies the canonical source-derived bundle, strict preparation, one native capabilities update and bounded actual proof, or stops without retry, cleanup, evidence relabelling or false completion."
+nonGoals = [
+  "Change application source, Dockerfiles, dependencies, lockfiles, npm fetch policy, validators, renderer, database schema or CI policy",
+  "Register against the PR head, old bf2 source or a guessed merge SHA; change, reopen or borrow tokens from any closed or foreign owner",
+  "Reuse the held LINUX-CAPABILITIES-RECOVERY-001 proposal, the failed predecessor attempt or its source-bf2 guard as a new-source release image",
+  "Start or inspect historical/public data, authenticate users, create sessions or generation jobs, or claim durable HTTP idempotency, complete no-replay, a GPU image or accepted beta",
+  "Create another application stand, alter a neighboring project, change public DNS/site/data, FRP, host networking or global Docker client configuration",
+]
+declaredFiles = [
+  "tasks/LINUX-CAPABILITIES-ATOMIC-001.toml",
+  "docs/agent-tasks/LINUX-CAPABILITIES-ATOMIC-001.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "tools/**",
+  "ops/**",
+  ".github/**",
+  "architecture/**",
+  "docs/generated/**",
+  "docs/context/**",
+  "docs/NOW.md",
+  "tasks/GENERATION-RECOVERY-SERIALIZATION-001.toml",
+  "docs/agent-tasks/GENERATION-RECOVERY-SERIALIZATION-001.md",
+  "tasks/LINUX-CAPABILITIES-RELEASE-001.toml",
+  "docs/agent-tasks/LINUX-CAPABILITIES-RELEASE-001.md",
+  "tasks/LINUX-CAPABILITIES-RECOVERY-001.toml",
+  "docs/agent-tasks/LINUX-CAPABILITIES-RECOVERY-001.md",
+]
+protectedFilesTouched = [
+]
+domain = "release-ops"
+riskClass = "release-ops"
+changeClass = "operational-release"
+maxProductionFiles = 0
+maxChangedLines = 250
+acceptance = [
+  "Register only after exact PR276 head 96cfb305b8bd963972f393ccfb69dafdd122dd66 passes required current-base CI and independent published-head review, protected normal merge has ordered parents [bf2d60b508da4e4de52905561b8db0a9f27ea721, 96cfb305b8bd963972f393ccfb69dafdd122dd66] and tree 2d3330bb65fbd8831bbb7a4cce4dd6e1513e8eb2, canonical main is clean at that observed merge and GENERATION-RECOVERY-SERIALIZATION-001 is normally finished",
+  "The new native baseSha must equal that actual application merge; require a separate active LINUX-CAPABILITIES-ATOMIC-001 owner on agent/linux-capabilities-atomic-001 and one clean published commit adding only the two declared files",
+  "Require actual source CI event/base/head/artifact identity, normal-merge API and Git witness, source-finish receipt, new registration, truthful user-request authorization and independent exact-published-operations-commit review before any diagnostic/build/runtime action",
+  "Separate closed source provenance and closed failed predecessor evidence from active authority; preserve canonical/source owner state and raw indexes under native registry locks, verify the fresh canonical Git export/build context with the existing full byte/mode inventory, and preserve the closed predecessor through exact branch/head/tree/parent/origin/common-Git-directory, clean status, two contract postimages and raw index before/after checks without its owner token",
+  "Preserve the old roundtrip-release-bf2d60b508da operation, failure SHA256 e80d785d6ff1c537a9f331cd746b37147e56f64e599c8581f3009e7cd45f6eb1, command SHA256 71718846dcc34282be627656b888347d358e9f0947586407de5aafb8e3083498, stdout SHA256 f6302d631371264bef8111cfc81650e0cb2e07413d8785467986ae25cbe36e5a and stderr SHA256 4e206da3bfe877a02dcc6dea74ae93025eb737cc6fdd9259a589586d24f4514f, plus reconciliation and normal unmet-acceptance closeout receipts",
+  "Keep the prior source-bf2 guard tag/payload unchanged: observed image ID sha256:016f4731a512514cc8b560f2c0cdc86836dfe63ba4c4fa3583a2a5fdf0e1ed9d and config sha256:6148201d9a79a75e05e706561b0e0e88e26d6e06bd25dc554ce83c51b0dd5e89; it is preserved evidence, never an accepted new-source release image",
+  "Use one fresh private operation namespace derived from the actual application merge, with absent canonical ZIP/receipt and all three exact new-source web/backend/guard tags initially absent; reject existing or ambiguous partial outputs without deleting, retagging or adopting them",
+  "Before and after execution attest the actual Docker/Buildx executable bytes, exact version output, selected builder/driver/endpoint and reviewed default-daemon identity from bounded native evidence; reject an unpinned build implementation or client override",
+  "Perform at most one uncached npm observability diagnostic with output=type=cacheonly, the same canonical Node image/npm version/package and lockfile bytes, and unchanged npm command, registry, proxy, fetch timeouts/retries/integrity policy; added instrumentation may only observe and preserve the actual npm exit and bounded private logs",
+  "The diagnostic creates no application container, release image/tag or acceptance claim; require actual uncached npm execution, successful exit, source/owner checks and exact daemon build terminality before proceeding; failure or uncertainty stops the whole attempt",
+  "Export the exact accepted Git tree into a fresh private context using canonical 0644/0755 modes; verify every object, full inventory and protected source/index snapshots before and after, and allow only the reviewed canonical build-context-root remap",
+  "Build exactly in the order web, backend, guard with at most one selected-service compose build --pull --provenance=false invocation per role, unchanged canonical Dockerfiles, inputs and arguments, no --with-dependencies or additional_contexts, and fixed per-command/overall deadlines; proceed to the next role only after verified success and terminality",
+  "The unchanged canonical context-isolation probes are two actual BuildKit solves, at most one context-web and one context-guard with --network=none and type=local output; they are separate from pure Git-object export and do not expand the three release-image role budgets",
+  "Every npm diagnostic, canonical BuildKit context-isolation probe and release-image build must use its own process group and a fresh exact raw daemon build identifier whose localstate binds the actual context, Dockerfile and selected or default target; require observed CompletedAt and terminal status even after CLI failure or timeout, never equating client exit or a killed local PID with daemon completion",
+  "Reserve a fixed part of the overall deadline for bounded exact-build reconciliation; TERM/KILL may target only the owned process group, never an unrelated solve or shared daemon, and unproved terminality remains STOP/UNKNOWN without a next phase or retry; canonical Git-object export is separately bounded and is not a daemon solve",
+  "Stop at the first failure or unknown terminal state; do not rerun any role, add retry loops, change network/npm settings, cancel an unrelated build, delete partial images or advance to packaging/update while an owned daemon build remains unresolved",
+  "Run the unchanged canonical bundle builder with build_images=False on the three verified new-source refs; retain every source/image/platform/archive check, network-none metadata export/probe and actual UID10001 asset-read check, including only its existing ownership-checked cleanup of its own temporary probe containers",
+  "Only actual complete canonical ZIP/image/asset verification and returned native source/owner checks permit a successful build receipt; diagnostic success and individual image builds are not release acceptance",
+  "Prepare the reviewed passive candidates from the sealed bundle with exact raw Compose version 2.40.3+ds1-0ubuntu1~24.04.1 and comparison profile compose-2.40.3-ubuntu24.04-json-v1, separate raw candidate/effective hashes and production_authorized=false; activate capabilities mode only",
+  "Before and after preparation/update verify root-owned regular /usr/libexec/docker/cli-plugins/docker-compose, mode0755, size66503008, SHA256 d87a11e944c990dc9f2186115b1136c1cbffffc870845caff0cbdcce0780f41d, no overrides and exact version stdout plus one LF; never strip or map versions",
+  "Before one native 1Panel POST /containers/compose/update recheck existing project/path, installed source 3cae2fb5b497d84aa17c5ef4d7b5b582419cc8cf, release 3cae2fb5b497-20261105063416, Compose SHA256 cb5d271493d61d915517ccd36c2edb3b193473cd48bfc0e9b8e5b699784c01aa, exact resources/images, maintenance binding and a fresh supported backup; no ambiguous-request retry or direct compose up",
+  "Before/after snapshots must preserve five users, three jobs, three images, six ledger rows, every durable table fingerprint and all media with one private comparison key, excluding only existing power_samples telemetry; preserve volume identities, neighboring projects and historical restore-resource identities without opening historical data",
+  "Await the exact native task and verify actual source/image/frontend identity, readiness and maintenance backup/check receipts; rebind only the four already reviewed maintenance lease fields under their existing locks",
+  "Perform bounded real UID/netns/nft proof: UID10002 direct upstream TCP connect only, UID10001/101 direct denial, and provider HTTP solely through proxy GET /healthz, /object_info, /flux_klein/models and /queue; redact queue/user/request data and never send provider mutation methods",
+  "Require exact 4B catalog names flux-2-klein-4b-fp8.safetensors, qwen_3_4b.safetensors and flux2-vae.safetensors; record actual limits, bounded error/log evidence and host load without claiming model execution or beta acceptance",
+  "Write phase success only after actual verification and lock release; retain task IDs, commands, exact raw hashes and all failed artifacts privately with bounded sanitized summaries",
+]
+requiredEvidence = [
+  "Bind the original PUBLIC-LINUX-RELEASE-001 goal and subsequent user continuation to this agent-reviewed bounded attempt, actual accepted application SHA and new published operations HEAD; do not invent human-supplied SHA, human technical approval or completed runtime acceptance",
+  "Freeze and independently review the final provenance/context, npm diagnostic, build/export, prepare, update and proof helper bytes and their complete hash chain before execution; future helper hashes or draft helpers are not accepted evidence",
+  "Native AGENT_PACKAGE_STARTED, canonical manifest fingerprint, clean published two-file commit, exact scope/file-hygiene checks and a new independent published-commit/operator review are required; this review is not a hosted operations CI run, GitHub PR review or human permission",
+  "Adversarial checks cover unknown/future source identities, wrong owner/base/head/ordered merge parents, stale source finish or CI base, foreign token use, old/partial outputs, changed binaries/driver/endpoint, changed fetch policy, exhausted invocation budgets, missing or mismatched raw build IDs, process/daemon ambiguity and source/index/lock drift",
+  "Only after all actual runtime proofs and terminal source-main Full verification open the self-contained operations PR without overlapping Full; require applicable exact-head operations CI/review, normal protected merge, canonical fast-forward and native finish for package completion",
+  "Keep application source pinned to the accepted PR276 merge throughout runtime work and report it separately from the later documentation-only operations commit; retire this runtime context before main advances for operations-document integration",
+  "On failure preserve and reconcile the exact attempt and report UNMERGED_ACCEPTANCE_NOT_MET through lawful closeout, not another automatic attempt or a successful beta/PR claim",
+]
+targetedTests = [
+]
+fileGrowthExpectations = [
+  "Only the two new native task documents change; no application, source-test, repository-tooling or policy implementation changes",
+  "Keep the stable task document below 80 lines and 12 KiB and both declared files within 250 changed lines; evolving actual receipts remain private outside Git",
+  "Reuse reviewed canonical exporter/build validation and prepare/update/proof algorithms with explicit new source/owner binding and independently reviewed one-shot diagnostic/build supervision; do not introduce a generic framework or weaken freshness gates",
+]
+forbiddenOperations = [
+  "Registration on an unmerged source or execution before actual source acceptance/finish, new registration, clean publication, independent exact review and honest authorization binding",
+  "Closed-owner/foreign-token reuse, manual registry edits, manifest fingerprint bypass, force/direct main pushes, required-check bypass or receipt relabelling",
+  "Application/schema/renderer/validator/CI changes, npm registry/proxy/fetch-policy changes, dependency or base-image substitution, integrity disabling or unreviewed build flags",
+  "Diagnostic or role re-invocation, implicit dependency builds, adoption of old-source or unexpected partial outputs, unrelated daemon-build cancellation, image/tag deletion or broad Docker cleanup",
+  "Deleting/overwriting failed evidence, reusing predecessor operation roots, removing application containers/data volumes or restoring databases",
+  "Historical/public data reads or starts, login/session creation, generation, payments, mail or messenger/social sends, provider POST/interrupt/free/unload or arbitrary proxy destinations",
+  "Host-global networking/DNS/FRP changes, a new application stand, neighboring-project changes, automatic rollback or public-domain switch",
+]
+rollbackBoundary = "Stop at the first failed or ambiguous stage and reconcile only the exact owned native task/build IDs. Preserve the installed application, all data/media, predecessor evidence, old guard and every new partial output. Do not retry, clean release images/application resources, restore databases or automatically roll back. Only unchanged canonical ownership-checked temporary metadata probe cleanup is permitted. Later recovery requires separately reviewed bounded authority; no source/CI/ownership/freshness gate is weakened."
