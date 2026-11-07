@@ -1,0 +1,88 @@
+manifestVersion = 1
+id = "GENERATION-RECOVERY-SERIALIZATION-001"
+baseSha = "bf2d60b508da4e4de52905561b8db0a9f27ea721"
+goal = "Serialize the already wired generation-recovery read/refund/update transaction before its first read, preventing competing recovery callers from refunding the same interrupted job more than once."
+userOutcome = "Concurrent startup recovery of the same persisted interrupted generation credits its owner once while preserving caller-owned commit and rollback."
+beforeScenario = "Current main bf2d60b508da4e4de52905561b8db0a9f27ea721 delegates startup reconciliation to generation_recovery.py, whose initial reads precede any writer reservation; competing connections can all observe a missing refund before updating the balance and ledger."
+afterScenario = "The service acquires or safely upgrades a SQLite write transaction before reading recovery state, or fails before invoking refunds; committed competing calls observe the prior recovery and become no-ops."
+nonGoals = [
+  "Provide POST /api/generate admission idempotency or global idempotency for direct refund_generation_tokens callers",
+  "Fence restored historical jobs, outboxes, background handlers or every user request",
+  "Change main.py, database schema, migrations, global connection policy, authentication, providers or runtime configuration",
+  "Start a historical database, build or deploy the application, authenticate users, generate images or switch the public site",
+]
+declaredFiles = [
+  "backend/app/services/generation_recovery.py",
+  "backend/test_services_generation_recovery_module.py",
+  "backend/test_generation_recovery_wiring.py",
+  "tasks/GENERATION-RECOVERY-SERIALIZATION-001.toml",
+  "docs/agent-tasks/GENERATION-RECOVERY-SERIALIZATION-001.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/main.py",
+  "backend/app/database/**",
+  "backend/app/billing/**",
+  "backend/app/security/**",
+  "backend/SYMBOL_MAP.md",
+  "architecture/**",
+  "docs/generated/**",
+  "docs/context/**",
+  "docs/NOW.md",
+  "frontend/**",
+  "ops/**",
+  "tools/**",
+  ".github/**",
+  "tasks/OPENROUTER-LINUX-SHADOW-001.toml",
+  "docs/agent-tasks/OPENROUTER-LINUX-SHADOW-001.md",
+]
+protectedFilesTouched = [
+]
+domain = "image-generation"
+riskClass = "high-assurance"
+changeClass = "bugfix"
+maxProductionFiles = 1
+maxChangedLines = 400
+acceptance = [
+  "Register only after current canonical and remote main are freshly confirmed at bf2d60b508da4e4de52905561b8db0a9f27ea721 and all five declared paths are confirmed outside the exact PR211 owner scope; native baseSha records the actual reviewed base",
+  "Reserve the SQLite writer before the first jobs, images or refund-state read; existing conn.in_transaction alone is not evidence of a writer reservation",
+  "For a fresh connection, explicitly begin a write transaction that remains held across all recovery statements, including isolation_level=None connections; do not rely on a single autocommitted no-op statement",
+  "For an already active deferred/read transaction, obtain a real write reservation before reading recovery state or propagate its conflict before refund_job; preserve an already active writer transaction",
+  "Never commit, roll back, replace, retry or silently restart a caller-owned transaction inside the service; stale WAL read snapshots fail closed before refunds and remain owned by the caller",
+  "If a zero-row write is used for an upgrade, prove zero affected rows, unchanged total_changes and no row-trigger effects while the writer reservation remains held until caller commit or rollback",
+  "Reflect any required connection state in the existing RecoveryConnection protocol instead of an unsafe getattr fallback or an unrelated abstraction",
+  "With real separate temporary SQLite/WAL connections and the canonical relevant ledger constraints, reproduce the baseline double refund at 2, 5 and 10 contenders; the fixed wired path commits exactly one refund and one three-token balance restoration",
+  "Synchronize contenders before acquiring a reservation; never make a green test wait for all contenders inside a writer-protected callback",
+  "A refund-side exception rolls back the job, balance and ledger together when the caller rolls back; successful service return does not commit prior caller work or release its writer reservation",
+  "Preserve saved-image completion without refund, deleted-image handling, terminal jobs, resumable video providers and sequential second-run behavior",
+  "Pass focused current-base tests, bounded repeated race checks, unchanged applicable generators, exact-head required CI and independent review before normal protected merge",
+]
+requiredEvidence = [
+  "Native package-start receipt, exact canonical manifest, clean base and non-overlap with the still-owned OPENROUTER-LINUX-SHADOW-001 scope precede any repository source change",
+  "Preserve immutable baseline source pins, actual red output and test connection policy: SQLite/Python versions, WAL, isolation_level, busy_timeout, barrier position and caller transaction boundaries",
+  "Use the unchanged real refund implementation for wired regressions and canonical initialized temporary databases; any standalone excerpt reproduction explicitly reports its source pins and fixture limitations",
+  "Cover fresh legacy and autocommit connections, caller-owned deferred/read and already-write transactions, a held competing writer, stale WAL snapshots and explicit caller rollback",
+  "Run 2, 5 and 10 contention cases and repeat only the focused race suite three times; record actual case counts, exceptions and ledger/balance outcomes without hiding retries",
+  "Keep tests isolated from live databases, historical copies, providers, application workers and external networking",
+  "Check applicable backend/architecture/context generators; if the scanned contract requires a forbidden or foreign-owned generated change, stop for lawful scope review rather than editing it or weakening its check",
+  "Bind published review and actual required CI to the exact candidate HEAD and current event target base; source-only success is not deployment, comprehensive no-replay or accepted beta",
+]
+targetedTests = [
+  "backend/test_services_generation_recovery_module.py",
+  "backend/test_generation_recovery_wiring.py",
+  "backend/test_generation_protection.py",
+  "backend/test_services_generation_jobs_module.py",
+]
+fileGrowthExpectations = [
+  "Exactly five declared files and one production file; keep the transaction change within the existing service and protocol without new routes, workers, tables or dependencies",
+  "Budget 400 changed lines for the small production fix, nearest service and wired regressions, native manifest and short stable task document; do not raise the budget later",
+  "Keep each existing test module below 500 lines and 24 KiB, and the task document below 50 lines and 12 KiB; preserve evolving execution receipts outside Git",
+]
+forbiddenOperations = [
+  "Foreign-token or registry edits, PR211 scope takeover, direct main push, force push, stale-base CI reuse or required-check bypass",
+  "Database schema/migration/global connection changes, hidden service commit/rollback, automatic transaction retry or refund callback invocation after a failed reservation",
+  "Production or historical data reads/writes, Docker build/runtime or 1Panel application/service mutation, account/session changes, real provider calls, image generation or public-site changes",
+  "Claim global generate/refund idempotency, complete historical no-replay or beta acceptance from this narrowly serialized recovery path",
+]
+rollbackBoundary = "Revert only this source package if necessary. The change introduces no schema or data migration and authorizes no application restart, database restore, deployment or runtime cleanup. Caller-owned transactions retain their existing commit/rollback authority. Preserve baseline, race and CI evidence; any required scope expansion or runtime action needs separate review."

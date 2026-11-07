@@ -18,6 +18,8 @@ STARTUP_INTERRUPTION_MESSAGE = "Генерация прервана переза
 
 
 class RecoveryConnection(Protocol):
+    in_transaction: bool
+
     def execute(self, sql: str, parameters: tuple[Any, ...] = ()) -> Any: ...
 
 
@@ -57,9 +59,14 @@ def reconcile_stale_generation_jobs(
 
     A persisted active image proves that generation output was already committed,
     so that job is completed without a refund. Every other active row belongs to
-    the previous process, is failed, and uses the existing idempotent refund path.
-    The caller owns the transaction; exceptions intentionally roll it back.
+    the previous process and is failed and refunded under a writer reservation.
+    The caller owns commit and rollback; exceptions propagate unchanged.
     """
+
+    if conn.in_transaction:
+        conn.execute("UPDATE jobs SET status = status WHERE 0")
+    else:
+        conn.execute("BEGIN IMMEDIATE")
 
     placeholders = ",".join("?" for _ in ACTIVE_GENERATION_STATUSES)
     rows = conn.execute(
