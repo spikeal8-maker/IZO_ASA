@@ -1,0 +1,84 @@
+manifestVersion = 1
+id = "BACKUP-RESTORE-SNAPSHOT-BINDING-001"
+baseSha = "b308359e7466b78ecce06c9ae41b4a4b73cbe6ec"
+goal = "Bind restore to the concrete snapshot already verified, including when latest advances during the operation."
+userOutcome = "The selected source, verified snapshot, restored SQLite rows and media, and VerificationResult all identify the same backup."
+beforeScenario = "Verification selects A through latest; publishing completed B before restore resolves latest again restores B while returning VerificationResult for A."
+afterScenario = "Restore resolves the verified concrete snapshot ID; publishing B never changes the source, and missing or unusable A fails without RESTORE_COMPLETED."
+nonGoals = [
+  "new installer, backup format or storage subsystem redesign",
+  "public API, CLI, VerificationResult or legacy completion marker changes",
+  "merge, deploy, runtime acceptance or observed-instance operations",
+]
+declaredFiles = [
+  "backend/app/storage/backup.py",
+  "tools/test_backup_restore.py",
+  "tasks/BACKUP-RESTORE-SNAPSHOT-BINDING-001.toml",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  ".github/**",
+  "ops/**",
+  "frontend/**",
+  "docs/**",
+  "architecture/**",
+  "backend/main.py",
+  "backend/requirements.txt",
+  "tools/agent.ps1",
+  "tools/agent_system/**",
+  "tools/verify.ps1",
+  "tools/backup_production.py",
+  "tools/restore_backup.py",
+]
+protectedFilesTouched = [
+]
+domain = "backup-restore"
+riskClass = "high-assurance"
+changeClass = "bugfix"
+maxProductionFiles = 1
+maxChangedLines = 400
+acceptance = [
+  "A and B use only temporary SQLite/media fixtures, fixed ordered snapshot IDs and distinguishable rows and media bytes.",
+  "A test-controlled verification callback publishes completed B after verification of A; no sleeps, timing races or retry-until-failure loops are used.",
+  "The unmodified restore implementation deterministically returns A while restoring B; the fixed implementation returns and restores A.",
+  "Disappearance, incomplete marker, corrupt manifest, database or media, and unsafe selected snapshot paths fail without fallback to completed B or RESTORE_COMPLETED.",
+  "Explicit snapshot IDs and latest without competing publication remain compatible, including legacy ok completion markers.",
+  "rehearse_restore uses the same snapshot binding and removes only its own temporary directory on success and failure; unrelated sibling files remain unchanged.",
+  "Source SQLite/media and A/B backup file inventories and SHA256 checksums remain unchanged by successful restoration; negative tests account only for their deliberate fixture mutation.",
+  "Existing WAL, corruption, manifest path, symlink, separate-volume and nonempty destination regressions remain present and pass.",
+  "Only the three declared files change; scope, source size, whitespace and committed diff checks pass.",
+  "Public signatures, VerificationResult, CLI, backup format and completion marker compatibility remain unchanged.",
+]
+requiredEvidence = [
+  "Repository origin, current main SHA, branch, worktree, clean initial status and registered package ownership.",
+  "Deterministic RED log from unchanged production source with returned A and restored B rows/media.",
+  "Focused GREEN log and one additional execution of the deterministic publication case for the high-assurance race gate.",
+  "Assertions comparing complete fixture source/backup SHA256 inventories and rehearsal cleanup ownership.",
+  "Author source review, complete diff, scope receipt, syntax/whitespace and file hygiene results; do not call these independent review.",
+  "Exact base and final commit SHA, changed files, Draft PR and observed CI states; unavailable independent review is explicit and blocks merge readiness.",
+  "Current-SHA workflow filter review confirms the three-file diff does not trigger Docker/Linux acceptance.",
+]
+targetedTests = [
+  "python -m pytest tools/test_backup_restore.py -q",
+  "python -m pytest tools/test_backup_restore.py -q -k stays_bound_to_verified_snapshot",
+  "python -m py_compile backend/app/storage/backup.py tools/test_backup_restore.py",
+  "pwsh -NoProfile -NonInteractive -File tools/agent.ps1 verify",
+  "git diff --check",
+  "python -m tools.agent_system.enforce --repo-root . ci --target-base b308359e7466b78ecce06c9ae41b4a4b73cbe6ec",
+  "python -m tools.file_hygiene --base b308359e7466b78ecce06c9ae41b4a4b73cbe6ec --head $(git rev-parse HEAD)",
+]
+fileGrowthExpectations = [
+  "One bounded production correction in restore_snapshot; no new production helpers or generated architecture changes.",
+  "Extend the existing focused test file below 500 lines and 24 KiB without deleting existing tests or adding size exceptions.",
+  "One new task manifest with exact scope, deterministic acceptance and explicit operational prohibitions.",
+]
+forbiddenOperations = [
+  "modify the observed instance, containers, images, volumes, data, configuration, observer, schedules or timer",
+  "create application tasks on the observed instance",
+  "use historical or working databases/media as fixtures or read secrets",
+  "invoke application models, providers, payments, mail, bots or Codex",
+  "restart Docker or Windows, change network configuration or rerun Linux acceptance without a concrete reason",
+  "overwrite unrelated changes, change remote main, bypass ownership or locks, silently expand scope, merge or deploy",
+]
+rollbackBoundary = "Revert this isolated code/test/contract commit before merge; no runtime, database, media, backup format, configuration or observed-instance rollback is needed."

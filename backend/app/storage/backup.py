@@ -396,7 +396,8 @@ def verify_snapshot(backup_root: Path, snapshot: str = "latest") -> Verification
 def restore_snapshot(backup_root: Path, destination: Path, snapshot: str = "latest") -> VerificationResult:
     root = backup_root.expanduser().resolve()
     verified = verify_snapshot(root, snapshot)
-    snapshot_dir = resolve_snapshot(root, snapshot)
+    # Recheck the verified snapshot, since "latest" may have advanced.
+    snapshot_dir = resolve_snapshot(root, verified.snapshot_id)
     manifest = load_manifest(snapshot_dir)
     destination = destination.expanduser().resolve()
     try:
