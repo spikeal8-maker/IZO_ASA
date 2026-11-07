@@ -18,6 +18,7 @@ declaredFiles = [
   "docs/agent-tasks/PAYMENT-OUTBOX-TERMINAL-001.md",
 ]
 allowedPatterns = [
+  "docs/admin-mutation-audit.md",
 ]
 forbiddenPatterns = [
   "backend/main.py",
@@ -76,3 +77,8 @@ forbiddenOperations = [
   "disable checks, alter mandatory policy or modify generated artifacts",
 ]
 rollbackBoundary = "Revert only this reviewed code package; it changes no schema and requires no data rollback. Do not restore database files or alter historical outbox records."
+
+[[scopeExpansions]]
+path = "docs/admin-mutation-audit.md"
+reason = "CI42347093486 exact b4958e9be9ed4b78d3214d1babe4e5fe6b8b3396 reports one stale evidence_artifacts fingerprint for the extended outbox regression suite. Recompute only that binding using unchanged tools.test_admin_mutation_audit._artifact_fingerprint; preserve all source SHAs, route fingerprints/statuses, artifact paths, findings, gaps and historical evidence. No generator, policy, main.py or runtime change."
+recordedAtUtc = "2026-11-07T07:21:23.811047Z"

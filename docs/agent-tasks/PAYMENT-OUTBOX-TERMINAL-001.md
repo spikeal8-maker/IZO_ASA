@@ -40,6 +40,19 @@ two-connection interleaving. No provider or historical database was used.
 Native verification, generator checks, scope verification, independent review
 and required hosted CI remain separate gates before integration.
 
+## CI evidence binding repair
+
+CI run `42347093486`, job `128327087024`, on exact
+`b4958e9be9ed4b78d3214d1babe4e5fe6b8b3396` reports 1 failed, 2693 passed,
+8 warnings and 0 cleanup issues. The sole failure is the audit's stale
+whole-file fingerprint for the extended outbox test module.
+Ordinary scope-add covers only `docs/admin-mutation-audit.md`; the unchanged
+`tools.test_admin_mutation_audit._artifact_fingerprint` recomputes that binding.
+All source SHAs, artifact paths, route fingerprints/statuses, findings and gaps
+remain unchanged. No generated artifact, audit gate or 350-line budget changes.
+This is evidence rebinding, not a new audit, historical restore or live claim;
+fresh exact-head hosted CI and review remain required.
+
 ## Rollback
 
 Revert this code package only. No schema or historical outbox rows are rewritten;

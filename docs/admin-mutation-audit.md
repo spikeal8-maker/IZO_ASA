@@ -92,7 +92,7 @@ SHA. Это не `DEPLOYED` и не `OPERATIONALLY VERIFIED`.
     {"path": "backend/test_admin_actions.py", "fingerprint": "sha256:6379e9bd7ed0c5788e830b56c1d2ba1d2707361e934ba74a62cedd48dd2f5912"},
     {"path": "backend/test_product_consistency_20e2b.py", "fingerprint": "sha256:1d237962b0a3c458361fb7206db2f09c4a2e946563cd33602c20762d498f524a"},
     {"path": "backend/test_billing_simulator_checkout_v2.py", "fingerprint": "sha256:da7881cbf71550d1de001e2aaba3816e239a05f768b9a1a8649756989fdd9946"},
-    {"path": "backend/test_billing_notification_outbox.py", "fingerprint": "sha256:67b59933da8c78268b237434a870e98960b5919a34a00c0fe27b3bde5175ac4d"},
+    {"path": "backend/test_billing_notification_outbox.py", "fingerprint": "sha256:8eb5090052e934e475a42fe4aed6fef778b1336220ba2b89aad54ffcf3df14d6"},
     {"path": "backend/test_billing_v2.py", "fingerprint": "sha256:92c0403dd590b87895802e540cf26b98a09d8fdb04a8298b78c9a561a62f9fc3"},
     {"path": "backend/test_promo_bonus_referral_v2.py", "fingerprint": "sha256:0d03133b66880f19b0a197ce6b88afedb6df8d3a8398132917f8cf924d575796"}
   ],
