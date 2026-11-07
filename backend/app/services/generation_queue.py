@@ -6,6 +6,8 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from .history_replay import HistoricalReplayBlocked, HistoryReplayConfigurationError
+
 
 class GenerationQueue(Protocol):
     async def get(self) -> str: ...
@@ -21,16 +23,22 @@ class GenerationQueueRuntime:
     perf_counter: Callable[[], float]
     build_worker_runtime: Callable[[], Any]
     process_job: Callable[..., Awaitable[None]]
+    history_guard: Callable[[str], None] | None = None
+    history_guard_required: bool = False
 
 
 async def consume_generation_queue(runtime: GenerationQueueRuntime) -> None:
     while True:
         job_id = await runtime.queue.get()
-        job = runtime.jobs[job_id]
-        request = runtime.parse_request(job["request"])
-        started_at = runtime.perf_counter()
-        worker_runtime = runtime.build_worker_runtime()
         try:
+            if runtime.history_guard is not None:
+                runtime.history_guard(job_id)
+            elif runtime.history_guard_required:
+                raise HistoryReplayConfigurationError("Generation queue history guard is required")
+            job = runtime.jobs[job_id]
+            request = runtime.parse_request(job["request"])
+            started_at = runtime.perf_counter()
+            worker_runtime = runtime.build_worker_runtime()
             await runtime.process_job(
                 job_id,
                 job,
@@ -38,6 +46,8 @@ async def consume_generation_queue(runtime: GenerationQueueRuntime) -> None:
                 worker_runtime,
                 started_at=started_at,
             )
+        except HistoricalReplayBlocked:
+            continue
         finally:
             runtime.queue.task_done()
 

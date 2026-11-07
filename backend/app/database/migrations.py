@@ -316,6 +316,81 @@ def apply_phone_chat_request_lifecycle_migration(
     )
 
 
+RELEASE_FINISH_MIGRATION = MigrationDefinition(
+    version=8,
+    name="generation_admission_and_history_replay",
+    checksum="sha256:88df5320f3a03aecc678e3e2abae115e1b7a8e9c3807427815edd71f4fda88e3",
+)
+
+RELEASE_FINISH_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS generation_admissions (
+    user_id TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) BETWEEN 1 AND 200),
+    request_fingerprint TEXT NOT NULL CHECK(length(request_fingerprint) = 64),
+    job_id TEXT NOT NULL UNIQUE,
+    response_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(user_id, idempotency_key),
+    FOREIGN KEY(user_id) REFERENCES users(id),
+    FOREIGN KEY(job_id) REFERENCES jobs(id)
+);
+CREATE TABLE IF NOT EXISTS generation_refunds (
+    job_id TEXT PRIMARY KEY,
+    ledger_id TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(ledger_id) REFERENCES token_ledger(id)
+);
+CREATE TABLE IF NOT EXISTS history_replay_boundary (
+    singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+    snapshot_id TEXT NOT NULL UNIQUE CHECK(length(snapshot_id) > 0),
+    sealed_at TEXT NOT NULL,
+    manifest_json TEXT NOT NULL,
+    manifest_sha256 TEXT NOT NULL CHECK(length(manifest_sha256) = 64)
+);
+CREATE TABLE IF NOT EXISTS history_replay_resources (
+    snapshot_id TEXT NOT NULL,
+    resource TEXT NOT NULL,
+    resource_id TEXT NOT NULL,
+    PRIMARY KEY(snapshot_id, resource, resource_id),
+    FOREIGN KEY(snapshot_id) REFERENCES history_replay_boundary(snapshot_id)
+        DEFERRABLE INITIALLY DEFERRED
+) WITHOUT ROWID;
+CREATE TRIGGER IF NOT EXISTS history_boundary_no_insert
+BEFORE INSERT ON history_replay_boundary
+WHEN EXISTS (SELECT 1 FROM history_replay_boundary WHERE singleton = 1) BEGIN
+    SELECT RAISE(ABORT, 'history replay boundary is immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS history_boundary_no_update
+BEFORE UPDATE ON history_replay_boundary BEGIN
+    SELECT RAISE(ABORT, 'history replay boundary is immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS history_boundary_no_delete
+BEFORE DELETE ON history_replay_boundary BEGIN
+    SELECT RAISE(ABORT, 'history replay boundary is immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS history_resources_no_insert
+BEFORE INSERT ON history_replay_resources
+WHEN EXISTS (SELECT 1 FROM history_replay_boundary WHERE singleton = 1) BEGIN
+    SELECT RAISE(ABORT, 'history replay resources are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS history_resources_no_update
+BEFORE UPDATE ON history_replay_resources
+WHEN EXISTS (SELECT 1 FROM history_replay_boundary WHERE singleton = 1) BEGIN
+    SELECT RAISE(ABORT, 'history replay resources are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS history_resources_no_delete
+BEFORE DELETE ON history_replay_resources
+WHEN EXISTS (SELECT 1 FROM history_replay_boundary WHERE singleton = 1) BEGIN
+    SELECT RAISE(ABORT, 'history replay resources are immutable');
+END;
+"""
+
+def apply_release_finish_migration(conn: sqlite3.Connection, *, applied_at: str) -> bool:
+    """Add durable admission/refunds and an explicit restored-history boundary."""
+    conn.executescript(RELEASE_FINISH_SCHEMA_SQL)
+    return record_applied_migration(conn, RELEASE_FINISH_MIGRATION, applied_at=applied_at)
+
+
 USER_EARLY_ADDITIVE_COLUMNS = {
     "plan": "TEXT NOT NULL DEFAULT 'mini'",
     "plan_expires_at": "TEXT",

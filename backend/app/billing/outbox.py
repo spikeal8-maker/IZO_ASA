@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
+from ..services.history_replay import history_policy_for_connection
+
 
 OUTBOX_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS payment_notification_outbox (
@@ -57,6 +59,7 @@ def enqueue_payment_notification(
     payload: Mapping[str, Any],
     now: str | None = None,
 ) -> bool:
+    history_policy_for_connection(conn).require_allowed("payments", payment_id)
     created_at = now or datetime.now(timezone.utc).isoformat()
     before = conn.total_changes
     conn.execute(
@@ -87,14 +90,17 @@ def pending_messages(
     now: str | None = None,
     limit: int = 20,
 ) -> list[OutboxMessage]:
+    allowed, bindings = history_policy_for_connection(conn).where_allowed(
+        "payment_notification_outbox", "id", parents=(("payments", "payment_id"),),
+    )
     current = now or datetime.now(timezone.utc).isoformat()
     rows = conn.execute(
-        """
+        f"""
         SELECT * FROM payment_notification_outbox
-        WHERE status IN ('pending', 'retry') AND next_attempt_at <= ?
+        WHERE status IN ('pending', 'retry') AND next_attempt_at <= ? AND ({allowed})
         ORDER BY created_at, id LIMIT ?
         """,
-        (current, max(1, min(limit, 100))),
+        (current, *bindings, max(1, min(limit, 100))),
     ).fetchall()
     return [
         OutboxMessage(
@@ -121,16 +127,19 @@ def claim_pending_messages(
     current = now or datetime.now(timezone.utc)
     current_iso = current.isoformat()
     conn.execute("BEGIN IMMEDIATE")
+    allowed, bindings = history_policy_for_connection(conn).where_allowed(
+        "payment_notification_outbox", "id", parents=(("payments", "payment_id"),),
+    )
     rows = conn.execute(
-        """
+        f"""
         SELECT * FROM payment_notification_outbox
         WHERE (
             status IN ('pending', 'retry')
             OR (status = 'processing' AND next_attempt_at <= ?)
-        ) AND next_attempt_at <= ?
+        ) AND next_attempt_at <= ? AND ({allowed})
         ORDER BY created_at, id LIMIT ?
         """,
-        (current_iso, current_iso, max(1, min(limit, 100))),
+        (current_iso, current_iso, *bindings, max(1, min(limit, 100))),
     ).fetchall()
     if rows:
         ids = [str(row["id"]) for row in rows]
@@ -157,11 +166,14 @@ def claim_pending_messages(
 
 
 def mark_sent(conn: sqlite3.Connection, message_id: str, *, sent_at: str | None = None) -> None:
+    allowed, bindings = history_policy_for_connection(conn).where_allowed(
+        "payment_notification_outbox", "id", parents=(("payments", "payment_id"),),
+    )
     now = sent_at or datetime.now(timezone.utc).isoformat()
     conn.execute(
         "UPDATE payment_notification_outbox SET status='sent', sent_at=?, last_error=NULL "
-        "WHERE id=? AND status<>'sent'",
-        (now, message_id),
+        f"WHERE id=? AND status<>'sent' AND ({allowed})",
+        (now, message_id, *bindings),
     )
 
 
@@ -173,9 +185,12 @@ def mark_retry(
     now: datetime | None = None,
     max_attempts: int = 5,
 ) -> None:
+    allowed, bindings = history_policy_for_connection(conn).where_allowed(
+        "payment_notification_outbox", "id", parents=(("payments", "payment_id"),),
+    )
     row = conn.execute(
-        "SELECT attempts FROM payment_notification_outbox WHERE id=? AND status<>'sent'",
-        (message_id,),
+        f"SELECT attempts FROM payment_notification_outbox WHERE id=? AND status<>'sent' AND ({allowed})",
+        (message_id, *bindings),
     ).fetchone()
     if row is None:
         return
@@ -184,10 +199,10 @@ def mark_retry(
     status = "failed" if attempts >= max_attempts else "retry"
     delay_minutes = min(60, 2 ** max(0, attempts - 1))
     conn.execute(
-        """
+        f"""
         UPDATE payment_notification_outbox
         SET status=?, attempts=?, next_attempt_at=?, last_error=?
-        WHERE id=? AND status<>'sent'
+        WHERE id=? AND status<>'sent' AND ({allowed})
         """,
         (
             status,
@@ -195,5 +210,6 @@ def mark_retry(
             (current + timedelta(minutes=delay_minutes)).isoformat(),
             error[:500],
             message_id,
+            *bindings,
         ),
     )

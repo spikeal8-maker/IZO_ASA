@@ -16,195 +16,195 @@ Auth policy is a conservative static hint. Every `REVIEW` row must be checked in
 
 | Method | Path | Handler | Line | Detected policy |
 |---|---|---|---:|---|
-| GET | `/favicon.svg` | `favicon` | 1001 | public/optional/review |
-| GET | `/` | `home_page_shell` | 1011 | public/optional/review |
-| GET | `/gallery` | `gallery_page_shell` | 1016 | public/optional/review |
-| GET | `/gallery/` | `gallery_page_shell_slash` | 1027 | public/optional/review |
-| GET | `/feed` | `feed_page_shell` | 1032 | public/optional/review |
-| GET | `/feed/` | `feed_page_shell_slash` | 1043 | public/optional/review |
-| GET | `/api/health` | `health` | 7847 | public/optional/review |
-| GET | `/api/version` | `version` | 7886 | public/optional/review |
-| POST | `/api/tools/improve-prompt` | `improve_prompt` | 7935 | user |
-| POST | `/api/client-errors` | `client_runtime_error` | 8001 | public/optional/review |
-| POST | `/api/runtime/synthetic-result` | `runtime_synthetic_result` | 8039 | public/optional/review |
-| GET | `/api/admin/runtime-health-v2` | `admin_runtime_health_v2` | 8062 | admin |
-| POST | `/api/tools/transcribe` | `transcribe_audio` | 8125 | user |
-| POST | `/api/generate` | `generate` | 8184 | user |
-| GET | `/api/jobs/{job_id}` | `get_job` | 8316 | user |
-| POST | `/api/jobs/{job_id}/cancel` | `cancel_job` | 8337 | user |
-| GET | `/api/models` | `models` | 8355 | public/optional/review |
-| GET | `/api/flux-klein/config` | `flux_klein_config` | 8376 | public/optional/review |
-| GET | `/api/flux-klein/bgremoval-models` | `flux_klein_bgremoval_models` | 8391 | public/optional/review |
-| GET | `/api/flux-klein/lora-triggers` | `flux_klein_lora_triggers` | 8399 | public/optional/review |
-| GET | `/api/tariffs` | `tariffs` | 8423 | public/optional/review |
-| GET | `/api/public/commerce-v2` | `public_commerce_v2` | 8445 | public/optional/review |
-| GET | `/api/gallery` | `gallery` | 8469 | user |
-| GET | `/api/gallery/items` | `gallery_items_page` | 8486 | user |
-| GET | `/api/gallery/secondary` | `gallery_secondary` | 8632 | public/optional/review |
-| GET | `/api/gallery/page` | `gallery_page` | 8930 | public/optional/review |
-| POST | `/api/gallery/sources/{source_id}/use-as` | `gallery_source_use_as` | 8948 | user |
-| POST | `/api/gallery/sources/{source_id}/favorite` | `gallery_source_favorite` | 8986 | user |
-| DELETE | `/api/gallery/sources/{source_id}` | `gallery_source_delete` | 9004 | user |
-| GET | `/api/gallery/{image_id}` | `gallery_detail` | 9023 | user |
-| POST | `/api/gallery/{image_id}/favorite` | `gallery_favorite` | 9047 | user |
-| DELETE | `/api/gallery/{image_id}` | `gallery_delete` | 9064 | user |
-| POST | `/api/gallery/{image_id}/use-as` | `gallery_use_as` | 9084 | user |
-| GET | `/api/media/{filename}` | `secure_media` | 9135 | public/optional/review |
-| GET | `/media/avatars/{filename}` | `public_custom_avatar` | 9140 | public/optional/review |
-| GET | `/media/{filename:path}` | `legacy_secure_media` | 9154 | public/optional/review |
-| POST | `/api/app/bootstrap` | `bootstrap` | 9160 | public/optional/review |
-| POST | `/api/app/heartbeat` | `app_heartbeat` | 9234 | public/optional/review |
-| POST | `/api/auth/web-login` | `web_login` | 9255 | public/optional/review |
-| POST | `/api/auth/bootstrap-v2` | `auth_bootstrap_v2` | 9314 | public/optional/review |
-| GET | `/api/auth/capabilities-v2` | `auth_capabilities_v2` | 9403 | public/optional/review |
-| POST | `/api/auth/bot-login/start` | `auth_bot_login_start` | 9408 | public/optional/review |
-| POST | `/api/auth/link/bot/start` | `auth_bot_link_start` | 9427 | user |
-| GET | `/api/auth/bot-login/status` | `auth_bot_login_status` | 9448 | public/optional/review |
-| POST | `/api/auth/telegram-v2` | `auth_telegram_v2` | 9507 | public/optional/review |
-| POST | `/api/auth/max-v2` | `auth_max_v2` | 9607 | public/optional/review |
-| POST | `/api/auth/email/request-code-v2` | `auth_email_request_code_v2` | 9703 | public/optional/review |
-| POST | `/api/auth/email/verify-code-v2` | `auth_email_verify_code_v2` | 9762 | public/optional/review |
-| POST | `/api/auth/link/email/request-code-v2` | `auth_link_email_request_code_v2` | 9873 | user |
-| POST | `/api/auth/link/email/verify-code-v2` | `auth_link_email_verify_code_v2` | 9916 | user |
-| POST | `/api/auth/password/register-v2` | `auth_password_register_v2` | 9967 | public/optional/review |
-| POST | `/api/auth/password/login-v2` | `auth_password_login_v2` | 10082 | public/optional/review |
-| GET | `/api/me-v2` | `me_v2` | 10188 | user |
-| GET | `/api/account/token-history-v2` | `account_token_history_v2` | 10368 | user |
-| GET | `/api/auth/sessions` | `auth_sessions_list` | 10446 | user |
-| POST | `/api/auth/sessions/{session_id}/revoke` | `auth_session_revoke` | 10489 | user |
-| POST | `/api/auth/sessions/revoke-others` | `auth_sessions_revoke_others` | 10500 | user |
-| GET | `/api/account/activity-v2` | `account_activity_v2` | 10517 | user |
-| GET | `/api/auth/whoami-v2` | `whoami_v2` | 10562 | user |
-| GET | `/api/me/profile-v2` | `me_profile_v2` | 10575 | user |
-| PATCH | `/api/me/profile-v2` | `me_profile_update_v2` | 10607 | user |
-| POST | `/api/me/avatar-upload-v2` | `me_avatar_upload_v2` | 10672 | user |
-| GET | `/api/me/devices-v2` | `me_devices_v2` | 10714 | user |
-| GET | `/api/me/sessions-v2` | `me_sessions_v2` | 10738 | user |
-| GET | `/api/me/consents-v2` | `me_consents_v2` | 10767 | user |
-| POST | `/api/me/consents-v2` | `me_consents_create_v2` | 10790 | user |
-| GET | `/api/admin/users-v2` | `admin_users_v2` | 10840 | admin |
-| GET | `/api/admin/users/{internal_user_id}/v2` | `admin_user_detail_v2` | 10905 | admin |
-| GET | `/api/admin/security-events-v2` | `admin_security_events_v2` | 10985 | admin |
-| GET | `/api/admin/audit-logs-v2` | `admin_audit_logs_v2` | 11032 | admin |
-| POST | `/api/admin/users/{internal_user_id}/block-v2` | `admin_block_user_v2` | 11086 | admin |
-| POST | `/api/admin/users/{internal_user_id}/unblock-v2` | `admin_unblock_user_v2` | 11122 | admin |
-| POST | `/api/admin/users/{internal_user_id}/password-reset-v2` | `admin_password_reset_v2` | 11151 | admin |
-| POST | `/api/admin/users/{internal_user_id}/role-v2` | `admin_role_v2` | 11597 | admin |
-| POST | `/api/admin/users/{internal_user_id}/tokens-v2` | `admin_tokens_v2` | 11622 | admin |
-| POST | `/api/admin/users/{internal_user_id}/discount-v2` | `admin_discount_v2` | 11656 | admin |
-| POST | `/api/admin/users/{internal_user_id}/plan-v2` | `admin_plan_v2` | 11687 | admin |
-| POST | `/api/admin/users/{internal_user_id}/profile-v2` | `admin_profile_v2` | 11711 | admin |
-| GET | `/api/admin/users/{internal_user_id}/billing-v2` | `admin_user_billing_v2` | 11755 | admin |
-| GET | `/api/billing/packages-v2` | `billing_packages_v2` | 11767 | user |
-| POST | `/api/account/tariff-v2/schedule-free` | `account_schedule_free_v2` | 11840 | user |
-| POST | `/api/billing/checkout-v2` | `billing_checkout_v2` | 11885 | user |
-| GET | `/api/billing/payments/{payment_id}/status-v2` | `billing_payment_status_v2` | 12025 | user |
-| POST | `/api/billing/yookassa/webhook-v2` | `billing_yookassa_webhook_v2` | 12114 | public/optional/review |
-| POST | `/api/admin/payments/{payment_id}/simulate-v2` | `admin_simulate_payment_v2` | 12150 | admin |
-| POST | `/api/admin/payments/reconcile-v2` | `admin_reconcile_payments_v2` | 12195 | admin |
-| POST | `/api/admin/payments/notifications/process-v2` | `admin_process_payment_notifications_v2` | 12260 | admin |
-| POST | `/api/admin/users/{internal_user_id}/invoices-v2` | `admin_create_invoice_v2` | 12310 | admin |
-| POST | `/api/admin/invoices/{invoice_id}/mark-paid-v2` | `admin_mark_invoice_paid_v2` | 12394 | admin |
-| POST | `/api/admin/invoices/{invoice_id}/cancel-v2` | `admin_cancel_invoice_v2` | 12480 | admin |
-| POST | `/api/admin/payments/{payment_id}/refund-v2` | `admin_refund_payment_v2` | 12506 | admin |
-| GET | `/api/admin/users/{internal_user_id}/promos-v2` | `admin_user_promos_v2` | 12588 | admin |
-| GET | `/api/admin/users/{internal_user_id}/referrals-v2` | `admin_user_referrals_v2` | 12597 | admin |
-| POST | `/api/admin/users/{internal_user_id}/bonus-v2` | `admin_bonus_grant_v2` | 12612 | admin |
-| POST | `/api/admin/users/{internal_user_id}/bonus/{bonus_id}/cancel-v2` | `admin_bonus_cancel_v2` | 12663 | admin |
-| POST | `/api/admin/users/{internal_user_id}/apply-promo-v2` | `admin_apply_promo_v2` | 12695 | admin |
-| POST | `/api/account/apply-promo-v2` | `account_apply_promo_v2` | 12764 | user |
-| POST | `/api/admin/users/{internal_user_id}/referral-reward-v2` | `admin_referral_reward_v2` | 12827 | admin |
-| GET | `/api/admin/dashboard-v2` | `admin_dashboard_v2` | 13250 | admin |
-| GET | `/api/admin/logs-v2` | `admin_logs_v2` | 13282 | admin |
-| GET | `/api/admin/users-analytics-v2` | `admin_users_analytics_v2` | 13401 | admin |
-| GET | `/api/admin/users/{internal_user_id}/analytics-v2` | `admin_user_detail_analytics_v2` | 13447 | admin |
-| GET | `/api/admin/media/image/{image_id}` | `admin_user_image_media` | 13653 | admin |
-| GET | `/api/admin/media/video/{video_id}` | `admin_user_video_media` | 13670 | admin |
-| POST | `/api/admin/users/{internal_user_id}/gallery/{image_id}/delete-v2` | `admin_delete_user_gallery_image_v2` | 13687 | admin |
-| GET | `/api/admin/mail/status-v2` | `admin_mail_status_v2` | 13730 | admin |
-| POST | `/api/admin/mail/test-v2` | `admin_mail_test_v2` | 13855 | admin |
-| GET | `/api/admin/diagnostics-v2` | `admin_diagnostics_v2` | 13871 | admin |
-| POST | `/api/auth/session/refresh-v2` | `auth_session_refresh_v2` | 13894 | public/optional/review |
-| POST | `/api/auth/session/logout-v2` | `auth_session_logout_v2` | 13914 | public/optional/review |
-| GET | `/api/auth/sessions-v2` | `auth_sessions_list_v2` | 13932 | session |
-| GET | `/api/admin/max/status` | `admin_max_status` | 14216 | admin |
-| POST | `/api/gallery/{image_id}/send` | `send_gallery_image` | 14245 | user |
-| POST | `/api/translate` | `translate` | 14272 | public/optional/review |
-| GET | `/api/presets` | `get_presets` | 14283 | public/optional/review |
-| GET | `/api/admin/summary` | `admin_summary` | 14290 | admin |
-| GET | `/api/admin/energy` | `admin_energy` | 14385 | admin |
-| GET | `/api/admin/users` | `admin_users` | 14402 | admin |
-| POST | `/api/admin/users` | `admin_create_user` | 14417 | admin |
-| PATCH | `/api/admin/users/{user_id}` | `admin_update_user` | 14452 | admin |
-| DELETE | `/api/admin/users/{user_id}` | `admin_delete_user` | 14504 | admin |
-| GET | `/api/admin/users/{user_id}/history` | `admin_user_history` | 14537 | admin |
-| GET | `/api/admin/promos` | `admin_promos` | 14556 | admin |
-| POST | `/api/admin/promos` | `admin_create_promo` | 14564 | admin |
-| GET | `/api/admin/settings` | `admin_get_settings` | 14588 | admin |
-| POST | `/api/admin/settings/{key}` | `admin_save_settings` | 14600 | admin |
-| GET | `/api/admin/assistants` | `admin_assistants` | 14660 | admin |
-| PUT | `/api/admin/mail/config-v2` | `admin_mail_config_v2` | 14694 | admin |
-| POST | `/api/admin/mail/verify-v2` | `admin_mail_verify_v2` | 14704 | admin |
-| POST | `/api/admin/mail/unisender/verify-v2` | `admin_mail_unisender_verify_v2` | 14740 | admin |
-| POST | `/api/admin/mail/unisender/lists-v2` | `admin_mail_unisender_create_list_v2` | 14822 | admin |
-| GET | `/api/admin/payments/status-v2` | `admin_payments_status_v2` | 14838 | admin |
-| PUT | `/api/admin/payments/config-v2` | `admin_payments_config_v2` | 14891 | admin |
-| POST | `/api/admin/payments/check-v2` | `admin_payments_check_v2` | 14901 | admin |
-| PUT | `/api/admin/payments/packages/{code}-v2` | `admin_payment_package_v2` | 14941 | admin |
-| POST | `/api/admin/assistants/test` | `admin_test_assistant` | 14959 | admin |
-| POST | `/api/admin/assistants/voice-test` | `admin_test_voice_assistant` | 14996 | admin |
-| GET | `/api/admin/model-status` | `admin_model_status` | 15125 | admin |
-| GET | `/api/admin/config-ui/status-v2` | `admin_config_ui_status_v2` | 15222 | admin |
-| POST | `/api/admin/config-ui/reload-v2` | `admin_config_ui_reload_v2` | 15228 | admin |
-| POST | `/api/admin/config-ui/switch-v2` | `admin_config_ui_switch_v2` | 15252 | admin |
-| POST | `/api/admin/config-ui/interrupt-v2` | `admin_config_ui_interrupt_v2` | 15270 | admin |
-| GET | `/api/admin/loras` | `admin_loras` | 15393 | admin |
-| GET | `/api/video/config` | `video_generation_config` | 16300 | public/optional/review |
-| POST | `/api/video/generate` | `generate_video` | 16384 | user |
-| POST | `/api/video/estimate` | `estimate_video` | 16466 | user |
-| GET | `/api/video/jobs/{job_id}` | `get_video_job` | 16637 | user |
-| GET | `/api/video/history` | `video_history` | 16693 | user |
-| GET | `/api/video/media/{job_id}` | `video_media` | 16715 | user |
-| POST | `/api/gallery/videos/{video_id}/favorite` | `gallery_video_favorite` | 16728 | user |
-| DELETE | `/api/gallery/videos/{video_id}` | `gallery_video_delete` | 16753 | user |
-| GET | `/api/model-access` | `model_access` | 16972 | user |
-| PUT | `/api/admin/openrouter/key` | `admin_save_openrouter_key` | 17032 | admin |
-| DELETE | `/api/admin/openrouter/key` | `admin_delete_openrouter_key` | 17052 | admin |
-| POST | `/api/admin/openrouter/test-generate` | `admin_openrouter_test_generate` | 17069 | admin |
-| GET | `/api/admin/models-page` | `admin_models_page` | 17169 | admin |
-| GET | `/api/admin/jobs` | `admin_jobs` | 17285 | admin |
-| POST | `/api/admin/limits` | `admin_limits` | 17291 | admin |
-| GET | `/api/feed` | `feed_list` | 18288 | public/optional/review |
-| POST | `/api/feed/publications` | `feed_publish` | 18660 | user |
-| GET | `/api/feed/publications/{publication_id}/status` | `feed_publication_status` | 18866 | user |
-| PATCH | `/api/feed/publications/{publication_id}` | `update_own_feed_publication` | 18898 | user |
-| POST | `/api/feed/publications/{publication_id}/like` | `feed_like` | 18961 | public/optional/review |
-| DELETE | `/api/feed/publications/{publication_id}/like` | `feed_unlike` | 18966 | public/optional/review |
-| POST | `/api/feed/publications/{publication_id}/save` | `feed_save` | 18971 | public/optional/review |
-| DELETE | `/api/feed/publications/{publication_id}/save` | `feed_unsave` | 18976 | public/optional/review |
-| POST | `/api/feed/events` | `feed_engagement_event` | 18995 | public/optional/review |
-| POST | `/api/feed/publications/{publication_id}/view` | `feed_publication_view` | 19052 | public/optional/review |
-| POST | `/api/feed/publications/{publication_id}/dislike` | `feed_dislike` | 19098 | public/optional/review |
-| DELETE | `/api/feed/publications/{publication_id}/dislike` | `feed_undislike` | 19103 | public/optional/review |
-| POST | `/api/feed/publications/{publication_id}/hide` | `feed_hide` | 19108 | public/optional/review |
-| DELETE | `/api/feed/publications/{publication_id}/hide` | `feed_unhide` | 19113 | public/optional/review |
-| POST | `/api/feed/publications/{publication_id}/report` | `feed_report` | 19118 | public/optional/review |
-| POST | `/api/feed/publications/{publication_id}/use-as` | `feed_publication_use_as` | 19123 | user |
-| POST | `/api/feed/authors/{author_id}/follow` | `feed_follow_author` | 19159 | user |
-| DELETE | `/api/feed/authors/{author_id}/follow` | `feed_unfollow_author` | 19180 | user |
-| GET | `/api/feed/authors/{author_id}/publications` | `feed_author_publications` | 19191 | public/optional/review |
-| POST | `/api/feed/following/read` | `feed_following_mark_read` | 19237 | user |
-| GET | `/api/feed/challenges` | `feed_challenges` | 19253 | public/optional/review |
-| POST | `/api/feed/publications/{publication_id}/recreate` | `feed_recreate_mark` | 19278 | public/optional/review |
-| POST | `/api/feed/publications/{publication_id}/remix/start` | `feed_remix_start` | 19294 | user |
-| GET | `/api/admin/feed/moderation` | `admin_feed_moderation_queue` | 19325 | admin |
-| GET | `/api/admin/feed/publications/{publication_id}/media` | `admin_feed_moderation_media` | 19355 | admin |
-| POST | `/api/admin/feed/publications/{publication_id}/moderate` | `admin_moderate_feed_publication` | 19374 | admin |
-| POST | `/api/admin/feed/publications/{publication_id}/delete-v2` | `admin_delete_feed_publication_v2` | 19449 | admin |
-| DELETE | `/api/feed/publications/{publication_id}` | `delete_own_feed_publication` | 19531 | user |
-| GET | `/api/feed/media/{publication_id}` | `feed_media` | 19622 | public/optional/review |
-| GET | `/api/feed/video/{publication_id}` | `feed_video_media` | 19643 | public/optional/review |
-| GET | `/api/feed/publications/{publication_id}/download` | `feed_publication_download` | 19675 | public/optional/review |
+| GET | `/favicon.svg` | `favicon` | 1022 | public/optional/review |
+| GET | `/` | `home_page_shell` | 1032 | public/optional/review |
+| GET | `/gallery` | `gallery_page_shell` | 1037 | public/optional/review |
+| GET | `/gallery/` | `gallery_page_shell_slash` | 1048 | public/optional/review |
+| GET | `/feed` | `feed_page_shell` | 1053 | public/optional/review |
+| GET | `/feed/` | `feed_page_shell_slash` | 1064 | public/optional/review |
+| GET | `/api/health` | `health` | 7715 | public/optional/review |
+| GET | `/api/version` | `version` | 7754 | public/optional/review |
+| POST | `/api/tools/improve-prompt` | `improve_prompt` | 7803 | user |
+| POST | `/api/client-errors` | `client_runtime_error` | 7869 | public/optional/review |
+| POST | `/api/runtime/synthetic-result` | `runtime_synthetic_result` | 7907 | public/optional/review |
+| GET | `/api/admin/runtime-health-v2` | `admin_runtime_health_v2` | 7930 | admin |
+| POST | `/api/tools/transcribe` | `transcribe_audio` | 7993 | user |
+| POST | `/api/generate` | `generate` | 8052 | user |
+| GET | `/api/jobs/{job_id}` | `get_job` | 8212 | user |
+| POST | `/api/jobs/{job_id}/cancel` | `cancel_job` | 8233 | user |
+| GET | `/api/models` | `models` | 8251 | public/optional/review |
+| GET | `/api/flux-klein/config` | `flux_klein_config` | 8272 | public/optional/review |
+| GET | `/api/flux-klein/bgremoval-models` | `flux_klein_bgremoval_models` | 8287 | public/optional/review |
+| GET | `/api/flux-klein/lora-triggers` | `flux_klein_lora_triggers` | 8295 | public/optional/review |
+| GET | `/api/tariffs` | `tariffs` | 8319 | public/optional/review |
+| GET | `/api/public/commerce-v2` | `public_commerce_v2` | 8341 | public/optional/review |
+| GET | `/api/gallery` | `gallery` | 8365 | user |
+| GET | `/api/gallery/items` | `gallery_items_page` | 8382 | user |
+| GET | `/api/gallery/secondary` | `gallery_secondary` | 8528 | public/optional/review |
+| GET | `/api/gallery/page` | `gallery_page` | 8826 | public/optional/review |
+| POST | `/api/gallery/sources/{source_id}/use-as` | `gallery_source_use_as` | 8844 | user |
+| POST | `/api/gallery/sources/{source_id}/favorite` | `gallery_source_favorite` | 8882 | user |
+| DELETE | `/api/gallery/sources/{source_id}` | `gallery_source_delete` | 8900 | user |
+| GET | `/api/gallery/{image_id}` | `gallery_detail` | 8919 | user |
+| POST | `/api/gallery/{image_id}/favorite` | `gallery_favorite` | 8943 | user |
+| DELETE | `/api/gallery/{image_id}` | `gallery_delete` | 8960 | user |
+| POST | `/api/gallery/{image_id}/use-as` | `gallery_use_as` | 8980 | user |
+| GET | `/api/media/{filename}` | `secure_media` | 9031 | public/optional/review |
+| GET | `/media/avatars/{filename}` | `public_custom_avatar` | 9036 | public/optional/review |
+| GET | `/media/{filename:path}` | `legacy_secure_media` | 9050 | public/optional/review |
+| POST | `/api/app/bootstrap` | `bootstrap` | 9056 | public/optional/review |
+| POST | `/api/app/heartbeat` | `app_heartbeat` | 9131 | public/optional/review |
+| POST | `/api/auth/web-login` | `web_login` | 9152 | public/optional/review |
+| POST | `/api/auth/bootstrap-v2` | `auth_bootstrap_v2` | 9211 | public/optional/review |
+| GET | `/api/auth/capabilities-v2` | `auth_capabilities_v2` | 9300 | public/optional/review |
+| POST | `/api/auth/bot-login/start` | `auth_bot_login_start` | 9305 | public/optional/review |
+| POST | `/api/auth/link/bot/start` | `auth_bot_link_start` | 9324 | user |
+| GET | `/api/auth/bot-login/status` | `auth_bot_login_status` | 9345 | public/optional/review |
+| POST | `/api/auth/telegram-v2` | `auth_telegram_v2` | 9404 | public/optional/review |
+| POST | `/api/auth/max-v2` | `auth_max_v2` | 9504 | public/optional/review |
+| POST | `/api/auth/email/request-code-v2` | `auth_email_request_code_v2` | 9600 | public/optional/review |
+| POST | `/api/auth/email/verify-code-v2` | `auth_email_verify_code_v2` | 9659 | public/optional/review |
+| POST | `/api/auth/link/email/request-code-v2` | `auth_link_email_request_code_v2` | 9770 | user |
+| POST | `/api/auth/link/email/verify-code-v2` | `auth_link_email_verify_code_v2` | 9813 | user |
+| POST | `/api/auth/password/register-v2` | `auth_password_register_v2` | 9864 | public/optional/review |
+| POST | `/api/auth/password/login-v2` | `auth_password_login_v2` | 9980 | public/optional/review |
+| GET | `/api/me-v2` | `me_v2` | 10086 | user |
+| GET | `/api/account/token-history-v2` | `account_token_history_v2` | 10266 | user |
+| GET | `/api/auth/sessions` | `auth_sessions_list` | 10344 | user |
+| POST | `/api/auth/sessions/{session_id}/revoke` | `auth_session_revoke` | 10387 | user |
+| POST | `/api/auth/sessions/revoke-others` | `auth_sessions_revoke_others` | 10398 | user |
+| GET | `/api/account/activity-v2` | `account_activity_v2` | 10415 | user |
+| GET | `/api/auth/whoami-v2` | `whoami_v2` | 10460 | user |
+| GET | `/api/me/profile-v2` | `me_profile_v2` | 10473 | user |
+| PATCH | `/api/me/profile-v2` | `me_profile_update_v2` | 10505 | user |
+| POST | `/api/me/avatar-upload-v2` | `me_avatar_upload_v2` | 10570 | user |
+| GET | `/api/me/devices-v2` | `me_devices_v2` | 10612 | user |
+| GET | `/api/me/sessions-v2` | `me_sessions_v2` | 10636 | user |
+| GET | `/api/me/consents-v2` | `me_consents_v2` | 10665 | user |
+| POST | `/api/me/consents-v2` | `me_consents_create_v2` | 10688 | user |
+| GET | `/api/admin/users-v2` | `admin_users_v2` | 10738 | admin |
+| GET | `/api/admin/users/{internal_user_id}/v2` | `admin_user_detail_v2` | 10803 | admin |
+| GET | `/api/admin/security-events-v2` | `admin_security_events_v2` | 10883 | admin |
+| GET | `/api/admin/audit-logs-v2` | `admin_audit_logs_v2` | 10930 | admin |
+| POST | `/api/admin/users/{internal_user_id}/block-v2` | `admin_block_user_v2` | 10984 | admin |
+| POST | `/api/admin/users/{internal_user_id}/unblock-v2` | `admin_unblock_user_v2` | 11020 | admin |
+| POST | `/api/admin/users/{internal_user_id}/password-reset-v2` | `admin_password_reset_v2` | 11049 | admin |
+| POST | `/api/admin/users/{internal_user_id}/role-v2` | `admin_role_v2` | 11497 | admin |
+| POST | `/api/admin/users/{internal_user_id}/tokens-v2` | `admin_tokens_v2` | 11522 | admin |
+| POST | `/api/admin/users/{internal_user_id}/discount-v2` | `admin_discount_v2` | 11556 | admin |
+| POST | `/api/admin/users/{internal_user_id}/plan-v2` | `admin_plan_v2` | 11587 | admin |
+| POST | `/api/admin/users/{internal_user_id}/profile-v2` | `admin_profile_v2` | 11611 | admin |
+| GET | `/api/admin/users/{internal_user_id}/billing-v2` | `admin_user_billing_v2` | 11655 | admin |
+| GET | `/api/billing/packages-v2` | `billing_packages_v2` | 11667 | user |
+| POST | `/api/account/tariff-v2/schedule-free` | `account_schedule_free_v2` | 11740 | user |
+| POST | `/api/billing/checkout-v2` | `billing_checkout_v2` | 11785 | user |
+| GET | `/api/billing/payments/{payment_id}/status-v2` | `billing_payment_status_v2` | 11925 | user |
+| POST | `/api/billing/yookassa/webhook-v2` | `billing_yookassa_webhook_v2` | 12016 | public/optional/review |
+| POST | `/api/admin/payments/{payment_id}/simulate-v2` | `admin_simulate_payment_v2` | 12059 | admin |
+| POST | `/api/admin/payments/reconcile-v2` | `admin_reconcile_payments_v2` | 12104 | admin |
+| POST | `/api/admin/payments/notifications/process-v2` | `admin_process_payment_notifications_v2` | 12172 | admin |
+| POST | `/api/admin/users/{internal_user_id}/invoices-v2` | `admin_create_invoice_v2` | 12228 | admin |
+| POST | `/api/admin/invoices/{invoice_id}/mark-paid-v2` | `admin_mark_invoice_paid_v2` | 12312 | admin |
+| POST | `/api/admin/invoices/{invoice_id}/cancel-v2` | `admin_cancel_invoice_v2` | 12398 | admin |
+| POST | `/api/admin/payments/{payment_id}/refund-v2` | `admin_refund_payment_v2` | 12424 | admin |
+| GET | `/api/admin/users/{internal_user_id}/promos-v2` | `admin_user_promos_v2` | 12506 | admin |
+| GET | `/api/admin/users/{internal_user_id}/referrals-v2` | `admin_user_referrals_v2` | 12515 | admin |
+| POST | `/api/admin/users/{internal_user_id}/bonus-v2` | `admin_bonus_grant_v2` | 12530 | admin |
+| POST | `/api/admin/users/{internal_user_id}/bonus/{bonus_id}/cancel-v2` | `admin_bonus_cancel_v2` | 12581 | admin |
+| POST | `/api/admin/users/{internal_user_id}/apply-promo-v2` | `admin_apply_promo_v2` | 12613 | admin |
+| POST | `/api/account/apply-promo-v2` | `account_apply_promo_v2` | 12682 | user |
+| POST | `/api/admin/users/{internal_user_id}/referral-reward-v2` | `admin_referral_reward_v2` | 12745 | admin |
+| GET | `/api/admin/dashboard-v2` | `admin_dashboard_v2` | 13170 | admin |
+| GET | `/api/admin/logs-v2` | `admin_logs_v2` | 13202 | admin |
+| GET | `/api/admin/users-analytics-v2` | `admin_users_analytics_v2` | 13321 | admin |
+| GET | `/api/admin/users/{internal_user_id}/analytics-v2` | `admin_user_detail_analytics_v2` | 13367 | admin |
+| GET | `/api/admin/media/image/{image_id}` | `admin_user_image_media` | 13573 | admin |
+| GET | `/api/admin/media/video/{video_id}` | `admin_user_video_media` | 13590 | admin |
+| POST | `/api/admin/users/{internal_user_id}/gallery/{image_id}/delete-v2` | `admin_delete_user_gallery_image_v2` | 13607 | admin |
+| GET | `/api/admin/mail/status-v2` | `admin_mail_status_v2` | 13650 | admin |
+| POST | `/api/admin/mail/test-v2` | `admin_mail_test_v2` | 13775 | admin |
+| GET | `/api/admin/diagnostics-v2` | `admin_diagnostics_v2` | 13791 | admin |
+| POST | `/api/auth/session/refresh-v2` | `auth_session_refresh_v2` | 13814 | public/optional/review |
+| POST | `/api/auth/session/logout-v2` | `auth_session_logout_v2` | 13834 | public/optional/review |
+| GET | `/api/auth/sessions-v2` | `auth_sessions_list_v2` | 13852 | session |
+| GET | `/api/admin/max/status` | `admin_max_status` | 14136 | admin |
+| POST | `/api/gallery/{image_id}/send` | `send_gallery_image` | 14165 | user |
+| POST | `/api/translate` | `translate` | 14192 | public/optional/review |
+| GET | `/api/presets` | `get_presets` | 14203 | public/optional/review |
+| GET | `/api/admin/summary` | `admin_summary` | 14210 | admin |
+| GET | `/api/admin/energy` | `admin_energy` | 14305 | admin |
+| GET | `/api/admin/users` | `admin_users` | 14322 | admin |
+| POST | `/api/admin/users` | `admin_create_user` | 14337 | admin |
+| PATCH | `/api/admin/users/{user_id}` | `admin_update_user` | 14372 | admin |
+| DELETE | `/api/admin/users/{user_id}` | `admin_delete_user` | 14424 | admin |
+| GET | `/api/admin/users/{user_id}/history` | `admin_user_history` | 14457 | admin |
+| GET | `/api/admin/promos` | `admin_promos` | 14476 | admin |
+| POST | `/api/admin/promos` | `admin_create_promo` | 14484 | admin |
+| GET | `/api/admin/settings` | `admin_get_settings` | 14508 | admin |
+| POST | `/api/admin/settings/{key}` | `admin_save_settings` | 14520 | admin |
+| GET | `/api/admin/assistants` | `admin_assistants` | 14580 | admin |
+| PUT | `/api/admin/mail/config-v2` | `admin_mail_config_v2` | 14614 | admin |
+| POST | `/api/admin/mail/verify-v2` | `admin_mail_verify_v2` | 14624 | admin |
+| POST | `/api/admin/mail/unisender/verify-v2` | `admin_mail_unisender_verify_v2` | 14660 | admin |
+| POST | `/api/admin/mail/unisender/lists-v2` | `admin_mail_unisender_create_list_v2` | 14742 | admin |
+| GET | `/api/admin/payments/status-v2` | `admin_payments_status_v2` | 14758 | admin |
+| PUT | `/api/admin/payments/config-v2` | `admin_payments_config_v2` | 14811 | admin |
+| POST | `/api/admin/payments/check-v2` | `admin_payments_check_v2` | 14821 | admin |
+| PUT | `/api/admin/payments/packages/{code}-v2` | `admin_payment_package_v2` | 14861 | admin |
+| POST | `/api/admin/assistants/test` | `admin_test_assistant` | 14879 | admin |
+| POST | `/api/admin/assistants/voice-test` | `admin_test_voice_assistant` | 14916 | admin |
+| GET | `/api/admin/model-status` | `admin_model_status` | 15045 | admin |
+| GET | `/api/admin/config-ui/status-v2` | `admin_config_ui_status_v2` | 15142 | admin |
+| POST | `/api/admin/config-ui/reload-v2` | `admin_config_ui_reload_v2` | 15148 | admin |
+| POST | `/api/admin/config-ui/switch-v2` | `admin_config_ui_switch_v2` | 15172 | admin |
+| POST | `/api/admin/config-ui/interrupt-v2` | `admin_config_ui_interrupt_v2` | 15190 | admin |
+| GET | `/api/admin/loras` | `admin_loras` | 15313 | admin |
+| GET | `/api/video/config` | `video_generation_config` | 16222 | public/optional/review |
+| POST | `/api/video/generate` | `generate_video` | 16306 | user |
+| POST | `/api/video/estimate` | `estimate_video` | 16388 | user |
+| GET | `/api/video/jobs/{job_id}` | `get_video_job` | 16562 | user |
+| GET | `/api/video/history` | `video_history` | 16620 | user |
+| GET | `/api/video/media/{job_id}` | `video_media` | 16642 | user |
+| POST | `/api/gallery/videos/{video_id}/favorite` | `gallery_video_favorite` | 16655 | user |
+| DELETE | `/api/gallery/videos/{video_id}` | `gallery_video_delete` | 16680 | user |
+| GET | `/api/model-access` | `model_access` | 16899 | user |
+| PUT | `/api/admin/openrouter/key` | `admin_save_openrouter_key` | 16959 | admin |
+| DELETE | `/api/admin/openrouter/key` | `admin_delete_openrouter_key` | 16979 | admin |
+| POST | `/api/admin/openrouter/test-generate` | `admin_openrouter_test_generate` | 16996 | admin |
+| GET | `/api/admin/models-page` | `admin_models_page` | 17096 | admin |
+| GET | `/api/admin/jobs` | `admin_jobs` | 17212 | admin |
+| POST | `/api/admin/limits` | `admin_limits` | 17218 | admin |
+| GET | `/api/feed` | `feed_list` | 18215 | public/optional/review |
+| POST | `/api/feed/publications` | `feed_publish` | 18595 | user |
+| GET | `/api/feed/publications/{publication_id}/status` | `feed_publication_status` | 18801 | user |
+| PATCH | `/api/feed/publications/{publication_id}` | `update_own_feed_publication` | 18833 | user |
+| POST | `/api/feed/publications/{publication_id}/like` | `feed_like` | 18896 | public/optional/review |
+| DELETE | `/api/feed/publications/{publication_id}/like` | `feed_unlike` | 18901 | public/optional/review |
+| POST | `/api/feed/publications/{publication_id}/save` | `feed_save` | 18906 | public/optional/review |
+| DELETE | `/api/feed/publications/{publication_id}/save` | `feed_unsave` | 18911 | public/optional/review |
+| POST | `/api/feed/events` | `feed_engagement_event` | 18930 | public/optional/review |
+| POST | `/api/feed/publications/{publication_id}/view` | `feed_publication_view` | 18987 | public/optional/review |
+| POST | `/api/feed/publications/{publication_id}/dislike` | `feed_dislike` | 19033 | public/optional/review |
+| DELETE | `/api/feed/publications/{publication_id}/dislike` | `feed_undislike` | 19038 | public/optional/review |
+| POST | `/api/feed/publications/{publication_id}/hide` | `feed_hide` | 19043 | public/optional/review |
+| DELETE | `/api/feed/publications/{publication_id}/hide` | `feed_unhide` | 19048 | public/optional/review |
+| POST | `/api/feed/publications/{publication_id}/report` | `feed_report` | 19053 | public/optional/review |
+| POST | `/api/feed/publications/{publication_id}/use-as` | `feed_publication_use_as` | 19058 | user |
+| POST | `/api/feed/authors/{author_id}/follow` | `feed_follow_author` | 19094 | user |
+| DELETE | `/api/feed/authors/{author_id}/follow` | `feed_unfollow_author` | 19115 | user |
+| GET | `/api/feed/authors/{author_id}/publications` | `feed_author_publications` | 19126 | public/optional/review |
+| POST | `/api/feed/following/read` | `feed_following_mark_read` | 19172 | user |
+| GET | `/api/feed/challenges` | `feed_challenges` | 19188 | public/optional/review |
+| POST | `/api/feed/publications/{publication_id}/recreate` | `feed_recreate_mark` | 19213 | public/optional/review |
+| POST | `/api/feed/publications/{publication_id}/remix/start` | `feed_remix_start` | 19229 | user |
+| GET | `/api/admin/feed/moderation` | `admin_feed_moderation_queue` | 19260 | admin |
+| GET | `/api/admin/feed/publications/{publication_id}/media` | `admin_feed_moderation_media` | 19290 | admin |
+| POST | `/api/admin/feed/publications/{publication_id}/moderate` | `admin_moderate_feed_publication` | 19309 | admin |
+| POST | `/api/admin/feed/publications/{publication_id}/delete-v2` | `admin_delete_feed_publication_v2` | 19384 | admin |
+| DELETE | `/api/feed/publications/{publication_id}` | `delete_own_feed_publication` | 19466 | user |
+| GET | `/api/feed/media/{publication_id}` | `feed_media` | 19557 | public/optional/review |
+| GET | `/api/feed/video/{publication_id}` | `feed_video_media` | 19578 | public/optional/review |
+| GET | `/api/feed/publications/{publication_id}/download` | `feed_publication_download` | 19610 | public/optional/review |
 | GET | `/openrouter/status` | `openrouter_status` | 100 | public/optional/review |
 | GET | `/openrouter/catalog/status-v2` | `openrouter_catalog_status` | 110 | public/optional/review |
 | POST | `/openrouter/catalog/refresh-v2` | `openrouter_catalog_refresh` | 115 | public/optional/review |
@@ -272,768 +272,768 @@ Auth policy is a conservative static hint. Every `REVIEW` row must be checked in
 
 | Name | Lines |
 |---|---:|
-| `Lora` | 1047–1050 |
-| `EditImage` | 1053–1057 |
-| `GenerateRequest` | 1060–1081 |
-| `VideoGenerateRequest` | 1084–1102 |
-| `OpenRouterPriceModel` | 1115–1122 |
-| `TranslateRequest` | 1125–1127 |
-| `ImprovePromptRequest` | 1130–1137 |
-| `ClientRuntimeErrorRequest` | 1140–1149 |
-| `SyntheticResultRequest` | 1152–1158 |
-| `MiniAppAuthRequest` | 1161–1178 |
-| `WebLoginRequest` | 1181–1182 |
-| `SessionRefreshRequest` | 1185–1187 |
-| `SessionLogoutRequest` | 1190–1192 |
-| `BootstrapV2Client` | 1195–1201 |
-| `BootstrapV2Utm` | 1204–1207 |
-| `TelegramAuthV2Request` | 1210–1217 |
-| `MaxAuthV2Request` | 1220–1226 |
-| `BotLoginStartRequest` | 1229–1230 |
-| `EmailRequestCodeV2Request` | 1233–1237 |
-| `EmailVerifyCodeV2Request` | 1240–1245 |
-| `LinkEmailRequestCodeV2Request` | 1248–1249 |
-| `LinkEmailVerifyCodeV2Request` | 1252–1254 |
-| `PasswordRegisterV2Request` | 1257–1266 |
-| `PasswordLoginV2Request` | 1269–1274 |
-| `AdminBlockV2Request` | 1277–1278 |
-| `AdminPasswordResetV2Request` | 1281–1283 |
-| `AdminRoleV2Request` | 1286–1288 |
-| `AdminTokensV2Request` | 1291–1293 |
-| `AdminDiscountV2Request` | 1296–1298 |
-| `AdminPlanV2Request` | 1301–1304 |
-| `AdminProfileV2Request` | 1307–1314 |
-| `AdminDeleteImageV2Request` | 1317–1318 |
-| `AdminConfigUiActionV2Request` | 1321–1322 |
-| `AdminMailTestV2Request` | 1325–1327 |
-| `AdminMailConfigV2Request` | 1330–1337 |
-| `AdminMailVerifyV2Request` | 1340–1348 |
-| `AdminUniSenderVerifyV2Request` | 1351–1356 |
-| `AdminUniSenderListV2Request` | 1359–1360 |
-| `BillingInvoiceItemV2Request` | 1363–1369 |
-| `BillingCreateInvoiceV2Request` | 1372–1377 |
-| `BillingMarkPaidV2Request` | 1380–1384 |
-| `BillingCancelInvoiceV2Request` | 1387–1388 |
-| `BillingRefundV2Request` | 1391–1394 |
-| `AdminYooKassaConfigV2Request` | 1397–1402 |
-| `BillingCheckoutV2Request` | 1405–1409 |
-| `BillingScheduleFreeV2Request` | 1412–1413 |
-| `BillingSimulationV2Request` | 1416–1418 |
-| `AdminPaymentMaintenanceV2Request` | 1421–1423 |
-| `AdminTokenPackageV2Request` | 1426–1430 |
-| `BonusGrantV2Request` | 1433–1437 |
-| `BonusCancelV2Request` | 1440–1441 |
-| `ApplyPromoV2Request` | 1444–1447 |
-| `UserApplyPromoV2Request` | 1450–1451 |
-| `ReferralRewardV2Request` | 1454–1459 |
-| `ProfileUpdateV2Request` | 1462–1482 |
-| `ConsentV2Request` | 1485–1488 |
-| `BootstrapV2Request` | 1491–1502 |
-| `SendImageRequest` | 1505–1508 |
-| `FavoriteRequest` | 1511–1512 |
-| `UseAsRequest` | 1515–1516 |
-| `FeedModerationRequest` | 1519–1521 |
-| `FeedEngagementEventRequest` | 1524–1528 |
-| `AdminLimitRequest` | 1531–1533 |
-| `AdminUserRequest` | 1536–1549 |
-| `AdminUserUpdateRequest` | 1552–1564 |
-| `HeartbeatRequest` | 1567–1570 |
-| `AdminPromoRequest` | 1573–1576 |
-| `AdminSettingsRequest` | 1579–1580 |
-| `AdminConfigUiSwitchRequest` | 1583–1585 |
-| `AdminSecretKeyRequest` | 1588–1589 |
-| `AdminOpenRouterTestRequest` | 1592–1596 |
-| `AdminAssistantTestRequest` | 1599–1603 |
-| `OpenRouterResult` | 1621–1630 |
-| `TelegramAuthError` | 1678–1683 |
-| `MaxAuthError` | 1733–1738 |
-| `FeedAssetInfo` | 17329–17339 |
-| `FeedVideoAssetInfo` | 17343–17355 |
+| `Lora` | 1068–1071 |
+| `EditImage` | 1074–1078 |
+| `GenerateRequest` | 1081–1102 |
+| `VideoGenerateRequest` | 1105–1123 |
+| `OpenRouterPriceModel` | 1136–1143 |
+| `TranslateRequest` | 1146–1148 |
+| `ImprovePromptRequest` | 1151–1158 |
+| `ClientRuntimeErrorRequest` | 1161–1170 |
+| `SyntheticResultRequest` | 1173–1179 |
+| `MiniAppAuthRequest` | 1182–1199 |
+| `WebLoginRequest` | 1202–1203 |
+| `SessionRefreshRequest` | 1206–1208 |
+| `SessionLogoutRequest` | 1211–1213 |
+| `BootstrapV2Client` | 1216–1222 |
+| `BootstrapV2Utm` | 1225–1228 |
+| `TelegramAuthV2Request` | 1231–1238 |
+| `MaxAuthV2Request` | 1241–1247 |
+| `BotLoginStartRequest` | 1250–1251 |
+| `EmailRequestCodeV2Request` | 1254–1258 |
+| `EmailVerifyCodeV2Request` | 1261–1266 |
+| `LinkEmailRequestCodeV2Request` | 1269–1270 |
+| `LinkEmailVerifyCodeV2Request` | 1273–1275 |
+| `PasswordRegisterV2Request` | 1278–1287 |
+| `PasswordLoginV2Request` | 1290–1295 |
+| `AdminBlockV2Request` | 1298–1299 |
+| `AdminPasswordResetV2Request` | 1302–1304 |
+| `AdminRoleV2Request` | 1307–1309 |
+| `AdminTokensV2Request` | 1312–1314 |
+| `AdminDiscountV2Request` | 1317–1319 |
+| `AdminPlanV2Request` | 1322–1325 |
+| `AdminProfileV2Request` | 1328–1335 |
+| `AdminDeleteImageV2Request` | 1338–1339 |
+| `AdminConfigUiActionV2Request` | 1342–1343 |
+| `AdminMailTestV2Request` | 1346–1348 |
+| `AdminMailConfigV2Request` | 1351–1358 |
+| `AdminMailVerifyV2Request` | 1361–1369 |
+| `AdminUniSenderVerifyV2Request` | 1372–1377 |
+| `AdminUniSenderListV2Request` | 1380–1381 |
+| `BillingInvoiceItemV2Request` | 1384–1390 |
+| `BillingCreateInvoiceV2Request` | 1393–1398 |
+| `BillingMarkPaidV2Request` | 1401–1405 |
+| `BillingCancelInvoiceV2Request` | 1408–1409 |
+| `BillingRefundV2Request` | 1412–1415 |
+| `AdminYooKassaConfigV2Request` | 1418–1423 |
+| `BillingCheckoutV2Request` | 1426–1430 |
+| `BillingScheduleFreeV2Request` | 1433–1434 |
+| `BillingSimulationV2Request` | 1437–1439 |
+| `AdminPaymentMaintenanceV2Request` | 1442–1444 |
+| `AdminTokenPackageV2Request` | 1447–1451 |
+| `BonusGrantV2Request` | 1454–1458 |
+| `BonusCancelV2Request` | 1461–1462 |
+| `ApplyPromoV2Request` | 1465–1468 |
+| `UserApplyPromoV2Request` | 1471–1472 |
+| `ReferralRewardV2Request` | 1475–1480 |
+| `ProfileUpdateV2Request` | 1483–1503 |
+| `ConsentV2Request` | 1506–1509 |
+| `BootstrapV2Request` | 1512–1523 |
+| `SendImageRequest` | 1526–1529 |
+| `FavoriteRequest` | 1532–1533 |
+| `UseAsRequest` | 1536–1537 |
+| `FeedModerationRequest` | 1540–1542 |
+| `FeedEngagementEventRequest` | 1545–1549 |
+| `AdminLimitRequest` | 1552–1554 |
+| `AdminUserRequest` | 1557–1570 |
+| `AdminUserUpdateRequest` | 1573–1585 |
+| `HeartbeatRequest` | 1588–1591 |
+| `AdminPromoRequest` | 1594–1597 |
+| `AdminSettingsRequest` | 1600–1601 |
+| `AdminConfigUiSwitchRequest` | 1604–1606 |
+| `AdminSecretKeyRequest` | 1609–1610 |
+| `AdminOpenRouterTestRequest` | 1613–1617 |
+| `AdminAssistantTestRequest` | 1620–1624 |
+| `OpenRouterResult` | 1642–1651 |
+| `TelegramAuthError` | 1699–1704 |
+| `MaxAuthError` | 1754–1759 |
+| `FeedAssetInfo` | 17256–17266 |
+| `FeedVideoAssetInfo` | 17270–17282 |
 
 ## Functions
 
 | Name | Kind | Lines |
 |---|---|---:|
-| `initial_runtime_secret` | function | 850–857 |
-| `is_production_like_env` | function | 877–878 |
-| `favicon` | async function | 1001–1008 |
-| `home_page_shell` | async function | 1011–1012 |
-| `gallery_page_shell` | async function | 1016–1023 |
-| `gallery_page_shell_slash` | async function | 1027–1028 |
-| `feed_page_shell` | async function | 1032–1039 |
-| `feed_page_shell_slash` | async function | 1043–1044 |
-| `normalize_generation_request` | function | 1108–1112 |
-| `request_user_id` | function | 1641–1647 |
-| `require_admin` | function | 1650–1658 |
-| `validate_telegram_init_data` | function | 1661–1675 |
-| `validate_telegram_init_data_strict` | function | 1686–1730 |
-| `validate_max_web_app_data_strict` | function | 1741–1787 |
-| `safe_backend_commit` | function | 1808–1809 |
-| `mask_db_path` | function | 1812–1813 |
-| `db_size_mb` | function | 1816–1817 |
-| `allowed_db_paths` | function | 1820–1821 |
-| `safe_db_guard_payload` | function | 1824–1825 |
-| `db_guard_fail` | function | 1828–1831 |
-| `db_guard_preflight` | function | 1834–1844 |
-| `collect_db_guard_status` | function | 1847–1856 |
-| `enforce_db_guard_after_migrations` | function | 1859–1863 |
-| `db` | function | 1865–1866 |
-| `init_db` | function | 1868–1899 |
-| `resolve_primary_provider` | function | 1904–1911 |
-| `ensure_public_user_code` | function | 1914–1941 |
-| `resolve_display_name` | function | 1944–1964 |
-| `generate_secure_token` | function | 1977–1979 |
-| `generate_bot_login_token` | function | 1982–1984 |
-| `hash_token` | function | 1987–1989 |
-| `validate_session_crypto_config` | function | 1992–2000 |
-| `get_client_ip` | function | 2003–2010 |
-| `_client_ip` | function | 2013–2014 |
-| `request_country_code` | function | 2017–2019 |
-| `parse_user_agent` | function | 2022–2059 |
-| `_hash_user_agent` | function | 2062–2066 |
-| `_extract_session_token` | function | 2069–2077 |
-| `_event_runtime` | function | 2080–2081 |
-| `record_session_event` | function | 2084–2094 |
-| `record_security_event` | function | 2097–2115 |
-| `record_event_log` | function | 2118–2142 |
-| `record_login_attempt` | function | 2145–2165 |
-| `_fill_user_profile_if_empty` | function | 2168–2183 |
-| `telegram_upsert_identity` | function | 2186–2268 |
-| `max_upsert_identity` | function | 2271–2350 |
-| `bot_login_deep_link` | function | 2353–2369 |
-| `_flatten_field_names` | function | 2372–2385 |
-| `_pick_nested_string` | function | 2388–2403 |
-| `mask_short` | function | 2406–2412 |
-| `_max_base_from_me_payload` | function | 2415–2425 |
-| `resolve_max_bot_deep_link_base` | function | 2428–2497 |
-| `bot_login_available` | function | 2500–2503 |
-| `auth_capabilities_payload` | function | 2506–2516 |
-| `set_bot_login_cookie` | function | 2519–2526 |
-| `clear_bot_login_cookie` | function | 2529–2533 |
-| `parse_bot_login_cookie` | function | 2536–2543 |
-| `bot_login_payload_from_text` | function | 2546–2553 |
-| `bot_login_token_from_payload` | function | 2556–2560 |
-| `approve_bot_login_challenge` | function | 2563–2612 |
-| `link_verified_provider_identity` | function | 2615–2672 |
-| `grant_auth_link_reward` | function | 2675–2701 |
-| `normalize_email` | function | 2707–2714 |
-| `generate_otp_code` | function | 2717–2718 |
-| `hash_otp` | function | 2721–2722 |
-| `email_provider_configured` | function | 2742–2745 |
-| `email_otp_available` | function | 2748–2755 |
-| `validate_email_otp_config` | function | 2758–2763 |
-| `send_email_otp` | function | 2766–2784 |
-| `cleanup_expired_otp_challenges` | function | 2787–2792 |
-| `_otp_runtime` | function | 2795–2801 |
-| `_otp_rate_limits` | function | 2804–2812 |
-| `enforce_email_otp_rate_limits` | function | 2815–2833 |
-| `email_otp_upsert_identity` | function | 2836–2837 |
-| `_user_is_banned` | function | 2840–2851 |
-| `_boolish` | function | 2854–2857 |
-| `_tariff_text` | function | 2860–2863 |
-| `_tariff_resolutions` | function | 2873–2877 |
-| `_tariff_model_defaults` | function | 2880–2888 |
-| `normalize_tariffs` | function | 2891–2943 |
-| `get_tariff_config` | function | 2946–2964 |
-| `get_tariff_term_settings` | function | 2967–2980 |
-| `tariff_term_offers` | function | 2983–3003 |
-| `public_tariff_term_offers` | function | 3006–3014 |
-| `_as_utc_datetime` | function | 3017–3026 |
-| `_grant_tariff_tokens` | function | 3029–3089 |
-| `_activate_tariff_now` | function | 3092–3171 |
-| `_schedule_or_activate_paid_tariff` | function | 3174–3225 |
-| `_reconcile_user_tariff` | function | 3228–3285 |
-| `_initialize_intro_tariff_if_new` | function | 3288–3310 |
-| `gallery_quota_for_user` | function | 3313–3320 |
-| `video_storage_state_for_user` | function | 3323–3336 |
-| `evict_gallery_images_for_new_save` | function | 3342–3372 |
-| `gallery_cursor_from_row` | function | 3375–3376 |
-| `parse_gallery_cursor` | function | 3379–3383 |
-| `gallery_fts_query` | function | 3386–3387 |
-| `gallery_media_owner_row` | function | 3390–3396 |
-| `gallery_image_id_from_media_url` | function | 3399–3409 |
-| `cleanup_orphan_image_sources` | function | 3412–3418 |
-| `reconcile_image_source_availability` | function | 3421–3427 |
-| `user_gallery_allowed` | function | 3430–3438 |
-| `_session_runtime` | function | 3441–3454 |
-| `create_auth_session` | function | 3457–3476 |
-| `resolve_auth_session_from_request` | function | 3479–3491 |
-| `refresh_auth_session` | function | 3494–3506 |
-| `revoke_auth_session` | function | 3509–3515 |
-| `trusted_cookie_common` | function | 3518–3535 |
-| `set_trusted_auth_cookies` | function | 3538–3557 |
-| `clear_trusted_auth_cookies` | function | 3560–3566 |
-| `_extract_refresh_token` | function | 3569–3570 |
-| `_permission_runtime` | function | 3579–3584 |
-| `resolve_trusted_user` | function | 3587–3592 |
-| `expire_paid_plan_if_needed` | function | 3595–3598 |
-| `require_trusted_user` | function | 3601–3605 |
-| `require_generation_social_verification` | function | 3608–3612 |
-| `require_trusted_admin` | function | 3615–3620 |
-| `trusted_user_is_admin` | function | 3623–3624 |
-| `_row_get` | function | 3627–3633 |
-| `normalize_public_website` | function | 3679–3691 |
-| `normalize_public_links` | function | 3694–3708 |
-| `parse_public_links` | function | 3711–3728 |
-| `build_profile` | function | 3731–3735 |
-| `random_avatar_choice` | function | 3754–3756 |
-| `repair_missing_user_avatars` | function | 3759–3784 |
-| `validate_avatar_choice` | function | 3787–3799 |
-| `compress_avatar_image` | function | 3802–3810 |
-| `sanitize_device_metadata` | function | 3813–3822 |
-| `mask_email` | function | 3830–3841 |
-| `mask_phone` | function | 3844–3852 |
-| `safe_json_load` | function | 3855–3861 |
-| `short_public_id` | function | 3864–3870 |
-| `truncate_admin_text` | function | 3873–3877 |
-| `safe_app_url` | function | 3880–3886 |
-| `safe_error_message` | function | 3889–3896 |
-| `safe_ledger_metadata` | function | 3899–3909 |
-| `safe_device_from_metadata` | function | 3912–3924 |
-| `admin_user_summary` | function | 3927–3938 |
-| `record_audit_log` | function | 3941–3972 |
-| `_clamp_limit` | function | 3975–3978 |
-| `_user_model_name` | function | 3981–3993 |
-| `_media_file_size_from_url` | function | 3996–4003 |
-| `_format_public_bytes` | function | 4006–4007 |
-| `_format_public_duration` | function | 4010–4011 |
-| `_format_public_datetime` | function | 4014–4015 |
-| `_public_token_cost` | function | 4018–4019 |
-| `_gallery_model_info` | function | 4046–4053 |
-| `_gallery_public_params` | function | 4056–4083 |
-| `row_to_image` | function | 4086–4095 |
-| `_gallery_aspect_ratio` | function | 4098–4099 |
-| `_gallery_mode_label` | function | 4102–4103 |
-| `_gallery_source_ids` | function | 4106–4107 |
-| `_feed_publication_ready` | function | 4110–4111 |
-| `_gallery_page_item` | function | 4114–4134 |
-| `_gallery_page_limits` | function | 4137–4206 |
-| `recover_gallery_index_from_media` | function | 4209–4297 |
-| `load_db_state` | function | 4300–4321 |
-| `reconcile_stale_generation_state` | function | 4324–4332 |
-| `job_response_from_row` | function | 4335–4336 |
-| `get_persisted_job_response` | function | 4339–4346 |
-| `persist_job` | function | 4349–4357 |
-| `persist_image` | function | 4360–4400 |
-| `local_media_path_from_url` | function | 4403–4418 |
-| `media_filename_from_url` | function | 4421–4422 |
-| `_source_role_label` | function | 4425–4426 |
-| `_generation_source_inputs` | function | 4429–4430 |
-| `_save_source_thumb` | function | 4433–4440 |
-| `persist_image_sources` | function | 4443–4465 |
-| `repair_unavailable_image_sources_from_jobs` | function | 4468–4487 |
-| `gallery_sources_for_image` | function | 4490–4506 |
-| `persist_video_sources` | function | 4507–4517 |
-| `repair_image_sources_from_job` | function | 4520–4542 |
-| `validate_generation_media_inputs` | function | 4545–4565 |
-| `upsert_user` | function | 4568–4670 |
-| `estimate_token_cost` | function | 4673–4688 |
-| `charge_generation_tokens` | function | 4691–4784 |
-| `refund_generation_tokens` | function | 4787–4884 |
-| `bot_command_response` | function | 4890–4916 |
-| `telegram_api` | async function | 4919–4929 |
-| `max_api` | async function | 4932–4943 |
-| `schedule_avatar_cache` | function | 4950–4962 |
-| `_download_avatar_bytes` | async function | 4965–4976 |
-| `_avatar_suffix_from_bytes` | function | 4979–4985 |
-| `_telegram_avatar_source` | async function | 4988–5009 |
-| `ensure_user_avatar_cached` | async function | 5012–5064 |
-| `get_bot_polling_cursor` | function | 5067–5070 |
-| `set_bot_polling_cursor` | function | 5073–5085 |
-| `pending_max_login_challenges_count` | function | 5088–5091 |
-| `_bot_login_runtime` | function | 5094–5095 |
-| `_bot_login_limits` | function | 5098–5103 |
-| `create_bot_login_challenge` | function | 5106–5122 |
-| `telegram_update_runtime` | function | 5125–5133 |
-| `handle_telegram_update` | async function | 5136–5137 |
-| `handle_telegram_updates` | async function | 5140–5141 |
-| `max_update_runtime` | function | 5144–5154 |
-| `handle_max_updates` | async function | 5157–5158 |
-| `handle_max_update` | async function | 5161–5162 |
-| `telegram_poll_once_from_api` | async function | 5165–5183 |
-| `max_poll_once_from_api` | async function | 5186–5223 |
-| `bot_provider_config` | function | 5226–5249 |
-| `build_bot_runtime` | function | 5252–5268 |
-| `public_url` | function | 5274–5275 |
-| `delete_image_files_from_disk` | function | 5278–5289 |
-| `_delete_media_rel` | function | 5292–5300 |
-| `retire_feed_publications_for_image` | function | 5303–5322 |
-| `create_thumbnail` | function | 5325–5332 |
-| `save_gallery_original` | function | 5335–5342 |
-| `optimize_gallery_storage_for_user` | function | 5345–5447 |
-| `repair_missing_gallery_thumbnails` | function | 5450–5479 |
-| `recover_missing_optimized_gallery_files` | function | 5482–5540 |
-| `optimize_existing_gallery_storage` | function | 5543–5557 |
-| `delete_admin_secret` | function | 5560–5564 |
-| `_bot_secret_value` | function | 5567–5568 |
-| `_bot_secret_source` | function | 5571–5574 |
-| `_bot_secret_updated_at` | function | 5577–5586 |
-| `bot_integrations_config` | function | 5589–5598 |
-| `save_bot_integrations_config` | function | 5601–5615 |
-| `has_saved_bot_integrations_config` | function | 5618–5623 |
-| `telegram_admin_token` | function | 5626–5627 |
-| `telegram_admin_webhook_secret` | function | 5630–5634 |
-| `max_admin_token` | function | 5637–5638 |
-| `max_admin_webhook_secret` | function | 5641–5642 |
-| `_save_bot_secret` | function | 5645–5651 |
-| `apply_saved_bot_runtime_configuration` | function | 5654–5680 |
-| `openrouter_api_key_source` | function | 5683–5688 |
-| `openrouter_api_key` | function | 5691–5692 |
-| `migrate_openrouter_secret_from_sqlite` | function | 5695–5697 |
-| `save_openrouter_api_key` | function | 5700–5706 |
-| `delete_openrouter_api_key` | function | 5709–5712 |
-| `smtp_password` | function | 5715–5716 |
-| `smtp_config` | function | 5719–5735 |
-| `smtp_configured` | function | 5738–5740 |
-| `smtp_ready` | function | 5743–5750 |
-| `smtp_connection_config` | function | 5753–5760 |
-| `save_smtp_config` | function | 5763–5798 |
-| `save_smtp_password` | function | 5801–5808 |
-| `unisender_api_key` | function | 5811–5812 |
-| `unisender_config` | function | 5815–5819 |
-| `unisender_configured` | function | 5822–5824 |
-| `unisender_ready` | function | 5827–5829 |
-| `save_unisender_api_key` | function | 5832–5839 |
-| `save_unisender_config` | function | 5842–5862 |
-| `send_transactional_email` | function | 5865–5874 |
-| `send_social_max_api` | async function | 5880–5882 |
-| `send_social_test` | async function | 5886–5893 |
-| `yookassa_secret_key` | function | 5894–5895 |
-| `yookassa_config` | function | 5896–5900 |
-| `yookassa_ready` | function | 5901–5903 |
-| `yookassa_checkout_ready` | function | 5906–5909 |
-| `billing_simulator_enabled` | function | 5915–5916 |
-| `simulated_payment_provider` | function | 5919–5929 |
-| `active_billing_provider` | function | 5932–5937 |
-| `billing_payments_available` | function | 5940–5941 |
-| `normalize_legal_settings` | function | 5960–5978 |
-| `legal_settings` | function | 5981–5988 |
-| `legal_readiness` | function | 5991–6000 |
-| `seller_is_self_employed` | function | 6003–6006 |
-| `billing_profile_email` | function | 6009–6014 |
-| `save_billing_profile_email` | function | 6017–6028 |
-| `save_yookassa_config` | function | 6031–6054 |
-| `save_yookassa_connection_check` | function | 6057–6073 |
-| `public_site_url` | function | 6076–6080 |
-| `invalidate_openrouter_admin_caches` | function | 6098–6107 |
-| `fallback_openrouter_capabilities` | function | 6110–6138 |
-| `openrouter_key_status_snapshot` | function | 6139–6150 |
-| `openrouter_catalog_snapshot` | function | 6151–6169 |
-| `openrouter_catalog_refresh_needed` | function | 6170–6179 |
-| `refresh_openrouter_catalog` | async function | 6180–6218 |
-| `schedule_openrouter_catalog_refresh` | function | 6219–6224 |
-| `openrouter_model_capability` | function | 6225–6226 |
-| `openrouter_endpoint_capability` | function | 6227–6228 |
-| `fetch_openrouter_image_capabilities` | async function | 6229–6253 |
-| `fetch_openrouter_video_catalog` | async function | 6256–6268 |
-| `openrouter_prompt_influence_instruction` | function | 6271–6272 |
-| `openrouter_reference_value` | function | 6275–6279 |
-| `build_openrouter_image_body` | function | 6282–6289 |
-| `openrouter_headers` | function | 6292–6300 |
-| `normalize_assistant_models_config` | function | 6350–6377 |
-| `assistant_models_config` | function | 6380–6383 |
-| `ollama_models_status` | async function | 6386–6387 |
-| `qwen_asr_status` | async function | 6389–6391 |
-| `openrouter_text_models` | async function | 6398–6413 |
-| `openrouter_audio_models` | async function | 6416–6428 |
-| `_openrouter_text_content` | function | 6431–6486 |
-| `_parse_improved_prompt` | function | 6489–6501 |
-| `_improve_system_message` | function | 6504–6509 |
-| `improve_prompt_openrouter` | async function | 6512–6566 |
-| `improve_prompt_ollama` | async function | 6569–6590 |
-| `ensure_configured_ollama_resident` | async function | 6596–6597 |
-| `improve_prompt_routed` | async function | 6600–6605 |
-| `transcribe_audio_openrouter` | async function | 6608–6641 |
-| `normalize_audio_to_wav` | function | 6644–6668 |
-| `transcribe_audio_ollama` | async function | 6671–6691 |
-| `transcribe_audio_qwen` | async function | 6694–6705 |
-| `transcribe_audio_routed` | async function | 6708–6735 |
-| `resolve_openrouter_model` | function | 6738–6739 |
-| `openrouter_image_request_metadata` | function | 6742–6752 |
-| `_requested_orientation` | function | 6755–6756 |
-| `_openrouter_ratio_size` | function | 6759–6760 |
-| `_openrouter_descriptor_values` | function | 6763–6764 |
-| `openrouter_image_request_plan` | function | 6767–6776 |
-| `_openrouter_generation_cost` | function | 6779–6780 |
-| `_openrouter_first_image` | function | 6783–6784 |
-| `_openrouter_image_to_pil` | async function | 6787–6791 |
-| `_openrouter_error_payload` | function | 6794–6795 |
-| `_openrouter_error_message` | function | 6798–6799 |
-| `_openrouter_is_size_error` | function | 6802–6803 |
-| `_openrouter_public_error` | function | 6806–6811 |
-| `fetch_openrouter_key_status` | async function | 6814–6852 |
-| `send_to_openrouter` | async function | 6855–6901 |
-| `feed_media_dir` | function | 6904–6907 |
-| `_media_file_path_from_url` | function | 6910–6917 |
-| `comfyui_available` | async function | 6920–6921 |
-| `comfyui_node_names` | async function | 6924–6927 |
-| `get_comfyui_models` | async function | 6930–6931 |
-| `get_flux_klein_config` | async function | 6934–6935 |
-| `get_flux_bgremoval_models` | async function | 6938–6939 |
-| `get_flux_lora_triggers` | async function | 6942–6943 |
-| `resolve_profile_model` | function | 6946–6959 |
-| `get_model_settings` | function | 6962–6973 |
-| `effective_edit_profile` | function | 6976–6981 |
-| `effective_pose_profile` | function | 6984–6987 |
-| `effective_face_profile` | function | 6990–6992 |
-| `server_lora_enabled` | function | 6995–7002 |
-| `normalize_server_model_profiles` | function | 7011–7027 |
-| `get_server_model_profiles` | function | 7030–7031 |
-| `get_profile_row` | function | 7034–7044 |
-| `build_pose_workflow` | function | 7052–7067 |
-| `build_outpaint_workflow` | function | 7070–7082 |
-| `choose_model` | function | 7085–7110 |
-| `choose_faceswap_lora` | function | 7113–7121 |
-| `upload_to_comfyui` | async function | 7124–7125 |
-| `prepare_comfyui_input_image` | function | 7128–7144 |
-| `prepare_comfyui_outpaint_inputs` | function | 7147–7244 |
-| `fetch_workflow` | async function | 7247–7249 |
-| `set_input` | function | 7252–7253 |
-| `patch_shared_flux_nodes` | function | 7256–7265 |
-| `patch_optional_lora` | function | 7268–7269 |
-| `validate_edit_request` | function | 7275–7301 |
-| `patch_edit_reference_chain` | function | 7304–7305 |
-| `patch_mode_nodes` | function | 7308–7328 |
-| `submit_workflow` | async function | 7331–7339 |
-| `interrupt_comfyui_prompt` | async function | 7342–7346 |
-| `wait_for_comfyui_recovery_gate` | async function | 7349–7350 |
-| `recover_timed_out_comfyui_image` | async function | 7353–7367 |
-| `extract_images_from_history` | function | 7370–7371 |
-| `wait_for_history` | async function | 7374–7392 |
-| `download_comfyui_image` | async function | 7395–7402 |
-| `send_to_comfyui` | async function | 7405–7603 |
-| `save_data_url` | function | 7606–7615 |
-| `save_canvas_json` | function | 7618–7628 |
-| `mock_image` | function | 7631–7647 |
-| `_worker_refund_tokens` | function | 7650–7652 |
-| `_worker_settle_openrouter` | function | 7655–7673 |
-| `_worker_gallery_quota` | function | 7676–7679 |
-| `_worker_evict_gallery` | function | 7682–7684 |
-| `_worker_save_image` | async function | 7687–7700 |
-| `_worker_register_transient_image` | function | 7703–7704 |
-| `_generation_worker_runtime` | function | 7707–7725 |
-| `_generation_queue_runtime` | function | 7728–7736 |
-| `worker` | async function | 7739–7740 |
-| `startup` | async function | 7744–7832 |
-| `shutdown` | async function | 7836–7843 |
-| `health` | async function | 7847–7855 |
-| `_send_runtime_alert` | async function | 7864–7872 |
-| `_check_runtime_error_rate` | function | 7875–7882 |
-| `version` | async function | 7886–7892 |
-| `ensure_rate_limit` | function | 7895–7918 |
-| `_assistant_money_snapshot` | function | 7921–7931 |
-| `improve_prompt` | async function | 7935–7997 |
-| `client_runtime_error` | async function | 8001–8035 |
-| `runtime_synthetic_result` | async function | 8039–8058 |
-| `admin_runtime_health_v2` | async function | 8062–8121 |
-| `transcribe_audio` | async function | 8125–8181 |
-| `generate` | async function | 8184–8312 |
-| `get_job` | async function | 8316–8333 |
-| `cancel_job` | async function | 8337–8351 |
-| `models` | async function | 8355–8372 |
-| `flux_klein_config` | async function | 8376–8387 |
-| `flux_klein_bgremoval_models` | async function | 8391–8395 |
-| `flux_klein_lora_triggers` | async function | 8399–8403 |
-| `_request_plan_or_default` | function | 8406–8419 |
-| `tariffs` | async function | 8423–8441 |
-| `public_commerce_v2` | async function | 8445–8465 |
-| `gallery` | async function | 8469–8482 |
-| `gallery_items_page` | async function | 8486–8628 |
-| `gallery_secondary` | async function | 8632–8648 |
-| `_gallery_page_payload` | async function | 8651–8926 |
-| `gallery_page` | async function | 8930–8944 |
-| `gallery_source_use_as` | async function | 8948–8982 |
-| `gallery_source_favorite` | async function | 8986–9000 |
-| `gallery_source_delete` | async function | 9004–9019 |
-| `gallery_detail` | async function | 9023–9043 |
-| `gallery_favorite` | async function | 9047–9060 |
-| `gallery_delete` | async function | 9064–9080 |
-| `gallery_use_as` | async function | 9084–9109 |
-| `_private_media_runtime` | function | 9112–9119 |
-| `_public_media_runtime` | function | 9122–9123 |
-| `private_media_response` | function | 9126–9131 |
-| `secure_media` | async function | 9135–9136 |
-| `public_custom_avatar` | async function | 9140–9150 |
-| `legacy_secure_media` | async function | 9154–9156 |
-| `bootstrap` | async function | 9160–9230 |
-| `app_heartbeat` | async function | 9234–9251 |
-| `web_login` | async function | 9255–9290 |
-| `_bootstrap_auth_methods` | function | 9296–9306 |
-| `_bootstrap_storage_type` | function | 9309–9310 |
-| `auth_bootstrap_v2` | async function | 9314–9399 |
-| `auth_capabilities_v2` | async function | 9403–9404 |
-| `auth_bot_login_start` | async function | 9408–9423 |
-| `auth_bot_link_start` | async function | 9427–9444 |
-| `auth_bot_login_status` | async function | 9448–9503 |
-| `auth_telegram_v2` | async function | 9507–9603 |
-| `auth_max_v2` | async function | 9607–9699 |
-| `auth_email_request_code_v2` | async function | 9703–9758 |
-| `auth_email_verify_code_v2` | async function | 9762–9869 |
-| `auth_link_email_request_code_v2` | async function | 9873–9912 |
-| `auth_link_email_verify_code_v2` | async function | 9916–9963 |
-| `auth_password_register_v2` | async function | 9967–10078 |
-| `auth_password_login_v2` | async function | 10082–10178 |
-| `me_v2` | async function | 10188–10319 |
-| `_token_history_spent` | function | 10339–10346 |
-| `_token_history_source` | function | 10349–10364 |
-| `account_token_history_v2` | async function | 10368–10433 |
-| `_session_device_label` | function | 10436–10442 |
-| `auth_sessions_list` | async function | 10446–10485 |
-| `auth_session_revoke` | async function | 10489–10496 |
-| `auth_sessions_revoke_others` | async function | 10500–10513 |
-| `account_activity_v2` | async function | 10517–10558 |
-| `whoami_v2` | async function | 10562–10571 |
-| `me_profile_v2` | async function | 10575–10603 |
-| `me_profile_update_v2` | async function | 10607–10668 |
-| `me_avatar_upload_v2` | async function | 10672–10710 |
-| `me_devices_v2` | async function | 10714–10734 |
-| `me_sessions_v2` | async function | 10738–10763 |
-| `me_consents_v2` | async function | 10767–10786 |
-| `me_consents_create_v2` | async function | 10790–10836 |
-| `admin_users_v2` | async function | 10840–10901 |
-| `admin_user_detail_v2` | async function | 10905–10981 |
-| `admin_security_events_v2` | async function | 10985–11028 |
-| `admin_audit_logs_v2` | async function | 11032–11082 |
-| `admin_block_user_v2` | async function | 11086–11118 |
-| `admin_unblock_user_v2` | async function | 11122–11147 |
-| `admin_password_reset_v2` | async function | 11151–11200 |
-| `_admin_load_target` | function | 11209–11217 |
-| `_billing_currency` | function | 11225–11227 |
-| `_billing_reason` | function | 11230–11234 |
-| `_billing_idempotency` | function | 11237–11241 |
-| `_billing_discount` | function | 11244–11248 |
-| `_invoice_code` | function | 11251–11257 |
-| `_billing_invoice_dict` | function | 11260–11283 |
-| `_billing_payment_dict` | function | 11286–11307 |
-| `_billing_refund_dict` | function | 11310–11329 |
-| `_billing_package_dict` | function | 11332–11343 |
-| `_sync_tariff_billing_packages` | function | 11346–11381 |
-| `_billing_projection` | function | 11384–11430 |
-| `_loyalty_promo_dict` | function | 11433–11447 |
-| `_loyalty_bonus_dict` | function | 11450–11466 |
-| `_loyalty_link_dict` | function | 11469–11479 |
-| `_loyalty_relation_dict` | function | 11482–11494 |
-| `_loyalty_reward_dict` | function | 11497–11516 |
-| `_ensure_referral_link` | function | 11519–11534 |
-| `_loyalty_projection` | function | 11537–11571 |
-| `_grant_tokens_with_ledger` | function | 11574–11593 |
-| `admin_role_v2` | async function | 11597–11618 |
-| `admin_tokens_v2` | async function | 11622–11652 |
-| `admin_discount_v2` | async function | 11656–11683 |
-| `admin_plan_v2` | async function | 11687–11707 |
-| `admin_profile_v2` | async function | 11711–11751 |
-| `admin_user_billing_v2` | async function | 11755–11763 |
-| `billing_packages_v2` | async function | 11767–11836 |
-| `account_schedule_free_v2` | async function | 11840–11881 |
-| `billing_checkout_v2` | async function | 11885–12021 |
-| `billing_payment_status_v2` | async function | 12025–12110 |
-| `billing_yookassa_webhook_v2` | async function | 12114–12146 |
-| `admin_simulate_payment_v2` | async function | 12150–12191 |
-| `admin_reconcile_payments_v2` | async function | 12195–12256 |
-| `admin_process_payment_notifications_v2` | async function | 12260–12306 |
-| `admin_create_invoice_v2` | async function | 12310–12390 |
-| `admin_mark_invoice_paid_v2` | async function | 12394–12476 |
-| `admin_cancel_invoice_v2` | async function | 12480–12502 |
-| `admin_refund_payment_v2` | async function | 12506–12584 |
-| `admin_user_promos_v2` | async function | 12588–12593 |
-| `admin_user_referrals_v2` | async function | 12597–12608 |
-| `admin_bonus_grant_v2` | async function | 12612–12659 |
-| `admin_bonus_cancel_v2` | async function | 12663–12691 |
-| `admin_apply_promo_v2` | async function | 12695–12760 |
-| `account_apply_promo_v2` | async function | 12764–12823 |
-| `admin_referral_reward_v2` | async function | 12827–12875 |
-| `_iso_days_ago` | function | 12884–12885 |
-| `_today_start_iso` | function | 12888–12890 |
-| `_empty_daily_series` | function | 12893–12898 |
-| `_daily_counts` | function | 12901–12918 |
-| `_empty_hourly_series` | function | 12921–12926 |
-| `_hourly_counts` | function | 12929–12947 |
-| `_parse_iso_utc` | function | 12950–12959 |
-| `_floor_to_bucket` | function | 12962–12964 |
-| `_rolling_counts` | function | 12967–12997 |
-| `_dashboard_rolling_series` | function | 13000–13006 |
-| `admin_user_analytics_row` | function | 13009–13103 |
-| `_cancel_provider_payment` | function | 13106–13119 |
-| `_verified_payment_email` | function | 13122–13137 |
-| `_enqueue_payment_success_notifications` | function | 13140–13166 |
-| `_complete_provider_payment` | function | 13169–13246 |
-| `admin_dashboard_v2` | async function | 13250–13278 |
-| `admin_logs_v2` | async function | 13282–13374 |
-| `admin_users_analytics_v2` | async function | 13401–13443 |
-| `admin_user_detail_analytics_v2` | async function | 13447–13649 |
-| `admin_user_image_media` | async function | 13653–13666 |
-| `admin_user_video_media` | async function | 13670–13683 |
-| `admin_delete_user_gallery_image_v2` | async function | 13687–13726 |
-| `admin_mail_status_v2` | async function | 13730–13851 |
-| `admin_mail_test_v2` | async function | 13855–13867 |
-| `admin_diagnostics_v2` | async function | 13871–13890 |
-| `auth_session_refresh_v2` | async function | 13894–13910 |
-| `auth_session_logout_v2` | async function | 13914–13928 |
-| `auth_sessions_list_v2` | async function | 13932–13949 |
-| `max_webhook_url` | function | 13952–13958 |
-| `configure_max_webhook_subscription` | async function | 13961–13998 |
-| `migrate_video_storage_tariffs` | function | 14028–14055 |
-| `_admin_bot_public_https_status` | async function | 14058–14077 |
-| `_admin_telegram_probe` | async function | 14080–14102 |
-| `_admin_max_probe` | async function | 14105–14155 |
-| `admin_max_status` | async function | 14216–14241 |
-| `send_gallery_image` | async function | 14245–14268 |
-| `translate` | async function | 14272–14279 |
-| `get_presets` | async function | 14283–14286 |
-| `admin_summary` | async function | 14290–14381 |
-| `admin_energy` | async function | 14385–14398 |
-| `admin_users` | async function | 14402–14413 |
-| `admin_create_user` | async function | 14417–14448 |
-| `admin_update_user` | async function | 14452–14500 |
-| `admin_delete_user` | async function | 14504–14533 |
-| `admin_user_history` | async function | 14537–14552 |
-| `admin_promos` | async function | 14556–14560 |
-| `admin_create_promo` | async function | 14564–14584 |
-| `admin_get_settings` | async function | 14588–14596 |
-| `admin_save_settings` | async function | 14600–14652 |
-| `assistant_usage_report` | function | 14655–14656 |
-| `admin_assistants` | async function | 14660–14691 |
-| `admin_mail_config_v2` | async function | 14694–14700 |
-| `admin_mail_verify_v2` | async function | 14704–14736 |
-| `admin_mail_unisender_verify_v2` | async function | 14740–14818 |
-| `admin_mail_unisender_create_list_v2` | async function | 14822–14834 |
-| `admin_payments_status_v2` | async function | 14838–14887 |
-| `admin_payments_config_v2` | async function | 14891–14897 |
-| `admin_payments_check_v2` | async function | 14901–14937 |
-| `admin_payment_package_v2` | async function | 14941–14955 |
-| `admin_test_assistant` | async function | 14959–14992 |
-| `admin_test_voice_assistant` | async function | 14996–15036 |
-| `compute_model_status` | async function | 15039–15121 |
-| `admin_model_status` | async function | 15125–15127 |
-| `compute_config_ui_status` | async function | 15130–15218 |
-| `admin_config_ui_status_v2` | async function | 15222–15224 |
-| `admin_config_ui_reload_v2` | async function | 15228–15248 |
-| `admin_config_ui_switch_v2` | async function | 15252–15266 |
-| `admin_config_ui_interrupt_v2` | async function | 15270–15292 |
-| `scan_loras` | async function | 15327–15389 |
-| `admin_loras` | async function | 15393–15395 |
-| `_saved_setting` | function | 15398–15406 |
-| `free_comfyui_models` | async function | 15409–15410 |
-| `reconcile_openrouter_token_charge` | function | 15413–15462 |
-| `_save_setting` | function | 15465–15471 |
-| `fetch_usd_rub_rate` | async function | 15474–15533 |
-| `usd_rub_rate_snapshot` | function | 15536–15547 |
-| `openrouter_economy_settings` | function | 15613–15627 |
-| `openrouter_requested_megapixels` | function | 15630–15634 |
-| `openrouter_estimated_usd` | function | 15637–15642 |
-| `openrouter_tokens_for_cost` | function | 15645–15648 |
-| `openrouter_format_economics` | function | 15651–15687 |
-| `openrouter_admin_pricing_rows` | function | 15690–15705 |
-| `public_openrouter_pricing` | function | 15708–15748 |
-| `estimate_openrouter_billing` | async function | 15751–15834 |
-| `finalize_openrouter_billing_snapshot` | function | 15837–15843 |
-| `default_tariff_matrix` | function | 15846–15864 |
-| `openrouter_usage_stats` | function | 15867–15983 |
-| `_openrouter_video_billing_from_exchange` | function | 15986–16068 |
-| `estimate_openrouter_video_billing` | async function | 16071–16084 |
-| `_video_model_public_pricing` | function | 16087–16136 |
-| `_video_job_payload` | function | 16139–16144 |
-| `_video_gallery_item` | function | 16145–16157 |
-| `_video_storage_reservation` | function | 16160–16175 |
-| `_queue_video_file_deletion` | function | 16178–16202 |
-| `drain_video_file_deletions` | function | 16205–16228 |
-| `_evict_videos_for_new_result` | function | 16231–16246 |
-| `_claim_video_finalization` | function | 16249–16268 |
-| `_release_video_finalization` | function | 16271–16281 |
-| `_download_video_result` | async function | 16282–16298 |
-| `video_generation_config` | async function | 16300–16364 |
-| `_generate_local_ltx_video` | async function | 16365–16382 |
-| `generate_video` | async function | 16384–16464 |
-| `estimate_video` | async function | 16466–16496 |
-| `_refresh_video_job` | async function | 16497–16633 |
-| `get_video_job` | async function | 16637–16644 |
-| `_backfill_completed_video_gallery` | function | 16647–16689 |
-| `video_history` | async function | 16693–16711 |
-| `video_media` | async function | 16715–16724 |
-| `gallery_video_favorite` | async function | 16728–16749 |
-| `gallery_video_delete` | async function | 16753–16774 |
-| `openrouter_video_usage_stats` | function | 16777–16778 |
-| `normalize_openrouter_config` | function | 16788–16794 |
-| `get_openrouter_config` | function | 16797–16798 |
-| `tariff_model_counts` | function | 16801–16847 |
-| `tariff_config_with_model_counts` | function | 16850–16858 |
-| `filter_openrouter_config_by_capabilities` | function | 16861–16887 |
-| `openrouter_model_allowed` | function | 16890–16891 |
-| `openrouter_quality_model` | function | 16894–16902 |
-| `_public_model_option` | function | 16916–16952 |
-| `public_model_access_for_plan` | function | 16955–16968 |
-| `model_access` | async function | 16972–16983 |
-| `admin_save_openrouter_key` | async function | 17032–17049 |
-| `admin_delete_openrouter_key` | async function | 17052–17066 |
-| `admin_openrouter_test_generate` | async function | 17069–17137 |
-| `default_routes` | function | 17140–17165 |
-| `admin_models_page` | async function | 17169–17281 |
-| `admin_jobs` | async function | 17285–17287 |
-| `admin_limits` | async function | 17291–17294 |
-| `_feed_orientation` | function | 17358–17363 |
-| `_feed_source_label` | function | 17366–17382 |
-| `_feed_source_type` | function | 17385–17391 |
-| `_save_feed_variant` | function | 17394–17402 |
-| `create_feed_assets` | function | 17405–17432 |
-| `_feed_ffmpeg_executable` | function | 17435–17444 |
-| `_run_feed_ffmpeg` | function | 17447–17461 |
-| `create_feed_video_assets` | function | 17464–17540 |
-| `_feed_media_name` | function | 17543–17552 |
-| `_feed_author_name` | function | 17555–17567 |
-| `_feed_author_profile` | function | 17570–17608 |
-| `_feed_author_profile_payload` | function | 17611–17641 |
-| `_feed_author_profiles` | function | 17644–17708 |
-| `_feed_challenge_payload` | function | 17711–17738 |
-| `_feed_source_history_payload` | function | 17741–17748 |
-| `_feed_generation_snapshot` | function | 17751–17764 |
-| `backfill_feed_generation_snapshots` | function | 17767–17788 |
-| `_feed_aspect_ratio` | function | 17791–17797 |
-| `_feed_payload_context` | function | 17800–17868 |
-| `_feed_item_payload` | function | 17871–18032 |
-| `_feed_optional_viewer` | function | 18035–18041 |
-| `_feed_viewer_key` | function | 18062–18073 |
-| `_encode_feed_cursor` | function | 18076–18080 |
-| `_decode_feed_cursor` | function | 18083–18101 |
-| `_feed_subscription_unread_count` | function | 18104–18126 |
-| `_feed_cursor_for_row` | function | 18129–18148 |
-| `_feed_list_rows` | function | 18151–18284 |
-| `feed_list` | async function | 18288–18341 |
-| `_feed_video_publication_status_payload` | function | 18344–18356 |
-| `_prepare_feed_video_publication` | function | 18359–18440 |
-| `feed_video_publication_worker` | async function | 18443–18454 |
-| `start_feed_video_publication_worker` | function | 18457–18475 |
-| `stop_feed_video_publication_worker` | async function | 18478–18501 |
-| `enqueue_feed_video_publication` | async function | 18504–18511 |
-| `_publish_feed_video` | async function | 18514–18656 |
-| `feed_publish` | async function | 18660–18862 |
-| `feed_publication_status` | async function | 18866–18894 |
-| `update_own_feed_publication` | async function | 18898–18933 |
-| `_feed_reaction_toggle` | function | 18936–18957 |
-| `feed_like` | async function | 18961–18962 |
-| `feed_unlike` | async function | 18966–18967 |
-| `feed_save` | async function | 18971–18972 |
-| `feed_unsave` | async function | 18976–18977 |
-| `_feed_engagement_context` | function | 18980–18991 |
-| `feed_engagement_event` | async function | 18995–19048 |
-| `feed_publication_view` | async function | 19052–19094 |
-| `feed_dislike` | async function | 19098–19099 |
-| `feed_undislike` | async function | 19103–19104 |
-| `feed_hide` | async function | 19108–19109 |
-| `feed_unhide` | async function | 19113–19114 |
-| `feed_report` | async function | 19118–19119 |
-| `feed_publication_use_as` | async function | 19123–19155 |
-| `feed_follow_author` | async function | 19159–19176 |
-| `feed_unfollow_author` | async function | 19180–19187 |
-| `feed_author_publications` | async function | 19191–19233 |
-| `feed_following_mark_read` | async function | 19237–19249 |
-| `feed_challenges` | async function | 19253–19274 |
-| `feed_recreate_mark` | async function | 19278–19290 |
-| `feed_remix_start` | async function | 19294–19321 |
-| `admin_feed_moderation_queue` | async function | 19325–19351 |
-| `admin_feed_moderation_media` | async function | 19355–19370 |
-| `admin_moderate_feed_publication` | async function | 19374–19445 |
-| `admin_delete_feed_publication_v2` | async function | 19449–19527 |
-| `delete_own_feed_publication` | async function | 19531–19618 |
-| `feed_media` | async function | 19622–19639 |
-| `feed_video_media` | async function | 19643–19671 |
-| `feed_publication_download` | async function | 19675–19749 |
+| `initial_runtime_secret` | function | 862–869 |
+| `is_production_like_env` | function | 889–890 |
+| `favicon` | async function | 1022–1029 |
+| `home_page_shell` | async function | 1032–1033 |
+| `gallery_page_shell` | async function | 1037–1044 |
+| `gallery_page_shell_slash` | async function | 1048–1049 |
+| `feed_page_shell` | async function | 1053–1060 |
+| `feed_page_shell_slash` | async function | 1064–1065 |
+| `normalize_generation_request` | function | 1129–1133 |
+| `request_user_id` | function | 1662–1668 |
+| `require_admin` | function | 1671–1679 |
+| `validate_telegram_init_data` | function | 1682–1696 |
+| `validate_telegram_init_data_strict` | function | 1707–1751 |
+| `validate_max_web_app_data_strict` | function | 1762–1808 |
+| `safe_backend_commit` | function | 1829–1830 |
+| `mask_db_path` | function | 1833–1834 |
+| `db_size_mb` | function | 1837–1838 |
+| `allowed_db_paths` | function | 1841–1842 |
+| `safe_db_guard_payload` | function | 1845–1846 |
+| `db_guard_fail` | function | 1849–1852 |
+| `db_guard_preflight` | function | 1855–1865 |
+| `collect_db_guard_status` | function | 1868–1877 |
+| `enforce_db_guard_after_migrations` | function | 1880–1884 |
+| `db` | function | 1886–1887 |
+| `init_db` | function | 1892–1928 |
+| `resolve_primary_provider` | function | 1933–1940 |
+| `ensure_public_user_code` | function | 1943–1970 |
+| `resolve_display_name` | function | 1973–1993 |
+| `generate_secure_token` | function | 2006–2008 |
+| `generate_bot_login_token` | function | 2011–2013 |
+| `hash_token` | function | 2016–2018 |
+| `validate_session_crypto_config` | function | 2021–2029 |
+| `get_client_ip` | function | 2032–2039 |
+| `_client_ip` | function | 2042–2043 |
+| `request_country_code` | function | 2046–2048 |
+| `parse_user_agent` | function | 2051–2088 |
+| `_hash_user_agent` | function | 2091–2095 |
+| `_extract_session_token` | function | 2098–2106 |
+| `_event_runtime` | function | 2109–2110 |
+| `record_session_event` | function | 2113–2123 |
+| `record_security_event` | function | 2126–2144 |
+| `record_event_log` | function | 2147–2171 |
+| `record_login_attempt` | function | 2174–2194 |
+| `_fill_user_profile_if_empty` | function | 2197–2212 |
+| `telegram_upsert_identity` | function | 2215–2298 |
+| `max_upsert_identity` | function | 2301–2381 |
+| `bot_login_deep_link` | function | 2384–2400 |
+| `_flatten_field_names` | function | 2403–2416 |
+| `_pick_nested_string` | function | 2419–2434 |
+| `mask_short` | function | 2437–2443 |
+| `_max_base_from_me_payload` | function | 2446–2456 |
+| `resolve_max_bot_deep_link_base` | function | 2459–2528 |
+| `bot_login_available` | function | 2531–2534 |
+| `auth_capabilities_payload` | function | 2537–2547 |
+| `set_bot_login_cookie` | function | 2550–2557 |
+| `clear_bot_login_cookie` | function | 2560–2564 |
+| `parse_bot_login_cookie` | function | 2567–2574 |
+| `bot_login_payload_from_text` | function | 2577–2584 |
+| `bot_login_token_from_payload` | function | 2587–2591 |
+| `approve_bot_login_challenge` | function | 2594–2643 |
+| `link_verified_provider_identity` | function | 2646–2703 |
+| `grant_auth_link_reward` | function | 2706–2732 |
+| `normalize_email` | function | 2738–2745 |
+| `generate_otp_code` | function | 2748–2749 |
+| `hash_otp` | function | 2752–2753 |
+| `email_provider_configured` | function | 2773–2776 |
+| `email_otp_available` | function | 2779–2786 |
+| `validate_email_otp_config` | function | 2789–2794 |
+| `send_email_otp` | function | 2797–2815 |
+| `cleanup_expired_otp_challenges` | function | 2818–2823 |
+| `_otp_runtime` | function | 2826–2832 |
+| `_otp_rate_limits` | function | 2835–2843 |
+| `enforce_email_otp_rate_limits` | function | 2846–2864 |
+| `email_otp_upsert_identity` | function | 2867–2868 |
+| `_user_is_banned` | function | 2871–2882 |
+| `_boolish` | function | 2885–2888 |
+| `_tariff_text` | function | 2891–2894 |
+| `_tariff_resolutions` | function | 2904–2908 |
+| `_tariff_model_defaults` | function | 2911–2919 |
+| `normalize_tariffs` | function | 2922–2974 |
+| `get_tariff_config` | function | 2977–2995 |
+| `get_tariff_term_settings` | function | 2998–3011 |
+| `tariff_term_offers` | function | 3014–3034 |
+| `public_tariff_term_offers` | function | 3037–3045 |
+| `_as_utc_datetime` | function | 3048–3057 |
+| `_grant_tariff_tokens` | function | 3060–3120 |
+| `_activate_tariff_now` | function | 3123–3202 |
+| `_schedule_or_activate_paid_tariff` | function | 3205–3256 |
+| `_reconcile_user_tariff` | function | 3259–3318 |
+| `_initialize_intro_tariff_if_new` | function | 3321–3345 |
+| `gallery_quota_for_user` | function | 3348–3355 |
+| `video_storage_state_for_user` | function | 3358–3371 |
+| `evict_gallery_images_for_new_save` | function | 3377–3407 |
+| `gallery_cursor_from_row` | function | 3410–3411 |
+| `parse_gallery_cursor` | function | 3414–3418 |
+| `gallery_fts_query` | function | 3421–3422 |
+| `gallery_media_owner_row` | function | 3425–3431 |
+| `gallery_image_id_from_media_url` | function | 3434–3444 |
+| `cleanup_orphan_image_sources` | function | 3447–3453 |
+| `reconcile_image_source_availability` | function | 3456–3462 |
+| `user_gallery_allowed` | function | 3465–3473 |
+| `_session_runtime` | function | 3476–3489 |
+| `create_auth_session` | function | 3492–3511 |
+| `resolve_auth_session_from_request` | function | 3514–3526 |
+| `refresh_auth_session` | function | 3529–3541 |
+| `revoke_auth_session` | function | 3544–3550 |
+| `trusted_cookie_common` | function | 3553–3570 |
+| `set_trusted_auth_cookies` | function | 3573–3592 |
+| `clear_trusted_auth_cookies` | function | 3595–3601 |
+| `_extract_refresh_token` | function | 3604–3605 |
+| `_permission_runtime` | function | 3614–3619 |
+| `resolve_trusted_user` | function | 3622–3627 |
+| `expire_paid_plan_if_needed` | function | 3630–3633 |
+| `require_trusted_user` | function | 3636–3640 |
+| `require_generation_social_verification` | function | 3643–3647 |
+| `require_trusted_admin` | function | 3650–3655 |
+| `trusted_user_is_admin` | function | 3658–3659 |
+| `_row_get` | function | 3662–3668 |
+| `normalize_public_website` | function | 3714–3726 |
+| `normalize_public_links` | function | 3729–3743 |
+| `parse_public_links` | function | 3746–3763 |
+| `build_profile` | function | 3766–3770 |
+| `random_avatar_choice` | function | 3789–3791 |
+| `repair_missing_user_avatars` | function | 3794–3819 |
+| `validate_avatar_choice` | function | 3822–3834 |
+| `compress_avatar_image` | function | 3837–3845 |
+| `sanitize_device_metadata` | function | 3848–3857 |
+| `mask_email` | function | 3865–3876 |
+| `mask_phone` | function | 3879–3887 |
+| `safe_json_load` | function | 3890–3896 |
+| `short_public_id` | function | 3899–3905 |
+| `truncate_admin_text` | function | 3908–3912 |
+| `safe_app_url` | function | 3915–3921 |
+| `safe_error_message` | function | 3924–3931 |
+| `safe_ledger_metadata` | function | 3934–3944 |
+| `safe_device_from_metadata` | function | 3947–3959 |
+| `admin_user_summary` | function | 3962–3973 |
+| `record_audit_log` | function | 3976–4007 |
+| `_clamp_limit` | function | 4010–4013 |
+| `_user_model_name` | function | 4016–4028 |
+| `_media_file_size_from_url` | function | 4031–4038 |
+| `_format_public_bytes` | function | 4041–4042 |
+| `_format_public_duration` | function | 4045–4046 |
+| `_format_public_datetime` | function | 4049–4050 |
+| `_public_token_cost` | function | 4053–4054 |
+| `_gallery_model_info` | function | 4081–4088 |
+| `_gallery_public_params` | function | 4091–4118 |
+| `row_to_image` | function | 4121–4130 |
+| `_gallery_aspect_ratio` | function | 4133–4134 |
+| `_gallery_mode_label` | function | 4137–4138 |
+| `_gallery_source_ids` | function | 4141–4142 |
+| `_feed_publication_ready` | function | 4145–4146 |
+| `_gallery_page_item` | function | 4149–4169 |
+| `_gallery_page_limits` | function | 4172–4241 |
+| `recover_gallery_index_from_media` | function | 4244–4334 |
+| `load_db_state` | function | 4337–4358 |
+| `reconcile_stale_generation_state` | function | 4361–4370 |
+| `job_response_from_row` | function | 4373–4374 |
+| `get_persisted_job_response` | function | 4377–4384 |
+| `persist_job` | function | 4387–4396 |
+| `persist_image` | function | 4399–4439 |
+| `local_media_path_from_url` | function | 4442–4457 |
+| `media_filename_from_url` | function | 4460–4461 |
+| `_source_role_label` | function | 4464–4465 |
+| `_generation_source_inputs` | function | 4468–4469 |
+| `_save_source_thumb` | function | 4472–4479 |
+| `persist_image_sources` | function | 4482–4504 |
+| `repair_unavailable_image_sources_from_jobs` | function | 4507–4526 |
+| `gallery_sources_for_image` | function | 4529–4545 |
+| `persist_video_sources` | function | 4546–4556 |
+| `repair_image_sources_from_job` | function | 4559–4581 |
+| `validate_generation_media_inputs` | function | 4584–4604 |
+| `upsert_user` | function | 4607–4709 |
+| `estimate_token_cost` | function | 4712–4727 |
+| `charge_generation_tokens` | function | 4730–4734 |
+| `refund_generation_tokens` | function | 4737–4739 |
+| `bot_command_response` | function | 4745–4771 |
+| `telegram_api` | async function | 4774–4784 |
+| `max_api` | async function | 4787–4798 |
+| `schedule_avatar_cache` | function | 4805–4817 |
+| `_download_avatar_bytes` | async function | 4820–4831 |
+| `_avatar_suffix_from_bytes` | function | 4834–4840 |
+| `_telegram_avatar_source` | async function | 4843–4864 |
+| `ensure_user_avatar_cached` | async function | 4867–4919 |
+| `get_bot_polling_cursor` | function | 4922–4925 |
+| `set_bot_polling_cursor` | function | 4928–4940 |
+| `pending_max_login_challenges_count` | function | 4943–4946 |
+| `_bot_login_runtime` | function | 4949–4950 |
+| `_bot_login_limits` | function | 4953–4958 |
+| `create_bot_login_challenge` | function | 4961–4977 |
+| `telegram_update_runtime` | function | 4980–4988 |
+| `handle_telegram_update` | async function | 4991–4992 |
+| `handle_telegram_updates` | async function | 4995–4996 |
+| `max_update_runtime` | function | 4999–5009 |
+| `handle_max_updates` | async function | 5012–5013 |
+| `handle_max_update` | async function | 5016–5017 |
+| `telegram_poll_once_from_api` | async function | 5020–5038 |
+| `max_poll_once_from_api` | async function | 5041–5078 |
+| `bot_provider_config` | function | 5081–5104 |
+| `build_bot_runtime` | function | 5107–5123 |
+| `public_url` | function | 5129–5130 |
+| `delete_image_files_from_disk` | function | 5133–5144 |
+| `_delete_media_rel` | function | 5147–5155 |
+| `retire_feed_publications_for_image` | function | 5158–5177 |
+| `create_thumbnail` | function | 5180–5187 |
+| `save_gallery_original` | function | 5190–5197 |
+| `optimize_gallery_storage_for_user` | function | 5200–5302 |
+| `repair_missing_gallery_thumbnails` | function | 5305–5334 |
+| `recover_missing_optimized_gallery_files` | function | 5337–5395 |
+| `optimize_existing_gallery_storage` | function | 5398–5412 |
+| `delete_admin_secret` | function | 5415–5419 |
+| `_bot_secret_value` | function | 5422–5423 |
+| `_bot_secret_source` | function | 5426–5429 |
+| `_bot_secret_updated_at` | function | 5432–5441 |
+| `bot_integrations_config` | function | 5444–5453 |
+| `save_bot_integrations_config` | function | 5456–5470 |
+| `has_saved_bot_integrations_config` | function | 5473–5478 |
+| `telegram_admin_token` | function | 5481–5482 |
+| `telegram_admin_webhook_secret` | function | 5485–5489 |
+| `max_admin_token` | function | 5492–5493 |
+| `max_admin_webhook_secret` | function | 5496–5497 |
+| `_save_bot_secret` | function | 5500–5506 |
+| `apply_saved_bot_runtime_configuration` | function | 5509–5535 |
+| `openrouter_api_key_source` | function | 5538–5543 |
+| `openrouter_api_key` | function | 5546–5547 |
+| `migrate_openrouter_secret_from_sqlite` | function | 5550–5552 |
+| `save_openrouter_api_key` | function | 5555–5561 |
+| `delete_openrouter_api_key` | function | 5564–5567 |
+| `smtp_password` | function | 5570–5571 |
+| `smtp_config` | function | 5574–5590 |
+| `smtp_configured` | function | 5593–5595 |
+| `smtp_ready` | function | 5598–5605 |
+| `smtp_connection_config` | function | 5608–5615 |
+| `save_smtp_config` | function | 5618–5653 |
+| `save_smtp_password` | function | 5656–5663 |
+| `unisender_api_key` | function | 5666–5667 |
+| `unisender_config` | function | 5670–5674 |
+| `unisender_configured` | function | 5677–5679 |
+| `unisender_ready` | function | 5682–5684 |
+| `save_unisender_api_key` | function | 5687–5694 |
+| `save_unisender_config` | function | 5697–5717 |
+| `send_transactional_email` | function | 5720–5729 |
+| `send_social_max_api` | async function | 5735–5737 |
+| `send_social_test` | async function | 5741–5748 |
+| `yookassa_secret_key` | function | 5749–5750 |
+| `yookassa_config` | function | 5751–5755 |
+| `yookassa_ready` | function | 5756–5758 |
+| `yookassa_checkout_ready` | function | 5761–5764 |
+| `billing_simulator_enabled` | function | 5770–5771 |
+| `simulated_payment_provider` | function | 5774–5784 |
+| `active_billing_provider` | function | 5787–5792 |
+| `billing_payments_available` | function | 5795–5796 |
+| `normalize_legal_settings` | function | 5815–5833 |
+| `legal_settings` | function | 5836–5843 |
+| `legal_readiness` | function | 5846–5855 |
+| `seller_is_self_employed` | function | 5858–5861 |
+| `billing_profile_email` | function | 5864–5869 |
+| `save_billing_profile_email` | function | 5872–5883 |
+| `save_yookassa_config` | function | 5886–5909 |
+| `save_yookassa_connection_check` | function | 5912–5928 |
+| `public_site_url` | function | 5931–5935 |
+| `invalidate_openrouter_admin_caches` | function | 5953–5962 |
+| `fallback_openrouter_capabilities` | function | 5965–5993 |
+| `openrouter_key_status_snapshot` | function | 5994–6005 |
+| `openrouter_catalog_snapshot` | function | 6006–6024 |
+| `openrouter_catalog_refresh_needed` | function | 6025–6034 |
+| `refresh_openrouter_catalog` | async function | 6035–6073 |
+| `schedule_openrouter_catalog_refresh` | function | 6074–6079 |
+| `openrouter_model_capability` | function | 6080–6081 |
+| `openrouter_endpoint_capability` | function | 6082–6083 |
+| `fetch_openrouter_image_capabilities` | async function | 6084–6108 |
+| `fetch_openrouter_video_catalog` | async function | 6111–6123 |
+| `openrouter_prompt_influence_instruction` | function | 6126–6127 |
+| `openrouter_reference_value` | function | 6130–6134 |
+| `build_openrouter_image_body` | function | 6137–6144 |
+| `openrouter_headers` | function | 6147–6155 |
+| `normalize_assistant_models_config` | function | 6205–6232 |
+| `assistant_models_config` | function | 6235–6238 |
+| `ollama_models_status` | async function | 6241–6242 |
+| `qwen_asr_status` | async function | 6244–6246 |
+| `openrouter_text_models` | async function | 6253–6268 |
+| `openrouter_audio_models` | async function | 6271–6283 |
+| `_openrouter_text_content` | function | 6286–6341 |
+| `_parse_improved_prompt` | function | 6344–6356 |
+| `_improve_system_message` | function | 6359–6364 |
+| `improve_prompt_openrouter` | async function | 6367–6421 |
+| `improve_prompt_ollama` | async function | 6424–6445 |
+| `ensure_configured_ollama_resident` | async function | 6451–6452 |
+| `improve_prompt_routed` | async function | 6455–6460 |
+| `transcribe_audio_openrouter` | async function | 6463–6496 |
+| `normalize_audio_to_wav` | function | 6499–6523 |
+| `transcribe_audio_ollama` | async function | 6526–6546 |
+| `transcribe_audio_qwen` | async function | 6549–6560 |
+| `transcribe_audio_routed` | async function | 6563–6590 |
+| `resolve_openrouter_model` | function | 6593–6594 |
+| `openrouter_image_request_metadata` | function | 6597–6607 |
+| `_requested_orientation` | function | 6610–6611 |
+| `_openrouter_ratio_size` | function | 6614–6615 |
+| `_openrouter_descriptor_values` | function | 6618–6619 |
+| `openrouter_image_request_plan` | function | 6622–6631 |
+| `_openrouter_generation_cost` | function | 6634–6635 |
+| `_openrouter_first_image` | function | 6638–6639 |
+| `_openrouter_image_to_pil` | async function | 6642–6646 |
+| `_openrouter_error_payload` | function | 6649–6650 |
+| `_openrouter_error_message` | function | 6653–6654 |
+| `_openrouter_is_size_error` | function | 6657–6658 |
+| `_openrouter_public_error` | function | 6661–6666 |
+| `fetch_openrouter_key_status` | async function | 6669–6707 |
+| `send_to_openrouter` | async function | 6710–6758 |
+| `feed_media_dir` | function | 6761–6764 |
+| `_media_file_path_from_url` | function | 6767–6774 |
+| `comfyui_available` | async function | 6777–6778 |
+| `comfyui_node_names` | async function | 6781–6784 |
+| `get_comfyui_models` | async function | 6787–6788 |
+| `get_flux_klein_config` | async function | 6791–6792 |
+| `get_flux_bgremoval_models` | async function | 6795–6796 |
+| `get_flux_lora_triggers` | async function | 6799–6800 |
+| `resolve_profile_model` | function | 6803–6816 |
+| `get_model_settings` | function | 6819–6830 |
+| `effective_edit_profile` | function | 6833–6838 |
+| `effective_pose_profile` | function | 6841–6844 |
+| `effective_face_profile` | function | 6847–6849 |
+| `server_lora_enabled` | function | 6852–6859 |
+| `normalize_server_model_profiles` | function | 6868–6884 |
+| `get_server_model_profiles` | function | 6887–6888 |
+| `get_profile_row` | function | 6891–6901 |
+| `build_pose_workflow` | function | 6909–6924 |
+| `build_outpaint_workflow` | function | 6927–6939 |
+| `choose_model` | function | 6942–6967 |
+| `choose_faceswap_lora` | function | 6970–6978 |
+| `upload_to_comfyui` | async function | 6981–6982 |
+| `prepare_comfyui_input_image` | function | 6985–7001 |
+| `prepare_comfyui_outpaint_inputs` | function | 7004–7101 |
+| `fetch_workflow` | async function | 7104–7106 |
+| `set_input` | function | 7109–7110 |
+| `patch_shared_flux_nodes` | function | 7113–7122 |
+| `patch_optional_lora` | function | 7125–7126 |
+| `validate_edit_request` | function | 7132–7158 |
+| `patch_edit_reference_chain` | function | 7161–7162 |
+| `patch_mode_nodes` | function | 7165–7185 |
+| `submit_workflow` | async function | 7188–7196 |
+| `interrupt_comfyui_prompt` | async function | 7199–7203 |
+| `wait_for_comfyui_recovery_gate` | async function | 7206–7207 |
+| `recover_timed_out_comfyui_image` | async function | 7210–7224 |
+| `extract_images_from_history` | function | 7227–7228 |
+| `wait_for_history` | async function | 7231–7249 |
+| `download_comfyui_image` | async function | 7252–7259 |
+| `send_to_comfyui` | async function | 7262–7462 |
+| `save_data_url` | function | 7465–7474 |
+| `save_canvas_json` | function | 7477–7487 |
+| `mock_image` | function | 7490–7506 |
+| `_worker_refund_tokens` | function | 7509–7511 |
+| `_worker_settle_openrouter` | function | 7514–7532 |
+| `_worker_gallery_quota` | function | 7535–7538 |
+| `_worker_evict_gallery` | function | 7541–7543 |
+| `_worker_save_image` | async function | 7546–7559 |
+| `_worker_register_transient_image` | function | 7562–7563 |
+| `_generation_worker_runtime` | function | 7569–7589 |
+| `_generation_queue_runtime` | function | 7592–7602 |
+| `worker` | async function | 7605–7606 |
+| `startup` | async function | 7609–7699 |
+| `shutdown` | async function | 7701–7711 |
+| `health` | async function | 7715–7723 |
+| `_send_runtime_alert` | async function | 7732–7740 |
+| `_check_runtime_error_rate` | function | 7743–7750 |
+| `version` | async function | 7754–7760 |
+| `ensure_rate_limit` | function | 7763–7786 |
+| `_assistant_money_snapshot` | function | 7789–7799 |
+| `improve_prompt` | async function | 7803–7865 |
+| `client_runtime_error` | async function | 7869–7903 |
+| `runtime_synthetic_result` | async function | 7907–7926 |
+| `admin_runtime_health_v2` | async function | 7930–7989 |
+| `transcribe_audio` | async function | 7993–8049 |
+| `generate` | async function | 8052–8208 |
+| `get_job` | async function | 8212–8229 |
+| `cancel_job` | async function | 8233–8247 |
+| `models` | async function | 8251–8268 |
+| `flux_klein_config` | async function | 8272–8283 |
+| `flux_klein_bgremoval_models` | async function | 8287–8291 |
+| `flux_klein_lora_triggers` | async function | 8295–8299 |
+| `_request_plan_or_default` | function | 8302–8315 |
+| `tariffs` | async function | 8319–8337 |
+| `public_commerce_v2` | async function | 8341–8361 |
+| `gallery` | async function | 8365–8378 |
+| `gallery_items_page` | async function | 8382–8524 |
+| `gallery_secondary` | async function | 8528–8544 |
+| `_gallery_page_payload` | async function | 8547–8822 |
+| `gallery_page` | async function | 8826–8840 |
+| `gallery_source_use_as` | async function | 8844–8878 |
+| `gallery_source_favorite` | async function | 8882–8896 |
+| `gallery_source_delete` | async function | 8900–8915 |
+| `gallery_detail` | async function | 8919–8939 |
+| `gallery_favorite` | async function | 8943–8956 |
+| `gallery_delete` | async function | 8960–8976 |
+| `gallery_use_as` | async function | 8980–9005 |
+| `_private_media_runtime` | function | 9008–9015 |
+| `_public_media_runtime` | function | 9018–9019 |
+| `private_media_response` | function | 9022–9027 |
+| `secure_media` | async function | 9031–9032 |
+| `public_custom_avatar` | async function | 9036–9046 |
+| `legacy_secure_media` | async function | 9050–9052 |
+| `bootstrap` | async function | 9056–9127 |
+| `app_heartbeat` | async function | 9131–9148 |
+| `web_login` | async function | 9152–9187 |
+| `_bootstrap_auth_methods` | function | 9193–9203 |
+| `_bootstrap_storage_type` | function | 9206–9207 |
+| `auth_bootstrap_v2` | async function | 9211–9296 |
+| `auth_capabilities_v2` | async function | 9300–9301 |
+| `auth_bot_login_start` | async function | 9305–9320 |
+| `auth_bot_link_start` | async function | 9324–9341 |
+| `auth_bot_login_status` | async function | 9345–9400 |
+| `auth_telegram_v2` | async function | 9404–9500 |
+| `auth_max_v2` | async function | 9504–9596 |
+| `auth_email_request_code_v2` | async function | 9600–9655 |
+| `auth_email_verify_code_v2` | async function | 9659–9766 |
+| `auth_link_email_request_code_v2` | async function | 9770–9809 |
+| `auth_link_email_verify_code_v2` | async function | 9813–9860 |
+| `auth_password_register_v2` | async function | 9864–9976 |
+| `auth_password_login_v2` | async function | 9980–10076 |
+| `me_v2` | async function | 10086–10217 |
+| `_token_history_spent` | function | 10237–10244 |
+| `_token_history_source` | function | 10247–10262 |
+| `account_token_history_v2` | async function | 10266–10331 |
+| `_session_device_label` | function | 10334–10340 |
+| `auth_sessions_list` | async function | 10344–10383 |
+| `auth_session_revoke` | async function | 10387–10394 |
+| `auth_sessions_revoke_others` | async function | 10398–10411 |
+| `account_activity_v2` | async function | 10415–10456 |
+| `whoami_v2` | async function | 10460–10469 |
+| `me_profile_v2` | async function | 10473–10501 |
+| `me_profile_update_v2` | async function | 10505–10566 |
+| `me_avatar_upload_v2` | async function | 10570–10608 |
+| `me_devices_v2` | async function | 10612–10632 |
+| `me_sessions_v2` | async function | 10636–10661 |
+| `me_consents_v2` | async function | 10665–10684 |
+| `me_consents_create_v2` | async function | 10688–10734 |
+| `admin_users_v2` | async function | 10738–10799 |
+| `admin_user_detail_v2` | async function | 10803–10879 |
+| `admin_security_events_v2` | async function | 10883–10926 |
+| `admin_audit_logs_v2` | async function | 10930–10980 |
+| `admin_block_user_v2` | async function | 10984–11016 |
+| `admin_unblock_user_v2` | async function | 11020–11045 |
+| `admin_password_reset_v2` | async function | 11049–11098 |
+| `_admin_load_target` | function | 11107–11115 |
+| `_billing_currency` | function | 11123–11125 |
+| `_billing_reason` | function | 11128–11132 |
+| `_billing_idempotency` | function | 11135–11139 |
+| `_billing_discount` | function | 11142–11146 |
+| `_invoice_code` | function | 11149–11155 |
+| `_billing_invoice_dict` | function | 11158–11181 |
+| `_billing_payment_dict` | function | 11184–11205 |
+| `_billing_refund_dict` | function | 11208–11227 |
+| `_billing_package_dict` | function | 11230–11241 |
+| `_sync_tariff_billing_packages` | function | 11244–11281 |
+| `_billing_projection` | function | 11284–11330 |
+| `_loyalty_promo_dict` | function | 11333–11347 |
+| `_loyalty_bonus_dict` | function | 11350–11366 |
+| `_loyalty_link_dict` | function | 11369–11379 |
+| `_loyalty_relation_dict` | function | 11382–11394 |
+| `_loyalty_reward_dict` | function | 11397–11416 |
+| `_ensure_referral_link` | function | 11419–11434 |
+| `_loyalty_projection` | function | 11437–11471 |
+| `_grant_tokens_with_ledger` | function | 11474–11493 |
+| `admin_role_v2` | async function | 11497–11518 |
+| `admin_tokens_v2` | async function | 11522–11552 |
+| `admin_discount_v2` | async function | 11556–11583 |
+| `admin_plan_v2` | async function | 11587–11607 |
+| `admin_profile_v2` | async function | 11611–11651 |
+| `admin_user_billing_v2` | async function | 11655–11663 |
+| `billing_packages_v2` | async function | 11667–11736 |
+| `account_schedule_free_v2` | async function | 11740–11781 |
+| `billing_checkout_v2` | async function | 11785–11921 |
+| `billing_payment_status_v2` | async function | 11925–12012 |
+| `billing_yookassa_webhook_v2` | async function | 12016–12055 |
+| `admin_simulate_payment_v2` | async function | 12059–12100 |
+| `admin_reconcile_payments_v2` | async function | 12104–12168 |
+| `admin_process_payment_notifications_v2` | async function | 12172–12224 |
+| `admin_create_invoice_v2` | async function | 12228–12308 |
+| `admin_mark_invoice_paid_v2` | async function | 12312–12394 |
+| `admin_cancel_invoice_v2` | async function | 12398–12420 |
+| `admin_refund_payment_v2` | async function | 12424–12502 |
+| `admin_user_promos_v2` | async function | 12506–12511 |
+| `admin_user_referrals_v2` | async function | 12515–12526 |
+| `admin_bonus_grant_v2` | async function | 12530–12577 |
+| `admin_bonus_cancel_v2` | async function | 12581–12609 |
+| `admin_apply_promo_v2` | async function | 12613–12678 |
+| `account_apply_promo_v2` | async function | 12682–12741 |
+| `admin_referral_reward_v2` | async function | 12745–12793 |
+| `_iso_days_ago` | function | 12802–12803 |
+| `_today_start_iso` | function | 12806–12808 |
+| `_empty_daily_series` | function | 12811–12816 |
+| `_daily_counts` | function | 12819–12836 |
+| `_empty_hourly_series` | function | 12839–12844 |
+| `_hourly_counts` | function | 12847–12865 |
+| `_parse_iso_utc` | function | 12868–12877 |
+| `_floor_to_bucket` | function | 12880–12882 |
+| `_rolling_counts` | function | 12885–12915 |
+| `_dashboard_rolling_series` | function | 12918–12924 |
+| `admin_user_analytics_row` | function | 12927–13021 |
+| `_cancel_provider_payment` | function | 13024–13038 |
+| `_verified_payment_email` | function | 13041–13056 |
+| `_enqueue_payment_success_notifications` | function | 13059–13085 |
+| `_complete_provider_payment` | function | 13088–13166 |
+| `admin_dashboard_v2` | async function | 13170–13198 |
+| `admin_logs_v2` | async function | 13202–13294 |
+| `admin_users_analytics_v2` | async function | 13321–13363 |
+| `admin_user_detail_analytics_v2` | async function | 13367–13569 |
+| `admin_user_image_media` | async function | 13573–13586 |
+| `admin_user_video_media` | async function | 13590–13603 |
+| `admin_delete_user_gallery_image_v2` | async function | 13607–13646 |
+| `admin_mail_status_v2` | async function | 13650–13771 |
+| `admin_mail_test_v2` | async function | 13775–13787 |
+| `admin_diagnostics_v2` | async function | 13791–13810 |
+| `auth_session_refresh_v2` | async function | 13814–13830 |
+| `auth_session_logout_v2` | async function | 13834–13848 |
+| `auth_sessions_list_v2` | async function | 13852–13869 |
+| `max_webhook_url` | function | 13872–13878 |
+| `configure_max_webhook_subscription` | async function | 13881–13918 |
+| `migrate_video_storage_tariffs` | function | 13948–13975 |
+| `_admin_bot_public_https_status` | async function | 13978–13997 |
+| `_admin_telegram_probe` | async function | 14000–14022 |
+| `_admin_max_probe` | async function | 14025–14075 |
+| `admin_max_status` | async function | 14136–14161 |
+| `send_gallery_image` | async function | 14165–14188 |
+| `translate` | async function | 14192–14199 |
+| `get_presets` | async function | 14203–14206 |
+| `admin_summary` | async function | 14210–14301 |
+| `admin_energy` | async function | 14305–14318 |
+| `admin_users` | async function | 14322–14333 |
+| `admin_create_user` | async function | 14337–14368 |
+| `admin_update_user` | async function | 14372–14420 |
+| `admin_delete_user` | async function | 14424–14453 |
+| `admin_user_history` | async function | 14457–14472 |
+| `admin_promos` | async function | 14476–14480 |
+| `admin_create_promo` | async function | 14484–14504 |
+| `admin_get_settings` | async function | 14508–14516 |
+| `admin_save_settings` | async function | 14520–14572 |
+| `assistant_usage_report` | function | 14575–14576 |
+| `admin_assistants` | async function | 14580–14611 |
+| `admin_mail_config_v2` | async function | 14614–14620 |
+| `admin_mail_verify_v2` | async function | 14624–14656 |
+| `admin_mail_unisender_verify_v2` | async function | 14660–14738 |
+| `admin_mail_unisender_create_list_v2` | async function | 14742–14754 |
+| `admin_payments_status_v2` | async function | 14758–14807 |
+| `admin_payments_config_v2` | async function | 14811–14817 |
+| `admin_payments_check_v2` | async function | 14821–14857 |
+| `admin_payment_package_v2` | async function | 14861–14875 |
+| `admin_test_assistant` | async function | 14879–14912 |
+| `admin_test_voice_assistant` | async function | 14916–14956 |
+| `compute_model_status` | async function | 14959–15041 |
+| `admin_model_status` | async function | 15045–15047 |
+| `compute_config_ui_status` | async function | 15050–15138 |
+| `admin_config_ui_status_v2` | async function | 15142–15144 |
+| `admin_config_ui_reload_v2` | async function | 15148–15168 |
+| `admin_config_ui_switch_v2` | async function | 15172–15186 |
+| `admin_config_ui_interrupt_v2` | async function | 15190–15212 |
+| `scan_loras` | async function | 15247–15309 |
+| `admin_loras` | async function | 15313–15315 |
+| `_saved_setting` | function | 15318–15326 |
+| `free_comfyui_models` | async function | 15329–15330 |
+| `reconcile_openrouter_token_charge` | function | 15333–15382 |
+| `_save_setting` | function | 15385–15391 |
+| `fetch_usd_rub_rate` | async function | 15394–15453 |
+| `usd_rub_rate_snapshot` | function | 15456–15467 |
+| `openrouter_economy_settings` | function | 15533–15547 |
+| `openrouter_requested_megapixels` | function | 15550–15554 |
+| `openrouter_estimated_usd` | function | 15557–15562 |
+| `openrouter_tokens_for_cost` | function | 15565–15568 |
+| `openrouter_format_economics` | function | 15571–15607 |
+| `openrouter_admin_pricing_rows` | function | 15610–15625 |
+| `public_openrouter_pricing` | function | 15628–15668 |
+| `estimate_openrouter_billing` | async function | 15671–15754 |
+| `finalize_openrouter_billing_snapshot` | function | 15757–15763 |
+| `default_tariff_matrix` | function | 15766–15784 |
+| `openrouter_usage_stats` | function | 15787–15903 |
+| `_openrouter_video_billing_from_exchange` | function | 15906–15988 |
+| `estimate_openrouter_video_billing` | async function | 15991–16004 |
+| `_video_model_public_pricing` | function | 16007–16056 |
+| `_video_job_payload` | function | 16059–16064 |
+| `_video_gallery_item` | function | 16065–16077 |
+| `_video_storage_reservation` | function | 16080–16095 |
+| `_queue_video_file_deletion` | function | 16098–16122 |
+| `drain_video_file_deletions` | function | 16125–16150 |
+| `_evict_videos_for_new_result` | function | 16153–16168 |
+| `_claim_video_finalization` | function | 16171–16190 |
+| `_release_video_finalization` | function | 16193–16203 |
+| `_download_video_result` | async function | 16204–16220 |
+| `video_generation_config` | async function | 16222–16286 |
+| `_generate_local_ltx_video` | async function | 16287–16304 |
+| `generate_video` | async function | 16306–16386 |
+| `estimate_video` | async function | 16388–16418 |
+| `_refresh_video_job` | async function | 16419–16558 |
+| `get_video_job` | async function | 16562–16569 |
+| `_backfill_completed_video_gallery` | function | 16572–16616 |
+| `video_history` | async function | 16620–16638 |
+| `video_media` | async function | 16642–16651 |
+| `gallery_video_favorite` | async function | 16655–16676 |
+| `gallery_video_delete` | async function | 16680–16701 |
+| `openrouter_video_usage_stats` | function | 16704–16705 |
+| `normalize_openrouter_config` | function | 16715–16721 |
+| `get_openrouter_config` | function | 16724–16725 |
+| `tariff_model_counts` | function | 16728–16774 |
+| `tariff_config_with_model_counts` | function | 16777–16785 |
+| `filter_openrouter_config_by_capabilities` | function | 16788–16814 |
+| `openrouter_model_allowed` | function | 16817–16818 |
+| `openrouter_quality_model` | function | 16821–16829 |
+| `_public_model_option` | function | 16843–16879 |
+| `public_model_access_for_plan` | function | 16882–16895 |
+| `model_access` | async function | 16899–16910 |
+| `admin_save_openrouter_key` | async function | 16959–16976 |
+| `admin_delete_openrouter_key` | async function | 16979–16993 |
+| `admin_openrouter_test_generate` | async function | 16996–17064 |
+| `default_routes` | function | 17067–17092 |
+| `admin_models_page` | async function | 17096–17208 |
+| `admin_jobs` | async function | 17212–17214 |
+| `admin_limits` | async function | 17218–17221 |
+| `_feed_orientation` | function | 17285–17290 |
+| `_feed_source_label` | function | 17293–17309 |
+| `_feed_source_type` | function | 17312–17318 |
+| `_save_feed_variant` | function | 17321–17329 |
+| `create_feed_assets` | function | 17332–17359 |
+| `_feed_ffmpeg_executable` | function | 17362–17371 |
+| `_run_feed_ffmpeg` | function | 17374–17388 |
+| `create_feed_video_assets` | function | 17391–17467 |
+| `_feed_media_name` | function | 17470–17479 |
+| `_feed_author_name` | function | 17482–17494 |
+| `_feed_author_profile` | function | 17497–17535 |
+| `_feed_author_profile_payload` | function | 17538–17568 |
+| `_feed_author_profiles` | function | 17571–17635 |
+| `_feed_challenge_payload` | function | 17638–17665 |
+| `_feed_source_history_payload` | function | 17668–17675 |
+| `_feed_generation_snapshot` | function | 17678–17691 |
+| `backfill_feed_generation_snapshots` | function | 17694–17715 |
+| `_feed_aspect_ratio` | function | 17718–17724 |
+| `_feed_payload_context` | function | 17727–17795 |
+| `_feed_item_payload` | function | 17798–17959 |
+| `_feed_optional_viewer` | function | 17962–17968 |
+| `_feed_viewer_key` | function | 17989–18000 |
+| `_encode_feed_cursor` | function | 18003–18007 |
+| `_decode_feed_cursor` | function | 18010–18028 |
+| `_feed_subscription_unread_count` | function | 18031–18053 |
+| `_feed_cursor_for_row` | function | 18056–18075 |
+| `_feed_list_rows` | function | 18078–18211 |
+| `feed_list` | async function | 18215–18268 |
+| `_feed_video_publication_status_payload` | function | 18271–18283 |
+| `_prepare_feed_video_publication` | function | 18286–18370 |
+| `feed_video_publication_worker` | async function | 18373–18384 |
+| `start_feed_video_publication_worker` | function | 18387–18408 |
+| `stop_feed_video_publication_worker` | async function | 18411–18434 |
+| `enqueue_feed_video_publication` | async function | 18437–18446 |
+| `_publish_feed_video` | async function | 18449–18591 |
+| `feed_publish` | async function | 18595–18797 |
+| `feed_publication_status` | async function | 18801–18829 |
+| `update_own_feed_publication` | async function | 18833–18868 |
+| `_feed_reaction_toggle` | function | 18871–18892 |
+| `feed_like` | async function | 18896–18897 |
+| `feed_unlike` | async function | 18901–18902 |
+| `feed_save` | async function | 18906–18907 |
+| `feed_unsave` | async function | 18911–18912 |
+| `_feed_engagement_context` | function | 18915–18926 |
+| `feed_engagement_event` | async function | 18930–18983 |
+| `feed_publication_view` | async function | 18987–19029 |
+| `feed_dislike` | async function | 19033–19034 |
+| `feed_undislike` | async function | 19038–19039 |
+| `feed_hide` | async function | 19043–19044 |
+| `feed_unhide` | async function | 19048–19049 |
+| `feed_report` | async function | 19053–19054 |
+| `feed_publication_use_as` | async function | 19058–19090 |
+| `feed_follow_author` | async function | 19094–19111 |
+| `feed_unfollow_author` | async function | 19115–19122 |
+| `feed_author_publications` | async function | 19126–19168 |
+| `feed_following_mark_read` | async function | 19172–19184 |
+| `feed_challenges` | async function | 19188–19209 |
+| `feed_recreate_mark` | async function | 19213–19225 |
+| `feed_remix_start` | async function | 19229–19256 |
+| `admin_feed_moderation_queue` | async function | 19260–19286 |
+| `admin_feed_moderation_media` | async function | 19290–19305 |
+| `admin_moderate_feed_publication` | async function | 19309–19380 |
+| `admin_delete_feed_publication_v2` | async function | 19384–19462 |
+| `delete_own_feed_publication` | async function | 19466–19553 |
+| `feed_media` | async function | 19557–19574 |
+| `feed_video_media` | async function | 19578–19606 |
+| `feed_publication_download` | async function | 19610–19684 |

@@ -15,9 +15,37 @@ from tools.test_health_audit import (
 
 ROOT = Path(__file__).resolve().parents[1]
 HEAD = "a" * 40
-NON_REGRESSION_POLICY = json.loads(
-    (ROOT / "architecture" / "test-health-policy.json").read_text(encoding="utf-8")
-)
+# Synthetic allowances exercise evaluator behavior even after production debt closes.
+# Their dates belong to metadata() below; this fixture is never a release waiver.
+NON_REGRESSION_POLICY = {
+    "schemaVersion": 3,
+    "slice": "observability-non-regression",
+    "baselineSource": "exact-head-github-ci",
+    "historicalCountsAcceptedAsFreshBaseline": False,
+    "acceptedBaseline": {
+        "warnings": {
+            "total": 8,
+            "categories": [
+                {"category": "DeprecationWarning", "source": "backend/main.py", "count": 4, "issue": "#162"},
+                {"category": "DeprecationWarning", "source": "site-packages/fastapi/applications.py", "count": 4, "issue": "#162"},
+            ],
+        },
+        "cleanup": {
+            "total": 1,
+            "categories": [{
+                "errorType": "PermissionError", "owner": "apply-secrets",
+                "normalizedPath": "<PYTEST_TEMP>/apply-secrets", "count": 1, "issue": "#165",
+            }],
+        },
+    },
+    "debtReviews": {
+        issue: {
+            "owner": "unit-test-owner", "reason": "Synthetic non-regression fixture.",
+            "reviewBy": "2026-09-25",
+        }
+        for issue in ("#162", "#165")
+    },
+}
 
 
 def metadata(**overrides):
@@ -175,13 +203,41 @@ class TestHealthNonRegressionPolicy(unittest.TestCase):
             ],
         }
 
-    def test_accepted_97_warning_and_1_cleanup_baseline_passes(self) -> None:
+    def test_accepted_synthetic_warning_and_cleanup_baseline_passes(self) -> None:
         policy = copy.deepcopy(NON_REGRESSION_POLICY)
         violations = _validate_debt_reviews(policy, metadata())
         violations += _evaluate_non_regression(
             self.warning_baseline(), self.cleanup_baseline(), policy
         )
         self.assertEqual(violations, [])
+
+    def test_repository_policy_baselines_and_review_fields_remain_valid(self) -> None:
+        policy = json.loads(
+            (ROOT / "architecture" / "test-health-policy.json").read_text(encoding="utf-8")
+        )
+        # This retains the fixed-date schema check; CI supplies actual run startedAt.
+        self.assertEqual(_validate_debt_reviews(policy, metadata()), [])
+
+    def test_zero_allowances_accept_clean_evidence_and_reject_former_debt(self) -> None:
+        policy = copy.deepcopy(NON_REGRESSION_POLICY)
+        policy["acceptedBaseline"]["warnings"] = {"total": 0, "categories": []}
+        policy["acceptedBaseline"]["cleanup"] = {"total": 0, "categories": []}
+        policy["debtReviews"] = {}
+        self.assertEqual(_validate_debt_reviews(policy, metadata()), [])
+        self.assertEqual(
+            _evaluate_non_regression(
+                {"total": 0, "categories": []}, {"count": 0, "categories": []}, policy
+            ),
+            [],
+        )
+        violations = _evaluate_non_regression(
+            self.warning_baseline(), self.cleanup_baseline(), policy
+        )
+        for expected in (
+            "WARNING_TOTAL_ABOVE_BASELINE", "NEW_WARNING_CATEGORY_SOURCE",
+            "CLEANUP_TOTAL_ABOVE_BASELINE", "NEW_CLEANUP_CATEGORY_OWNER",
+        ):
+            self.assertIn(expected, violations)
 
     def test_warning_count_decrease_passes(self) -> None:
         warnings = self.warning_baseline()
@@ -212,9 +268,9 @@ class TestHealthNonRegressionPolicy(unittest.TestCase):
         )
         self.assertIn("WARNING_CATEGORY_SOURCE_COUNT_INCREASE", violations)
 
-    def test_warning_total_above_97_fails(self) -> None:
+    def test_warning_total_above_baseline_fails(self) -> None:
         warnings = self.warning_baseline()
-        warnings["total"] = 98
+        warnings["total"] += 1
         violations = _evaluate_non_regression(
             warnings, self.cleanup_baseline(), NON_REGRESSION_POLICY
         )

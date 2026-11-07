@@ -6,11 +6,11 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 ## Summary
 
 - Routes: 251
-- Registered workers: 8
+- Registered workers: 9
 - Registered ephemeral tasks: 4
-- SQLite tables: 65
+- SQLite tables: 69
 - SQLite indexes: 98
-- Foreign-key declarations: 2
+- Foreign-key declarations: 3
 - Frontend/static API literals: 43
 - Route process role: `all-dev-current-monolith`
 
@@ -30,9 +30,10 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | ID | Kind | Owner | Persistence | Recovery | Watchdog |
 |---|---|---|---|---|---|
-| generation-consumer | worker | backend.app.services.generation_queue | SQLite jobs plus an in-process asyncio queue | backend.app.services.generation_recovery | missing |
+| generation-consumer | worker | backend.app.services.application_lifespan.GenerationConsumerOwner | SQLite jobs and admission receipts plus an in-process asyncio queue | Transactional generation_recovery, excluding sealed historical jobs and settling new trial reservations | Single owned task; lifespan cancels and awaits it before shutdown; repeated starts are bounded |
+| generation-consumer-compatibility | worker | backend.app.services.generation_queue | SQLite jobs plus an in-process asyncio queue | backend.app.services.generation_recovery | Caller owns the compatibility task |
 | bot-polling | worker | backend.app.services.bot_workers | SQLite bot_polling_state cursor/marker per provider on BotRuntime | cursor/marker resumes after process restart | bounded retry loop; no independent supervisor |
-| feed-video-publication | worker | backend.main | SQLite feed_publications status plus an in-process asyncio queue | startup requeues rows in preparing status | missing |
+| feed-video-publication | worker | backend.main | SQLite feed_publications status plus an in-process asyncio queue | Startup queues preparing rows only when they are outside the sealed restored-history boundary | missing |
 | avatar-cache | ephemeral | backend.main | avatar file and user metadata | later request may retry | not applicable |
 | openrouter-catalog-refresh | ephemeral | backend.main | process cache | later request may retry | single task handle |
 | admin-notification-delivery | worker | backend.app.services.admin_notification_delivery.AdminNotificationDeliveryWorker | SQLite admin_notification_delivery_outbox with lease, retry and terminal failed state | expired processing leases and pending/retry rows are reclaimed after restart | single task handle, bounded loop, last success/error timestamps exposed to trusted admin |
@@ -57,7 +58,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 ### Tables
 
-`account_verifications`, `admin_notification_delivery_outbox`, `admin_notifications`, `admin_secrets`, `admin_settings`, `audit_logs`, `auth_identities`, `auth_login_attempts`, `auth_login_challenges`, `auth_otp_challenges`, `auth_passwords`, `auth_sessions`, `billing_packages`, `bonus_grants`, `bot_polling_state`, `challenge_entries`, `challenges`, `chat_billing_meters`, `device_installations`, `event_logs`, `feed_author_follows`, `feed_engagement_events`, `feed_publications`, `feed_reactions`, `feed_subscription_reads`, `feed_view_events`, `generation_energy_usage`, `generation_trial_reservations`, `image_sources`, `images`, `images_search`, `invoice_items`, `invoices`, `jobs`, `legal_acceptances`, `loras`, `model_profiles`, `password_reset_challenges`, `payment_notification_outbox`, `payment_provider_events`, `payments`, `phone_chat_messages`, `phone_chat_requests`, `phone_chat_threads`, `power_samples`, `presets`, `promo_codes`, `promo_redemptions`, `referral_links`, `referral_relations`, `referral_rewards`, `refunds`, `schema_migrations`, `security_events`, `session_events`, `social_delivery_outbox`, `tariff_token_grants`, `token_ledger`, `user_billing_profiles`, `user_consents`, `user_presence_samples`, `users`, `video_file_deletions`, `video_sources`, `videos`
+`account_verifications`, `admin_notification_delivery_outbox`, `admin_notifications`, `admin_secrets`, `admin_settings`, `audit_logs`, `auth_identities`, `auth_login_attempts`, `auth_login_challenges`, `auth_otp_challenges`, `auth_passwords`, `auth_sessions`, `billing_packages`, `bonus_grants`, `bot_polling_state`, `challenge_entries`, `challenges`, `chat_billing_meters`, `device_installations`, `event_logs`, `feed_author_follows`, `feed_engagement_events`, `feed_publications`, `feed_reactions`, `feed_subscription_reads`, `feed_view_events`, `generation_admissions`, `generation_energy_usage`, `generation_refunds`, `generation_trial_reservations`, `history_replay_boundary`, `history_replay_resources`, `image_sources`, `images`, `images_search`, `invoice_items`, `invoices`, `jobs`, `legal_acceptances`, `loras`, `model_profiles`, `password_reset_challenges`, `payment_notification_outbox`, `payment_provider_events`, `payments`, `phone_chat_messages`, `phone_chat_requests`, `phone_chat_threads`, `power_samples`, `presets`, `promo_codes`, `promo_redemptions`, `referral_links`, `referral_relations`, `referral_rewards`, `refunds`, `schema_migrations`, `security_events`, `session_events`, `social_delivery_outbox`, `tariff_token_grants`, `token_ledger`, `user_billing_profiles`, `user_consents`, `user_presence_samples`, `users`, `video_file_deletions`, `video_sources`, `videos`
 
 ### Indexes
 
@@ -122,7 +123,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | `/api/gallery/videos/{dynamic}` | backend/static/gallery/gallery.js |
 | `/api/gallery/{dynamic}` | backend/static/gallery/gallery.js |
 | `/api/gallery/{id}` | frontend/src/newUi.tsx |
-| `/api/generate` | frontend/src/newUi.tsx, frontend/src/phone/features/chat/api.ts, frontend/src/phone/features/image/api.ts |
+| `/api/generate` | frontend/src/newUi.tsx, frontend/src/phone/core/http.ts, frontend/src/phone/features/chat/api.ts, frontend/src/phone/features/image/api.ts |
 | `/api/jobs` | frontend/src/newUi.tsx |
 | `/api/me-v2` | backend/static/feed/index.html, backend/static/gallery/gallery.js, frontend/src/authV2.tsx, frontend/src/phone/PhoneApp.tsx |
 | `/api/media/` | backend/static/gallery/gallery.js, frontend/src/studio/videoSourceHandoff.ts |
@@ -149,7 +150,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Owner | Category | Protected | Non-growth | Current | Maximum | Remaining |
 |---|---|---|---|---|---:|---:|---:|
-| `backend/main.py` | backend-composition | backend-hotspot | true | true | 19749 | 19750 | 1 |
+| `backend/main.py` | backend-composition | backend-hotspot | true | true | 19684 | 19684 | 0 |
 | `backend/static/feed/index.html` | feed-static | static-ui-hotspot | true | true | 2124 | 2200 | 76 |
 | `backend/test_feed_v2.py` | feed-tests | test-hotspot | true | true | 2346 | 2600 | 254 |
 | `frontend/src/LegacyApp.tsx` | frontend-legacy | frontend-legacy-hotspot | true | true | 3600 | 3700 | 100 |

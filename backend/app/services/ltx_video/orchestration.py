@@ -9,6 +9,7 @@ from typing import Any, Callable
 from .client import ComfyLtxClient
 from .profiles import LtxProfile, estimate_local_ltx_billing
 from .workflow import build_ltx_prompt
+from ..history_replay import history_policy_for_connection
 
 
 class LocalLtxRequestError(RuntimeError):
@@ -109,14 +110,16 @@ async def validate_and_submit_local_ltx_job(
     if not workflow_path.is_file():
         raise LocalLtxRequestError(503, "Серверный workflow LTX 2.3 не установлен.")
     with callbacks["open_db"]() as conn:
+        allowed, bindings = history_policy_for_connection(conn).where_allowed("jobs", "id")
         active = conn.execute(
-            """
+            f"""
             SELECT id,created_at,settings_json
             FROM jobs
             WHERE provider='local_ltx'
-              AND status IN ('submitting','queued','pending','in_progress','finalizing')
+              AND status IN ('submitting','queued','pending','in_progress','finalizing') AND ({allowed})
             LIMIT 1
-            """
+            """,
+            bindings,
         ).fetchone()
     if active is not None:
         settings = json.loads(active["settings_json"] or "{}")
@@ -130,6 +133,7 @@ async def validate_and_submit_local_ltx_job(
                 recovered = None
             if recovered and recovered.get("status") == "failed":
                 with callbacks["open_db"]() as conn:
+                    history_policy_for_connection(conn).require_allowed("jobs", active["id"])
                     callbacks["refund_tokens"](
                         conn, active["id"], reason="video_lost_after_restart"
                     )
@@ -176,6 +180,8 @@ async def submit_local_ltx_job(
 ) -> dict[str, Any]:
     billing = estimate_local_ltx_billing(profile, duration=req.duration)
     job_id = f"video_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+    with open_db() as conn:
+        history_policy_for_connection(conn).require_allowed("jobs", job_id)
     prompt = build_ltx_prompt(
         workflow_path,
         profile=profile,

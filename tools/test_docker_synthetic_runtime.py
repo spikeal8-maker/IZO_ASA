@@ -30,9 +30,9 @@ def repin(root, manifest, config=None):
     return file_hash(root / "bundle.json")[1]
 
 
-def make_runtime(root, sha="a" * 40):
+def make_runtime(root, sha="a" * 40, *, schema=7):
     root, _, manifest = make_bundle(root, sha)
-    manifest.update(format=2, profile=RUNTIME)
+    manifest.update(format=2, profile=RUNTIME, schema=schema)
     services, volumes = {"backend", "web", "guard"}, {"sqlite-data", "media-data"}
     manifest["images"] = {role: "sha256:" + character * 64
                           for role, character in (("backend", "c"), ("web", "d"), ("guard", "e"))}
@@ -47,12 +47,13 @@ def make_runtime(root, sha="a" * 40):
     backend["environment"].update(COMFYUI_BASE_URL="http://127.0.0.1:1", EMAIL_OTP_DEBUG_RETURN_CODE="false")
     backend["volumes"] = [{"type": "volume", "source": name, "target": target}
                           for name, target in (("sqlite-data", "/home/izo/data"), ("media-data", "/home/izo/media"))]
-    config = builder.persistent_config(config, manifest["project"], sha, manifest["release_id"], manifest["images"], profile=RUNTIME)
+    config = builder.persistent_config(config, manifest["project"], sha, manifest["release_id"], manifest["images"], profile=RUNTIME, schema=schema)
     return root, repin(root, manifest, config), manifest
 
 
-def test_v2_contract_is_explicit_and_ordinary(tmp_path):
-    root, pin, manifest = make_runtime(tmp_path / "runtime")
+@pytest.mark.parametrize("schema", [7, 8])
+def test_v2_contract_is_explicit_and_ordinary(tmp_path, schema):
+    root, pin, manifest = make_runtime(tmp_path / "runtime", schema=schema)
     assert verify(root, pin) == manifest and bundle_profile(manifest) == RUNTIME
     assert expected_services(manifest) == {"backend", "web", "guard"}
     assert expected_volumes(manifest) == {"sqlite-data", "media-data"}
@@ -61,6 +62,8 @@ def test_v2_contract_is_explicit_and_ordinary(tmp_path):
     assert backend["environment"]["IZO_PROCESS_ROLE"] == "combined"
     assert backend["environment"]["COMFYUI_REQUIRED"] == backend["environment"]["COMFYUI_NATIVE4B_ONLY"] == "false"
     assert backend["environment"]["COMFYUI_MOCK_FALLBACK"] == "true"
+    assert backend["environment"]["IZO_PREPROD_PRESERVE_HISTORY"] == ("1" if schema == 7 else "0")
+    assert "IZO_HISTORY_SNAPSHOT_ID" not in backend["environment"]
     assert "IZO_SHADOW_FIXTURE" not in backend["environment"]
 
 
@@ -78,8 +81,9 @@ def test_unknown_or_ambiguous_profile_refused(tmp_path, version, profile):
 @pytest.mark.parametrize("change", ["fixture", "missing-command", "server", "worker", "ipc", "socket", "required",
     "native-only", "fallback", "maintenance", "history", "credential", "live-url", "public-port", "capability",
     "readonly-data", "data-path", "web-data", "writable-assets", "host-bind", "restart", "missing-image"])
-def test_runtime_dangerous_variants_rejected(tmp_path, change):
-    root, _, manifest = make_runtime(tmp_path / "bundle")
+@pytest.mark.parametrize("schema", [7, 8])
+def test_runtime_dangerous_variants_rejected(tmp_path, change, schema):
+    root, _, manifest = make_runtime(tmp_path / "bundle", schema=schema)
     config = json.loads((root / "compose.json").read_text())
     backend, web = config["services"]["backend"], config["services"]["web"]
     env = backend["environment"]
@@ -93,7 +97,7 @@ def test_runtime_dangerous_variants_rejected(tmp_path, change):
     elif change == "native-only": env["COMFYUI_NATIVE4B_ONLY"] = "true"
     elif change == "fallback": env["COMFYUI_MOCK_FALLBACK"] = "false"
     elif change == "maintenance": env["IZO_DISABLE_STARTUP_STORAGE_MAINTENANCE"] = "0"
-    elif change == "history": env["IZO_PREPROD_PRESERVE_HISTORY"] = "0"
+    elif change == "history": env["IZO_PREPROD_PRESERVE_HISTORY"] = "0" if schema == 7 else "1"
     elif change == "credential": env["OPENROUTER_API_KEY"] = "synthetic-forbidden"
     elif change == "live-url": env["COMFYUI_BASE_URL"] = "https://outside.invalid"
     elif change == "public-port": config["services"]["guard"]["ports"][0]["host_ip"] = "0.0.0.0"

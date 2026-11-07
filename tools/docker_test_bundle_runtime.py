@@ -20,14 +20,14 @@ from urllib.request import ProxyHandler, build_opener
 sys.dont_write_bytecode = True
 try:
     from tools.docker_test_bundle_format import (
-        ACCEPTANCE, RUNTIME, UVICORN, BundleError, OWNER, SERVICES, VOLUMES, bundle_profile,
+        ACCEPTANCE, RUNTIME, UVICORN, BundleError, OWNER, SERVICES, VOLUMES, bundle_profile, bundle_schema,
         expected_services, expected_volumes, profile_fields, json_bytes, load_json, plain_path, require, verify,
     )
     from tools.docker_test_bundle_images import ensure_portable_images, resolve_images, runtime_compose
     from tools.docker_bundle_release_identity import DeadlineHTTPHandler, NoRedirect, read_http, verify_served_frontend
 except ModuleNotFoundError:
     from docker_test_bundle_format import (
-        ACCEPTANCE, RUNTIME, UVICORN, BundleError, OWNER, SERVICES, VOLUMES, bundle_profile,
+        ACCEPTANCE, RUNTIME, UVICORN, BundleError, OWNER, SERVICES, VOLUMES, bundle_profile, bundle_schema,
         expected_services, expected_volumes, profile_fields, json_bytes, load_json, plain_path, require, verify,
     )
     from docker_test_bundle_images import ensure_portable_images, resolve_images, runtime_compose
@@ -209,6 +209,7 @@ def ensure_images(docker: Docker, root: Path, m: dict) -> None:
 
 
 def health(docker: Docker, root: Path, m: dict) -> dict:
+    schema = bundle_schema(m)
     images = resolve_images(docker, m)
     compose_path = runtime_compose(root, m, images)
     current = owned_resources(docker, m)
@@ -234,7 +235,7 @@ def health(docker: Docker, root: Path, m: dict) -> dict:
     require(version.get("backend_commit") == m["source_sha"]
             and version.get("release_id") == m["release_id"]
             and version.get("frontend_build") == m["release_id"]
-            and version.get("schema_compatibility") == {"min_version": 7, "max_version": 7},
+            and version.get("schema_compatibility") == {"min_version": schema, "max_version": schema},
             "RUNTIME_VERSION_MISMATCH")
     frontend = verify_served_frontend(opener, origin, m)
     return {"status": "TEST_RUNTIME_VERIFIED", "source_sha": m["source_sha"],
@@ -269,9 +270,11 @@ def wait_health(docker: Docker, root: Path, manifest: dict, *, timeout: float = 
 
 def initialize_empty_test_database(docker: Docker, root: Path, manifest: dict) -> None:
     """Run canonical migrations only in a newly owned, empty synthetic database."""
+    schema = bundle_schema(manifest)
+    marker = f"FRESH_TEST_SCHEMA_{schema}_VERIFIED"
     docker.compose(root, manifest, "up", "-d", "--wait", "--wait-timeout", "60",
                    "--no-build", "--pull", "never", "guard")
-    code = """import os,sqlite3
+    code = f"""import os,sqlite3
 from pathlib import Path
 p=Path(os.environ['DATABASE_URL'])
 assert os.environ['APP_ENV']=='test' and os.environ['ENV']=='test' and os.environ['MODE']=='test'
@@ -285,15 +288,15 @@ import main
 main.db_guard_preflight()
 main.init_db()
 c=sqlite3.connect('file:'+str(p)+'?mode=ro',uri=True)
-assert c.execute('PRAGMA user_version').fetchone()[0]==7
+assert c.execute('PRAGMA user_version').fetchone()[0]=={schema}
 assert c.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
 assert not c.execute('PRAGMA foreign_key_check').fetchone()
 c.close()
-print('FRESH_TEST_SCHEMA_7_VERIFIED')
+print({marker!r})
 """
     output = docker.compose(root, manifest, "run", "--rm", "--no-deps", "-T", "--entrypoint",
                             "python", "backend", "-c", code)
-    require(output.splitlines()[-1:] == ["FRESH_TEST_SCHEMA_7_VERIFIED"], "FRESH_SCHEMA_INITIALIZATION_FAILED")
+    require(output.splitlines()[-1:] == [marker], "FRESH_SCHEMA_INITIALIZATION_FAILED")
 
 
 def atomic_json(path: Path, value: dict) -> None:
@@ -367,7 +370,7 @@ def install_locked(bundle: Path, pin: str, state: Path, docker: Docker, m: dict,
             require(len(backend) == 1 and backend[0]["State"]["Running"],
                     "UPDATE_REQUIRES_RUNNING_PREVIOUS_TEST_RELEASE")
             proof = json.loads(docker.run("exec", backend[0]["Id"], "python", "-c", QUIESCENCE_CODE))
-            require(proof == {"schema": 7, "busy": 0, "video_deletions": 0, "preparing_video_publications": 0}, "UPDATE_TEST_DATA_NOT_QUIESCENT")
+            require(proof == {"schema": bundle_schema(m), "busy": 0, "video_deletions": 0, "preparing_video_publications": 0}, "UPDATE_TEST_DATA_NOT_QUIESCENT")
     releases = state / "releases"
     releases.mkdir(exist_ok=True)
     target = releases / pin

@@ -13,6 +13,13 @@ from tools.docker_test_bundle_format import BundleError, validate_compose
 from tools.test_docker_test_bundle_format import make_bundle
 
 
+def source_contract(source, schema):
+    path = source / "architecture/contract.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"release_contract": {
+        "schema_compatibility": {"min_version": 1, "max_version": schema}}}), encoding="utf-8")
+
+
 def test_persistent_config_removes_build_and_uses_relative_readonly_assets(tmp_path):
     root, _, m = make_bundle(tmp_path / "bundle")
     source = json.loads((root / "compose.json").read_text())
@@ -28,8 +35,10 @@ def test_persistent_config_removes_build_and_uses_relative_readonly_assets(tmp_p
 
 
 @pytest.mark.parametrize("target_hash", [False, True])
-def test_existing_release_identity_uses_host_or_exact_target_assets(tmp_path, target_hash):
+@pytest.mark.parametrize("schema", [7, 8])
+def test_existing_release_identity_uses_host_or_exact_target_assets(tmp_path, target_hash, schema):
     source = tmp_path / "source"
+    source_contract(source, schema)
     (source / "backend/app").mkdir(parents=True)
     (source / "ops/docker/dev").mkdir(parents=True)
     shutil.copyfile(Path(__file__).resolve().parents[1] / "backend/app/release_identity.py",
@@ -46,7 +55,7 @@ def test_existing_release_identity_uses_host_or_exact_target_assets(tmp_path, ta
     assert result["frontend_asset_manifest_hash"].startswith("sha256:")
     if target_hash: assert result["frontend_asset_manifest_hash"] == evidence[1]
     assert result["python_version"] == "3.11.9" and result["node_version"] == "24.14.1"
-    assert result["schema_compatibility"] == {"min_version": 7, "max_version": 7}
+    assert result["schema_compatibility"] == {"min_version": schema, "max_version": schema}
 
 
 def test_source_guard_rejects_wrong_repository_dirty_and_wrong_sha(tmp_path, monkeypatch):
@@ -82,6 +91,7 @@ def test_builder_selects_only_the_declared_source_overlays(tmp_path, monkeypatch
     from types import SimpleNamespace
     from tools.test_docker_synthetic_runtime import make_runtime
     root, _, _ = (make_runtime if profile == "synthetic-runtime" else make_bundle)(tmp_path / "config")
+    source_contract(tmp_path, 7)
     config = json.loads((root / "compose.json").read_text())
     config["services"]["web"]["build"] = {"args": {
         "IZO_SOURCE_SHA": "a" * 40, "IZO_RELEASE_ID": "a" * 12 + "-20261027130000"}}
@@ -136,12 +146,14 @@ def test_comfy_assets_are_passive_complete_and_inventory_hashed(tmp_path):
 
 
 @pytest.mark.parametrize("failure", [None, "missing-index-entry", "tag-moved", "image-release", "html", "javascript"])
-def test_portable_builder_exports_named_complete_bound_archive(tmp_path, monkeypatch, failure):
+@pytest.mark.parametrize("schema", [7, 8])
+def test_portable_builder_exports_named_complete_bound_archive(tmp_path, monkeypatch, failure, schema):
     import zipfile
     from types import SimpleNamespace
     from tools.docker_test_bundle_format import OWNER, RUNTIME
     from tools.test_docker_test_bundle_images import make_portable, tar_bytes
     root, _, manifest, inspections, blobs = make_portable(tmp_path / "source")
+    source_contract(root, schema)
     for name in ("ops/docker/dev/compose.comfyui-shadow.yml", "tools/docker_comfy_bridge_profile.py",
                  "docs/agent-tasks/LINUX-COMFY-BRIDGE-001.md"):
         target = root / name; target.parent.mkdir(parents=True, exist_ok=True)
@@ -202,8 +214,11 @@ def test_portable_builder_exports_named_complete_bound_archive(tmp_path, monkeyp
             assert "docker_test_bundle_images.py" in archive.namelist()
             assert "docker_bundle_release_identity.py" in archive.namelist()
             assert result["release_id"] == manifest["release_id"]
+            assert result["schema"] == schema
             assert {"profiles/compose.comfyui-shadow.yml", "docker_comfy_bridge_profile.py",
                     "profiles/LINUX-COMFY-BRIDGE-001.md"} <= set(result["files"])
             assert result["model_execution"] is False and result["production_authorized"] is False
-            assert set(json.loads(archive.read("compose.json"))["services"]) == {"backend", "web", "guard"}
+            services = json.loads(archive.read("compose.json"))["services"]
+            assert set(services) == {"backend", "web", "guard"}
+            assert services["backend"]["environment"]["IZO_PREPROD_PRESERVE_HISTORY"] == ("1" if schema == 7 else "0")
     assert not any(call[0] == "tag" for call in engine.calls)

@@ -18,16 +18,16 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 try:
     from tools.docker_test_bundle_format import (
-        ACCEPTANCE, RUNTIME, RUNTIME_ENV, UVICORN, BundleError, IMAGE, OWNER, PROJECT, REPOSITORY, SHA, extract, file_hash,
-        inventory, json_bytes, plain_path, require, validate_compose, verify,
+        ACCEPTANCE, RUNTIME, UVICORN, BundleError, IMAGE, OWNER, PROJECT, REPOSITORY, SHA, extract, file_hash,
+        SUPPORTED_SCHEMAS, inventory, json_bytes, load_json, plain_path, require, runtime_environment, validate_compose, verify,
     )
     from tools.docker_test_bundle_runtime import Docker, SafeParser, clean_environment
     from tools.docker_test_bundle_images import archive_identity
     from tools.docker_bundle_release_identity import source_release_identity, verify_frontend_directory
 except ModuleNotFoundError:
     from docker_test_bundle_format import (
-        ACCEPTANCE, RUNTIME, RUNTIME_ENV, UVICORN, BundleError, IMAGE, OWNER, PROJECT, REPOSITORY, SHA, extract, file_hash,
-        inventory, json_bytes, plain_path, require, validate_compose, verify,
+        ACCEPTANCE, RUNTIME, UVICORN, BundleError, IMAGE, OWNER, PROJECT, REPOSITORY, SHA, extract, file_hash,
+        SUPPORTED_SCHEMAS, inventory, json_bytes, load_json, plain_path, require, runtime_environment, validate_compose, verify,
     )
     from docker_test_bundle_runtime import Docker, SafeParser, clean_environment
     from docker_test_bundle_images import archive_identity
@@ -52,7 +52,8 @@ def source_guard(root: Path, sha: str) -> None:
             and not git(root, "status", "--porcelain"), "CLEAN_EXACT_SOURCE_REQUIRED")
 
 
-def persistent_config(config: dict, project: str, sha: str, release: str, images: dict, *, profile: str = ACCEPTANCE) -> dict:
+def persistent_config(config: dict, project: str, sha: str, release: str, images: dict, *,
+                      profile: str = ACCEPTANCE, schema: int = 7) -> dict:
     require(profile in {ACCEPTANCE, RUNTIME}, "BUNDLE_PROFILE_INVALID")
     effective = {"name", "services", "networks", "volumes"}
     require(not (set(config) - effective - {k for k in config if k.startswith("x-")}),
@@ -84,12 +85,25 @@ def persistent_config(config: dict, project: str, sha: str, release: str, images
         "/opt/izo/.runtime/releases/frontend/" + release + "/release-manifest.json")
     if profile == RUNTIME:
         result["services"]["backend"]["command"] = list(UVICORN)
-        result["services"]["backend"]["environment"].update(RUNTIME_ENV)
+        result["services"]["backend"]["environment"].update(runtime_environment(schema))
     return result
+
+
+def source_schema_version(source: Path) -> int:
+    contract = load_json(plain_path(source / "architecture/contract.json"))
+    release = contract.get("release_contract")
+    require(isinstance(release, dict), "SOURCE_SCHEMA_CONTRACT_INVALID")
+    bounds = release.get("schema_compatibility")
+    require(isinstance(bounds, dict), "SOURCE_SCHEMA_CONTRACT_INVALID")
+    low, high = bounds.get("min_version"), bounds.get("max_version")
+    require(type(low) is int and type(high) is int and 1 <= low <= high
+            and high in SUPPORTED_SCHEMAS, "SOURCE_SCHEMA_CONTRACT_INVALID")
+    return high
 
 
 def release_metadata(source: Path, assets: Path, sha: str, release: str, built: str,
                      python_version: str, *, target_assets: tuple[int, str] | None = None) -> dict:
+    schema = source_schema_version(source)
     name = "_izo_test_bundle_identity"
     spec = importlib.util.spec_from_file_location(name, source / "backend/app/release_identity.py")
     require(spec is not None and spec.loader is not None, "RELEASE_IDENTITY_MODULE_MISSING")
@@ -105,7 +119,7 @@ def release_metadata(source: Path, assets: Path, sha: str, release: str, built: 
         metadata = {"manifest_version": 1, "release_id": release, "git_sha": sha, "dirty": False,
                     "built_at": built, "frontend_asset_manifest_hash": asset_hash,
                     "frontend_asset_count": count, "python_version": python_version,
-                    "node_version": node.group(1), "schema_compatibility": {"min_version": 7, "max_version": 7}}
+                    "node_version": node.group(1), "schema_compatibility": {"min_version": schema, "max_version": schema}}
         module.parse_release_manifest(metadata)
         return metadata
     finally:
@@ -142,6 +156,7 @@ def build(source: Path, sha: str, project: str, web: int, api: int, output: Path
     tooling_sha = git(tool_root, "rev-parse", "HEAD")
     source_guard(tool_root, tooling_sha)
     source_guard(source, sha)
+    schema = source_schema_version(source)
     release, built_at = source_release_identity(sha, git(source, "show", "-s", "--format=%ct", sha))
     require(PROJECT.fullmatch(project or "") is not None and web != api
             and all(type(p) is int and 20000 <= p <= 65535 for p in (web, api)), "BUNDLE_PARAMETERS_INVALID")
@@ -184,11 +199,11 @@ def build(source: Path, sha: str, project: str, web: int, api: int, output: Path
         images[role] = image["Id"]
     manifest = {"format": 1 if profile == ACCEPTANCE else 2, "kind": "isoas-test-bundle", "repository": REPOSITORY,
                 "source_sha": sha, "tooling_sha": tooling_sha, "release_id": release,
-                "project": project, "ports": {"web": web, "api": api}, "schema": 7,
+                "project": project, "ports": {"web": web, "api": api}, "schema": schema,
                 "images": images, "production_authorized": False, "model_execution": False}
     if profile == RUNTIME:
         manifest["profile"] = RUNTIME
-    config = persistent_config(config, project, sha, release, images, profile=profile)
+    config = persistent_config(config, project, sha, release, images, profile=profile, schema=schema)
     validate_compose(config, manifest)
     with tempfile.TemporaryDirectory(prefix=".izo-pack-", dir=output.parent) as temporary:
         staging = Path(temporary) / "payload"

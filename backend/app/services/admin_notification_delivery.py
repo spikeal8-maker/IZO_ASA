@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable
 
+from .history_replay import HistoricalReplayBlocked, history_policy_for_connection
+
 
 SEVERITY_RANK = {"info": 0, "warning": 1, "critical": 2}
 DELIVERY_CHANNELS = {"telegram", "email"}
@@ -73,6 +75,7 @@ def enqueue_configured_admin_deliveries(
 ) -> int:
     """Persist configured channel obligations in the notification transaction."""
 
+    history_policy_for_connection(conn).require_allowed("admin_notifications", notification_id)
     if not _table_exists(conn, "admin_notification_delivery_outbox"):
         return 0
     settings = _saved_settings(conn)
@@ -164,17 +167,21 @@ def claim_pending_deliveries(
     current = now or _utc_now()
     current_iso = current.isoformat()
     conn.execute("BEGIN IMMEDIATE")
+    allowed, bindings = history_policy_for_connection(conn).where_allowed(
+        "admin_notification_delivery_outbox", "id",
+        parents=(("admin_notifications", "notification_id"),),
+    )
     rows = conn.execute(
-        """
+        f"""
         SELECT * FROM admin_notification_delivery_outbox
         WHERE (
             status IN ('pending', 'retry')
             OR (status = 'processing' AND next_attempt_at <= ?)
-        ) AND next_attempt_at <= ?
+        ) AND next_attempt_at <= ? AND ({allowed})
         ORDER BY created_at, id
         LIMIT ?
         """,
-        (current_iso, current_iso, max(1, min(int(limit), 100))),
+        (current_iso, current_iso, *bindings, max(1, min(int(limit), 100))),
     ).fetchall()
     if rows:
         ids = [str(row["id"]) for row in rows]
@@ -199,13 +206,17 @@ def mark_delivery_sent(
     external_id: str | None = None,
     sent_at: str | None = None,
 ) -> None:
+    allowed, bindings = history_policy_for_connection(conn).where_allowed(
+        "admin_notification_delivery_outbox", "id",
+        parents=(("admin_notifications", "notification_id"),),
+    )
     conn.execute(
-        """
+        f"""
         UPDATE admin_notification_delivery_outbox
         SET status='sent', external_id=?, sent_at=?, last_error=NULL
-        WHERE id=?
+        WHERE id=? AND ({allowed})
         """,
-        (external_id, sent_at or _utc_now().isoformat(), delivery_id),
+        (external_id, sent_at or _utc_now().isoformat(), delivery_id, *bindings),
     )
 
 
@@ -217,9 +228,13 @@ def mark_delivery_retry(
     now: datetime | None = None,
     max_attempts: int = 5,
 ) -> None:
+    allowed, bindings = history_policy_for_connection(conn).where_allowed(
+        "admin_notification_delivery_outbox", "id",
+        parents=(("admin_notifications", "notification_id"),),
+    )
     row = conn.execute(
-        "SELECT attempts FROM admin_notification_delivery_outbox WHERE id=?",
-        (delivery_id,),
+        f"SELECT attempts FROM admin_notification_delivery_outbox WHERE id=? AND ({allowed})",
+        (delivery_id, *bindings),
     ).fetchone()
     if row is None:
         return
@@ -228,10 +243,10 @@ def mark_delivery_retry(
     status = "failed" if attempts >= max(1, int(max_attempts)) else "retry"
     delay = min(3600, 60 * (2 ** max(0, attempts - 1)))
     conn.execute(
-        """
+        f"""
         UPDATE admin_notification_delivery_outbox
         SET status=?, attempts=?, next_attempt_at=?, last_error=?
-        WHERE id=?
+        WHERE id=? AND ({allowed})
         """,
         (
             status,
@@ -239,6 +254,7 @@ def mark_delivery_retry(
             (current + timedelta(seconds=delay)).isoformat(),
             str(error)[:500],
             delivery_id,
+            *bindings,
         ),
     )
 
@@ -255,7 +271,15 @@ async def deliver_pending_batch(
 
     deliveries = claim_pending_deliveries(conn, now=now, limit=limit)
     result = {"claimed": len(deliveries), "sent": 0, "retried": 0, "failed": 0}
+    policy = history_policy_for_connection(conn)
     for delivery in deliveries:
+        try:
+            policy.require_allowed(
+                "admin_notification_delivery_outbox", delivery.id,
+                parents=(("admin_notifications", delivery.notification_id),),
+            )
+        except HistoricalReplayBlocked:
+            continue
         try:
             if delivery.channel == "telegram":
                 external_id = await send_telegram(delivery)
