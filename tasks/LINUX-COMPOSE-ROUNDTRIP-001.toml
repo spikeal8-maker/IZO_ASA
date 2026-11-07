@@ -1,0 +1,98 @@
+manifestVersion = 1
+id = "LINUX-COMPOSE-ROUNDTRIP-001"
+baseSha = "a25bc81fc65f070d07a38279af5449f4174030a6"
+goal = "Accept only the proven Docker Compose 2.40.3 serialization differences when comparing the pinned rendered ComfyUI profile with native effective JSON, without weakening raw input, image, source, mount or network policy."
+userOutcome = "The already installed Linux test project can pass its strict native Compose verification and proceed to separately authorized 1Panel release preparation."
+beforeScenario = "The existing validator rejects actual Compose 2.40.3 output because it inserts null entrypoints, two null commands and empty shadow IPAM, and omits false create_host_path inside existing bind objects. No runtime update has occurred."
+afterScenario = "The same canonical renderer verifies exact or narrowly equivalent native JSON only under an explicit supported-version profile, preserves both raw hashes and rejects every other structural, value, type or security-policy change."
+nonGoals = [
+  "Register against any inferred or stale base instead of the actual normal merge of PAYMENT-OUTBOX-INTEGRATION-001",
+  "Change render output, native_base validation, bundle format or archive/image validation",
+  "Change application idempotency, billing, schema, historical no-replay, users, media or provider processing",
+  "Build images, update containers, authenticate users, generate an image or claim runtime beta acceptance from this source package",
+  "Treat PR273, its stale target-base CI or combined tree 0725 as the new package base or current-head hosted acceptance",
+]
+declaredFiles = [
+  "tools/docker_comfy_bridge_profile.py",
+  "tools/test_docker_comfy_bridge_profile.py",
+  "tasks/LINUX-COMPOSE-ROUNDTRIP-001.toml",
+  "docs/agent-tasks/LINUX-COMPOSE-ROUNDTRIP-001.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  ".github/**",
+  "architecture/**",
+  "docs/generated/**",
+  "docs/context/**",
+  "tools/agent_system/**",
+  "tools/docker_test_bundle.py",
+  "tools/docker_test_bundle_format.py",
+  "tools/docker_test_bundle_images.py",
+  "tools/docker_test_bundle_runtime.py",
+  "tools/docker_canonical_context_probe.py",
+  "tasks/LINUX-COMFY-BRIDGE-001.toml",
+  "tasks/PAYMENT-OUTBOX-TERMINAL-001.toml",
+  "tasks/PAYMENT-OUTBOX-INTEGRATION-001.toml",
+]
+protectedFilesTouched = [
+]
+domain = "release-ops"
+riskClass = "high-assurance"
+changeClass = "bugfix"
+maxProductionFiles = 1
+maxChangedLines = 400
+acceptance = [
+  "Keep native_base and render behavior unchanged, including explicit create_host_path=false in every rendered long bind and all existing raw source/frontend/image pins",
+  "Expose COMPARISON_PROFILE=compose-2.40.3-json-v1 and verify_effective(expected, observed, *, compose_version), which raises BundleError on disagreement and does not mutate either input",
+  "Accept only compose_version exactly equal to string 2.40.3; do not infer support from major/minor version, prefixes, missing input or current upstream documentation",
+  "Permit an observed null entrypoint only when absent from the expected backend, guard, web, optional init-db or comfy-proxy service; permit an observed null command only when absent from expected guard or web",
+  "Permit an observed empty object networks.shadow.ipam only when the expected shadow network has no ipam field",
+  "Permit an observed existing empty bind object only at a corresponding expected long bind whose options are exactly create_host_path=false with a real Boolean false; never accept a missing entire bind object",
+  "After only those bounded conversions on a private observed copy, compare the complete objects through canonical json_bytes equality so Boolean/numeric and integer/float substitutions do not pass Python loose equality",
+  "The native five-service configuration has only the 12 recorded representation differences: five null entrypoints, two null commands, one empty shadow IPAM and four existing empty bind objects",
+  "Reject true, null, numeric zero, omitted bind objects, empty command arrays, unknown keys, changed paths or mount permissions, image/source drift, extra ports or egress, and all unsupported differences",
+  "Preserve acceptance of the old exact JSON shape when the supported version is explicitly supplied; preserve render-only CLI behavior without a version argument",
+  "Require --compose-version with --check-compose, reject check-only flags without an effective check, and retain fail-closed raw effective-file hash validation",
+  "Return BRIDGE_COMPOSE_VERIFIED with existing identity/mode fields, raw candidate compose_sha256, raw effective_compose_sha256, compose_version, comparison_profile and production_authorized=false",
+  "Both capabilities and generate-t2i-4b profiles pass the exact-version positive cases and fail the same security and type negatives without contacting a provider",
+  "Only these four declared files change, with one production file and at most 400 changed lines; no predecessor limit or policy is raised",
+]
+requiredEvidence = [
+  "Before any source edit, record the actual protected merge SHA and tree of PAYMENT-OUTBOX-INTEGRATION-001, supply that exact baseSha, and obtain AGENT_PACKAGE_STARTED in the new owned worktree through the native registry lock",
+  "Preserve the failed native preparation receipt and raw candidate/effective JSON evidence from operations 7928fc786f914902bd8f737be3b7fdc6 and 47d7376b9c38459fa2d6dbfd008af970; they prove the failure, not a successful deployment",
+  "Pinned primary sources show Compose v2.40.3 uses compose-go v2.9.1: its Boolean omitempty preserves an allocated empty bind object, and Compose passes CreateMountpoint=false to the engine for that nonnil object",
+  "Primary source evidence distinguishes a missing bind object and legacy Binds auto-creation from an existing bind object with omitted false, and distinguishes null command inheritance from an empty command array",
+  "Run the unchanged baseline checker and the candidate checker in separate processes against actual Compose 2.40.3 config JSON for both modes: baseline rejects BRIDGE_EFFECTIVE_COMPOSE_DRIFT, candidate passes with the exact raw hashes",
+  "Bind the native source-only probe to the actual new outbox merge tree and new package owner; do not relabel the old 0725 tree or its receipt as current-base evidence",
+  "Unit regressions cover the recorded full native shape, each allowed conversion, exact old JSON, unsupported versions, missing flags, stale raw pins, unchanged inputs and strict whole-object type rejection",
+  "Retain all existing profile and bundle validation regressions without OS skips, monkeypatched acceptance validators or operations-side normalization",
+  "Native scope and file-hygiene checks, independent exact-byte review and required hosted CI identify this actual HEAD and actual target base before normal protected merge",
+  "Keep source validation and normal merge distinct from later canonical build, native 1Panel update, historical login, idempotency, no-replay and real GPU acceptance",
+]
+targetedTests = [
+  "tools/test_docker_comfy_bridge_profile.py",
+  "tools/test_docker_test_bundle_build.py",
+  "tools/test_docker_test_bundle_format.py",
+  "tools/test_docker_test_bundle_images.py",
+  "tools/test_docker_test_bundle_runtime.py",
+]
+fileGrowthExpectations = [
+  "Use one bounded comparator in the existing renderer and a small CLI extension; do not add a parallel renderer or generic recursive normalizer",
+  "Keep the existing test module below 500 lines and 24 KiB, favoring explicit parameterized security and type mutations",
+  "Keep the new task document below 100 lines and 12 KiB; add no other documentation or generated evidence files",
+  "Use exactly four declared files and at most 400 changed lines in the newly registered package",
+]
+forbiddenOperations = [
+  "repository source edit before native package registration or submission of this proposal without an actual baseSha",
+  "foreign registry, token, branch, worktree or index mutation",
+  "rewrite predecessor manifests, rebase around ownership contracts, raise limits or modify agent enforcement",
+  "direct main push, force push, stale-target CI reuse, required-check bypass or unsupported-version acceptance",
+  "operations-side normalization, fake PASS receipts, dropping whole bind objects or changing canonical renderer input policy",
+  "Docker lifecycle, new application stand, 1Panel update, host-global network or firewall mutation",
+  "historical or public database/media changes, provider calls, generation, authentication bypass or public-domain cutover",
+]
+rollbackBoundary = "Revert only this separately reviewed source package if required. It changes no schema or persisted data. Preserve all failed preparation and source-only evidence; any later runtime update or rollback requires its own reviewed operator and authorization."
