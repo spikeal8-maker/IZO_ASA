@@ -1,0 +1,78 @@
+manifestVersion = 1
+id = "PAYMENT-OUTBOX-TERMINAL-001"
+baseSha = "bd0a8132b8779f8589e1f8ee9f440689573d79ca"
+goal = "Prevent late payment notification callbacks from reopening a sent outbox message or overwriting its first delivery timestamp."
+userOutcome = "A payment notification already recorded as sent cannot become eligible for another delivery because a late failure callback arrives."
+beforeScenario = "On exact main, enqueue then claim then mark_sent then mark_retry changes sent to retry and makes the same notification pending again; repeated mark_sent overwrites sent_at."
+afterScenario = "Both retry guards and the sent update preserve an already sent row unchanged, including when another connection commits sent between the retry read and update."
+nonGoals = [
+  "Provide a historical restore fence or authorize starting restored historical volumes",
+  "Change failed-state transitions, retry counting, backoff, expired lease recovery or claim ownership",
+  "Add migrations, schema tables, environment flags, public APIs or background workers",
+  "Modify main.py, generated evidence, architecture policy, another package or the public deployment",
+]
+declaredFiles = [
+  "backend/app/billing/outbox.py",
+  "backend/test_billing_notification_outbox.py",
+  "tasks/PAYMENT-OUTBOX-TERMINAL-001.toml",
+  "docs/agent-tasks/PAYMENT-OUTBOX-TERMINAL-001.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/main.py",
+  "backend/app/database/**",
+  "backend/SYMBOL_MAP.md",
+  "architecture/**",
+  "docs/generated/**",
+  "docs/context/**",
+  "frontend/**",
+  "ops/**",
+  "tools/**",
+  ".github/**",
+  "tasks/OPENROUTER-LINUX-SHADOW-001.toml",
+]
+protectedFilesTouched = [
+]
+domain = "billing-payments"
+riskClass = "high-assurance"
+changeClass = "bugfix"
+maxProductionFiles = 1
+maxChangedLines = 350
+acceptance = [
+  "mark_retry leaves an already sent row byte-for-byte unchanged across all stored fields",
+  "A sent commit between mark_retry SELECT and UPDATE cannot reopen or mutate the row",
+  "Repeated mark_sent preserves the first sent_at and all other already sent row fields",
+  "Both orderings of success and failure callbacks converge to sent without a subsequent pending message",
+  "Existing pending, retry, failed and expired-lease behavior remains unchanged outside protection of sent rows",
+  "Existing admin payment notification processing uses the protected functions without composition changes",
+  "All existing generated artifacts remain byte-identical and pass their generator checks",
+]
+requiredEvidence = [
+  "Reproduction on exact base of sent to retry reopening and first sent_at overwrite",
+  "Regression failures against exact base followed by passing focused tests",
+  "Deterministic two-connection SQLite interleaving proving the UPDATE guard closes the read-write race",
+  "Existing payment outbox tests pass without a real provider, historical data or external sends",
+  "Native scope verification, file hygiene, independent exact-head review and required hosted CI",
+  "No schema, generated artifact, main.py, external state or historical volume mutation",
+]
+targetedTests = [
+  "backend/test_billing_notification_outbox.py",
+]
+fileGrowthExpectations = [
+  "Change only existing mark_sent and mark_retry functions in the approximately 199-line outbox module",
+  "Extend the existing approximately 111-line test module and keep it below 500 lines and 24 KiB",
+  "Keep the task contract document below 200 lines and 12 KiB",
+  "Add no production function, DDL statement, route, environment setting or worker registration",
+]
+forbiddenOperations = [
+  "production-data mutation",
+  "historical-volume backend startup",
+  "provider call or external message",
+  "database migration",
+  "foreign branch or worktree mutation",
+  "ownership-token borrowing or registry editing",
+  "direct main push",
+  "disable checks, alter mandatory policy or modify generated artifacts",
+]
+rollbackBoundary = "Revert only this reviewed code package; it changes no schema and requires no data rollback. Do not restore database files or alter historical outbox records."
