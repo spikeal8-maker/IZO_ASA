@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import contextlib
+import concurrent.futures
 import copy
 import http.client
 import importlib.util
@@ -80,6 +81,17 @@ class Upstream(BaseHTTPRequestHandler):
         if self.server.large:
             body = b"x" * 1024
         try:
+            if self.server.drip_response:
+                body = b"{" + b" " * 128 + b"}"
+                headers = (b"HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nContent-Length: " +
+                           str(len(body)).encode() + b"\r\n\r\n")
+                if self.server.drip_response == "body":
+                    self.connection.sendall(headers)
+                    headers = b""
+                for value in headers + body:
+                    self.connection.sendall(bytes([value]))
+                    time.sleep(0.01)
+                return
             self.send_response(self.server.status)
             self.send_header("Location", "http://forbidden.invalid/private")
             self.send_header("Set-Cookie", "provider-secret=never-forward")
@@ -98,6 +110,7 @@ def upstream():
     server = ThreadingHTTPServer(("127.0.0.1", 0), Upstream)
     server.calls, server.history, server.status, server.delay, server.large = [], {}, 200, 0, False
     server.hold_response, server.response_waiting = None, threading.Event()
+    server.drip_response = None
     with serving(server):
         yield server
 
@@ -239,9 +252,19 @@ def test_upstream_redirect_and_size_fail_closed(upstream, monkeypatch):
     assert len(upstream.calls) == 2
 
 
-def test_upstream_deadline_closes_waiting_response(upstream, monkeypatch):
+@pytest.mark.parametrize("close_only", [False, True])
+def test_upstream_deadline_closes_waiting_response(upstream, monkeypatch, close_only):
     upstream.hold_response = threading.Event()
     monkeypatch.setattr(proxy, "UPSTREAM_DEADLINE", 0.1)
+    if close_only:
+        monkeypatch.setattr(proxy, "close_socket", lambda sock: sock.close())
+    timeouts = []
+    original_connect = http.client.HTTPConnection.connect
+    def connect(connection):
+        if connection.port == upstream.server_port:
+            timeouts.append(connection.timeout)
+        return original_connect(connection)
+    monkeypatch.setattr(http.client.HTTPConnection, "connect", connect)
     with serving(bridge(upstream)) as server:
         try:
             status, _, body = request(server, "GET", "/object_info")
@@ -250,8 +273,88 @@ def test_upstream_deadline_closes_waiting_response(upstream, monkeypatch):
             assert upstream.response_waiting.is_set() and not upstream.hold_response.is_set()
             assert status == 502 and json.loads(body) == {"error": "COMFY_UPSTREAM_UNAVAILABLE"}
             assert len(upstream.calls) == 1
+            assert timeouts and 0 < max(timeouts) <= proxy.UPSTREAM_DEADLINE
             assert request(server, "GET", "/healthz")[0] == 200
         finally:
+            upstream.hold_response.set()
+
+
+@pytest.mark.parametrize("drip_response", ["headers", "body"])
+def test_absolute_upstream_deadline_bounds_drip_without_shutdown(upstream, monkeypatch, drip_response):
+    upstream.drip_response = drip_response
+    monkeypatch.setattr(proxy, "UPSTREAM_DEADLINE", 0.1)
+    monkeypatch.setattr(proxy, "close_socket", lambda sock: sock.close())
+    with serving(bridge(upstream)) as server:
+        status, _, body = request(server, "GET", "/object_info")
+        assert status == 502 and json.loads(body) == {"error": "COMFY_UPSTREAM_UNAVAILABLE"}
+        assert request(server, "GET", "/healthz")[0] == 200
+    assert len(upstream.calls) == 1
+
+
+def test_upstream_deadline_releases_all_slots_without_shutdown(upstream, monkeypatch):
+    upstream.hold_response = threading.Event()
+    monkeypatch.setattr(proxy, "UPSTREAM_DEADLINE", 0.1)
+    monkeypatch.setattr(proxy, "close_socket", lambda sock: sock.close())
+    with serving(bridge(upstream)) as server:
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+                futures = [executor.submit(request, server, "GET", "/object_info") for _ in range(4)]
+                results = [future.result(timeout=3) for future in futures]
+            assert len(upstream.calls) == 4 and not upstream.hold_response.is_set()
+            assert all(status == 502 and json.loads(body) == {"error": "COMFY_UPSTREAM_UNAVAILABLE"}
+                       for status, _, body in results)
+            until = time.monotonic() + 1
+            while server.slots._value != 4 and time.monotonic() < until:
+                time.sleep(0.01)
+            assert server.slots._value == 4
+            assert request(server, "GET", "/healthz")[0] == 200
+        finally:
+            upstream.hold_response.set()
+
+
+def test_absolute_socket_deadline_bounds_blocked_send():
+    original, peer = socket.socketpair()
+    with peer, proxy.DeadlineSocket(original, time.monotonic() + 0.1) as client:
+        client.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+        client.settimeout(2)
+        with pytest.raises(TimeoutError) as error:
+            client.sendall(b"x" * 1024**2)
+        assert 0 < client.gettimeout() <= 0.1 or str(error.value) == "ComfyUI deadline exceeded"
+
+
+@pytest.mark.parametrize("phase", ["headers", "body", "upstream"])
+def test_request_deadline_releases_dripping_clients_and_caps_upstream(upstream, monkeypatch, phase):
+    monkeypatch.setattr(proxy, "REQUEST_DEADLINE", 0.2)
+    monkeypatch.setattr(proxy, "UPSTREAM_DEADLINE", 5)
+    upstream.hold_response = threading.Event()
+    prefix = {"headers": b"GET /healthz HTTP/1.1\r\nHost: ",
+              "body": b"POST /prompt HTTP/1.1\r\nHost: 127.0.0.1:18188\r\nContent-Type: application/json\r\nContent-Length: 10000\r\n\r\n",
+              "upstream": b"GET /object_info HTTP/1.1\r\nHost: 127.0.0.1:18188\r\n\r\n"}[phase]
+    with serving(bridge(upstream)) as server:
+        clients = [socket.create_connection(server.server_address, timeout=2) for _ in range(4)]
+        stopped = threading.Event()
+        def drip():
+            while not stopped.wait(0.01):
+                for client in clients:
+                    try: client.sendall(b" ")
+                    except OSError: pass
+        thread = threading.Thread(target=drip, daemon=True)
+        try:
+            for client in clients:
+                client.sendall(prefix)
+            thread.start()
+            for client in clients:
+                try: assert client.recv(1) == b""
+                except ConnectionResetError: pass
+            until = time.monotonic() + 1
+            while server.slots._value != 4 and time.monotonic() < until:
+                time.sleep(0.01)
+            assert server.slots._value == 4
+            assert len(upstream.calls) == (4 if phase == "upstream" else 0)
+        finally:
+            stopped.set()
+            for client in clients: client.close()
+            if thread.ident: thread.join(1)
             upstream.hold_response.set()
 
 

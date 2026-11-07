@@ -94,6 +94,26 @@ def close_socket(sock):
     sock.close()
 
 
+class DeadlineSocket(socket.socket):
+    def __init__(self, sock, deadline):
+        super().__init__(sock.family, sock.type, sock.proto, fileno=sock.detach())
+        self.deadline = deadline
+
+    def set_remaining_timeout(self):
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("ComfyUI deadline exceeded")
+        self.settimeout(min(IDLE_TIMEOUT, remaining))
+
+    def recv_into(self, buffer, nbytes=0, flags=0):
+        self.set_remaining_timeout()
+        return super().recv_into(buffer, nbytes, flags)
+
+    def sendall(self, data, flags=0):
+        self.set_remaining_timeout()
+        return super().sendall(data, flags)
+
+
 def configuration(env):
     require(env.get("IZO_SHADOW_EGRESS_PROFILE") == PROFILE, "COMFY_PROFILE_REQUIRED")
     try:
@@ -262,7 +282,7 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "IZO-Comfy-Bridge"
 
     def setup(self):
-        self.deadline = time.monotonic() + REQUEST_DEADLINE
+        self.deadline = self.request.deadline
         super().setup()
 
     def log_message(self, *_):
@@ -316,9 +336,12 @@ class Handler(BaseHTTPRequestHandler):
             config = self.server.policy.config
             remaining = self.deadline - time.monotonic()
             require(remaining > 0, "COMFY_REQUEST_TIMEOUT", 408)
-            upstream = http.client.HTTPConnection(config["host"], config["port"], timeout=min(IDLE_TIMEOUT, remaining))
+            upstream_deadline = min(self.deadline, time.monotonic() + UPSTREAM_DEADLINE)
+            upstream = http.client.HTTPConnection(config["host"], config["port"],
+                timeout=min(IDLE_TIMEOUT, upstream_deadline - time.monotonic()))
             upstream.connect()
-            upstream_timer = threading.Timer(max(0.001, min(UPSTREAM_DEADLINE, self.deadline - time.monotonic())),
+            upstream.sock = DeadlineSocket(upstream.sock, upstream_deadline)
+            upstream_timer = threading.Timer(max(0.001, upstream_deadline - time.monotonic()),
                                              close_socket, args=(upstream.sock,))
             upstream_timer.daemon = True
             upstream_timer.start()
@@ -366,6 +389,7 @@ class Server(ThreadingHTTPServer):
             self.shutdown_request(request)
             return
         try:
+            request = DeadlineSocket(request, time.monotonic() + REQUEST_DEADLINE)
             super().process_request(request, address)
         except BaseException:
             self.slots.release()
@@ -373,7 +397,8 @@ class Server(ThreadingHTTPServer):
 
     def process_request_thread(self, request, address):
         # A wall-clock deadline also bounds slow-drip headers/bodies and upstream.
-        timer = threading.Timer(REQUEST_DEADLINE, self.shutdown_request, args=(request,))
+        timer = threading.Timer(max(0.001, request.deadline - time.monotonic()),
+                                self.shutdown_request, args=(request,))
         timer.daemon = True
         request.settimeout(IDLE_TIMEOUT)
         timer.start()
