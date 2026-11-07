@@ -338,7 +338,7 @@ class Handler(BaseHTTPRequestHandler):
             require(remaining > 0, "COMFY_REQUEST_TIMEOUT", 408)
             upstream_deadline = min(self.deadline, time.monotonic() + UPSTREAM_DEADLINE)
             upstream = http.client.HTTPConnection(config["host"], config["port"],
-                timeout=min(IDLE_TIMEOUT, upstream_deadline - time.monotonic()))
+                timeout=min(IDLE_TIMEOUT, UPSTREAM_DEADLINE, upstream_deadline - time.monotonic()))
             upstream.connect()
             upstream.sock = DeadlineSocket(upstream.sock, upstream_deadline)
             upstream_timer = threading.Timer(max(0.001, upstream_deadline - time.monotonic()),

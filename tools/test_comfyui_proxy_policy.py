@@ -316,10 +316,13 @@ def test_absolute_socket_deadline_bounds_blocked_send():
     original, peer = socket.socketpair()
     with peer, proxy.DeadlineSocket(original, time.monotonic() + 0.1) as client:
         client.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+        peer.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
         client.settimeout(2)
+        chunk = b"x" * 1024**2
         with pytest.raises(TimeoutError) as error:
-            client.sendall(b"x" * 1024**2)
-        assert 0 < client.gettimeout() <= 0.1 or str(error.value) == "ComfyUI deadline exceeded"
+            for _ in range(64):
+                client.sendall(chunk)
+        assert 0 < client.gettimeout() <= 0.1 + 1e-9 or str(error.value) == "ComfyUI deadline exceeded"
 
 
 @pytest.mark.parametrize("phase", ["headers", "body", "upstream"])
@@ -345,7 +348,7 @@ def test_request_deadline_releases_dripping_clients_and_caps_upstream(upstream, 
             thread.start()
             for client in clients:
                 try: assert client.recv(1) == b""
-                except ConnectionResetError: pass
+                except (ConnectionResetError, ConnectionAbortedError): pass
             until = time.monotonic() + 1
             while server.slots._value != 4 and time.monotonic() < until:
                 time.sleep(0.01)
