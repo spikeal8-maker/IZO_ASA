@@ -40,6 +40,11 @@ updated: 2026-09-16
 
 ## Backend ownership
 
+Local chat accepts an operator-selected context up to 65,536 tokens. Align it
+with other clients of the shared Ollama server. Cold prewarming inherits the
+server default instead of forcing a smaller context. Existing defaults remain
+unchanged; enabling 64K requires runtime configuration and a memory check.
+
 - `backend/app/api/routers/phone_chat.py` — trusted chat HTTP/model/tool routing.
 - `backend/app/services/phone_chat_history.py` — thread/message persistence.
 - `backend/app/services/chat_billing.py` — quote/settlement semantics.

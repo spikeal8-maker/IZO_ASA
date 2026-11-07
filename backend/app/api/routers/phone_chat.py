@@ -471,7 +471,7 @@ async def phone_chat_ollama(
             "options": {
                 "temperature": 0.35,
                 "num_predict": 1000,
-                "num_ctx": max(4096, min(32768, int(config.get("localNumCtx") or 16384))),
+                "num_ctx": max(4096, min(65536, int(config.get("localNumCtx") or 16384))),
             },
         }
         if round_tools:

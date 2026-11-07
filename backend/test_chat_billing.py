@@ -52,6 +52,13 @@ def test_text_model_economics_marks_missing_rate_and_free_models_honestly() -> N
     assert free["inputPerMillion"]["reservedTokens"] == 0
 
 
+def test_shared_64k_context_survives_normalization_and_stays_bounded() -> None:
+    assert normalize_chat_config({"localNumCtx": 65536})["localNumCtx"] == 65536
+    assert normalize_chat_config({"localNumCtx": 131072})["localNumCtx"] == 65536
+    assert normalize_chat_config({"localNumCtx": 1024})["localNumCtx"] == 4096
+    assert normalize_chat_config({})["localNumCtx"] == 16384
+
+
 def _database() -> sqlite3.Connection:
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row

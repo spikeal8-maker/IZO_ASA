@@ -208,6 +208,7 @@ def test_ensure_resident_loads_cold_model_and_verifies_it():
         body = json.loads(request.content)
         assert body["model"] == "gemma4:12b"
         assert body["keep_alive"] == -1
+        assert "num_ctx" not in body["options"]
         return httpx.Response(200, json={"message": {"content": "готово"}})
 
     result = asyncio.run(ensure_ollama_model_resident(model="gemma4:12b", transport=httpx.MockTransport(handler)))

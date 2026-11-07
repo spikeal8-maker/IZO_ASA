@@ -126,7 +126,8 @@ async def ensure_ollama_model_resident(
                     "think": False,
                     "keep_alive": keep_alive,
                     "messages": [{"role": "user", "content": "Ответь одним словом: готово"}],
-                    "options": {"temperature": 0, "num_predict": 2, "num_ctx": 4096},
+                    # Match the shared server rather than forcing a cold 4K load.
+                    "options": {"temperature": 0, "num_predict": 2},
                 },
             )
             response.raise_for_status()
