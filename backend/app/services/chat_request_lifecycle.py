@@ -158,7 +158,7 @@ class ChatRequestLifecycle:
 
         now = self.clock()
         now_iso = now.isoformat()
-        lease_expires_at = (now + timedelta(seconds=max(210, self.lease_seconds))).isoformat()
+        lease_expires_at = (now + timedelta(seconds=max(1900 if provider == "local" else 210, self.lease_seconds))).isoformat()
         with self.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             existing = conn.execute(

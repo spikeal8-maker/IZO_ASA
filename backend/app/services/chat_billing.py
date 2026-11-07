@@ -17,7 +17,7 @@ from . import cloud_quote
 DEFAULT_CHAT_CONFIG: dict[str, Any] = {
     "enabled": True,
     "localEnabled": True,
-    "localModel": "gemma4:12b",
+    "localModel": "qwen3.8:27b",
     "localLabel": "ИЗО Чат",
     "localTokenCost": 0,
     "defaultModel": "local:izo-chat",
@@ -25,9 +25,9 @@ DEFAULT_CHAT_CONFIG: dict[str, Any] = {
     "enabledApiModels": ["deepseek/deepseek-v4-flash"],
     "apiTokenCosts": {"deepseek/deepseek-v4-flash": 0.1},
     "apiTierAccess": {},
-    "contextChars": 60000,
-    "localNumCtx": 16384,
-    "localTimeoutSeconds": 60,
+    "contextChars": 480000,
+    "localNumCtx": 120000,
+    "localTimeoutSeconds": 1800,
     "apiTimeoutSeconds": 60,
     "usageBillingEnabled": True,
 }
@@ -63,7 +63,7 @@ def normalize_chat_config(value: Any) -> dict[str, Any]:
     source.update({
         "enabled": bool(source.get("enabled", True)),
         "localEnabled": bool(source.get("localEnabled", True)),
-        "localModel": str(source.get("localModel") or "gemma4:12b").strip(),
+        "localModel": str(source.get("localModel") or "qwen3.8:27b").strip(),
         "localLabel": str(source.get("localLabel") or "ИЗО Чат").strip()[:60] or "ИЗО Чат",
         # The local base assistant is part of the product and never consumes
         # either the daily allowance or the purchased balance.
@@ -72,9 +72,9 @@ def normalize_chat_config(value: Any) -> dict[str, Any]:
         "enabledApiModels": enabled_api,
         "apiTokenCosts": {model_id: bounded_cost(raw_costs.get(model_id)) for model_id in enabled_api},
         "apiTierAccess": tier_access,
-        "contextChars": bounded(source.get("contextChars"), 60000, 4000, 240000),
-        "localNumCtx": bounded(source.get("localNumCtx"), 16384, 4096, 32768),
-        "localTimeoutSeconds": bounded(source.get("localTimeoutSeconds"), 60, 10, 180),
+        "contextChars": bounded(source.get("contextChars"), 480000, 4000, 480000),
+        "localNumCtx": bounded(source.get("localNumCtx"), 120000, 4096, 120000),
+        "localTimeoutSeconds": bounded(source.get("localTimeoutSeconds"), 1800, 10, 1800),
         "apiTimeoutSeconds": bounded(source.get("apiTimeoutSeconds"), 60, 10, 90),
         "usageBillingEnabled": bool(source.get("usageBillingEnabled", True)),
     })

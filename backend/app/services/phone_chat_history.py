@@ -153,7 +153,7 @@ def list_messages(conn: sqlite3.Connection, user_id: str, thread_id: str, *, lim
 
 def bounded_history(conn: sqlite3.Connection, user_id: str, thread_id: str, context_chars: int) -> list[dict[str, str]]:
     messages = list_messages(conn, user_id, thread_id, limit=500)
-    remaining = max(4000, min(240000, int(context_chars)))
+    remaining = max(4000, min(480000, int(context_chars)))
     selected: list[dict[str, str]] = []
     for item in reversed(messages):
         content = str(item["content"]).strip()
@@ -192,7 +192,7 @@ def add_exchange(
     )
     conn.execute(
         "INSERT INTO phone_chat_messages (id,thread_id,role,content,provider,model,tools_json,charged_tokens,token_kind,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-        (assistant_message_id, thread_id, "assistant", assistant_content[:12000], provider, model, json.dumps(_public_tools(tools), ensure_ascii=False), charged_tokens, token_kind, now),
+        (assistant_message_id, thread_id, "assistant", assistant_content, provider, model, json.dumps(_public_tools(tools), ensure_ascii=False), charged_tokens, token_kind, now),
     )
     conn.execute("UPDATE phone_chat_threads SET updated_at=? WHERE id=? AND user_id=?", (now, thread_id, user_id))
     return {"userMessageId": user_message_id, "assistantMessageId": assistant_message_id}
