@@ -1,0 +1,87 @@
+manifestVersion = 1
+id = "PAYMENT-OUTBOX-INTEGRATION-001"
+baseSha = "c62b8d1a1da5a97d57541694973ccf7fb05815cf"
+goal = "Integrate the exact reviewed sent-monotonic payment outbox fix through a newly registered package and fresh current-base CI, without altering repository policy."
+userOutcome = "A successfully sent payment notification remains terminal when late failure or duplicate success callbacks arrive."
+beforeScenario = "Current main can reopen a sent notification through mark_retry and overwrite its first sent_at through mark_sent; PR273 remains unmerged because its package and CI event target base are bd0 rather than current main c62."
+afterScenario = "The unchanged reviewed outbox, regression tests and audit fingerprint are integrated from current main through native ownership, exact-head review and mandatory CI whose actual target base matches this package."
+nonGoals = [
+  "Claim PR273 was merged, erase its failed merge attempts or treat stale-base CI as current-base acceptance",
+  "Provide durable generation idempotency, a historical restore fence or permission to start historical volumes",
+  "Change failed transitions, retry counting, backoff, lease recovery or claim ownership",
+  "Change schema, migrations, main.py, generated artifacts, public APIs, external providers or runtime configuration",
+  "Change the Compose renderer or build, deploy, authenticate or generate through the application",
+]
+declaredFiles = [
+  "backend/app/billing/outbox.py",
+  "backend/test_billing_notification_outbox.py",
+  "docs/admin-mutation-audit.md",
+  "tasks/PAYMENT-OUTBOX-INTEGRATION-001.toml",
+  "docs/agent-tasks/PAYMENT-OUTBOX-INTEGRATION-001.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/main.py",
+  "backend/app/database/**",
+  "backend/SYMBOL_MAP.md",
+  "architecture/**",
+  "docs/generated/**",
+  "docs/context/**",
+  "frontend/**",
+  "ops/**",
+  "tools/**",
+  ".github/**",
+  "tasks/PAYMENT-OUTBOX-TERMINAL-001.toml",
+  "docs/agent-tasks/PAYMENT-OUTBOX-TERMINAL-001.md",
+  "tasks/OPENROUTER-LINUX-SHADOW-001.toml",
+]
+protectedFilesTouched = [
+]
+domain = "billing-payments"
+riskClass = "high-assurance"
+changeClass = "bugfix"
+maxProductionFiles = 1
+maxChangedLines = 350
+acceptance = [
+  "mark_retry leaves an already sent row unchanged, including when another connection commits sent between its SELECT and UPDATE",
+  "Repeated mark_sent preserves the first sent_at and every other already sent row field",
+  "Both callback orderings converge to sent without making that notification pending again",
+  "Non-sent transitions and all existing callers retain their previous behavior",
+  "The three existing files exactly match the reviewed PR273 head 3a92927f9815ed481bf7f654778e5241a0faeb63 postimages",
+  "Only the new package task document and native-generated task manifest differ from the inherited reviewed patch",
+  "Fresh hosted CI, native scope verification and independent review pass for the actual new HEAD and target base c62",
+  "No generated file, schema, historical record, live instance or public source is modified by this code package",
+]
+requiredEvidence = [
+  "Native clean finish and UNMERGED handoff of PAYMENT-OUTBOX-TERMINAL-001 precede this package registration; preserve PR273, CI artifacts and failed merge receipts",
+  "Outbox postimage SHA256 24ed061bdc3a19fc94ae29ec78c4d90d634693b55133f4d3043dfcb0dbe5f62a",
+  "Outbox test postimage SHA256 8eb5090052e934e475a42fe4aed6fef778b1336220ba2b89aad54ffcf3df14d6",
+  "Audit evidence postimage SHA256 b62a9c47ad90d2af63c9154987e044b056594e37db45ea7ccd5228d3c7188fca",
+  "Baseline regression failure on current main and focused success on the exact successor bytes, with deterministic two-connection SQLite interleaving",
+  "Focused outbox and unchanged audit-fingerprint tests pass without historical databases, real providers or external sends",
+  "Actual hosted CI metadata, logs and artifact identify this candidate HEAD and target base c62; an older pull_request event payload is not acceptance",
+  "All repository-required current-head checks and independent review pass; normal protected merge is recorded separately from deployment",
+  "Native scope, file-hygiene and generated-file checks pass within this new 350-line, one-production-file contract without raising the predecessor budget",
+]
+targetedTests = [
+  "backend/test_billing_notification_outbox.py",
+  "tools/test_admin_mutation_audit.py",
+]
+fileGrowthExpectations = [
+  "Reuse the exact existing outbox and test postimages without introducing production functions, DDL, routes, settings or worker registrations",
+  "Reuse only the already reviewed test-artifact fingerprint rebinding in docs/admin-mutation-audit.md; do not alter audit findings or policy",
+  "Keep the existing outbox test file below 500 lines and 24 KiB",
+  "Keep the new package contract document below 100 lines and 12 KiB",
+  "Use exactly five declared files and at most 350 changed lines for this newly registered successor",
+]
+forbiddenOperations = [
+  "production-data mutation, historical backend startup or provider call",
+  "database migration, restored-row rewrite or ledger mutation",
+  "foreign branch, worktree, owner credential or registry mutation",
+  "rewrite the predecessor manifest base, rebase it around the agent contract or raise its limits",
+  "direct main push, force push, stale-base CI reuse or mandatory-check bypass",
+  "change agent policy, generated evidence, workflow configuration or audit acceptance rules",
+  "claim runtime acceptance, historical no-replay, existing-user login or real generation from source-only tests",
+]
+rollbackBoundary = "Revert only the newly reviewed successor code package if needed. It changes no schema or data and requires no database restore. Preserve all predecessor evidence and do not alter historical outbox rows, current application volumes or public deployment."

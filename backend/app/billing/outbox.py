@@ -159,7 +159,8 @@ def claim_pending_messages(
 def mark_sent(conn: sqlite3.Connection, message_id: str, *, sent_at: str | None = None) -> None:
     now = sent_at or datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "UPDATE payment_notification_outbox SET status='sent', sent_at=?, last_error=NULL WHERE id=?",
+        "UPDATE payment_notification_outbox SET status='sent', sent_at=?, last_error=NULL "
+        "WHERE id=? AND status<>'sent'",
         (now, message_id),
     )
 
@@ -173,7 +174,7 @@ def mark_retry(
     max_attempts: int = 5,
 ) -> None:
     row = conn.execute(
-        "SELECT attempts FROM payment_notification_outbox WHERE id=?",
+        "SELECT attempts FROM payment_notification_outbox WHERE id=? AND status<>'sent'",
         (message_id,),
     ).fetchone()
     if row is None:
@@ -186,7 +187,7 @@ def mark_retry(
         """
         UPDATE payment_notification_outbox
         SET status=?, attempts=?, next_attempt_at=?, last_error=?
-        WHERE id=?
+        WHERE id=? AND status<>'sent'
         """,
         (
             status,
