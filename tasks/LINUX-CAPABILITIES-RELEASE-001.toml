@@ -1,0 +1,90 @@
+manifestVersion = 1
+id = "LINUX-CAPABILITIES-RELEASE-001"
+baseSha = "bf2d60b508da4e4de52905561b8db0a9f27ea721"
+goal = "Build, prepare and perform one separately authorized capabilities-only update of the existing izo-asa-linux-test-a project through native 1Panel, using the actual reviewed normal merge of LINUX-COMPOSE-UBUNTU-001 as the immutable application source."
+userOutcome = "The existing five-test-account Linux instance receives the verified ComfyUI transport and retains its current data, media and maintenance binding; technical read-only 4B catalog and UID-specific network evidence remain distinct from historical-user or real-generation acceptance."
+beforeScenario = "The existing project still runs source 3cae2fb5b497d84aa17c5ef4d7b5b582419cc8cf. The c62 package was built but its preparation stopped before rollout on a demonstrated Compose serialization mismatch. The separate Ubuntu Compose source package does not authorize runtime operations."
+afterScenario = "A separately registered release owner binds an already merged and verified application source to a canonical ZIP, strict preparation, one native 1Panel update and bounded capabilities proof, or records the exact failed phase without retry or false beta claims."
+nonGoals = [
+  "Change application, frontend, renderer, Dockerfiles, bundle validators, schema, dependencies or CI policy",
+  "Use any active or closed source-only Compose package owner as runtime authority",
+  "Start, mount into an application, migrate or alter any historical database/media volume or offline restore",
+  "Authenticate a user, bypass authentication, create a generation job or claim a GPU result or accepted user beta",
+  "Change the public site, public data, DNS, FRP, host-global networking or another project",
+  "Treat the operational contract commit or its later publication as the application build source",
+]
+declaredFiles = [
+  "tasks/LINUX-CAPABILITIES-RELEASE-001.toml",
+  "docs/agent-tasks/LINUX-CAPABILITIES-RELEASE-001.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "tools/**",
+  "ops/**",
+  ".github/**",
+  "architecture/**",
+  "docs/generated/**",
+  "docs/context/**",
+  "docs/NOW.md",
+  "tasks/LINUX-COMPOSE-ROUNDTRIP-001.toml",
+  "docs/agent-tasks/LINUX-COMPOSE-ROUNDTRIP-001.md",
+  "tasks/LINUX-COMPOSE-UBUNTU-001.toml",
+  "docs/agent-tasks/LINUX-COMPOSE-UBUNTU-001.md",
+]
+protectedFilesTouched = [
+]
+domain = "release-ops"
+riskClass = "release-ops"
+changeClass = "operational-release"
+maxProductionFiles = 0
+maxChangedLines = 250
+acceptance = [
+  "Register only with baseSha equal to the actual successful protected normal merge of LINUX-COMPOSE-UBUNTU-001; inferred, stale or future source identities are forbidden",
+  "Finish the clean source package through its native owner and preserve its merge, exact-head CI, current-target-base evidence and independent review before starting this distinct operations package",
+  "Bind the active operational owner, native manifest fingerprint, own clean contract commit and separate operator authorization to the exact source-provenance receipts; never borrow or resurrect the source owner token",
+  "The operational branch differs from the application source only in the two declared contract/document paths; the canonical application main, source tree, source candidate branch and both indexes remain unchanged during every phase",
+  "Build the same three canonical images from an exact Git-object export with canonical file modes and the reviewed provenance=false producer option; retain unmodified archive, image, source and UID10001 asset checks",
+  "Prepare both passive profile candidates with the exact Compose version 2.40.3+ds1-0ubuntu1~24.04.1 and compose-2.40.3-ubuntu24.04-json-v1 comparator from the sealed exact-source bundle; retain raw candidate/effective bytes, their separate hashes and production_authorized=false",
+  "Before and after preparation and native update, verify the selected root-owned regular Compose plugin /usr/libexec/docker/cli-plugins/docker-compose has mode0755, size66503008 and SHA256 d87a11e944c990dc9f2186115b1136c1cbffffc870845caff0cbdcce0780f41d without alternate plugin overrides; require raw version stdout to be exactly the complete Ubuntu identifier followed by one LF, preserving raw output and its hash without suffix stripping or upstream mapping",
+  "Authorize only one capabilities-mode POST to native 1Panel /containers/compose/update for the existing project and path; no direct compose up, new application project, generation-mode activation or automatic retry",
+  "Before the POST, verify the exact previous source/release/Compose, image availability, native maintenance binding, existing project resource ownership and a fresh supported backup",
+  "Preserve the existing project's five users, three jobs, three images, six ledger rows, every durable table fingerprint and media inventory; exclude only the existing declared power_samples telemetry table",
+  "Keep the existing named volumes and data mount identities, neighboring projects and restore resources unchanged; rebind only the four reviewed maintenance lease fields after successful runtime verification",
+  "After update, record actual image/source/frontend identity, readiness, unchanged data/media and fresh maintenance backup/check evidence before a successful technical receipt",
+  "The separate bounded proof checks actual process UIDs, shared guard network namespace, exact canonical nft readback, UID10002 TCP reachability and UID10001/101 direct denial",
+  "Only proxy GET /healthz, /object_info, /flux_klein/models and /queue are permitted for provider evidence; require the exact three Flux Klein 4B filenames and preserve queue privacy",
+  "Record configured resource limits, bounded error counts and actual host load without claiming a workload benchmark or full user acceptance",
+  "Write success only after native ownership/source checks return and the lock exits; otherwise preserve the unique operation, exact task identity and failure evidence without resetting state",
+]
+requiredEvidence = [
+  "An authorization record truthfully binds the existing user request for the existing-project 1Panel update to capabilities-only phases and the separately agent-verified source SHA; it must not claim the user supplied that new SHA or gave new human permission, and public-domain cutover remains unauthorized",
+  "Native AGENT_PACKAGE_STARTED on the actual application merge, exact canonical task bytes, scoped clean contract commit published to its own remote branch, native scope/file-hygiene checks and independent exact-published-SHA review of the contract and frozen operator bytes before runtime",
+  "The source package's normal-merge witness, successful merge API response, exact HEAD/current-base mandatory CI, hygiene CI and resolved independent review remain separate from operational authority",
+  "A reviewed versioned context distinguishes closed Ubuntu source provenance from active operations ownership, uses the read-only release_ubuntu_provenance.py helper and never executes a source-owner locked_release implementation",
+  "Local adversarial checks reject wrong package/base/head/manifest/authorization, foreign source differences, stale source or receipts, unknown keys, type substitutions and owner/finalization failures",
+  "Each native phase has a new private source-bound operation directory, fixed helper hashes, bounded execution and actual dated receipts; earlier failed c62 build/preparation evidence remains intact",
+  "Build, preparation, update and capabilities proof each report their own actual result; source-only CI or a successful empty/test database is not historical no-replay or user-beta acceptance",
+  "A failure after possible POST requires inspection of that exact terminal native task and retained identities before a separately reviewed recovery operation; no task or source receipt is relabelled PASS",
+  "Publish the clean operational contract commit before execution; open its self-contained PR only after the source-main Full run is terminal, and complete all applicable required CI/review, normal merge and native finish without bypass. Finish runtime proofs before this documentation-only main advance and never reuse the old release context afterward",
+]
+targetedTests = [
+]
+fileGrowthExpectations = [
+  "Only the canonical task manifest and one stable task document change in the operations worktree; no application or tooling implementation changes",
+  "Keep the task document below 70 lines and 12 KiB, with receipts stored privately outside Git rather than embedded data or long logs",
+  "Use the existing reviewed packager, prepare/update/proof algorithms; change only the source-versus-operations authority envelope and the narrowly reviewed read-only Ubuntu plugin/version guards",
+]
+forbiddenOperations = [
+  "Registration or runtime execution without the actual merged application baseSha and separate explicit operational authorization",
+  "Source-only owner reuse, foreign token/registry/worktree/index mutation, manually changing an existing manifest fingerprint or bypassing native ownership",
+  "Application/schema/renderer/validator/CI changes, direct main push, force push, required-check bypass or invented successful receipts",
+  "Compose version suffix stripping, upstream mapping, generic JSON normalization, plugin replacement or changing Docker client configuration",
+  "Historical/public data reads for this operation, historical app startup, account/session creation, generation, paid calls, payments, mail, messenger or social sends",
+  "Provider POST, interrupt/free/unload, model/server configuration changes, redirects or arbitrary destinations",
+  "Host-global firewall/network/DNS/FRP changes, neighboring project changes, new application stands, broad Docker cleanup or removal of data volumes",
+  "Automatic rollback, database restore, deletion of failed evidence, blind task retry or cleanup without an exact owned-resource identity",
+]
+rollbackBoundary = "Stop and reconcile the exact native task first. Preserve current and historical data/media and every failed receipt. A separate owner-approved recovery may restore only the previous project's saved Compose, exact images and maintenance lease; any orphan-proxy cleanup requires its recorded new container identity, no data mounts and no volume flags. This package does not automatically execute rollback, restore databases, authenticate users or switch the public domain."
