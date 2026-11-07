@@ -27,6 +27,8 @@ SERVICE_KEYS = {"image", "pull_policy", "labels", "cap_drop", "cap_add", "securi
     "restart", "read_only", "tmpfs", "cpus", "mem_limit", "pids_limit", "depends_on", "healthcheck",
     "stop_grace_period", "volumes"}
 RELEASE = re.compile(r"[0-9a-f]{12}-[0-9]{14}")
+COMPOSE_VERSION = "2.40.3+ds1-0ubuntu1~24.04.1"
+COMPARISON_PROFILE = "compose-2.40.3-ubuntu24.04-json-v1"
 PROXY_HEALTH = ["CMD", "python", "-c", "import json,urllib.request; r=json.load(urllib.request.urlopen('http://127.0.0.1:18188/healthz',timeout=2)); assert r['ok'] and r['profile']=='comfyui-private-v1'"]
 
 
@@ -206,6 +208,64 @@ def render(base, manifest, template, frontend, *, upstream_ip, upstream_port, na
     return config
 
 
+def verify_effective(expected, observed, *, compose_version):
+    require(type(compose_version) is str and compose_version == COMPOSE_VERSION, "BRIDGE_COMPOSE_VERSION_UNSUPPORTED")
+    drift = "BRIDGE_EFFECTIVE_COMPOSE_DRIFT"
+    require(type(expected) is dict and type(observed) is dict, drift)
+    normalized = copy.deepcopy(observed)
+    wanted_services, services = expected.get("services"), normalized.get("services")
+    require(type(wanted_services) is dict and type(services) is dict
+            and set(services) == set(wanted_services)
+            and set(services) in ({"backend", "web", "guard", "comfy-proxy"},
+                                 {"backend", "web", "guard", "init-db", "comfy-proxy"}), drift)
+    for role, wanted in wanted_services.items():
+        service = services[role]
+        require(type(wanted) is dict and type(service) is dict, drift)
+        for field in (("entrypoint", "command") if role in {"guard", "web"} else ("entrypoint",)):
+            if field not in wanted and field in service and service[field] is None:
+                del service[field]
+        if role in {"backend", "web", "init-db"} and wanted.get("network_mode") == "service:guard":
+            wanted_dependencies, dependencies = wanted.get("depends_on", {}), service.get("depends_on", {})
+            require(type(wanted_dependencies) is dict and type(dependencies) is dict, drift)
+            edge = dependencies.get("guard")
+            if ("guard" not in wanted_dependencies and type(edge) is dict
+                    and set(edge) == {"condition", "required", "restart"} and edge["condition"] == "service_started"
+                    and edge["required"] is True and edge["restart"] is True):
+                del dependencies["guard"]
+                if "depends_on" not in wanted and not dependencies:
+                    del service["depends_on"]
+        if role == "guard":
+            wanted_ports, ports = wanted.get("ports"), service.get("ports")
+            require(type(wanted_ports) is list and type(ports) is list and len(wanted_ports) == len(ports) == 2, drift)
+            for wanted_port, port in zip(wanted_ports, ports):
+                require(type(wanted_port) is dict and type(port) is dict, drift)
+                for field, default in (("mode", "ingress"), ("protocol", "tcp")):
+                    if field not in wanted_port and type(port.get(field)) is str and port[field] == default:
+                        del port[field]
+                published = wanted_port.get("published")
+                if (type(published) is int and 1 <= published <= 65535
+                        and type(port.get("published")) is str and port["published"] == str(published)):
+                    port["published"] = published
+        wanted_mounts, mounts = wanted.get("volumes", []), service.get("volumes", [])
+        require(type(wanted_mounts) is list and type(mounts) is list and len(mounts) == len(wanted_mounts), drift)
+        for wanted_mount, mount in zip(wanted_mounts, mounts):
+            require(type(wanted_mount) is dict and type(mount) is dict, drift)
+            options = wanted_mount.get("bind")
+            if (wanted_mount.get("type") == "bind" and type(options) is dict and set(options) == {"create_host_path"}
+                    and options["create_host_path"] is False and type(mount.get("bind")) is dict and not mount["bind"]):
+                mount["bind"] = {"create_host_path": False}
+    wanted_networks, networks = expected.get("networks"), normalized.get("networks")
+    require(type(wanted_networks) is dict and type(networks) is dict, drift)
+    wanted_shadow, shadow = wanted_networks.get("shadow"), networks.get("shadow")
+    require(type(wanted_shadow) is dict and type(shadow) is dict, drift)
+    if "ipam" not in wanted_shadow and type(shadow.get("ipam")) is dict and not shadow["ipam"]:
+        del shadow["ipam"]
+    try:
+        require(json_bytes(normalized) == json_bytes(expected), drift)
+    except (TypeError, ValueError):
+        raise BundleError(drift) from None
+
+
 def main(argv=None):
     try:
         p = argparse.ArgumentParser(description=__doc__)
@@ -221,7 +281,13 @@ def main(argv=None):
         p.add_argument("--images-sha256")
         p.add_argument("--check-compose", type=Path)
         p.add_argument("--check-sha256")
+        p.add_argument("--compose-version")
         a = p.parse_args(argv)
+        require(a.check_compose is not None or (a.check_sha256 is None and a.compose_version is None),
+                "BRIDGE_EFFECTIVE_CHECK_REQUIRED")
+        if a.check_compose is not None:
+            require(a.compose_version is not None, "BRIDGE_COMPOSE_VERSION_REQUIRED")
+            require(a.compose_version == COMPOSE_VERSION, "BRIDGE_COMPOSE_VERSION_UNSUPPORTED")
         require(a.accept_private_http, "BRIDGE_PRIVATE_HTTP_ACCEPTANCE_REQUIRED")
         manifest = verify(a.bundle, a.manifest_sha256)
         require(manifest["source_sha"] == a.expect_source and manifest["release_id"] == a.expect_release
@@ -245,9 +311,11 @@ def main(argv=None):
                         upstream_port=a.upstream_port, namespace=a.namespace, mode=a.mode,
                         images=pinned(a.images, a.images_sha256) if a.images else None)
         if a.check_compose:
-            require(pinned(a.check_compose, a.check_sha256) == config, "BRIDGE_EFFECTIVE_COMPOSE_DRIFT")
+            verify_effective(config, pinned(a.check_compose, a.check_sha256), compose_version=a.compose_version)
             print(json.dumps({"status": "BRIDGE_COMPOSE_VERIFIED", "source_sha": manifest["source_sha"],
                 "release_id": manifest["release_id"], "compose_sha256": hashlib.sha256(json_bytes(config)).hexdigest(),
+                "effective_compose_sha256": a.check_sha256, "compose_version": a.compose_version,
+                "comparison_profile": COMPARISON_PROFILE,
                 "mode": a.mode, "production_authorized": False}, sort_keys=True))
         else:
             print(json_bytes(config).decode(), end="")

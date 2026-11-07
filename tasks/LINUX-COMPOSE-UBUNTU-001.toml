@@ -1,0 +1,114 @@
+manifestVersion = 1
+id = "LINUX-COMPOSE-UBUNTU-001"
+baseSha = "a25bc81fc65f070d07a38279af5449f4174030a6"
+goal = "Accept only the directly observed serialization differences of the exact native Ubuntu Docker Compose build 2.40.3+ds1-0ubuntu1~24.04.1, while preserving every raw source, image, mount, network and value-type policy."
+userOutcome = "The existing Linux test project can pass strict native Compose verification for its actual installed build and proceed to a separately authorized release-operations package."
+beforeScenario = "LINUX-COMPOSE-ROUNDTRIP-001 supports only literal version 2.40.3 and has unmet native acceptance because the installed CLI returns 2.40.3+ds1-0ubuntu1~24.04.1. Its focused tests are not a native acceptance result."
+afterScenario = "A separately registered source-only comparator accepts the complete observed Ubuntu version identifier and only evidence-backed JSON representation differences, preserves both raw hashes, and rejects all other versions or policy changes."
+nonGoals = [
+  "Register before the predecessor scope is normally closed UNMERGED_ACCEPTANCE_NOT_MET or before the actual current-main base is verified",
+  "Change native_base, render, fixture, cli_arguments, canonical bundle formats, archive or image validation",
+  "Change backend/main.py, PR211 ownership, application idempotency, billing, schema, historical no-replay, users, media or provider processing",
+  "Build images, update containers, authenticate users, generate an image or claim Linux beta acceptance from this source-only package",
+  "Treat PR273, its stale target-base CI, the obsolete combined tree 0725 or the predecessor's focused tests as current-source hosted acceptance",
+]
+declaredFiles = [
+  "tools/docker_comfy_bridge_profile.py",
+  "tools/test_docker_comfy_bridge_profile.py",
+  "tasks/LINUX-COMPOSE-UBUNTU-001.toml",
+  "docs/agent-tasks/LINUX-COMPOSE-UBUNTU-001.md",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  ".github/**",
+  "architecture/**",
+  "docs/generated/**",
+  "docs/context/**",
+  "tools/agent_system/**",
+  "tools/docker_test_bundle.py",
+  "tools/docker_test_bundle_format.py",
+  "tools/docker_test_bundle_images.py",
+  "tools/docker_test_bundle_runtime.py",
+  "tools/docker_canonical_context_probe.py",
+  "tasks/LINUX-COMFY-BRIDGE-001.toml",
+  "tasks/PAYMENT-OUTBOX-TERMINAL-001.toml",
+  "tasks/PAYMENT-OUTBOX-INTEGRATION-001.toml",
+  "tasks/LINUX-COMPOSE-ROUNDTRIP-001.toml",
+  "docs/agent-tasks/LINUX-COMPOSE-ROUNDTRIP-001.md",
+]
+protectedFilesTouched = [
+]
+domain = "release-ops"
+riskClass = "high-assurance"
+changeClass = "bugfix"
+maxProductionFiles = 1
+maxChangedLines = 400
+acceptance = [
+  "Keep native_base, render, fixture and cli_arguments unchanged; preserve explicit create_host_path=false in every rendered long bind and every existing raw source/frontend/image pin",
+  "Expose COMPARISON_PROFILE=compose-2.40.3-ubuntu24.04-json-v1 and verify_effective(expected, observed, *, compose_version), which raises BundleError on disagreement without mutating either input",
+  "Accept only compose_version exactly equal to the string 2.40.3+ds1-0ubuntu1~24.04.1; reject bare upstream 2.40.3, missing or non-string input, prefixes, other distribution builds and every unsupported version even for exact JSON",
+  "The CLI argument and receipt retain the complete native Ubuntu version identifier; preserve the raw version stdout including its single LF separately, and never strip a suffix, map to upstream 2.40.3 or infer support from a profile name",
+  "Permit an observed null entrypoint only when absent from expected backend, guard, web, optional init-db or comfy-proxy; permit an observed null command only when absent from expected guard or web",
+  "Permit an observed empty object networks.shadow.ipam only when expected shadow has no ipam field",
+  "Permit an observed existing empty bind object only at a corresponding expected long bind whose options are exactly create_host_path=false with a real Boolean false; reject missing, null or non-object entire bind options",
+  "Only for expected backend, web or init-db with network_mode exactly service:guard and no expected guard dependency, remove the observed guard edge only when its complete canonical JSON is exactly condition=service_started, required=true and restart=true, with real Boolean values and no extra fields; never rewrite or remove an existing expected guard edge",
+  "For that dependency conversion, expected and observed depends_on must be objects when present; retain every other dependency unchanged, and remove a resulting empty depends_on field only when the entire field was absent from expected; do not apply it to guard, comfy-proxy or another network_mode",
+  "Only within the two declared guard long-port objects at corresponding unchanged list indices, remove observed mode=ingress and protocol=tcp only when that exact field is absent from expected and the observed value is the exact string literal; never supply or change an explicit expected setting",
+  "Convert observed guard-port published only when expected published is a real integer, not Boolean or float, in 1..65535 and observed published is a string exactly equal to str(expected); reject signs, whitespace, leading zeros, ranges and all other spellings or types, without generic coercion",
+  "Keep both guard port lists at their expected equal length and order, require long-port objects, and retain target, host_ip and every other field for strict whole-object comparison; no port conversion applies to another service or unmatched entry",
+  "After only those evidence-backed conversions on a private observed copy, compare the complete objects through canonical json_bytes equality so false, numeric zero and floating-point zero remain distinct",
+  "Reject true, null, numeric zero, floating-point zero, missing bind objects, empty command arrays, unknown keys, changed paths or mount permissions, image/source drift, extra ports or egress and every unsupported difference",
+  "Do not use a difference count as an acceptance gate or silently extend the allowed paths; every observed difference must match the exact conditional categories above, and any other difference requires root review of a revised external contract before registration or source work",
+  "Preserve acceptance of exact prior JSON only with the complete supported Ubuntu version; preserve render-only CLI behavior without a version argument",
+  "Require --compose-version with --check-compose, reject check-only flags without an effective check, and keep fail-closed raw effective-file hash verification",
+  "Return BRIDGE_COMPOSE_VERIFIED with existing identity/mode fields, raw candidate compose_sha256, raw effective_compose_sha256, complete Ubuntu compose_version, comparison_profile and production_authorized=false",
+  "Both capabilities and generate-t2i-4b pass the supported-version positives and independently reject every same security, type and version negative without contacting a provider",
+  "Change only the four declared files, at most one production file and at most 400 lines; do not raise a predecessor limit or weaken enforcement",
+]
+requiredEvidence = [
+  "Before registration, root reviews the terminal NATIVE_UBUNTU_COMPOSE_OBSERVED_NOT_ACCEPTED receipt with raw candidate/effective bytes and structured path/type/value differences for both modes; the previous checker must show DRIFT and the unmodified predecessor candidate must show VERSION_UNSUPPORTED, not acceptance",
+  "Preserve observation operation 0d1021829b854bd391f9991c83871036, result SHA256 51ce582c8e5f45a01aad414f843b2d26d6aab3a864a86e6d13f625e1303bfef7 and typed read 9c1824b94b914e11821e008458a0011f: all four lane/mode arrays contain the same 21 differences, including three generated guard edges and six guard-port representations; the earlier live-base 12-difference observation is separate and must not replace this unchanged-fixture 21-difference proof",
+  "Preserve the predecessor's exact four-file candidate and hashes, focused/scope results, original failed probe 514fb251b6b34a8cbafe74c26eb39767 and all subsequent observations before restoring only its owned tools to exact base bytes",
+  "Confirm native AGENT_PACKAGE_FINISHED and closed ownership for LINUX-COMPOSE-ROUNDTRIP-001 as UNMERGED_ACCEPTANCE_NOT_MET; do not relabel its administrative closeout as completed feature acceptance or reuse its owner token",
+  "Recheck actual clean local and remote main against PR274 protected merge a25bc81fc65f070d07a38279af5449f4174030a6 and tree 733636dd0cc197441a5b9ee840d0e21cd531e244, including the actual five-file outbox merge witness and reviewed postimages; if main differs, stop for contract/base review",
+  "Only after the reviewed closeout and current-main check, supply the actual baseSha to this external proposal and obtain AGENT_PACKAGE_STARTED on agent/linux-compose-ubuntu-001 in its own worktree through the native registry lock before any repository edit",
+  "Bind native observation and acceptance to /usr/libexec/docker/cli-plugins/docker-compose, SHA256 d87a11e944c990dc9f2186115b1136c1cbffffc870845caff0cbdcce0780f41d, with exact raw stdout 2.40.3+ds1-0ubuntu1~24.04.1 followed by one LF; preserve executable identity and raw output hashes before and after",
+  "Pin Ubuntu packaging at https://github.com/canonical/docker-compose-v2/blob/c0d8e33d5ce41581f237301872b2d6d911ff5a9e/debian/rules and https://github.com/canonical/docker-compose-v2/blob/c0d8e33d5ce41581f237301872b2d6d911ff5a9e/debian/patches/series: VERSION uses exact DEB_VERSION and recorded patches are vendor-build/toolchain changes, not serialization changes; retain exact native compose-go v2.9.1 evidence",
+  "Pin https://github.com/compose-spec/compose-go/blob/75fb1aba98ff8a944ebc5ea54f1054f1329e999c/loader/normalize.go, blob 7b1c4941c62f54b9b6cf3ead488b80fa82fe3ea7, lines 90-100: a service network_mode reference adds only an absent dependency with condition service_started, required true and restart true",
+  "Pin https://github.com/compose-spec/compose-go/blob/75fb1aba98ff8a944ebc5ea54f1054f1329e999c/transform/ports.go, blob 68e26f3d4e6705e76dd14e881f3f5854f1ae6f81: portDefaults inserts only absent protocol tcp and mode ingress; pin https://github.com/compose-spec/compose-go/blob/75fb1aba98ff8a944ebc5ea54f1054f1329e999c/types/types.go, blob b73d934019e933445eaee66b330e6bf3bbeb047b, for Published string and bind false omitempty",
+  "Keep primary source evidence distinguishing an existing empty bind object mapping to CreateMountpoint=false from a missing bind object selecting legacy Binds, and null inheritance from empty command arrays; these proofs authorize no generic dependency, port, null or empty-object normalization",
+  "Run the unchanged actual-base checker and the newly registered candidate in separate private processes against real native config JSON in both modes: baseline rejects BRIDGE_EFFECTIVE_COMPOSE_DRIFT and candidate passes with the exact raw Ubuntu version and raw candidate/effective hashes",
+  "The native probe uses private HOME and empty DOCKER_CONFIG, a nonexistent private DOCKER_HOST socket, version/config-only commands, bounded subprocess deadlines and owned-process cleanup; it verifies full source bytes/modes, fixture AST, inputs, owner, registry and indices unchanged",
+  "Unit regressions cover the complete actual 21-difference unchanged-fixture shape and each allowed conversion, exact prior JSON, unsupported bare and distribution versions, missing flags, stale raw pins, unchanged inputs, and strict whole-object type rejection in both modes",
+  "Both modes independently reject altered or extra generated-edge fields, true-to-1 substitutions, attempted removal or change of an existing expected guard edge, wrong network_mode or service, removed or added other dependencies; port negatives cover protocol/mode changes, extra keys, target/host_ip drift, list length/order changes, Boolean/float or out-of-range expected values and every non-exact published spelling",
+  "Retain existing profile and bundle regressions without OS skips, monkeypatched acceptance validators, operational JSON normalization, fake version strings or unsupported-build attestation mapping",
+  "Native scope/file-hygiene checks, independent exact-byte and published-head review, and mandatory hosted CI identify this actual candidate HEAD and actual target base before normal protected merge",
+  "Keep source tests, exact-head CI and normal merge separate from later build, native 1Panel update, historical login, idempotency, no-replay and real GPU acceptance; runtime requires a distinct authorized operations owner",
+]
+targetedTests = [
+  "tools/test_docker_comfy_bridge_profile.py",
+  "tools/test_docker_test_bundle_build.py",
+  "tools/test_docker_test_bundle_format.py",
+  "tools/test_docker_test_bundle_images.py",
+  "tools/test_docker_test_bundle_runtime.py",
+]
+fileGrowthExpectations = [
+  "Use one bounded comparator in the existing renderer and a small CLI extension; no parallel renderer or generic recursive normalizer",
+  "Keep the existing test module below 500 lines and 24 KiB, using explicit parameterized security, type and version mutations for both modes",
+  "Keep the new task document below 100 lines and 12 KiB; add no other documentation or generated evidence files",
+  "Use exactly four declared files, at most one production file and at most 400 changed lines in this new package",
+]
+forbiddenOperations = [
+  "registration before root approval, confirmed predecessor closure or actual current-main verification; repository edit before native registration; submission without actual baseSha",
+  "foreign registry, token, branch, worktree or index mutation, including PR211 ownership or backend/main.py",
+  "rewrite predecessor manifests or receipts, hand-edit registry fingerprints, rebase around ownership contracts, raise limits or modify agent enforcement",
+  "direct main push, force push, stale-target CI reuse, required-check bypass, nominal upstream-version acceptance or suffix stripping",
+  "operations-side normalization, version attestation mapping, fake PASS receipts, dropping whole bind objects or changing canonical renderer input policy",
+  "Docker lifecycle, image build, new application stand, 1Panel update, host-global network or firewall mutation",
+  "historical or public database/media changes, provider calls, generation, authentication bypass or public-domain cutover",
+]
+rollbackBoundary = "Revert only this separately reviewed source package if needed. It changes no schema or persisted data. Preserve the predecessor's UNMERGED closeout and every failed or successful source-only observation; later build, runtime update or rollback requires separate review, ownership and authorization."
