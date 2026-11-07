@@ -9,7 +9,7 @@ from tools import docker_canonical_context_probe as probe
 
 def exported(tmp_path, role="web"):
     for name, content in probe.POSITIVE.items():
-        if (name.endswith("network_guard.py")) != (role == "guard"):
+        if (name in {"ops/docker/dev/network_guard.py", "ops/docker/dev/comfyui_proxy.py"}) != (role == "guard"):
             continue
         target = tmp_path / "context" / name
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -17,13 +17,35 @@ def exported(tmp_path, role="web"):
     return tmp_path
 
 
-@pytest.mark.parametrize("role", ["web", "guard"])
-def test_missing_positive_input_fails(tmp_path, role):
+@pytest.mark.parametrize("role,name", [("web", "frontend/package.json"),
+    ("guard", "ops/docker/dev/network_guard.py"), ("guard", "ops/docker/dev/comfyui_proxy.py")])
+def test_missing_positive_input_fails(tmp_path, role, name):
     output = exported(tmp_path, role)
-    target = next((output / "context").rglob("*.py" if role == "guard" else "*.json"))
+    target = output / "context" / name
     target.unlink()
     result = probe.inspect_export(output, role)
     assert result["status"] == "FAIL" and result["missing"] and not result["contentsVerified"]
+
+
+@pytest.mark.parametrize("name", ["ops/docker/dev/network_guard.py", "ops/docker/dev/comfyui_proxy.py"])
+def test_guard_requires_exact_two_inputs_with_unchanged_bytes(tmp_path, name):
+    output = exported(tmp_path, "guard")
+    result = probe.inspect_export(output, "guard")
+    assert result["status"] == "PASS" and result["files"] == [
+        "ops/docker/dev/comfyui_proxy.py", "ops/docker/dev/network_guard.py"]
+    (output / "context" / name).write_bytes(b"changed synthetic source")
+    result = probe.inspect_export(output, "guard")
+    assert result["status"] == "FAIL" and not result["contentsVerified"]
+
+
+@pytest.mark.parametrize("name", ["ops/docker/dev/nginx.shadow.conf", "ops/docker/dev/unrelated/private.txt", ".env"])
+def test_guard_rejects_every_additional_input(tmp_path, name):
+    output = exported(tmp_path, "guard")
+    extra = output / "context" / name
+    extra.parent.mkdir(parents=True, exist_ok=True)
+    extra.write_bytes(b"synthetic forbidden input")
+    result = probe.inspect_export(output, "guard")
+    assert result["status"] == "FAIL" and result["unexpected"] == [name]
 
 
 @pytest.mark.parametrize("suffix", ["-wal", "-shm", "-journal"])

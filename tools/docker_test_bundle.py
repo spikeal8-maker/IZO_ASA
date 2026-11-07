@@ -115,6 +115,23 @@ def release_metadata(source: Path, assets: Path, sha: str, release: str, built: 
             sys.modules[name] = prior
 
 
+def copy_comfy_profile_assets(source: Path, staging: Path) -> None:
+    """Passive, inventory-hashed files only; never activate a provider in a ZIP."""
+    files = {
+        "ops/docker/dev/compose.comfyui-shadow.yml": "profiles/compose.comfyui-shadow.yml",
+        "tools/docker_comfy_bridge_profile.py": "docker_comfy_bridge_profile.py",
+        "docs/agent-tasks/LINUX-COMFY-BRIDGE-001.md": "profiles/LINUX-COMFY-BRIDGE-001.md",
+    }
+    present = [plain_path(source / name).is_file() for name in files]
+    if not any(present):
+        return  # Older exact source releases retain their original bundle shape.
+    require(all(present), "COMFY_PROFILE_ASSETS_INCOMPLETE")
+    for name, destination in files.items():
+        target = staging / destination
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(plain_path(source / name), target)
+
+
 def build(source: Path, sha: str, project: str, web: int, api: int, output: Path,
           docker: Docker, *, embed_images: bool = True, profile: str = ACCEPTANCE,
           build_images: bool = False) -> dict:
@@ -219,6 +236,7 @@ def build(source: Path, sha: str, project: str, web: int, api: int, output: Path
                 for role, image in manifest["images"].items():
                     config["services"][role]["image"] = image
                 (staging / "compose.json").write_bytes(json_bytes(config))
+        copy_comfy_profile_assets(source, staging)
         manifest["files"] = inventory(staging)
         (staging / "bundle.json").write_bytes(json_bytes(manifest))
         pin = file_hash(staging / "bundle.json")[1]

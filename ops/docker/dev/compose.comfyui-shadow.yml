@@ -1,0 +1,56 @@
+{
+  "services": {
+    "guard": {
+      "environment": {
+        "IZO_SHADOW_EGRESS_PROFILE": "comfyui-private-v1",
+        "IZO_COMFY_UPSTREAM_IP": "${IZO_COMFY_UPSTREAM_IP:?private IPv4 required}",
+        "IZO_COMFY_UPSTREAM_PORT": "${IZO_COMFY_UPSTREAM_PORT:?port required}"
+      }
+    },
+    "backend": {
+      "environment": {
+        "COMFYUI_BASE_URL": "http://127.0.0.1:18188",
+        "COMFYUI_REQUIRED": "true",
+        "COMFYUI_MOCK_FALLBACK": "false",
+        "COMFYUI_NATIVE4B_ONLY": "true"
+      },
+      "depends_on": {
+        "comfy-proxy": {"condition": "service_healthy", "required": true, "restart": true}
+      }
+    },
+    "comfy-proxy": {
+      "image": "${IZO_COMFY_GUARD_IMAGE:?exact guard image required}",
+      "pull_policy": "never",
+      "command": ["python", "/comfyui_proxy.py"],
+      "user": "10002:10002",
+      "network_mode": "service:guard",
+      "restart": "${IZO_COMFY_RESTART:?pinned base restart required}",
+      "read_only": true,
+      "cpus": 0.5,
+      "mem_limit": "134217728",
+      "pids_limit": 32,
+      "cap_drop": ["ALL"],
+      "security_opt": ["no-new-privileges:true"],
+      "depends_on": {
+        "guard": {"condition": "service_healthy", "required": true, "restart": true}
+      },
+      "environment": {
+        "IZO_SHADOW_EGRESS_PROFILE": "comfyui-private-v1",
+        "IZO_COMFY_UPSTREAM_IP": "${IZO_COMFY_UPSTREAM_IP:?private IPv4 required}",
+        "IZO_COMFY_UPSTREAM_PORT": "${IZO_COMFY_UPSTREAM_PORT:?port required}",
+        "IZO_COMFY_NAMESPACE": "${IZO_COMFY_NAMESPACE:?stable deployment namespace required}",
+        "IZO_COMFY_MODE": "${IZO_COMFY_MODE:?explicit capabilities or generate-t2i-4b required}"
+      },
+      "labels": {
+        "io.izo.owner": "LINUX-COMFY-BRIDGE-001",
+        "io.izo.project": "${IZO_COMPOSE_PROJECT:?project required}",
+        "org.opencontainers.image.revision": "${IZO_SOURCE_SHA:?source SHA required}"
+      },
+      "healthcheck": {
+        "test": ["CMD", "python", "-c", "import json,urllib.request; r=json.load(urllib.request.urlopen('http://127.0.0.1:18188/healthz',timeout=2)); assert r['ok'] and r['profile']=='comfyui-private-v1'"],
+        "interval": "10s", "timeout": "3s", "retries": 12
+      },
+      "stop_grace_period": "5s"
+    }
+  }
+}

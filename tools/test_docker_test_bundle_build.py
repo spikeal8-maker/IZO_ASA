@@ -113,6 +113,28 @@ def test_unknown_build_profile_refused_before_source_or_docker(tmp_path, monkeyp
         build.build(tmp_path, "a" * 40, "izo-asa-bundle-test001", 48614, 48615, tmp_path / "bundle.zip", None, profile="unknown")
 
 
+def test_comfy_assets_are_passive_complete_and_inventory_hashed(tmp_path):
+    from tools.docker_test_bundle_format import inventory
+    source, staging = tmp_path / "source", tmp_path / "payload"
+    source.mkdir(); staging.mkdir()
+    build.copy_comfy_profile_assets(source, staging)
+    assert list(staging.iterdir()) == []
+    assets = {"ops/docker/dev/compose.comfyui-shadow.yml": "profiles/compose.comfyui-shadow.yml",
+              "tools/docker_comfy_bridge_profile.py": "docker_comfy_bridge_profile.py",
+              "docs/agent-tasks/LINUX-COMFY-BRIDGE-001.md": "profiles/LINUX-COMFY-BRIDGE-001.md"}
+    first = source / next(iter(assets))
+    first.parent.mkdir(parents=True); first.write_text("controlled source asset")
+    with pytest.raises(BundleError, match="COMFY_PROFILE_ASSETS_INCOMPLETE"):
+        build.copy_comfy_profile_assets(source, staging)
+    for name in assets:
+        path = source / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text(name)
+    build.copy_comfy_profile_assets(source, staging)
+    observed = inventory(staging)
+    assert set(observed) == set(assets.values())
+    assert all((source / name).read_bytes() == (staging / target).read_bytes() for name, target in assets.items())
+    assert not (staging / "compose.json").exists() and not (staging / "bundle.json").exists()
+
+
 @pytest.mark.parametrize("failure", [None, "missing-index-entry", "tag-moved", "image-release", "html", "javascript"])
 def test_portable_builder_exports_named_complete_bound_archive(tmp_path, monkeypatch, failure):
     import zipfile
@@ -120,6 +142,10 @@ def test_portable_builder_exports_named_complete_bound_archive(tmp_path, monkeyp
     from tools.docker_test_bundle_format import OWNER, RUNTIME
     from tools.test_docker_test_bundle_images import make_portable, tar_bytes
     root, _, manifest, inspections, blobs = make_portable(tmp_path / "source")
+    for name in ("ops/docker/dev/compose.comfyui-shadow.yml", "tools/docker_comfy_bridge_profile.py",
+                 "docs/agent-tasks/LINUX-COMFY-BRIDGE-001.md"):
+        target = root / name; target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(Path(__file__).resolve().parents[1] / name, target)
     references = {role: item["archive_ref"] for role, item in manifest["image_identity"]["roles"].items()}
     config = json.loads((root / "compose.json").read_text())
     for role, reference in references.items(): config["services"][role]["image"] = reference
@@ -176,4 +202,8 @@ def test_portable_builder_exports_named_complete_bound_archive(tmp_path, monkeyp
             assert "docker_test_bundle_images.py" in archive.namelist()
             assert "docker_bundle_release_identity.py" in archive.namelist()
             assert result["release_id"] == manifest["release_id"]
+            assert {"profiles/compose.comfyui-shadow.yml", "docker_comfy_bridge_profile.py",
+                    "profiles/LINUX-COMFY-BRIDGE-001.md"} <= set(result["files"])
+            assert result["model_execution"] is False and result["production_authorized"] is False
+            assert set(json.loads(archive.read("compose.json"))["services"]) == {"backend", "web", "guard"}
     assert not any(call[0] == "tag" for call in engine.calls)
