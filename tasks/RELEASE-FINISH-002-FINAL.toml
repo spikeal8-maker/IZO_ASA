@@ -98,6 +98,7 @@ allowedPatterns = [
   "tasks/RELEASE-FINISH-HISTORY-PROFILE-001.toml",
   "docs/agent-tasks/RELEASE-FINISH-HISTORY-PROFILE-001.md",
   "backend/test_social_account_verification.py",
+  "backend/app/storage/source_graph.py",
 ]
 forbiddenPatterns = [
   "ops/windows/**",
@@ -189,3 +190,8 @@ recordedAtUtc = "2026-11-07T23:21:54.024830Z"
 path = "backend/test_social_account_verification.py"
 reason = "Integrate independently reviewed closed historical 1Panel profile and preserve the existing additive-migration idempotence assertion at schema 8."
 recordedAtUtc = "2026-11-07T23:21:55.709483Z"
+
+[[scopeExpansions]]
+path = "backend/app/storage/source_graph.py"
+reason = "Prevent implicit source reconstruction while reading sealed historical gallery images; preserve repair for newly created images."
+recordedAtUtc = "2026-11-07T23:42:20.792015Z"

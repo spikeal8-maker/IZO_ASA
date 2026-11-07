@@ -21,7 +21,7 @@ from app.services.history_replay import (
 def fingerprints():
     result = {}
     with closing(main.db()) as conn:
-        for table in ("jobs", "images", "videos", "token_ledger", "payments", "invoices",
+        for table in ("jobs", "images", "image_sources", "videos", "video_sources", "token_ledger", "payments", "invoices",
                       "payment_notification_outbox", "payment_provider_events", "social_delivery_outbox", "feed_publications",
                       "account_verifications", "generation_trial_reservations", "video_file_deletions", "billing_packages"):
             rows = [tuple(row) for row in conn.execute(f'SELECT * FROM "{table}" ORDER BY rowid')]
@@ -63,6 +63,11 @@ def restored_history(monkeypatch):
         conn.execute(
             "INSERT INTO images (id,user_id,job_id,url,thumbnail_url,width,height,mode,provider,created_at) "
             "VALUES ('old-image','old-user','old-queued','/api/media/old.png','',32,32,'text_to_image','comfyui',?)", (now,),
+        )
+        conn.execute(
+            "UPDATE jobs SET settings_json=? WHERE id='old-queued'",
+            (json.dumps({"mode": "image_to_image", "provider": "comfyui", "prompt": "source recovery",
+                         "inputImage1": "/api/media/source.png"}),),
         )
         conn.execute(
             "INSERT INTO token_ledger (id,user_id,delta,reason,meta_json,created_at) "
@@ -150,6 +155,47 @@ def test_old_recovery_refunds_payments_and_deletion_are_fenced(restored_history)
     assert main.drain_video_file_deletions()["checked"] == 0
     assert (main.MEDIA / "retained.bin").read_bytes() == b"must survive old deletion queue"
     assert fingerprints() == before
+
+
+def test_historical_gallery_detail_never_repairs_sources_but_new_images_can(restored_history, monkeypatch):
+    restored = []
+
+    def restore_new_only(image_id, user_id, request, created_at):
+        assert image_id == "new-image", "Historical gallery GET attempted to persist source media"
+        assert user_id == "old-user" and request.inputImage1 == "/api/media/source.png"
+        restored.append(image_id)
+        return [{"id": "new-source", "imageId": image_id}]
+
+    monkeypatch.setattr(main, "persist_image_sources", restore_new_only)
+    before = fingerprints()
+    media_before = {str(path.relative_to(main.MEDIA)): hashlib.sha256(path.read_bytes()).hexdigest()
+                    for path in main.MEDIA.rglob("*") if path.is_file()}
+    client = TestClient(main.app)
+    for _ in range(2):
+        response = client.get("/api/gallery/old-image", headers=headers(restored_history))
+        assert response.status_code == 200, response.text
+        assert response.json()["sources"] == []
+    assert client.get("/api/gallery/old-image", headers=headers(restored_history, "other-user")).status_code == 404
+    assert restored == []
+    assert fingerprints() == before
+    assert {str(path.relative_to(main.MEDIA)): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in main.MEDIA.rglob("*") if path.is_file()} == media_before
+
+    now = datetime.now(timezone.utc).isoformat()
+    with closing(main.db()) as conn, conn:
+        conn.execute(
+            "INSERT INTO jobs (id,user_id,mode,provider,status,progress,settings_json,created_at) "
+            "SELECT 'new-job',user_id,mode,provider,'completed',100,settings_json,? "
+            "FROM jobs WHERE id='old-queued'", (now,),
+        )
+        conn.execute(
+            "INSERT INTO images (id,user_id,job_id,url,thumbnail_url,width,height,mode,provider,created_at) "
+            "VALUES ('new-image','old-user','new-job','/api/media/new.png','',32,32,'image_to_image','comfyui',?)", (now,),
+        )
+    response = client.get("/api/gallery/new-image", headers=headers(restored_history))
+    assert response.status_code == 200, response.text
+    assert response.json()["sources"] == [{"id": "new-source", "imageId": "new-image"}]
+    assert restored == ["new-image"]
 
 
 def test_history_mode_without_seal_fails_before_legacy_initialization(monkeypatch):

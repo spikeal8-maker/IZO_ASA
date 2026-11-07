@@ -48,6 +48,8 @@ Admission связывает trusted user, Idempotency-Key, нормализов
 явное offline-действие на новом клоне; startup никогда не создаёт границу сам.
 Старые jobs/outbox/payments/publications/recovery блокируются до побочных эффектов.
 Чтение кабинета не выдаёт просроченные гранты и не синхронизирует старый каталог.
+Просмотр старого изображения не восстанавливает отсутствующие sources из job settings;
+новые изображения прежнего пользователя сохраняют штатное восстановление источников.
 В режиме IZO_CLOSED_BETA новые публичные аккаунты запрещены; прежний password
 login и проверенные существующие provider identities сохраняют прежнюю логику.
 
@@ -65,6 +67,9 @@ ComfyUI `acdb22d3-7b21-499e-a39e-97b374c5614f`; модель
 прогон 47 PASS; schema/bridge 663 PASS; policy/recovery 90 PASS без warnings.
 Конкурентные HTTP группы 2/5/10 покрывают один job/charge/dispatch и один refund.
 Trial, commit-before-enqueue, stale outbox claim и повторный lifespan покрыты.
+Gallery source-repair regression и смежные storage/API проверки: 14 PASS без warnings.
+Actual-app rehearsal на новом клоне: два lifespan, старые строки/медиа неизменны,
+transport attempts=0; исходные 60/1952/60/1854/2939 сохранены.
 
 Test-health policy требует warnings=0 и cleanup exceptions=0. Старые 8/1
 сохранены как previousBaseline; срок review не продлён, checks не отключены.
