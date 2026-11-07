@@ -1,0 +1,98 @@
+manifestVersion = 1
+id = "DOCKER-PORTABLE-DELIVERY-PROOF-001"
+baseSha = "b308359e7466b78ecce06c9ae41b4a4b73cbe6ec"
+goal = "Obtain actual classic-Linux export and fresh-recipient install evidence for one portable canonical application archive using the existing installer."
+userOutcome = "The owner receives a cryptographically bound archive and concrete Linux/Windows installation evidence, with the remaining product acceptance blockers kept explicit."
+beforeScenario = "The real canonical ZIP from run41800527232 failed on D2 containerd because anonymous export omitted OCI roles and producer config IDs differed from local image IDs. Registered tooling8667c47544b3048aeaee032f9f8f10066a656755 fixes the existing builder/installer; its new archive has not yet been built or accepted."
+afterScenario = "A bounded workflow builds exact application7faf354ef1e9438adae1d9a4bbf2346b6e843bbe with exact tooling8667c47544b3048aeaee032f9f8f10066a656755, transfers one verified archive to a separate fresh Linux job and runs the unchanged embedded installer twice. The same immutable archive is available for isolated D2 install and repeat. Proof HEAD, tooling SHA and application SHA are independently guarded and recorded."
+nonGoals = [
+  "Implement a second installer or alter application/backend/frontend/Compose/Dockerfiles",
+  "Replace, relax or report PASS for the existing nine-job product lifecycle and update/return gates",
+  "Fix backend admission idempotency while backend/main.py is owned by OPENROUTER-LINUX-SHADOW-001",
+  "Claim production readiness, real-handler success, automatic rollback, permanent hosted uptime or independent review",
+  "Merge/deploy to the working server, change observer/host settings or extend expired governance debt reviews",
+]
+declaredFiles = [
+  ".github/workflows/docker-portable-image-delivery.yml",
+  "tools/docker_portable_delivery_proof.py",
+  "tools/test_docker_portable_delivery_proof.py",
+  "tasks/DOCKER-PORTABLE-DELIVERY-PROOF-001.toml",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+  "docs/NOW.md",
+  ".github/workflows/ci.yml",
+  ".github/workflows/file-hygiene.yml",
+  ".github/workflows/docker-linux-bundle-acceptance.yml",
+  ".github/workflows/docker-linux-synthetic-runtime.yml",
+  "tools/docker_test_bundle.py",
+  "tools/docker_test_bundle_format.py",
+  "tools/docker_test_bundle_images.py",
+  "tools/docker_test_bundle_runtime.py",
+  "tools/docker_linux_bundle_build.py",
+  "tools/agent.ps1",
+  "tools/agent_system/**",
+  "tools/verify.ps1",
+  "tools/test_health_audit.py",
+]
+protectedFilesTouched = [
+  ".github/workflows/docker-portable-image-delivery.yml",
+]
+domain = "docker-delivery"
+riskClass = "release-ops"
+changeClass = "tooling"
+maxProductionFiles = 0
+maxChangedLines = 750
+acceptance = [
+  "Register from current main before writing a workflow; high-impact workflow is declared upfront. Do not mutate the predecessor immutable contract or use scope-add to evade declaration.",
+  "Retain actual failed Linux product and Windows installation receipts. Unit boundary tests and actual operational proof are separate gates.",
+  "Guard driver HEAD, exact tooling8667c47544b3048aeaee032f9f8f10066a656755 and exact application/context-support7faf354ef1e9438adae1d9a4bbf2346b6e843bbe as separate clean nonoverlapping checkouts from the approved origin.",
+  "Require stock hosted Ubuntu22.04 Linux X64, verified local default Docker socket, fresh measured engine resources, distinct producer/receiver boots and instance identities. Refuse unsupported stores and require actual classic producer evidence; do not reconfigure Docker.",
+  "Run the existing real BuildKit context probe, render ordinary backend/web/guard Compose, build all three roles without cache from existing digest pins, then build format2 with explicit synthetic-runtime using the exact new tooling.",
+  "Transfer only the single ZIP and required hashed evidence/bootstrap modules. Bind independent producer receipt, workflow head/run/attempt, source/tooling SHA, archive/manifest/module hashes and actual image identities before execution.",
+  "Use the existing extracted installer on fresh receiver twice; verify exact source, resolved role IDs, owner receipt, all three actual container image IDs and only owned volumes. Record Linux-only result and no explicit cleanup if resources remain until hosted VM disposal.",
+  "Preserve failed stages, bounded diagnostic codes and actual builder refusal reasons. Do not log secrets or raw environment.",
+  "For D2 reuse the exact Linux-produced ZIP in a fresh task-owned area and project; perform no local build, foreign cleanup or changes to Docker/Windows/network/observer. Actual Windows evidence remains separate from Linux-only workflow result.",
+  "Run bounded tests, scope/hygiene/syntax/diff checks and author review before commit. Publish Draft PR and report exact-head CI, independent review and remaining product/governance/provider limitations honestly.",
+]
+requiredEvidence = [
+  "Verified main/origin/worktrees and registered ownership; exact base/head four-file scope receipt",
+  "Prior real WINDOWS failure plus targeted refusal tests for changed proof/tooling/source/module/archive/transfer bindings",
+  "Exact driver, tooling and application SHA; BuildKit context receipt; producer/receiver runtime identity and archive/module/image hashes",
+  "Same archive installation and repeat on Linux and D2, or exact failed operation with reason and preserved receipt",
+  "Existing full product gate remains IDEMPOTENT_ACCEPTANCE_CHANGED until a separately owned fix; no test-only mock result described as a production handler",
+]
+targetedTests = [
+  "python -B -m unittest discover -s tools -p test_docker_portable_delivery_proof.py -v",
+  "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/agent.ps1 verify",
+  "python -m tools.agent_system.enforce --repo-root . ci --target-base b308359e7466b78ecce06c9ae41b4a4b73cbe6ec",
+  "Exact base/head file_hygiene, Python AST and workflow YAML syntax, git diff --check",
+  "Exact-head Docker Portable Image Delivery Only workflow and same-ZIP isolated D2 install/repeat",
+]
+fileGrowthExpectations = [
+  "Four files, approximately550-650added lines. Proof helper and test each below500lines; tests below24KiB. Do not increase budgets or add exemptions.",
+  "Archives, receipts and operational logs remain untracked evidence outside source; existing common helper is reused read-only with a fixed hash.",
+]
+forbiddenOperations = [
+  "direct-main",
+  "production-deploy",
+  "provider-call",
+  "historical-data",
+  "secret-disclosure",
+  "host-network-or-daemon-setting-change",
+  "global-prune",
+  "foreign-resource-change",
+  "gate-disable",
+  "dependency-change",
+  "installer-reimplementation",
+  "automatic-merge",
+  "claim-team-review-as-independent",
+  "modify-observer-or-timer",
+  "unapproved-real-integration",
+]
+rollbackBoundary = "Revert only this four-file proof package. Existing installer/tooling/application and the full product acceptance gate remain unchanged. Preserve failed evidence and all foreign resources; temporary resource cleanup requires exact verified task ownership. No automatic database rollback is claimed."

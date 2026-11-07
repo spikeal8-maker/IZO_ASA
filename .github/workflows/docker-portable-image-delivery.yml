@@ -1,0 +1,135 @@
+name: Docker Portable Image Delivery Only
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "tasks/DOCKER-PORTABLE-DELIVERY-PROOF-001.toml"
+      - ".github/workflows/docker-portable-image-delivery.yml"
+      - "tools/docker_portable_delivery_proof.py"
+      - "tools/test_docker_portable_delivery_proof.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: docker-portable-delivery-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+  IZO_EXPECTED_HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  producer:
+    name: Classic Linux export of fixed application
+    if: >-
+      github.repository == 'spikeal8-maker/IZO_ASA' && github.actor == 'spikeal8-maker' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    outputs:
+      receipt_sha256: ${{ steps.producer.outputs.receipt_sha256 }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.IZO_EXPECTED_HEAD }}
+          path: driver
+          persist-credentials: false
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 8667c47544b3048aeaee032f9f8f10066a656755
+          path: tooling
+          persist-credentials: false
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 7faf354ef1e9438adae1d9a4bbf2346b6e843bbe
+          path: application
+          persist-credentials: false
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 7faf354ef1e9438adae1d9a4bbf2346b6e843bbe
+          path: acceptance
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version-file: driver/.python-version
+      - name: Focused proof boundaries without Docker
+        run: python -B -m unittest discover -s driver/tools -p test_docker_portable_delivery_proof.py -v
+      - name: Build and pin one transferable release
+        id: producer
+        shell: bash
+        env:
+          IZO_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          IZO_RUNNER_OS: ${{ runner.os }}
+          IZO_RUNNER_ARCH: ${{ runner.arch }}
+          IZO_RUNNER_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          python -B driver/tools/docker_portable_delivery_proof.py producer \
+            --driver "$GITHUB_WORKSPACE/driver" --tooling "$GITHUB_WORKSPACE/tooling" --source "$GITHUB_WORKSPACE/application" \
+            --acceptance "$GITHUB_WORKSPACE/acceptance" --root "$RUNNER_TEMP/portable-image-transfer"
+          python -c 'import hashlib,os,pathlib; p=pathlib.Path(os.environ["RUNNER_TEMP"])/"portable-image-transfer/producer.json"; h=hashlib.sha256(p.read_bytes()).hexdigest(); pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a").write("receipt_sha256="+h+"\n"); print("producerReceiptSha256="+h)'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: portable-image-transfer-${{ env.IZO_EXPECTED_HEAD }}
+          path: |
+            ${{ runner.temp }}/portable-image-transfer/release.zip
+            ${{ runner.temp }}/portable-image-transfer/release.receipt.json
+            ${{ runner.temp }}/portable-image-transfer/producer.json
+            ${{ runner.temp }}/portable-image-transfer/context.json
+            ${{ runner.temp }}/portable-image-transfer/docker_test_bundle_format.py
+            ${{ runner.temp }}/portable-image-transfer/docker_test_bundle_images.py
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: portable-image-producer-evidence-${{ env.IZO_EXPECTED_HEAD }}
+          path: ${{ runner.temp }}/portable-image-transfer/producer.json
+          if-no-files-found: error
+          retention-days: 30
+
+  receiver:
+    name: Same ZIP fresh Linux install and repeat only
+    needs: producer
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.IZO_EXPECTED_HEAD }}
+          path: driver
+          persist-credentials: false
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 8667c47544b3048aeaee032f9f8f10066a656755
+          path: tooling
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version-file: driver/.python-version
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: portable-image-transfer-${{ env.IZO_EXPECTED_HEAD }}
+          path: ${{ runner.temp }}/portable-image-transfer
+      - name: Verify transfer and run the existing embedded installer twice
+        shell: bash
+        env:
+          IZO_PRODUCER_RECEIPT_SHA256: ${{ needs.producer.outputs.receipt_sha256 }}
+          IZO_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          IZO_RUNNER_OS: ${{ runner.os }}
+          IZO_RUNNER_ARCH: ${{ runner.arch }}
+          IZO_RUNNER_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          python -B driver/tools/docker_portable_delivery_proof.py receiver \
+            --driver "$GITHUB_WORKSPACE/driver" --tooling "$GITHUB_WORKSPACE/tooling" --transfer "$RUNNER_TEMP/portable-image-transfer" \
+            --root "$RUNNER_TEMP/portable-image-receiver"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: portable-image-receiver-evidence-${{ env.IZO_EXPECTED_HEAD }}
+          path: ${{ runner.temp }}/portable-image-receiver/receiver.json
+          if-no-files-found: error
+          retention-days: 30
