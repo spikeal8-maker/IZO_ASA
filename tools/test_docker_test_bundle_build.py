@@ -110,7 +110,7 @@ def test_builder_selects_only_the_declared_source_overlays(tmp_path, monkeypatch
     with pytest.raises(BundleError, match="TEST_REACHED_IMAGE_INSPECTION"):
         build.build(tmp_path, "a" * 40, "izo-asa-bundle-test001", 48614, 48615, tmp_path / "bundle.zip", Images(), profile=profile, build_images=build_images)
     assert len(commands) == (2 if build_images else 1)
-    if build_images: assert commands[1][-2:] == ["build", "--pull"]
+    if build_images: assert commands[1][-3:] == ["build", "--pull", "--provenance=false"]
     assert all(env["IZO_SOURCE_SHA"] == "a" * 40 and env["IZO_RELEASE_ID"] == "a" * 12 + "-20261027130000"
                for env in environments)
     assert commands[0].count("-f") == files
