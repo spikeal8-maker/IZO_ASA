@@ -16,7 +16,8 @@ CurrentUser DPAPI. An opt-in HTTPS proxy permits only the required OpenRouter
 origin and methods. Storage failures preserve input. Successful storage with
 unavailable provider verification is reported as saved but unverified.
 
-Machine scope is `tasks/LINUX-OPENROUTER-OPERABILITY-001.toml`, based on
+Package 001 is superseded; this implementation contract and bundle name remain.
+Current machine scope is `tasks/LINUX-OPENROUTER-OPERABILITY-002.toml`, based on
 `4ccd61920a63f0b0961c992efca2fe75be020d35`. One canonical writer owns the feature
 worktree. The product, container and operational pieces belong together here:
 storage alone cannot make the existing isolated Linux Save/Check path work.

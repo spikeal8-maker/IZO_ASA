@@ -1,9 +1,9 @@
 manifestVersion = 1
-id = "LINUX-OPENROUTER-OPERABILITY-001"
+id = "LINUX-OPENROUTER-OPERABILITY-002"
 baseSha = "4ccd61920a63f0b0961c992efca2fe75be020d35"
 goal = "Make OpenRouter Save and Check work durably on the existing closed Linux beta through a protected encrypted secret store and narrowly pinned HTTPS egress."
 userOutcome = "The owner can save a key privately in the existing admin UI, distinguish durable storage from provider verification, and retain the key across a reproducible update and restart."
-beforeScenario = "The Linux key endpoint uses Windows DPAPI and returns 503 before verification; the UI falsely reports a saved key, and the isolated backend has no authorized OpenRouter transport."
+beforeScenario = "The Linux key endpoint uses Windows DPAPI and returns 503 before verification; the UI falsely reports a saved key, and the isolated backend has no authorized OpenRouter transport. Candidate 001 also stopped before full CI at the exact-version cryptography 50.0.2 license-review floor."
 afterScenario = "Linux uses a persistent fail-closed AEAD store, Windows retains DPAPI, scoped key APIs never echo input, and an opt-in proxy permits only the approved OpenRouter origin and methods without widening backend egress."
 nonGoals = [
   "Paid OpenRouter probes",
@@ -11,6 +11,7 @@ nonGoals = [
   "New installation or public-domain switch",
   "Generic internet proxy",
   "ASA Lab or global GPU operations",
+  "Global license-expression approval or scanner changes",
 ]
 declaredFiles = [
   "backend/main.py",
@@ -70,14 +71,18 @@ declaredFiles = [
   "docs/generated/frontend-map.json",
   "docs/generated/product-flow-map.md",
   "docs/generated/product-flow-map.json",
-]
-allowedPatterns = [
   "tools/docker_backend_posix_probe.py",
   "tools/test_docker_backend_posix_probe.py",
   "frontend/adminOpenrouterKey.test.ts",
   "backend/test_integrations_openrouter_module.py",
   "tools/prepare_linux_secret_volume.py",
   "tools/test_prepare_linux_secret_volume.py",
+  "architecture/security-policy.json",
+  "docs/cryptography-50.0.2-license-review.md",
+  "docs/agent-tasks/LINUX-OPENROUTER-OPERABILITY-002.md",
+  "tools/test_supply_chain_remediation.py",
+]
+allowedPatterns = [
 ]
 forbiddenPatterns = [
   "ops/windows/**",
@@ -103,6 +108,7 @@ acceptance = [
   "The owner completes real UI Save and Check without a paid generation, and the secret persists after the existing 1Panel project restarts",
   "Historical jobs, images, balances, ledger, payments, outboxes and publications retain their existing sealed proofs",
   "Independent review and all exact-head mandatory CI pass before the existing-project rollout",
+  "Only the exact cryptography 50.0.2 license tuple has tracked review #281; changed tuples and expired reviews still fail the existing policy",
 ]
 requiredEvidence = [
   "Clean current-main base and active native ownership",
@@ -114,6 +120,9 @@ requiredEvidence = [
   "Independent source and native-operations review",
   "Full exact-head CI with zero warnings and cleanup exceptions",
   "Native 1Panel update and owner UI persistence receipts",
+  "Superseded clean 001 ownership and unchanged 13 production files",
+  "Immutable upstream and PyPI artifact license bytes for review #281",
+  "Actual failed CI license report reevaluated before and after the exact review, plus future-version, expression and expiry rejection",
 ]
 targetedTests = [
   "backend/test_security_secret_store.py",
@@ -126,6 +135,8 @@ targetedTests = [
   "tools/test_openrouter_guard_profile.py",
   "tools/test_docker_openrouter_profile.py",
   "tools/test_prepare_openrouter_egress.py",
+  "tools/test_supply_chain_floor.py",
+  "tools/test_supply_chain_remediation.py",
 ]
 fileGrowthExpectations = [
   "Keep cohesive new modules and tests within existing size limits",
@@ -145,33 +156,3 @@ forbiddenOperations = [
   "Public-domain switch or unrelated projects",
 ]
 rollbackBoundary = "Keep the accepted 80b release, its Compose and historical preservation proofs. Introduce a separate protected persistent secret volume and encrypted backup; never overwrite or regenerate an existing master key. Roll back code and the opt-in egress profile without altering old DB/media or discarding stored secret material."
-
-[[scopeExpansions]]
-path = "tools/docker_backend_posix_probe.py"
-reason = "Add mandatory exact-image Linux POSIX verification and bounded save-failure UI characterization without changing workflow or governance policy."
-recordedAtUtc = "2026-11-08T13:12:42.897752Z"
-
-[[scopeExpansions]]
-path = "tools/test_docker_backend_posix_probe.py"
-reason = "Add mandatory exact-image Linux POSIX verification and bounded save-failure UI characterization without changing workflow or governance policy."
-recordedAtUtc = "2026-11-08T13:12:44.508012Z"
-
-[[scopeExpansions]]
-path = "frontend/adminOpenrouterKey.test.ts"
-reason = "Add mandatory exact-image Linux POSIX verification and bounded save-failure UI characterization without changing workflow or governance policy."
-recordedAtUtc = "2026-11-08T13:12:46.093905Z"
-
-[[scopeExpansions]]
-path = "backend/test_integrations_openrouter_module.py"
-reason = "Move and strengthen the existing key-status characterization for non-reflective provider DTOs, preserving other integration contracts and shrinking this legacy oversized test."
-recordedAtUtc = "2026-11-08T13:35:31.448448Z"
-
-[[scopeExpansions]]
-path = "tools/prepare_linux_secret_volume.py"
-reason = "Canonical initialization and validation of only the new owned private secret volume are required because the existing immutable backend image runs as UID10001 and must not chmod pre-existing secret material; no Dockerfile or runtime change is performed here."
-recordedAtUtc = "2026-11-08T13:47:20.113287Z"
-
-[[scopeExpansions]]
-path = "tools/test_prepare_linux_secret_volume.py"
-reason = "Canonical initialization and validation of only the new owned private secret volume are required because the existing immutable backend image runs as UID10001 and must not chmod pre-existing secret material; no Dockerfile or runtime change is performed here."
-recordedAtUtc = "2026-11-08T13:47:21.131352Z"
