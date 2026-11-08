@@ -1,0 +1,130 @@
+manifestVersion = 1
+id = "RELEASE-FINISH-002-HISTORY-RETENTION-FIX"
+baseSha = "831694f2b32f400df568c7b6dd45b324f05c2778"
+goal = "Prevent automatic gallery eviction and storage optimization from mutating sealed historical images after a newly authorized generation, then repair the precisely identified affected clone records."
+userOutcome = "Historical accounts can create new Flux images without losing or recompressing restored work; existing historical files and the new owner result remain accessible."
+beforeScenario = "A successful new owner generation invokes unguarded gallery eviction and deferred optimization: two sealed historical images are soft-deleted and their files removed, and a third historical original is recompressed."
+afterScenario = "Automatic destructive gallery paths exclude sealed history before selecting, updating or unlinking; a focused completion regression proves old rows and bytes unchanged, and the existing 1Panel clone is precisely repaired without replacing its live database."
+nonGoals = [
+  "Change OpenRouter secret storage or external egress",
+  "Create another installation or switch the public domain",
+  "Change original snapshots, password hashes, balances or historical ledger",
+  "Modify ASA Lab, other Docker projects or global GPU state",
+]
+declaredFiles = [
+  "backend/main.py",
+  "backend/app/services/gallery_eviction.py",
+  "backend/app/services/gallery_policy.py",
+  "backend/app/services/history_gallery_retention.py",
+  "backend/test_history_gallery_retention.py",
+  "backend/test_release_finish_history_http.py",
+  "architecture/contract.json",
+  "backend/SYMBOL_MAP.md",
+  "backend/SYMBOL_MAP.json",
+  "docs/NOW.md",
+  "docs/agent-tasks/RELEASE-FINISH-002-HISTORY-RETENTION-FIX.md",
+  "docs/generated/architecture-inventory.md",
+  "docs/generated/architecture-inventory.json",
+  "docs/generated/context-index.md",
+  "docs/generated/context-index.json",
+  "docs/generated/frontend-map.md",
+  "docs/generated/frontend-map.json",
+  "docs/generated/product-flow-map.md",
+  "docs/generated/product-flow-map.json",
+]
+allowedPatterns = [
+  "backend/app/storage/gallery_repository.py",
+  "backend/app/storage/gallery_maintenance.py",
+  "backend/test_gallery_storage_optimization.py",
+  "backend/test_storage_gallery_repository_module.py",
+  "backend/test_services_gallery_eviction_module.py",
+  "backend/test_services_gallery_policy_module.py",
+  "docs/admin-mutation-audit.md",
+]
+forbiddenPatterns = [
+  "ops/windows/**",
+  "frontend/**",
+]
+protectedFilesTouched = [
+  "backend/main.py",
+]
+domain = "video-gallery-feed"
+riskClass = "high-assurance"
+changeClass = "product-behavior"
+maxProductionFiles = 4
+maxChangedLines = 5000
+acceptance = [
+  "New successful generation preserves every sealed historical image row, original and thumbnail under an over-limit historical gallery",
+  "Automatic eviction and deferred optimization cannot mutate or unlink sealed historical resources through direct helper calls",
+  "Unsealed new outputs retain bounded storage behavior and preservation-disabled behavior remains compatible",
+  "Invalid preservation boundary fails closed before destructive effects",
+  "The exact new owner job, image, ledger and session survive the precise recovery",
+  "Only the three pinned damaged image rows and five absent files are repaired with full-row CAS and verified original bytes",
+  "Source snapshots, old financial history, jobs and outboxes remain unchanged",
+  "Required exact-head CI and independent review pass before the native 1Panel rollout",
+  "The protected main compatibility shell does not grow",
+]
+requiredEvidence = [
+  "Native clean-base ownership from current GitHub main",
+  "Focused new-generation completion regression with real temporary files and fake provider",
+  "Direct destructive-helper and disabled-mode characterization",
+  "Independent code and recovery review",
+  "Mandatory exact-head CI and complete scope/secret/diff audit",
+  "Existing-project 1Panel update receipt and exact targeted recovery receipt",
+  "Historical UI and post-restart preservation proof without another GPU generation",
+]
+targetedTests = [
+  "backend/test_history_gallery_retention.py",
+  "backend/test_release_finish_history_http.py",
+]
+fileGrowthExpectations = [
+  "Keep new modules and tests within repository limits",
+  "Protected main is net non-growing; extract cohesive storage behavior if needed and lower its budget",
+  "Regenerate maps only through official generators",
+]
+forbiddenOperations = [
+  "Direct main push or registry/ownership bypass",
+  "Original database/media mutation",
+  "Whole-live-database replacement",
+  "Change password hashes or old ledger",
+  "Real provider calls in tests",
+  "Global GPU queue, interrupt, unload or free",
+  "External sends or widening egress",
+  "Unrelated Docker or ASA Lab changes",
+]
+rollbackBoundary = "Retain the exact current release and Compose plus a fresh live SQLite Backup API snapshot. Restore only pinned fields under full-row CAS and missing files by digest, preserve all new user data, and return service only with the fixed source or the generation path safely paused."
+
+[[scopeExpansions]]
+path = "backend/app/storage/gallery_repository.py"
+reason = "Fence automatic eviction and optimization of sealed historical images at storage boundaries; preserve the ordinary quota for new images and characterize actual new-job completion without touching live data."
+recordedAtUtc = "2026-11-08T09:36:36.169868Z"
+
+[[scopeExpansions]]
+path = "backend/app/storage/gallery_maintenance.py"
+reason = "Fence automatic eviction and optimization of sealed historical images at storage boundaries; preserve the ordinary quota for new images and characterize actual new-job completion without touching live data."
+recordedAtUtc = "2026-11-08T09:36:37.820717Z"
+
+[[scopeExpansions]]
+path = "backend/test_gallery_storage_optimization.py"
+reason = "Fence automatic eviction and optimization of sealed historical images at storage boundaries; preserve the ordinary quota for new images and characterize actual new-job completion without touching live data."
+recordedAtUtc = "2026-11-08T09:36:39.404285Z"
+
+[[scopeExpansions]]
+path = "backend/test_storage_gallery_repository_module.py"
+reason = "Fence automatic eviction and optimization of sealed historical images at storage boundaries; preserve the ordinary quota for new images and characterize actual new-job completion without touching live data."
+recordedAtUtc = "2026-11-08T09:36:41.029415Z"
+
+[[scopeExpansions]]
+path = "backend/test_services_gallery_eviction_module.py"
+reason = "Fence automatic eviction and optimization of sealed historical images at storage boundaries; preserve the ordinary quota for new images and characterize actual new-job completion without touching live data."
+recordedAtUtc = "2026-11-08T09:36:42.691539Z"
+
+[[scopeExpansions]]
+path = "backend/test_services_gallery_policy_module.py"
+reason = "Fence automatic eviction and optimization of sealed historical images at storage boundaries; preserve the ordinary quota for new images and characterize actual new-job completion without touching live data."
+recordedAtUtc = "2026-11-08T09:36:44.318962Z"
+
+[[scopeExpansions]]
+path = "docs/admin-mutation-audit.md"
+reason = "Refresh bounded audit evidence after the already-reviewed gallery extraction; Windows required CI found stale whole-artifact fingerprints while all 19 audited route bodies remain unchanged."
+recordedAtUtc = "2026-11-08T11:04:17.365749Z"
