@@ -203,7 +203,8 @@ def build(source: Path, sha: str, project: str, web: int, api: int, output: Path
     require(web_args.get("IZO_RELEASE_ID") == release and web_args.get("IZO_SOURCE_SHA") == sha,
             "SOURCE_RELEASE_BUILD_ARGS_MISMATCH")
     if build_images:
-        built = subprocess.run(args + ["build", "--pull", "--provenance=false"], env=env, capture_output=True, text=True,
+        build_env = {**env, "BUILDX_NO_DEFAULT_ATTESTATIONS": "1"}
+        built = subprocess.run(args + ["build", "--pull"], env=build_env, capture_output=True, text=True,
                                encoding="utf-8", errors="replace", timeout=3600)
         require(built.returncode == 0, "SOURCE_IMAGE_BUILD_FAILED")
     references = {role: settings["image"] for role, settings in config["services"].items()}

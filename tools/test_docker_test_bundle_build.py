@@ -96,6 +96,7 @@ def test_builder_selects_only_the_declared_source_overlays(tmp_path, monkeypatch
     config["services"]["web"]["build"] = {"args": {
         "IZO_SOURCE_SHA": "a" * 40, "IZO_RELEASE_ID": "a" * 12 + "-20261027130000"}}
     commands, environments = [], []
+    monkeypatch.setenv("BUILDX_NO_DEFAULT_ATTESTATIONS", "0")
     monkeypatch.setattr(build, "git", lambda *args: "1793106000" if "--format=%ct" in args else "b" * 40)
     monkeypatch.setattr(build, "source_guard", lambda *args: None)
     monkeypatch.setattr(build.shutil, "disk_usage", lambda path: SimpleNamespace(free=20 * 1024**3))
@@ -110,7 +111,10 @@ def test_builder_selects_only_the_declared_source_overlays(tmp_path, monkeypatch
     with pytest.raises(BundleError, match="TEST_REACHED_IMAGE_INSPECTION"):
         build.build(tmp_path, "a" * 40, "izo-asa-bundle-test001", 48614, 48615, tmp_path / "bundle.zip", Images(), profile=profile, build_images=build_images)
     assert len(commands) == (2 if build_images else 1)
-    if build_images: assert commands[1][-3:] == ["build", "--pull", "--provenance=false"]
+    assert "BUILDX_NO_DEFAULT_ATTESTATIONS" not in environments[0]
+    if build_images:
+        assert commands[1][-2:] == ["build", "--pull"]
+        assert environments[1] == {**environments[0], "BUILDX_NO_DEFAULT_ATTESTATIONS": "1"}
     assert all(env["IZO_SOURCE_SHA"] == "a" * 40 and env["IZO_RELEASE_ID"] == "a" * 12 + "-20261027130000"
                for env in environments)
     assert commands[0].count("-f") == files
