@@ -66,7 +66,8 @@ def test_provider_error_body_is_not_reflected_or_redirected(code):
     assert len(seen) == 1
 
 
-@pytest.mark.parametrize("content", [b"not-json", b"[]", b'{"data":[]}', b"x" * 65537])
+@pytest.mark.parametrize("content", [b"not-json", b"[]", b'{"data":[]}', b"x" * 65537],
+                         ids=["invalid-json", "nonobject-root", "nonobject-data", "oversized-65537-bytes"])
 def test_invalid_or_oversized_provider_payload_is_safe(content):
     result = _run(lambda _request: httpx.Response(200, content=content))
     assert result["ok"] is False

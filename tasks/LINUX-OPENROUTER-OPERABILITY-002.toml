@@ -83,6 +83,8 @@ declaredFiles = [
   "tools/test_supply_chain_remediation.py",
 ]
 allowedPatterns = [
+  "backend/test_admin_bots_v2.py",
+  "backend/test_admin_v2.py",
 ]
 forbiddenPatterns = [
   "ops/windows/**",
@@ -156,3 +158,13 @@ forbiddenOperations = [
   "Public-domain switch or unrelated projects",
 ]
 rollbackBoundary = "Keep the accepted 80b release, its Compose and historical preservation proofs. Introduce a separate protected persistent secret volume and encrypted backup; never overwrite or regenerate an existing master key. Roll back code and the opt-in egress profile without altering old DB/media or discarding stored secret material."
+
+[[scopeExpansions]]
+path = "backend/test_admin_bots_v2.py"
+reason = "Repair the existing in-memory secret-store test double for the declared source metadata protocol after exact-head Windows CI 42499993203; keep product code and all bot activation/redaction assertions unchanged."
+recordedAtUtc = "2026-11-08T16:59:14.296383Z"
+
+[[scopeExpansions]]
+path = "backend/test_admin_v2.py"
+reason = "Repair the existing admin key test fixture to require fresh force=True checks after exact-head Windows CI 42499993203; preserve trusted auth, status and redaction assertions and legacy file budgets."
+recordedAtUtc = "2026-11-08T16:59:15.893726Z"
