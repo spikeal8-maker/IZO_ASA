@@ -50,6 +50,12 @@ def guard_history(document, source_sha):
                 and service.get("cap_drop") == ["ALL"]
                 and service.get("security_opt") == ["no-new-privileges:true"]
                 and service.get("restart") in {"no", "unless-stopped"}, "OPENROUTER_HISTORY_POLICY_INVALID")
+        tmpfs = service.get("tmpfs") or []
+        if isinstance(tmpfs, str):
+            tmpfs = [tmpfs]
+        require(isinstance(tmpfs, list) and all(isinstance(target, str)
+                and target.split(":", 1)[0] != SECRET_PATH for target in tmpfs),
+                "OPENROUTER_EXISTING_SECRET_MOUNT_INVALID")
         if role != "guard":
             require(service.get("network_mode") == "service:guard"
                     and not any(service.get(k) for k in ("ports", "networks", "cap_add", "dns", "sysctls")),
@@ -69,7 +75,8 @@ def guard_history(document, source_sha):
         and all(env.get(k) == v for k, v in {"COMFYUI_BASE_URL": "http://127.0.0.1:18188",
             "COMFYUI_REQUIRED": "true", "COMFYUI_MOCK_FALLBACK": "false", "COMFYUI_NATIVE4B_ONLY": "true"}.items())
         and env.get("OPENROUTER_BASE_URL") in {None, "http://127.0.0.1:1"}
-        and not (set(env) & {"IZO_OPENROUTER_TRANSPORT", "IZO_SECRET_DIR"}),
+        and "IZO_OPENROUTER_TRANSPORT" not in env
+        and ("IZO_SECRET_DIR" not in env or env["IZO_SECRET_DIR"] == SECRET_PATH),
         "OPENROUTER_HISTORY_BACKEND_INVALID")
     require(all(m.get("target") != SECRET_PATH and m.get("source") != "secrets-data"
                 for service in services.values() for m in service.get("volumes", [])),

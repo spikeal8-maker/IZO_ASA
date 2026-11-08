@@ -43,9 +43,12 @@ def apply(base, receipt, now, **changes):
         "template": json.loads((ROOT / "ops/docker/dev/compose.openrouter-shadow.yml").read_text())} | changes))
 
 
-def test_strict_delta_preserves_history_comfy_web_mounts_and_existing_security(tmp_path):
+@pytest.mark.parametrize("canonical_secret_dir", [False, True])
+def test_strict_delta_preserves_history_comfy_web_mounts_and_existing_security(tmp_path, canonical_secret_dir):
     values, receipt, now, _ = fixture(tmp_path)
     base = render_history(values)
+    if canonical_secret_dir:
+        base["services"]["backend"]["environment"]["IZO_SECRET_DIR"] = profile.SECRET_PATH
     before = copy.deepcopy((base, receipt))
     result = apply(base, receipt, now)
     assert (base, receipt) == before and verify(values[0], values[1]) == values[2]
@@ -62,6 +65,57 @@ def test_strict_delta_preserves_history_comfy_web_mounts_and_existing_security(t
     assert not any(k in proxy for k in ("volumes", "ports", "networks", "dns", "cap_add"))
     assert result["services"]["guard"]["environment"] == base["services"]["guard"]["environment"] | {
         "IZO_SHADOW_EGRESS_PROFILE": "comfyui-openrouter-v1", "IZO_OPENROUTER_IPV4S": "8.8.8.8,104.18.2.47"}
+
+
+@pytest.mark.parametrize("name,value", [
+    ("IZO_SECRET_DIR", None), ("IZO_SECRET_DIR", ""), ("IZO_SECRET_DIR", profile.SECRET_PATH + "/"),
+    ("IZO_OPENROUTER_TRANSPORT", None), ("IZO_OPENROUTER_TRANSPORT", ""),
+    ("IZO_OPENROUTER_TRANSPORT", profile.TRANSPORT),
+])
+def test_invalid_prior_secret_configuration_is_rejected(tmp_path, name, value):
+    values, receipt, now, _ = fixture(tmp_path)
+    base = render_history(values)
+    base["services"]["backend"]["environment"]["IZO_SECRET_DIR"] = profile.SECRET_PATH
+    base["services"]["backend"]["environment"][name] = value
+    before = copy.deepcopy(base)
+    with pytest.raises(BundleError, match="OPENROUTER_HISTORY_BACKEND_INVALID"):
+        apply(base, receipt, now)
+    assert base == before
+
+
+@pytest.mark.parametrize("source,target", [("media-data", profile.SECRET_PATH), ("secrets-data", "/tmp/prior-secret")])
+def test_canonical_secret_directory_does_not_accept_existing_secret_mount(tmp_path, source, target):
+    values, receipt, now, _ = fixture(tmp_path)
+    base = render_history(values)
+    backend = base["services"]["backend"]
+    backend["environment"]["IZO_SECRET_DIR"] = profile.SECRET_PATH
+    backend["volumes"].append({"type": "volume", "source": source, "target": target})
+    before = copy.deepcopy(base)
+    with pytest.raises(BundleError, match="OPENROUTER_EXISTING_SECRET_MOUNT_INVALID"):
+        apply(base, receipt, now)
+    assert base == before
+
+
+@pytest.mark.parametrize("target", [profile.SECRET_PATH, profile.SECRET_PATH + ":rw,noexec"])
+def test_existing_secret_tmpfs_is_rejected_before_adding_persistent_volume(tmp_path, target):
+    values, receipt, now, _ = fixture(tmp_path)
+    base = render_history(values)
+    base["services"]["backend"]["tmpfs"] = [target]
+    before = copy.deepcopy(base)
+    with pytest.raises(BundleError, match="OPENROUTER_EXISTING_SECRET_MOUNT_INVALID"):
+        apply(base, receipt, now)
+    assert base == before
+
+
+def test_unrelated_tmpfs_is_retained(tmp_path):
+    values, receipt, now, _ = fixture(tmp_path)
+    base = render_history(values)
+    base["services"]["backend"]["environment"]["IZO_SECRET_DIR"] = profile.SECRET_PATH
+    base["services"]["backend"]["tmpfs"] = ["/tmp"]
+    before = copy.deepcopy(base)
+    result = apply(base, receipt, now)
+    assert base == before and result["services"]["backend"]["tmpfs"] == ["/tmp"]
+    assert result["services"]["backend"]["volumes"] == base["services"]["backend"]["volumes"] + [profile.SECRET_MOUNT]
 
 
 def test_cli_render_and_native_normalization_are_offline_and_readonly(tmp_path, capsys):
