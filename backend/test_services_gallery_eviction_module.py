@@ -100,3 +100,29 @@ def test_callback_error_propagates_and_stops_current_and_remaining_rows() -> Non
         apply_gallery_evictions(configured, rows)
 
     assert trace == [("soft-delete", "first")]
+
+
+def test_required_history_guard_fails_before_callbacks() -> None:
+    from dataclasses import replace
+    from app.services.history_replay import HistoryReplayConfigurationError
+
+    trace = []
+    configured = replace(runtime(trace), history_guard_required=True)
+    with pytest.raises(HistoryReplayConfigurationError, match="history guard is required"):
+        apply_gallery_evictions(configured, [{"id": "old", "url": "/old", "thumbnail_url": None}])
+    assert trace == []
+
+
+def test_stale_guard_is_rechecked_before_files_are_removed() -> None:
+    from dataclasses import replace
+    from app.services.history_replay import HistoricalReplayBlocked
+
+    trace = []
+
+    def guard(image_id):
+        if trace:
+            raise HistoricalReplayBlocked("Image became protected")
+
+    configured = replace(runtime(trace), history_guard=guard, history_guard_required=True)
+    assert apply_gallery_evictions(configured, [{"id": "old", "url": "/old", "thumbnail_url": None}]) == 0
+    assert trace == [("soft-delete", "old")]

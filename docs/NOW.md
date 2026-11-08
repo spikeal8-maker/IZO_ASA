@@ -2,14 +2,14 @@
 status: canonical
 status_role: current-status-aggregator
 backlog_role: program-router
-updated: 2026-11-07
-source_main_at_status_update: 3441a4d17ec9503bc5f617b6ffb2a439e979dd08
-last_verified_main: 3441a4d17ec9503bc5f617b6ffb2a439e979dd08
+updated: 2026-11-08
+source_main_at_status_update: 831694f2b32f400df568c7b6dd45b324f05c2778
+last_verified_main: 831694f2b32f400df568c7b6dd45b324f05c2778
 production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_verified_at: 2026-09-02T00:08:04+03:00
 completed_package: CONTAINER-READY-001
-active_package: RELEASE-FINISH-002-FINAL
-active_task_contract: tasks/RELEASE-FINISH-002-FINAL.toml
+active_package: RELEASE-FINISH-002-HISTORY-RETENTION-FIX
+active_task_contract: tasks/RELEASE-FINISH-002-HISTORY-RETENTION-FIX.toml
 baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a
 baseline_status: completed-point-A-accepted
 next_candidate: closed-linux-beta-owner-acceptance
@@ -25,22 +25,23 @@ Source/release SHA — выше; production подтверждается install
 
 ## 2. Активный Linux beta package
 
-Completed: `CONTAINER-READY-001`.
-Active: `RELEASE-FINISH-002-FINAL`.
+Completed baseline: `CONTAINER-READY-001`.
+Active: `RELEASE-FINISH-002-HISTORY-RETENTION-FIX`.
 Next: `closed-linux-beta-owner-acceptance`.
-Contract: `tasks/RELEASE-FINISH-002-FINAL.toml`.
+Contract: `tasks/RELEASE-FINISH-002-HISTORY-RETENTION-FIX.toml`.
 Only existing 1Panel `izo-asa-linux-test-a`; do not switch the public domain.
-UI Flux Klein 4B verified; GPU-file pixels match. Historical clone verified;
-source volumes unchanged. Job/GPU IDs, snapshot and counts: details below.
-Candidate: durable admission, atomic accounting/refund, sealed no-replay,
-closed registration, owned lifespan, schema 8.
-Acceptance: exact-head CI; clone runtime no-replay; 1Panel update;
-owner login with saved password; external HTTPS after update.
-Test-health: warnings 0, cleanup exceptions 0; all checks enabled.
-hidden outbound external = 0 required; pytest rerun observability active;
-process leak gate active.
-Close #162/#165 only with new mandatory Windows CI evidence.
-Details: `docs/agent-tasks/RELEASE-FINISH-002-FINAL.md`.
+The owner logged into the historical account and generated a new image.
+That completion exposed automatic retention outside the restored-history guard:
+two old image rows were deleted and another old original was recompressed.
+The test project was stopped through 1Panel; original volumes remain intact.
+Candidate: seal-aware gallery selection, destructive helper guards, preservation
+of the ordinary allowance for new work, and extracted storage maintenance.
+Focused evidence: 73 tests pass; the new completion regression detects the
+historical mutation when run against the exact original callbacks from main.
+Pending: exact-head required CI, reviewed update, precise repair of three image
+rows and five missing files, historical UI and post-restart preservation proof.
+No OpenRouter crypto or egress change belongs to this package.
+Details: `docs/agent-tasks/RELEASE-FINISH-002-HISTORY-RETENTION-FIX.md`.
 
 ## 3. Frozen baseline — completed point A
 

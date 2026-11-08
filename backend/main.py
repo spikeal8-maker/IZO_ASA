@@ -714,6 +714,8 @@ except ImportError:  # Direct `python backend/main.py` execution.
 
 try:
     from .app.storage import (
+        gallery_repository,
+        gallery_maintenance,
         PrivateMediaAccessError,
         PrivateMediaRuntime,
         PublicMediaAccessError,
@@ -756,6 +758,8 @@ try:
     )
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.storage import (
+        gallery_repository,
+        gallery_maintenance,
         PrivateMediaAccessError,
         PrivateMediaRuntime,
         PublicMediaAccessError,
@@ -3352,6 +3356,7 @@ def gallery_quota_for_user(conn: sqlite3.Connection, user_row: sqlite3.Row | Non
     used = 0
     if user_id:
         used = storage_count_active_gallery_images(conn, user_id)
+        tariff = gallery_repository.preserved_gallery_tariff(conn, user_id, tariff)
     return gallery_policy.build_gallery_quota(plan=plan, tariff=tariff, gallery_used=used)
 
 
@@ -3382,14 +3387,13 @@ def evict_gallery_images_for_new_save(
 ) -> int:
     """Free space for a new generated image without touching favorite-protected rows.
 
-    When a user is already above the current tariff limit, evict two old
-    unprotected images before saving one new image. That lets historical
-    over-limit galleries shrink gradually with continued use instead of staying
-    permanently above quota.
+    Sealed history is never a candidate. Ordinary over-limit galleries still
+    shrink by two unprotected mutable images before saving one new image.
     """
     target = gallery_policy.gallery_eviction_target(quota)
     if not target:
         return 0
+    policy = history_replay.history_policy_for_connection(conn)
     rows = storage_select_gallery_eviction_candidates(conn, legacy_user_id, limit=target)
     runtime = gallery_eviction.GalleryEvictionRuntime(
         soft_delete=lambda image_id: conn.execute(
@@ -3403,6 +3407,8 @@ def evict_gallery_images_for_new_save(
             thumbnail_url=thumbnail_url,
         ),
         drop_cached_image=lambda image_id: images.pop(image_id) if image_id in images else None,
+        history_guard=lambda image_id: history_replay.history_policy_for_connection(conn).require_allowed("images", image_id),
+        history_guard_required=policy.enabled,
     )
     return gallery_eviction.apply_gallery_evictions(runtime, rows)
 
@@ -5203,103 +5209,15 @@ def optimize_gallery_storage_for_user(
     keep_recent: int = GALLERY_FULL_QUALITY_COUNT,
     limit: int | None = None,
 ) -> dict[str, int]:
-    """Move older active gallery images to a compact, idempotent storage tier."""
-    stats = {"checked": 0, "optimized": 0, "bytes_before": 0, "bytes_after": 0, "errors": 0}
-    fetch_limit = max(1, int(limit)) if limit is not None else 1_000_000
-    with db() as conn:
-        ordered_rows = conn.execute(
-            f"""
-            SELECT id, url, storage_tier FROM images
-            WHERE user_id = ? AND {ACTIVE_IMAGE_WHERE}
-            ORDER BY created_at DESC, id DESC
-            """,
-            (user_id,),
-        ).fetchall()
-    rows = [
-        row for row in ordered_rows[max(0, int(keep_recent)) :]
-        if str(row["storage_tier"] or "original") == "original"
-    ][:fetch_limit]
-
-    for row in rows:
-        stats["checked"] += 1
-        with db() as conn:
-            conn.execute(
-                "UPDATE images SET storage_tier = 'optimizing' "
-                "WHERE id = ? AND user_id = ? AND COALESCE(storage_tier, 'original') = 'original'",
-                (row["id"], user_id),
-            )
-            claimed = conn.execute("SELECT changes()").fetchone()[0]
-        if not claimed:
-            continue
-        source = local_media_path_from_url(str(row["url"] or ""))
-        if source is None or not source.is_file():
-            with db() as conn:
-                conn.execute("UPDATE images SET storage_tier = 'missing' WHERE id = ?", (row["id"],))
-            stats["errors"] += 1
-            continue
-        target = source.with_name(f"{source.stem}_archive.webp")
-        temporary = source.with_name(f".{source.stem}_{uuid.uuid4().hex}.tmp.webp")
-        try:
-            before = source.stat().st_size
-            with Image.open(source) as opened:
-                prepared = ImageOps.exif_transpose(opened)
-                if prepared.mode not in {"RGB", "RGBA"}:
-                    prepared = prepared.convert("RGB")
-                prepared.thumbnail((GALLERY_ARCHIVE_MAX_SIDE, GALLERY_ARCHIVE_MAX_SIDE), Image.Resampling.LANCZOS)
-                prepared.save(temporary, "WEBP", quality=GALLERY_ARCHIVE_WEBP_QUALITY, method=6)
-                optimized_width, optimized_height = prepared.size
-            with Image.open(temporary) as verification:
-                verification.verify()
-            after = temporary.stat().st_size
-            now = datetime.now(timezone.utc).isoformat()
-            stats["bytes_before"] += before
-            if after >= before:
-                temporary.unlink(missing_ok=True)
-                with db() as conn:
-                    conn.execute(
-                        "UPDATE images SET storage_tier = 'checked', optimized_at = ?, "
-                        "original_bytes = ?, stored_bytes = ? WHERE id = ? AND user_id = ?",
-                        (now, before, before, row["id"], user_id),
-                    )
-                stats["bytes_after"] += before
-                continue
-            temporary.replace(target)
-            new_url = public_url(target, user_id)
-            try:
-                with db() as conn:
-                    current = conn.execute("SELECT thumbnail_url FROM images WHERE id = ?", (row["id"],)).fetchone()
-                    thumbnail_url = _row_get(current, "thumbnail_url") if current else None
-                    source_name = media_filename_from_url(str(row["url"] or ""))
-                    thumbnail_name = media_filename_from_url(thumbnail_url)
-                    new_thumbnail_url = new_url if source_name and thumbnail_name == source_name else thumbnail_url
-                    conn.execute(
-                        "UPDATE images SET url = ?, thumbnail_url = ?, width = ?, height = ?, storage_tier = 'optimized', "
-                        "optimized_at = ?, original_bytes = ?, stored_bytes = ? "
-                        "WHERE id = ? AND user_id = ? AND storage_tier = 'optimizing'",
-                        (new_url, new_thumbnail_url, optimized_width, optimized_height, now, before, after, row["id"], user_id),
-                    )
-                    changed = conn.execute("SELECT changes()").fetchone()[0]
-                if not changed:
-                    target.unlink(missing_ok=True)
-                    continue
-            except Exception:
-                target.unlink(missing_ok=True)
-                raise
-            source.unlink(missing_ok=True)
-            cached = images.get(str(row["id"]))
-            if cached is not None:
-                cached.update(url=new_url, width=optimized_width, height=optimized_height, storageTier="optimized")
-            stats["optimized"] += 1
-            stats["bytes_after"] += after
-        except Exception:
-            temporary.unlink(missing_ok=True)
-            with db() as conn:
-                conn.execute(
-                    "UPDATE images SET storage_tier = 'original' WHERE id = ? AND storage_tier = 'optimizing'",
-                    (row["id"],),
-                )
-            stats["errors"] += 1
-    return stats
+    return gallery_maintenance.optimize_user_gallery(
+        gallery_maintenance.GalleryMaintenanceRuntime(
+            connect=db, local_path=local_media_path_from_url, public_url=public_url,
+            media_filename=media_filename_from_url, cached_images=images,
+            archive_max_side=GALLERY_ARCHIVE_MAX_SIDE,
+            archive_quality=GALLERY_ARCHIVE_WEBP_QUALITY,
+        ),
+        user_id, keep_recent=keep_recent, limit=limit,
+    )
 
 
 def repair_missing_gallery_thumbnails() -> dict[str, int]:

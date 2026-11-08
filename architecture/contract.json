@@ -490,7 +490,7 @@
   "file_limits": [
     {
       "path": "backend/main.py",
-      "max_lines": 19684,
+      "max_lines": 19602,
       "protected": true,
       "non_growth": true,
       "owner": "backend-composition",
