@@ -99,6 +99,10 @@ allowedPatterns = [
   "docs/agent-tasks/RELEASE-FINISH-HISTORY-PROFILE-001.md",
   "backend/test_social_account_verification.py",
   "backend/app/storage/source_graph.py",
+  "backend/test_database_modules.py",
+  "tools/test_generate_architecture_inventory.py",
+  "tools/verify.ps1",
+  "tools/test_agent_instructions.py",
 ]
 forbiddenPatterns = [
   "ops/windows/**",
@@ -195,3 +199,23 @@ recordedAtUtc = "2026-11-07T23:21:55.709483Z"
 path = "backend/app/storage/source_graph.py"
 reason = "Prevent implicit source reconstruction while reading sealed historical gallery images; preserve repair for newly created images."
 recordedAtUtc = "2026-11-07T23:42:20.792015Z"
+
+[[scopeExpansions]]
+path = "backend/test_database_modules.py"
+reason = "Resolve exact-head mandatory CI failures by updating strict schema-8 and owned-lifespan inventory expectations; preserve all guard assertions and test-health limits."
+recordedAtUtc = "2026-11-08T00:20:32.188478Z"
+
+[[scopeExpansions]]
+path = "tools/test_generate_architecture_inventory.py"
+reason = "Resolve exact-head mandatory CI failures by updating strict schema-8 and owned-lifespan inventory expectations; preserve all guard assertions and test-health limits."
+recordedAtUtc = "2026-11-08T00:20:33.765899Z"
+
+[[scopeExpansions]]
+path = "tools/verify.ps1"
+reason = "Expose exact per-test pass and skip outcomes in existing CI evidence to substantiate Windows DPAPI execution without changing tests or gates."
+recordedAtUtc = "2026-11-08T00:23:47.773737Z"
+
+[[scopeExpansions]]
+path = "tools/test_agent_instructions.py"
+reason = "Validate current native active task manifest and published test-health baseline instead of obsolete issue-only status literals; retain policy size budget and all routing/ownership/security assertions."
+recordedAtUtc = "2026-11-08T00:27:50.792236Z"

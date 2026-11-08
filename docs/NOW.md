@@ -21,25 +21,26 @@ next_candidate: closed-linux-beta-owner-acceptance
 ## 1. Перед работой
 
 Сверить repository root, origin, clean status, HEAD/origin-main и worktrees.
-Source main: `3441a4d17ec9503bc5f617b6ffb2a439e979dd08`.
-Production release: `d223c179d5944bc208cace867d5e93bc1341a3aa` (2026-09-02);
-production подтверждается installed runtime evidence.
+Source/release SHA — выше; production подтверждается installed runtime evidence.
 
 ## 2. Активный Linux beta package
 
-Active: `RELEASE-FINISH-002-FINAL`; контракт — `tasks/RELEASE-FINISH-002-FINAL.toml`.
-Продолжать только 1Panel project `izo-asa-linux-test-a`; публичный домен не переключать.
-Фактическая UI-генерация Flux Klein 4B получена: job `job_20261107_215056_1c5622`.
-GPU job `acdb22d3-7b21-499e-a39e-97b374c5614f`; пиксели полученного файла совпадают.
-Новый клон снимка `20261104T190706.420010Z`: 60 аккаунтов, 1952 изображения,
-60 видео, 1854 задания, 2939 ledger; исходные тома не изменены.
-Кандидат: durable admission, атомарный учёт/возврат, sealed no-replay,
-закрытая регистрация, owned lifespan и схема 8.
-Приёмка требует exact-head CI, runtime no-replay на клоне, обновление через 1Panel,
-реальный вход владельца по сохранённому паролю и внешний HTTPS после обновления.
-Test-health target: warnings 0, cleanup exceptions 0; проверки не отключены.
-#162 и #165 закрывать только по новому обязательному Windows CI evidence.
-Подробные границы и результаты — `docs/agent-tasks/RELEASE-FINISH-002-FINAL.md`.
+Completed: `CONTAINER-READY-001`.
+Active: `RELEASE-FINISH-002-FINAL`.
+Next: `closed-linux-beta-owner-acceptance`.
+Contract: `tasks/RELEASE-FINISH-002-FINAL.toml`.
+Only existing 1Panel `izo-asa-linux-test-a`; do not switch the public domain.
+UI Flux Klein 4B verified; GPU-file pixels match. Historical clone verified;
+source volumes unchanged. Job/GPU IDs, snapshot and counts: details below.
+Candidate: durable admission, atomic accounting/refund, sealed no-replay,
+closed registration, owned lifespan, schema 8.
+Acceptance: exact-head CI; clone runtime no-replay; 1Panel update;
+owner login with saved password; external HTTPS after update.
+Test-health: warnings 0, cleanup exceptions 0; all checks enabled.
+hidden outbound external = 0 required; pytest rerun observability active;
+process leak gate active.
+Close #162/#165 only with new mandatory Windows CI evidence.
+Details: `docs/agent-tasks/RELEASE-FINISH-002-FINAL.md`.
 
 ## 3. Frozen baseline — completed point A
 

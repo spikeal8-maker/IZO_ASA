@@ -526,7 +526,7 @@ try {
         $pytestArguments = if ($TestHealthOutputPath.Trim()) {
             $telemetryPath = Join-Path (Split-Path -Parent $TestHealthOutputPath) "pytest-telemetry.json"
             [Environment]::SetEnvironmentVariable("IZO_TEST_HEALTH_TELEMETRY", $telemetryPath, "Process")
-            $fullTests + @("-p", "tools.test_health_pytest_plugin", "--durations=10", "--durations-min=0.1")
+            $fullTests + @("-p", "tools.test_health_pytest_plugin", "--durations=10", "--durations-min=0.1", "-rA")
         } else {
             $fullTests
         }

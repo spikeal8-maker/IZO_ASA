@@ -5,8 +5,10 @@ IDs and deployment state must not be hard-coded here.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
+import tomllib
 from datetime import date, datetime
 from pathlib import Path
 
@@ -338,7 +340,15 @@ def _assert_program_and_package_status() -> None:
 
     for key in ("completed_package", "active_package", "next_candidate"):
         assert frontmatter.get(key, "").strip(), f"{key} must be non-empty"
-    assert re.fullmatch(r"github-issue-[1-9][0-9]*", frontmatter.get("active_task_contract", ""))
+    active_contract = frontmatter.get("active_task_contract", "")
+    if not re.fullmatch(r"github-issue-[1-9][0-9]*", active_contract):
+        assert re.fullmatch(r"tasks/[A-Z0-9][A-Z0-9-]{2,79}\.toml", active_contract)
+        assert active_contract == f"tasks/{frontmatter['active_package']}.toml"
+        manifest_path = ROOT / active_contract
+        assert manifest_path.is_file(), "NOW native task contract must exist"
+        assert manifest_path.resolve().parent == (ROOT / "tasks").resolve()
+        manifest = tomllib.loads(_text(manifest_path))
+        assert manifest.get("id") == frontmatter["active_package"]
 
     human_status = {
         "completed_package": r"^Completed: `([^`]+)`(?: \(#[0-9]+\))?\.$",
@@ -357,8 +367,10 @@ def _assert_program_and_package_status() -> None:
     assert "baseline_status: completed-point-A-accepted" in now
     assert "\nblocker:" not in now
     assert "blocker: shared-host-gh-write-credential-visible" not in now
-    assert "warning baseline 97" in now
-    assert "cleanup baseline 1" in now
+    health = json.loads(_text(ROOT / "architecture" / "test-health-policy.json"))
+    baseline = health["acceptedBaseline"]
+    assert f"warnings {baseline['warnings']['total']}" in now
+    assert f"cleanup exceptions {baseline['cleanup']['total']}" in now
     assert "hidden outbound external = 0 required" in now
     assert "pytest rerun observability active" in now
     assert "process leak gate active" in now

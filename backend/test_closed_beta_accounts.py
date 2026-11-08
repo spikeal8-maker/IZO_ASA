@@ -47,6 +47,10 @@ def beta_client(monkeypatch):
     monkeypatch.setattr(main, "TRUSTED_COOKIE_SECURE", False)
     monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", BOT_TOKEN)
     monkeypatch.setattr(main, "MAX_BOT_TOKEN", BOT_TOKEN)
+    monkeypatch.setattr(
+        main, "resolve_max_bot_deep_link_base",
+        lambda: "https://max.ru/synthetic_closed_beta_bot",
+    )
     monkeypatch.setattr(main, "TELEGRAM_INIT_DATA_TTL_SECONDS", 86400)
     monkeypatch.setattr(main, "MAX_WEB_APP_DATA_TTL_SECONDS", 86400)
     monkeypatch.setattr(main, "schedule_avatar_cache", lambda *_args: None)
@@ -138,6 +142,7 @@ def test_capabilities_hide_registration_but_keep_password_login(beta_client):
     assert response.status_code == 200
     assert response.json()["password_register_available"] is False
     assert response.json()["password_login_available"] is True
+    assert response.json()["bot_login"]["max_bot_login_available"] is True
 
 
 @pytest.mark.parametrize("existing_identity", [False, True])
