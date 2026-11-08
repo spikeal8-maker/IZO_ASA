@@ -11,6 +11,8 @@ from typing import Any, Callable
 import httpx
 from PIL import Image
 
+from .openrouter_transport import closed_mode
+
 
 def resolve_openrouter_reference_value(
     source: str | None,
@@ -47,6 +49,10 @@ async def load_openrouter_response_image(
         return Image.open(io.BytesIO(base64.b64decode(b64_value)))
     url = image_payload.get("url")
     if isinstance(url, str) and url:
+        if url.startswith("data:image/") and ";base64," in url:
+            return Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1], validate=True)))
+        if closed_mode():
+            raise RuntimeError("OpenRouter closed mode requires an inline image response.")
         client_options: dict[str, Any] = {
             "timeout": timeout_seconds,
             "follow_redirects": True,

@@ -8,6 +8,9 @@ from urllib.parse import urljoin
 
 import httpx
 
+from .openrouter_key_status import fetch_openrouter_key_details
+from .openrouter_transport import client_options as openrouter_http_options, closed_mode, endpoint_document_url
+
 
 OPENROUTER_VIDEO_MODES = ("text_to_video", "image_to_video", "first_last_frame", "reference_to_video")
 OPENROUTER_VIDEO_TIERS = ("mini", "plus", "pro", "business")
@@ -464,9 +467,7 @@ async def fetch_openrouter_text_models(
 ) -> list[dict[str, Any]]:
     """Fetch and parse OpenRouter's text-capable model catalog."""
 
-    client_options: dict[str, Any] = {"timeout": timeout_seconds}
-    if transport is not None:
-        client_options["transport"] = transport
+    client_options = openrouter_http_options(base_url, timeout=timeout_seconds, transport=transport)
     async with httpx.AsyncClient(**client_options) as client:
         response = await client.get(
             f"{base_url.rstrip('/')}/models?output_modalities=text",
@@ -486,9 +487,7 @@ async def fetch_openrouter_audio_input_models(
 ) -> list[dict[str, Any]]:
     """Fetch the OpenRouter catalog restricted to audio-input, text-output models."""
 
-    client_options: dict[str, Any] = {"timeout": timeout_seconds}
-    if transport is not None:
-        client_options["transport"] = transport
+    client_options = openrouter_http_options(base_url, timeout=timeout_seconds, transport=transport)
     async with httpx.AsyncClient(**client_options) as client:
         response = await client.get(
             f"{base_url.rstrip('/')}/models?input_modalities=audio&output_modalities=text",
@@ -508,9 +507,7 @@ async def fetch_openrouter_video_models(
 ) -> list[dict[str, Any]]:
     """Fetch the first-party OpenRouter video-model catalog."""
 
-    client_options: dict[str, Any] = {"timeout": timeout_seconds}
-    if transport is not None:
-        client_options["transport"] = transport
+    client_options = openrouter_http_options(base_url, timeout=timeout_seconds, transport=transport)
     async with httpx.AsyncClient(**client_options) as client:
         response = await client.get(
             f"{base_url.rstrip('/')}/videos/models",
@@ -530,10 +527,10 @@ async def submit_openrouter_video(
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> dict[str, Any]:
     """Submit one asynchronous video job using OpenRouter's native endpoint."""
+    if closed_mode():
+        raise OpenRouterVideoRequestError(403, "Video operations are disabled in closed mode.")
 
-    client_options: dict[str, Any] = {"timeout": timeout_seconds}
-    if transport is not None:
-        client_options["transport"] = transport
+    client_options = openrouter_http_options(base_url, timeout=timeout_seconds, transport=transport)
     async with httpx.AsyncClient(**client_options) as client:
         response = await client.post(f"{base_url.rstrip('/')}/videos", headers=headers, json=payload)
     if response.is_error:
@@ -562,13 +559,13 @@ async def poll_openrouter_video(
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> dict[str, Any]:
     """Read one video job state without starting an unbounded server poll loop."""
+    if closed_mode():
+        raise OpenRouterVideoRequestError(403, "Video operations are disabled in closed mode.")
 
     target = str(polling_url or "").strip()
     if not target.startswith(("http://", "https://")):
         target = urljoin(f"{base_url.rstrip('/')}/", target) if target else f"{base_url.rstrip('/')}/videos/{job_id}"
-    client_options: dict[str, Any] = {"timeout": timeout_seconds}
-    if transport is not None:
-        client_options["transport"] = transport
+    client_options = openrouter_http_options(base_url, timeout=timeout_seconds, transport=transport)
     async with httpx.AsyncClient(**client_options) as client:
         response = await client.get(target, headers=headers)
     response.raise_for_status()
@@ -576,56 +573,6 @@ async def poll_openrouter_video(
     if not isinstance(data, dict):
         raise RuntimeError("OpenRouter returned an invalid video job response.")
     return data
-
-
-async def fetch_openrouter_key_details(
-    *,
-    base_url: str,
-    key_headers: dict[str, str],
-    credits_headers: dict[str, str],
-    timeout_seconds: float = 15,
-    transport: httpx.AsyncBaseTransport | None = None,
-) -> dict[str, Any]:
-    """Fetch the legacy read-only key and credits status payload."""
-
-    client_options: dict[str, Any] = {"timeout": timeout_seconds}
-    if transport is not None:
-        client_options["transport"] = transport
-    resolved_base_url = base_url.rstrip("/")
-    async with httpx.AsyncClient(**client_options) as client:
-        response = await client.get(f"{resolved_base_url}/key", headers=key_headers)
-        credits_response = await client.get(f"{resolved_base_url}/credits", headers=credits_headers)
-    data = response.json() if response.content else {}
-    if response.status_code >= 400:
-        return {
-            "ok": False,
-            "status_code": response.status_code,
-            "error": data.get("error") or data,
-        }
-    key_data = data.get("data") if isinstance(data.get("data"), dict) else data
-    credits_payload = credits_response.json() if credits_response.content else {}
-    credits_data = credits_payload.get("data") if isinstance(credits_payload.get("data"), dict) else credits_payload
-    credits: dict[str, Any] = {
-        "ok": credits_response.status_code < 400,
-        "status_code": credits_response.status_code,
-    }
-    if credits["ok"] and isinstance(credits_data, dict):
-        total_credits = credits_data.get("total_credits")
-        total_usage = credits_data.get("total_usage")
-        credits.update({"data": credits_data})
-        if isinstance(total_credits, (int, float)) and isinstance(total_usage, (int, float)):
-            # The credits endpoint exposes cumulative values. Their difference
-            # is useful for reconciliation, but it is not authoritative proof
-            # that the account can currently pay for a generation.
-            credits["calculated_balance"] = round(float(total_credits) - float(total_usage), 6)
-    else:
-        credits["error"] = credits_payload.get("error") if isinstance(credits_payload, dict) else credits_payload
-    return {
-        "ok": True,
-        "status_code": response.status_code,
-        "data": key_data,
-        "credits": credits,
-    }
 
 
 async def request_openrouter_chat_completion(
@@ -638,9 +585,7 @@ async def request_openrouter_chat_completion(
 ) -> tuple[int, Any]:
     """POST a chat completion and return its status plus parsed JSON payload."""
 
-    client_options: dict[str, Any] = {"timeout": timeout_seconds}
-    if transport is not None:
-        client_options["transport"] = transport
+    client_options = openrouter_http_options(base_url, timeout=timeout_seconds, transport=transport)
     async with httpx.AsyncClient(**client_options) as client:
         response = await client.post(
             f"{base_url.rstrip('/')}/chat/completions",
@@ -662,12 +607,7 @@ async def fetch_openrouter_image_model_documents(
 ) -> list[dict[str, Any]]:
     """Collect image-model rows and optional endpoint metadata documents."""
 
-    client_options: dict[str, Any] = {
-        "timeout": timeout_seconds,
-        "follow_redirects": True,
-    }
-    if transport is not None:
-        client_options["transport"] = transport
+    client_options = openrouter_http_options(base_url, timeout=timeout_seconds, transport=transport, follow_redirects=True)
     async with httpx.AsyncClient(**client_options) as client:
         response = await client.get(f"{base_url.rstrip('/')}/images/models", headers=headers)
         response.raise_for_status()
@@ -680,10 +620,12 @@ async def fetch_openrouter_image_model_documents(
             document = {"model": item, "endpoint_status": None, "endpoints": []}
             if not endpoint_path:
                 return document
-            endpoint_url = endpoint_path if endpoint_path.startswith("http") else f"{endpoint_base_url.rstrip('/')}{endpoint_path}"
             try:
+                endpoint_url = endpoint_document_url(endpoint_path, base_url=base_url, endpoint_base_url=endpoint_base_url)
                 async with semaphore:
                     endpoint_response = await client.get(endpoint_url, headers=headers)
+                if closed_mode() and not 200 <= endpoint_response.status_code < 300:
+                    return document
                 endpoint_payload = endpoint_response.json() if endpoint_response.content else {}
                 endpoints = endpoint_payload.get("endpoints") if isinstance(endpoint_payload, dict) else []
                 candidates = [entry for entry in endpoints if isinstance(entry, dict)]

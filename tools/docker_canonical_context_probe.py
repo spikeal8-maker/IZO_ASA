@@ -25,8 +25,10 @@ POSITIVE = {
     "ops/docker/dev/nginx.shadow.conf": b"synthetic nginx input\n",
     "ops/docker/dev/network_guard.py": b"# synthetic guard input\n",
     "ops/docker/dev/comfyui_proxy.py": b"# synthetic Comfy proxy input\n",
+    "ops/docker/dev/openrouter_https_proxy.py": b"# synthetic OpenRouter proxy input\n",
 }
-GUARD_INPUTS = {"ops/docker/dev/network_guard.py", "ops/docker/dev/comfyui_proxy.py"}
+GUARD_INPUTS = {"ops/docker/dev/network_guard.py", "ops/docker/dev/comfyui_proxy.py",
+                "ops/docker/dev/openrouter_https_proxy.py"}
 EXCLUDED = (
     "frontend/probe.db", "frontend/probe.sqlite-wal",
     "frontend/probe.db-wal", "frontend/probe.db-shm", "frontend/probe.db-journal",

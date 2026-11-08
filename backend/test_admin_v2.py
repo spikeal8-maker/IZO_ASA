@@ -126,8 +126,10 @@ def test_admin_openrouter_status_without_key(fresh_exchange, monkeypatch):
 
 def test_admin_can_save_openrouter_key_without_exposing_secret(fresh_exchange, monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    key = "sk-or-test-secret-123"
 
-    async def fake_status():
+    async def fake_status(*, force):
+        assert force is True
         return {"configured": True, "source": "dpapi", "ok": True, "data": {"limit": 10, "usage": 1}}
 
     async def fake_refresh():
@@ -138,16 +140,13 @@ def test_admin_can_save_openrouter_key_without_exposing_secret(fresh_exchange, m
     monkeypatch.setattr(main, "refresh_openrouter_catalog", fake_refresh)
     sess = admin_session()
     with TestClient(main.app, cookies={"onenode_session": sess["session_token"]}) as client:
-        saved = client.put("/api/admin/openrouter/key", json={"key": "sk-or-test-secret-123"}, headers=BROWSER_ORIGIN)
+        saved = client.put("/api/admin/openrouter/key", json={"key": key}, headers=BROWSER_ORIGIN)
         settings = client.get("/api/admin/settings")
         deleted = client.delete("/api/admin/openrouter/key", headers=BROWSER_ORIGIN)
 
-    assert saved.status_code == 200
+    assert saved.status_code == settings.status_code == deleted.status_code == 200
     assert saved.json()["key"]["ok"] is True
-    assert "sk-or-test-secret-123" not in saved.text
-    assert settings.status_code == 200
-    assert "sk-or-test-secret-123" not in settings.text
-    assert deleted.status_code == 200
+    assert all(key not in response.text for response in (saved, settings, deleted))
     assert main.OPENROUTER_SECRET_STORE.get(main.OPENROUTER_SECRET_NAME) == ""
     with main.db() as conn:
         assert conn.execute("SELECT COUNT(*) AS c FROM admin_secrets").fetchone()["c"] == 0

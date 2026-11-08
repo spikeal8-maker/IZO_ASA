@@ -1,0 +1,170 @@
+manifestVersion = 1
+id = "LINUX-OPENROUTER-OPERABILITY-002"
+baseSha = "4ccd61920a63f0b0961c992efca2fe75be020d35"
+goal = "Make OpenRouter Save and Check work durably on the existing closed Linux beta through a protected encrypted secret store and narrowly pinned HTTPS egress."
+userOutcome = "The owner can save a key privately in the existing admin UI, distinguish durable storage from provider verification, and retain the key across a reproducible update and restart."
+beforeScenario = "The Linux key endpoint uses Windows DPAPI and returns 503 before verification; the UI falsely reports a saved key, and the isolated backend has no authorized OpenRouter transport. Candidate 001 also stopped before full CI at the exact-version cryptography 50.0.2 license-review floor."
+afterScenario = "Linux uses a persistent fail-closed AEAD store, Windows retains DPAPI, scoped key APIs never echo input, and an opt-in proxy permits only the approved OpenRouter origin and methods without widening backend egress."
+nonGoals = [
+  "Paid OpenRouter probes",
+  "Historical replay or financial changes",
+  "New installation or public-domain switch",
+  "Generic internet proxy",
+  "ASA Lab or global GPU operations",
+  "Global license-expression approval or scanner changes",
+]
+declaredFiles = [
+  "backend/main.py",
+  "backend/app/security/secret_store.py",
+  "backend/app/security/secret_store_files.py",
+  "backend/app/security/linux_secret_store.py",
+  "backend/app/security/linux_secret_backup.py",
+  "backend/app/api/routers/openrouter_keys.py",
+  "backend/app/config.py",
+  "backend/app/integrations/openrouter.py",
+  "backend/app/integrations/openrouter_key_status.py",
+  "backend/app/integrations/openrouter_transport.py",
+  "backend/app/integrations/openrouter_image_io.py",
+  "backend/app/integrations/openrouter_image_client.py",
+  "backend/requirements.txt",
+  "backend/test_security_secret_store.py",
+  "backend/test_linux_secret_store.py",
+  "backend/test_linux_secret_backup.py",
+  "backend/test_openrouter_secret_api.py",
+  "backend/test_openrouter_key_status.py",
+  "backend/test_openrouter_closed_transport.py",
+  "backend/test_openrouter_admin_cache_v2.py",
+  "frontend/src/adminModels.tsx",
+  "frontend/src/adminOpenrouterKey.ts",
+  "frontend/src/adminOpenrouterKey.test.ts",
+  "tools/migrate_openrouter_secret.py",
+  "tools/test_migrate_openrouter_secret.py",
+  "tools/backup_secret_store.py",
+  "tools/restore_secret_store.py",
+  "ops/docker/dev/openrouter_https_proxy.py",
+  "ops/docker/dev/compose.openrouter-shadow.yml",
+  "ops/docker/dev/network_guard.py",
+  "ops/docker/dev/Dockerfile.guard",
+  "ops/docker/dev/Dockerfile.guard.dockerignore",
+  "tools/docker_openrouter_profile.py",
+  "tools/prepare_openrouter_egress.py",
+  "tools/test_openrouter_proxy_policy.py",
+  "tools/test_openrouter_guard_profile.py",
+  "tools/test_docker_openrouter_profile.py",
+  "tools/test_prepare_openrouter_egress.py",
+  "tools/docker_test_bundle.py",
+  "tools/docker_canonical_context_probe.py",
+  "tools/test_docker_canonical_context_probe.py",
+  "tools/test_docker_canonical_source_inputs.py",
+  "tools/test_docker_test_bundle_build.py",
+  "architecture/contract.json",
+  "backend/SYMBOL_MAP.md",
+  "backend/SYMBOL_MAP.json",
+  "docs/NOW.md",
+  "docs/admin-mutation-audit.md",
+  "docs/agent-tasks/LINUX-OPENROUTER-OPERABILITY-001.md",
+  "docs/generated/architecture-inventory.md",
+  "docs/generated/architecture-inventory.json",
+  "docs/generated/context-index.md",
+  "docs/generated/context-index.json",
+  "docs/generated/frontend-map.md",
+  "docs/generated/frontend-map.json",
+  "docs/generated/product-flow-map.md",
+  "docs/generated/product-flow-map.json",
+  "tools/docker_backend_posix_probe.py",
+  "tools/test_docker_backend_posix_probe.py",
+  "frontend/adminOpenrouterKey.test.ts",
+  "backend/test_integrations_openrouter_module.py",
+  "tools/prepare_linux_secret_volume.py",
+  "tools/test_prepare_linux_secret_volume.py",
+  "architecture/security-policy.json",
+  "docs/cryptography-50.0.2-license-review.md",
+  "docs/agent-tasks/LINUX-OPENROUTER-OPERABILITY-002.md",
+  "tools/test_supply_chain_remediation.py",
+]
+allowedPatterns = [
+  "backend/test_admin_bots_v2.py",
+  "backend/test_admin_v2.py",
+]
+forbiddenPatterns = [
+  "ops/windows/**",
+]
+protectedFilesTouched = [
+  "backend/main.py",
+  "frontend/src/adminModels.tsx",
+]
+domain = "admin-models"
+riskClass = "high-assurance"
+changeClass = "product-behavior"
+maxProductionFiles = 24
+maxChangedLines = 7000
+acceptance = [
+  "Linux encrypted storage survives process restart and rejects missing or corrupt master keys, unsafe permissions, symlinks and invalid ciphertext without exposing secrets",
+  "Concurrent set and delete operations are serialized and atomic; protected master and documents have a consistent encrypted backup and verified restore",
+  "Windows CurrentUser DPAPI behavior and its real Windows roundtrip test remain intact",
+  "Save failure preserves user input and never reports success; durable save and provider verification have distinct safe status fields",
+  "Malformed requests, provider bodies and transport failures never reflect key input or authorization data",
+  "A valid inference key remains valid when the management-only credits endpoint returns 403",
+  "Only a dedicated proxy UID can reach pinned public IPv4 addresses on 443 using verified openrouter.ai TLS; backend direct egress and DNS remain blocked",
+  "Redirects, arbitrary catalog endpoint origins and remote image URLs cannot escape closed mode or forward credentials",
+  "The owner completes real UI Save and Check without a paid generation, and the secret persists after the existing 1Panel project restarts",
+  "Historical jobs, images, balances, ledger, payments, outboxes and publications retain their existing sealed proofs",
+  "Independent review and all exact-head mandatory CI pass before the existing-project rollout",
+  "Only the exact cryptography 50.0.2 license tuple has tracked review #281; changed tuples and expired reviews still fail the existing policy",
+]
+requiredEvidence = [
+  "Clean current-main base and active native ownership",
+  "Real AEAD filesystem concurrency and corruption tests",
+  "Scoped API redaction and UI failure-state tests",
+  "Windows DPAPI compatibility",
+  "Proxy and guard negative policy tests",
+  "Encrypted secret backup and restore proof",
+  "Independent source and native-operations review",
+  "Full exact-head CI with zero warnings and cleanup exceptions",
+  "Native 1Panel update and owner UI persistence receipts",
+  "Superseded clean 001 ownership and unchanged 13 production files",
+  "Immutable upstream and PyPI artifact license bytes for review #281",
+  "Actual failed CI license report reevaluated before and after the exact review, plus future-version, expression and expiry rejection",
+]
+targetedTests = [
+  "backend/test_security_secret_store.py",
+  "backend/test_linux_secret_store.py",
+  "backend/test_linux_secret_backup.py",
+  "backend/test_openrouter_secret_api.py",
+  "backend/test_openrouter_key_status.py",
+  "backend/test_openrouter_closed_transport.py",
+  "tools/test_openrouter_proxy_policy.py",
+  "tools/test_openrouter_guard_profile.py",
+  "tools/test_docker_openrouter_profile.py",
+  "tools/test_prepare_openrouter_egress.py",
+  "tools/test_supply_chain_floor.py",
+  "tools/test_supply_chain_remediation.py",
+]
+fileGrowthExpectations = [
+  "Keep cohesive new modules and tests within existing size limits",
+  "Extract bounded behavior from protected main and adminModels rather than growing them",
+  "Lower protected budgets after extraction; never raise architecture or test-health limits",
+  "Regenerate maps only through official generators",
+]
+forbiddenOperations = [
+  "Direct main push or registry bypass",
+  "Unreviewed runtime activation",
+  "Read or print real keys or raw credential payloads",
+  "Historical seal rebasing or original snapshot mutation",
+  "Password hash or old ledger changes",
+  "Real provider calls in automated tests",
+  "Generic internet access or unrestricted proxy",
+  "Global GPU queue, interrupt, unload or free",
+  "Public-domain switch or unrelated projects",
+]
+rollbackBoundary = "Keep the accepted 80b release, its Compose and historical preservation proofs. Introduce a separate protected persistent secret volume and encrypted backup; never overwrite or regenerate an existing master key. Roll back code and the opt-in egress profile without altering old DB/media or discarding stored secret material."
+
+[[scopeExpansions]]
+path = "backend/test_admin_bots_v2.py"
+reason = "Repair the existing in-memory secret-store test double for the declared source metadata protocol after exact-head Windows CI 42499993203; keep product code and all bot activation/redaction assertions unchanged."
+recordedAtUtc = "2026-11-08T16:59:14.296383Z"
+
+[[scopeExpansions]]
+path = "backend/test_admin_v2.py"
+reason = "Repair the existing admin key test fixture to require fresh force=True checks after exact-head Windows CI 42499993203; preserve trusted auth, status and redaction assertions and legacy file budgets."
+recordedAtUtc = "2026-11-08T16:59:15.893726Z"

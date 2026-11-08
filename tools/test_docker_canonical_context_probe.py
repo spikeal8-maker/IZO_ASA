@@ -9,7 +9,8 @@ from tools import docker_canonical_context_probe as probe
 
 def exported(tmp_path, role="web"):
     for name, content in probe.POSITIVE.items():
-        if (name in {"ops/docker/dev/network_guard.py", "ops/docker/dev/comfyui_proxy.py"}) != (role == "guard"):
+        if (name in {"ops/docker/dev/network_guard.py", "ops/docker/dev/comfyui_proxy.py",
+                     "ops/docker/dev/openrouter_https_proxy.py"}) != (role == "guard"):
             continue
         target = tmp_path / "context" / name
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -18,7 +19,8 @@ def exported(tmp_path, role="web"):
 
 
 @pytest.mark.parametrize("role,name", [("web", "frontend/package.json"),
-    ("guard", "ops/docker/dev/network_guard.py"), ("guard", "ops/docker/dev/comfyui_proxy.py")])
+    ("guard", "ops/docker/dev/network_guard.py"), ("guard", "ops/docker/dev/comfyui_proxy.py"),
+    ("guard", "ops/docker/dev/openrouter_https_proxy.py")])
 def test_missing_positive_input_fails(tmp_path, role, name):
     output = exported(tmp_path, role)
     target = output / "context" / name
@@ -27,12 +29,13 @@ def test_missing_positive_input_fails(tmp_path, role, name):
     assert result["status"] == "FAIL" and result["missing"] and not result["contentsVerified"]
 
 
-@pytest.mark.parametrize("name", ["ops/docker/dev/network_guard.py", "ops/docker/dev/comfyui_proxy.py"])
-def test_guard_requires_exact_two_inputs_with_unchanged_bytes(tmp_path, name):
+@pytest.mark.parametrize("name", ["ops/docker/dev/network_guard.py", "ops/docker/dev/comfyui_proxy.py",
+                                  "ops/docker/dev/openrouter_https_proxy.py"])
+def test_guard_requires_exact_three_inputs_with_unchanged_bytes(tmp_path, name):
     output = exported(tmp_path, "guard")
     result = probe.inspect_export(output, "guard")
     assert result["status"] == "PASS" and result["files"] == [
-        "ops/docker/dev/comfyui_proxy.py", "ops/docker/dev/network_guard.py"]
+        "ops/docker/dev/comfyui_proxy.py", "ops/docker/dev/network_guard.py", "ops/docker/dev/openrouter_https_proxy.py"]
     (output / "context" / name).write_bytes(b"changed synthetic source")
     result = probe.inspect_export(output, "guard")
     assert result["status"] == "FAIL" and not result["contentsVerified"]

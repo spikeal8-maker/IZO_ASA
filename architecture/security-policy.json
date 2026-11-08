@@ -127,6 +127,22 @@
         "sourceUrl": "https://github.com/sethmlarson/socksio/blob/e69158473125060879319368e9465d7881cee0b8/LICENSE",
         "licenseSha256": "7087f0f5f7c2993f3c4ed117baa3622c1063626e7c692e9ea116475b5fc1396c",
         "artifactSha256": "95dc1f15f9b34e8d7b16f06d74b8ccf48f609af32ab33c608d08761c5dcbb1f3"
+      },
+      {
+        "ecosystem": "backend",
+        "package": "cryptography",
+        "resolvedVersion": "50.0.2",
+        "license": "Apache-2.0 OR BSD-3-Clause",
+        "classification": "unknown",
+        "issue": "#281",
+        "owner": "spikeal8-maker",
+        "reason": "Verified pinned 50.0.2 PyPI source-archive license files byte-for-byte against immutable upstream. Select the BSD-3-Clause option; retain copyright, conditions and disclaimers, and no-endorsement terms. Exact-version review only.",
+        "reviewBy": "2027-02-06",
+        "reviewedOn": "2026-11-08",
+        "verifiedLicense": "Apache-2.0 OR BSD-3-Clause",
+        "sourceUrl": "https://github.com/pyca/cryptography/blob/4dda5c7fe4ae71b8925f2551910a0ef959df9c7a/LICENSE",
+        "licenseSha256": "3e0c7c091a948b82533ba98fd7cbb40432d6f1a9acbf85f5922d2f99a93ae6bb",
+        "artifactSha256": "7b46165bb56eb4704e2eaaf86f3c940d19154535d9b0ca7d6d590b04060e00d5"
       }
     ]
   },

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import os
 import sys
 from pathlib import Path
 
@@ -119,7 +120,7 @@ def test_default_store_dir_uses_external_local_app_data(tmp_path: Path, monkeypa
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "LocalAppData"))
     monkeypatch.delenv("IZO_SECRET_DIR", raising=False)
 
-    assert default_secret_store_dir() == (tmp_path / "LocalAppData" / "IZO_ASA" / "secrets").resolve()
+    assert default_secret_store_dir(platform="win32") == (tmp_path / "LocalAppData" / "IZO_ASA" / "secrets").resolve()
 
 
 def test_store_directory_inside_repository_is_rejected(tmp_path: Path):
@@ -151,3 +152,39 @@ def test_real_current_user_dpapi_roundtrip():
 
     assert b"temporary-test-secret" not in protected
     assert unprotect_bytes_dpapi(protected) == b"temporary-test-secret"
+
+
+def test_migration_does_not_overwrite_a_different_protected_secret(store):
+    secret_store, _acl_calls = store
+    secret_store.set("openrouter_api_key", "fixture-protected")
+    conn = sqlite3.connect(":memory:")
+    try:
+        conn.execute("CREATE TABLE admin_secrets (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)")
+        conn.execute("INSERT INTO admin_secrets VALUES ('openrouter_api_key', 'fixture-legacy', 'now')")
+        with pytest.raises(SecretStoreError, match="differ"):
+            migrate_sqlite_secret_to_store(conn, secret_store, "openrouter_api_key")
+        assert secret_store.get("openrouter_api_key") == "fixture-protected"
+        assert conn.execute("SELECT value FROM admin_secrets").fetchone()[0] == "fixture-legacy"
+    finally:
+        conn.close()
+
+
+def test_dpapi_migration_atomic_create_does_not_overwrite_a_concurrent_save(store, monkeypatch):
+    secret_store, _acl_calls = store
+    original = os.link
+
+    def concurrent_save(source, destination):
+        secret_store.set("openrouter_api_key", "fixture-concurrent-admin")
+        return original(source, destination)
+
+    monkeypatch.setattr(os, "link", concurrent_save)
+    conn = sqlite3.connect(":memory:")
+    try:
+        conn.execute("CREATE TABLE admin_secrets (key TEXT PRIMARY KEY, value TEXT)")
+        conn.execute("INSERT INTO admin_secrets VALUES ('openrouter_api_key', 'fixture-legacy')")
+        with pytest.raises(SecretStoreError, match="differ"):
+            migrate_sqlite_secret_to_store(conn, secret_store, "openrouter_api_key")
+        assert secret_store.get("openrouter_api_key") == "fixture-concurrent-admin"
+        assert conn.execute("SELECT value FROM admin_secrets").fetchone()[0] == "fixture-legacy"
+    finally:
+        conn.close()

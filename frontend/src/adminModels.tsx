@@ -4,6 +4,7 @@
 // маршруты и user-choice сохраняются через /api/admin/settings/{key}.
 import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { AdminModelsNavigation } from './adminModelsNavigation'
+import { saveOpenrouterKey as saveOpenrouterKeyAction, checkOpenrouterKey as checkOpenrouterKeyAction, deleteOpenrouterKey as deleteOpenrouterKeyAction, openrouterSecretSource } from './adminOpenrouterKey'
 import { OpenRouterAudioPage, OpenRouterThreeDPage } from './adminOpenRouterAuxPages'
 import {
   ADMIN_OPENROUTER_PAGES,
@@ -165,7 +166,7 @@ type PageData = {
   comfyuiAvailable: boolean
   openrouter: {
     keyConfigured: boolean
-    status?: { ok?: boolean; ready?: boolean | null; configured?: boolean; source?: string; status_code?: number; error?: unknown; data?: Record<string, unknown>; credits?: Record<string, unknown>; availability?: OpenRouterAvailability }
+    status?: { ok?: boolean; ready?: boolean | null; configured?: boolean; storeAvailable?: boolean; source?: string; status_code?: number; error?: unknown; data?: Record<string, unknown>; credits?: Record<string, unknown>; availability?: OpenRouterAvailability }
     usage?: {
       pricedImages?: number
       totalCostUsd?: number
@@ -1250,18 +1251,18 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
   }
 
   const saveOpenrouterKey = async () => {
-    const key = openrouterKeyInput.trim()
-    if (!key) { setMsg('Вставьте ключ OpenRouter'); return }
+    if (!openrouterKeyInput.trim()) { setMsg('Вставьте ключ OpenRouter'); return }
     setOpenrouterBusy(true); setMsg('')
-    const r = await amvFetch('/admin/openrouter/key', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key }),
-    }).then((x) => x.json()).catch(() => null) as { ok?: boolean; key?: { ok?: boolean; error?: unknown } } | null
-    setOpenrouterBusy(false)
-    setOpenrouterKeyInput('')
+    const result = await saveOpenrouterKeyAction(amvFetch, openrouterKeyInput)
+    if (result.saved) setOpenrouterKeyInput('')
     await load()
-    setMsg(r?.key?.ok ? 'Ключ OpenRouter сохранён и проверен' : `Ключ сохранён, но проверка не прошла: ${String(r?.key?.error || 'unknown')}`)
+    setOpenrouterBusy(false); setMsg(result.message)
+  }
+  const checkOpenrouterKey = async () => {
+    setOpenrouterBusy(true)
+    const message = await checkOpenrouterKeyAction(amvFetch)
+    await load()
+    setOpenrouterBusy(false); setMsg(message)
   }
 
   const refreshOpenrouterCatalog = async () => {
@@ -1295,10 +1296,9 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
 
   const deleteOpenrouterKey = async () => {
     setOpenrouterBusy(true); setMsg('')
-    const r = await amvFetch('/admin/openrouter/key', { method: 'DELETE' }).then((x) => x.json()).catch(() => null) as { ok?: boolean } | null
-    setOpenrouterBusy(false)
+    const message = await deleteOpenrouterKeyAction(amvFetch)
     await load()
-    setMsg(r?.ok ? 'UI-ключ OpenRouter удалён' : 'Не удалось удалить ключ')
+    setOpenrouterBusy(false); setMsg(message)
   }
 
   const saveOpenrouterConfig = async (config: OpenRouterConfig) => {
@@ -1524,7 +1524,7 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
           ? 'реальная генерация подтверждена'
           : 'ещё не подтверждено реальной генерацией'
   const orStatusClass = orStatus.ok ? 'key-ok' : orStatus.configured ? 'key-bad' : 'key-warn'
-  const orStatusText = orStatus.ok ? 'ключ отвечает' : orStatus.configured ? 'ключ есть, проверка не прошла' : 'ключ не сохранён'
+  const orStatusText = orStatus.storeAvailable === false ? 'хранилище ключа недоступно' : orStatus.ok ? 'ключ отвечает' : orStatus.configured ? 'ключ есть, проверка не прошла' : 'ключ не сохранён'
   const orLimit = orData.limit === null || orData.limit === undefined ? 'без лимита / не задан' : moneyUsdText(orData.limit)
   const orRemaining = orData.limit_remaining === null || orData.limit_remaining === undefined ? '—' : moneyUsdText(orData.limit_remaining)
   const orUsageModels = usageModelMap(data.openrouter.usage?.models)
@@ -2257,7 +2257,7 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
             </div>
             <div className="actions">
               <button className="primary" disabled={openrouterBusy || !openrouterKeyInput.trim()} onClick={saveOpenrouterKey}>Сохранить и проверить</button>
-              <button className="ghost" disabled={openrouterBusy} onClick={() => { void load(); setMsg('Статус OpenRouter обновлён') }}>Проверить</button>
+              <button className="ghost" disabled={openrouterBusy} onClick={checkOpenrouterKey}>Проверить</button>
               <button className="ghost" disabled={openrouterTestBusy || !data.openrouter.status?.ok} onClick={runOpenrouterTest}>Тест Klein 4B 1MP</button>
               <button className="danger" disabled={openrouterBusy || !data.openrouter.keyConfigured} onClick={deleteOpenrouterKey}>Удалить UI-ключ</button>
             </div>
@@ -2265,12 +2265,11 @@ export default function AdminModelsV2({ embeddedInSidebar = false }: { embeddedI
               <summary>Детали ключа и лимитов</summary>
               <div className="key-status">
                 <div className={`key-status-row ${orStatusClass}`}><span>Проверка</span><strong>{orStatusText}</strong></div>
-                <div className="key-status-row"><span>Источник</span><strong>{orStatus.source === 'admin_ui' ? 'ключ из админки' : orStatus.source === 'env' ? 'OPENROUTER_API_KEY env' : '—'}</strong></div>
+                <div className="key-status-row"><span>Источник</span><strong>{openrouterSecretSource(orStatus.source)}</strong></div>
                 <div className="key-status-row"><span>Ответ OpenRouter</span><strong>{orStatus.status_code || '—'}</strong></div>
-                <div className="key-status-row"><span>Метка ключа</span><strong>{valueText(orData.label)}</strong></div>
                 <div className="key-status-row"><span>Usage месяц</span><strong>{moneyUsdText(orData.usage_monthly)}</strong></div>
                 <div className="key-status-row"><span>Лимит / остаток</span><strong>{orLimit} / {orRemaining}</strong></div>
-                <div className={`key-status-row ${orCredits.ok ? 'key-ok' : 'key-warn'}`}><span>Credits API</span><strong>{orCredits.ok ? 'management key работает' : orCredits.status_code === 403 ? 'нужен management key' : valueText(orCredits.status_code)}</strong></div>
+                <div className={`key-status-row ${orCredits.ok ? 'key-ok' : 'key-warn'}`}><span>Credits API</span><strong>{orCredits.ok ? 'management key работает' : orCredits.status_code === 403 ? 'ограничено управленческим ключом' : valueText(orCredits.status_code)}</strong></div>
                 <div className={`key-status-row ${generationStatusClass}`}><span>Фактическая доступность</span><strong>{generationStatusText}</strong></div>
                 <div className="key-status-row"><span>Последний код генерации</span><strong>{valueText(orAvailability.lastStatusCode)}</strong></div>
                 <div className="key-status-row"><span>Последний успешный запрос</span><strong>{valueText(orAvailability.lastSuccessAt)}</strong></div>

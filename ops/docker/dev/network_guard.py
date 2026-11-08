@@ -24,15 +24,18 @@ RULES = '''table inet izo_shadow {
 
 
 def render_rules(environ=None) -> str:
-    """The default policy is unchanged; opt-in grants one fixed UID one tuple."""
+    """Default/Comfy remain unchanged; only an explicit profile adds UID10003."""
     env = os.environ if environ is None else environ
     profile = env.get('IZO_SHADOW_EGRESS_PROFILE', '')
     if not profile:
-        if env.get('IZO_COMFY_UPSTREAM_IP') or env.get('IZO_COMFY_UPSTREAM_PORT'):
+        if (env.get('IZO_COMFY_UPSTREAM_IP') or env.get('IZO_COMFY_UPSTREAM_PORT')
+                or env.get('IZO_OPENROUTER_IPV4S')):
             raise RuntimeError('SHADOW_EGRESS_PROFILE_REQUIRED')
         return RULES
-    if profile != 'comfyui-private-v1':
+    if profile not in {'comfyui-private-v1', 'comfyui-openrouter-v1'}:
         raise RuntimeError('SHADOW_EGRESS_PROFILE_INVALID')
+    if profile == 'comfyui-private-v1' and env.get('IZO_OPENROUTER_IPV4S'):
+        raise RuntimeError('SHADOW_OPENROUTER_PROFILE_REQUIRED')
     try:
         address = ipaddress.IPv4Address(env.get('IZO_COMFY_UPSTREAM_IP', ''))
         port = env.get('IZO_COMFY_UPSTREAM_PORT', '')
@@ -43,7 +46,27 @@ def render_rules(environ=None) -> str:
     except (ValueError, TypeError):
         raise RuntimeError('SHADOW_COMFY_TARGET_INVALID') from None
     rule = f'        meta skuid 10002 ip daddr {address} tcp dport {int(port)} accept\n'
+    if profile == 'comfyui-openrouter-v1':
+        for target in openrouter_addresses(env.get('IZO_OPENROUTER_IPV4S', '')):
+            rule += f'        meta skuid 10003 ip daddr {target} tcp dport 443 accept\n'
     return RULES.replace('        counter drop\n', rule + '        counter drop\n')
+
+
+def openrouter_addresses(value):
+    parts = value.split(',') if type(value) is str else []
+    try:
+        addresses = [ipaddress.IPv4Address(part) for part in parts]
+        if not 1 <= len(addresses) <= 8 or len(set(addresses)) != len(addresses):
+            raise ValueError()
+        if any(not a.is_global or a.is_multicast or a.is_reserved or a.is_unspecified
+               or a in ipaddress.IPv4Network('192.0.0.0/24') for a in addresses):
+            raise ValueError()
+        canonical = [str(a) for a in sorted(addresses)]
+        if parts != canonical:
+            raise ValueError()
+        return canonical
+    except (ValueError, TypeError):
+        raise RuntimeError('SHADOW_OPENROUTER_TARGET_INVALID') from None
 
 
 def nft(*args: str, input_text: str | None = None) -> str:

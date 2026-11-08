@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,6 +17,8 @@ NOW = "2026-07-16T00:00:00+00:00"
 
 
 class MemorySecretStore:
+    source = "dpapi"
+
     def __init__(self, root: Path) -> None:
         self.root = root
         self.values: dict[str, str] = {}
@@ -30,9 +33,12 @@ class MemorySecretStore:
         return self.values.get(name, "")
 
     def set(self, name: str, value: str) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.path_for(name).write_text(json.dumps({"updatedAt": NOW}), encoding="utf-8")
         self.values[name] = value
 
     def delete(self, name: str) -> bool:
+        self.path_for(name).unlink(missing_ok=True)
         return self.values.pop(name, None) is not None
 
 
@@ -198,6 +204,8 @@ def test_safe_status_contains_diagnostics_but_no_secrets(bot_admin_env, monkeypa
             "/api/admin/bots/status-v2",
         )
     assert response.status_code == 200
+    assert response.json()["telegram"]["tokenUpdatedAt"] == NOW
+    assert response.json()["max"]["tokenUpdatedAt"] == NOW
     assert response.json()["telegram"]["probe"]["username"] == "safe_telegram_bot"
     assert response.json()["max"]["probe"]["nickname"] == "safe_max_bot"
     for secret in (

@@ -1,4 +1,4 @@
-"""Migrate the legacy OpenRouter SQLite secret to external CurrentUser DPAPI."""
+"""Migrate the legacy OpenRouter SQLite secret to external platform-protected storage."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import argparse
 import os
 import sqlite3
 import sys
+from contextlib import closing
 from pathlib import Path
 
 
@@ -16,7 +17,7 @@ if str(BACKEND) not in sys.path:
 
 from app.config import load_local_env, sqlite_path_from_database_url  # noqa: E402
 from app.security.secret_store import (  # noqa: E402
-    DpapiSecretStore,
+    create_secret_store,
     assert_secret_store_outside_repository,
     default_secret_store_dir,
     migrate_sqlite_secret_to_store,
@@ -35,19 +36,21 @@ def main() -> int:
     args = parser.parse_args()
 
     database = (args.database or sqlite_path_from_database_url(os.getenv("DATABASE_URL"), BACKEND)).resolve()
-    secret_dir = (args.secret_dir or default_secret_store_dir()).resolve()
+    secret_dir = args.secret_dir or default_secret_store_dir()
     assert_secret_store_outside_repository(secret_dir, ROOT)
     if not database.is_file():
         print("OPENROUTER_SECRET_MIGRATION_ERROR reason=database_not_found")
         return 2
-    store = DpapiSecretStore(secret_dir)
-    with sqlite3.connect(database) as conn:
+    store = create_secret_store(secret_dir)
+    with closing(sqlite3.connect(database)) as conn, conn:
         table = conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='admin_secrets'"
         ).fetchone()
         if table is None:
             print("OPENROUTER_SECRET_MIGRATION_ERROR reason=table_not_found")
             return 3
+        if not args.plan:
+            conn.execute("BEGIN IMMEDIATE")
         legacy_before = conn.execute(
             "SELECT COUNT(*) FROM admin_secrets WHERE key = ?",
             (SECRET_NAME,),
@@ -55,7 +58,7 @@ def main() -> int:
         if args.plan:
             print(
                 f"OPENROUTER_SECRET_MIGRATION_PLAN legacyRows={legacy_before} "
-                f"dpapiConfigured={store.exists(SECRET_NAME)}"
+                f"storeConfigured={store.exists(SECRET_NAME)}"
             )
             return 0
         result = migrate_sqlite_secret_to_store(conn, store, SECRET_NAME)
@@ -69,7 +72,7 @@ def main() -> int:
         return 4
     print(
         f"OPENROUTER_SECRET_MIGRATION_OK result={result} legacyRows={legacy_after} "
-        f"configured={configured} source={'env' if os.getenv('OPENROUTER_API_KEY', '').strip() else 'dpapi' if store.exists(SECRET_NAME) else 'none'}"
+        f"configured={configured} source={'env' if os.getenv('OPENROUTER_API_KEY', '').strip() else store.source if store.exists(SECRET_NAME) else 'none'}"
     )
     return 0
 
