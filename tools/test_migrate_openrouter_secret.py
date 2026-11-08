@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import shutil
 import sqlite3
 import subprocess
 import sys
+from contextlib import closing, contextmanager
 from pathlib import Path
 
 import pytest
@@ -13,12 +15,34 @@ SCRIPT = ROOT / "tools" / "migrate_openrouter_secret.py"
 
 
 def create_database(path: Path, value: str) -> None:
-    with sqlite3.connect(path) as conn:
+    # A SQLite connection context commits/rolls back; it does not close.
+    with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute("CREATE TABLE admin_secrets (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)")
         conn.execute(
             "INSERT INTO admin_secrets VALUES ('openrouter_api_key', ?, 'now')",
             (value,),
         )
+
+
+def _restore_temporary_acl(path: Path) -> None:
+    if sys.platform == "win32":
+        subprocess.run(
+            ["icacls", str(path), "/reset", "/T"],
+            check=True,
+            timeout=30,
+        )
+
+
+@contextmanager
+def _owned_secret_directory(path: Path):
+    # This owner creates the directory before the real store hardens its ACL.
+    # Restore this disposable tree and remove it before pytest's later cleanup.
+    path.mkdir()
+    try:
+        yield path
+    finally:
+        _restore_temporary_acl(path)
+        shutil.rmtree(path)
 
 
 def test_plan_reports_only_counts_and_never_secret(tmp_path: Path):
@@ -46,38 +70,39 @@ def test_plan_reports_only_counts_and_never_secret(tmp_path: Path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert "OPENROUTER_SECRET_MIGRATION_PLAN legacyRows=1 dpapiConfigured=False" in result.stdout
     assert secret not in result.stdout + result.stderr
-    with sqlite3.connect(database) as conn:
+    with closing(sqlite3.connect(database)) as conn:
         assert conn.execute("SELECT COUNT(*) FROM admin_secrets").fetchone()[0] == 1
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows DPAPI only")
 def test_apply_encrypts_verifies_and_deletes_legacy_row(tmp_path: Path):
     database = tmp_path / "apply.sqlite3"
-    secret_dir = tmp_path / "apply-secrets"
     secret = "sk-or-apply-private-value"
     create_database(database, secret)
 
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(SCRIPT),
-            "--database",
-            str(database),
-            "--secret-dir",
-            str(secret_dir),
-        ],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        timeout=30,
-        check=False,
-    )
+    with _owned_secret_directory(tmp_path / "apply-secrets") as secret_dir:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--database",
+                str(database),
+                "--secret-dir",
+                str(secret_dir),
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
 
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "OPENROUTER_SECRET_MIGRATION_OK result=migrated legacyRows=0 configured=True source=dpapi" in result.stdout
-    assert secret not in result.stdout + result.stderr
-    with sqlite3.connect(database) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM admin_secrets").fetchone()[0] == 0
-    documents = list(secret_dir.glob("*.dpapi.json"))
-    assert len(documents) == 1
-    assert secret not in documents[0].read_text(encoding="utf-8")
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "OPENROUTER_SECRET_MIGRATION_OK result=migrated legacyRows=0 configured=True source=dpapi" in result.stdout
+        assert secret not in result.stdout + result.stderr
+        with closing(sqlite3.connect(database)) as conn:
+            assert conn.execute("SELECT COUNT(*) FROM admin_secrets").fetchone()[0] == 0
+        documents = list(secret_dir.glob("*.dpapi.json"))
+        assert len(documents) == 1
+        assert secret not in documents[0].read_text(encoding="utf-8")
+    assert not secret_dir.exists()

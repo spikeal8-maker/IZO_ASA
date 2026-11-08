@@ -56,10 +56,11 @@ def test_repository_inventory_is_valid_deterministic_and_semantically_complete()
     assert {item["process_role"] for item in first["routes"]["items"]} == {
         "all-dev-current-monolith"
     }
-    assert first["tasks"]["worker_count"] == 8
+    assert first["tasks"]["worker_count"] == 9
     assert first["tasks"]["ephemeral_count"] == 4
     assert {item["id"] for item in first["tasks"]["items"]} == {
         "generation-consumer",
+        "generation-consumer-compatibility",
         "bot-polling",
         "feed-video-publication",
         "avatar-cache",
@@ -74,7 +75,7 @@ def test_repository_inventory_is_valid_deterministic_and_semantically_complete()
     }
     table_names = {item["name"] for item in first["schema"]["tables"]}
     assert {"users", "auth_sessions", "payments", "token_ledger", "images", "feed_publications", "phone_chat_threads", "phone_chat_messages"} <= table_names
-    assert len(first["schema"]["foreign_key_declarations"]) == 2
+    assert len(first["schema"]["foreign_key_declarations"]) == 3
     assert first["schema"]["foreign_key_declarations"][0]["source"] == (
         "backend/app/database/migrations.py"
     )

@@ -273,7 +273,7 @@ def test_migration_is_idempotent(production_db):
     main.init_db()
     main.init_db()
     with main.db() as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 8
         assert conn.execute(
             "SELECT COUNT(*) FROM schema_migrations WHERE name='social_account_verification'"
         ).fetchone()[0] == 1

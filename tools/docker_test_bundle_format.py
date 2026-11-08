@@ -22,9 +22,10 @@ SERVICES = {"backend", "web", "guard", "worker", "worker_peer"}
 VOLUMES = {"sqlite-data", "media-data", "worker_ipc"}
 ACCEPTANCE = "acceptance-fixture"
 RUNTIME = "synthetic-runtime"
+SUPPORTED_SCHEMAS = {7, 8}
 UVICORN = ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 RUNTIME_ENV = {"IZO_PROCESS_ROLE": "combined", "COMFYUI_REQUIRED": "false", "COMFYUI_NATIVE4B_ONLY": "false",
-               "COMFYUI_MOCK_FALLBACK": "true", "IZO_PREPROD_PRESERVE_HISTORY": "1",
+               "COMFYUI_MOCK_FALLBACK": "true", "IZO_PREPROD_PRESERVE_HISTORY": "0",
                "IZO_DISABLE_STARTUP_STORAGE_MAINTENANCE": "1"}
 MAX_TOTAL = 8 * 1024**3
 MAX_FILES = 6000
@@ -47,6 +48,19 @@ def bundle_profile(manifest: dict) -> str:
     require(type(manifest.get("format")) is int and manifest["format"] == 2
             and manifest.get("profile") == RUNTIME, "BUNDLE_PROFILE_INVALID")
     return RUNTIME
+
+
+def bundle_schema(manifest: dict) -> int:
+    version = manifest.get("schema")
+    require(type(version) is int and version in SUPPORTED_SCHEMAS, "BUNDLE_SCHEMA_UNSUPPORTED")
+    return version
+
+
+def runtime_environment(schema: int) -> dict:
+    # Existing pinned schema 7 bundles retain their original profile. Schema 8
+    # requires a sealed snapshot for preserve=1, so fresh synthetic data uses 0.
+    version = bundle_schema({"schema": schema})
+    return {**RUNTIME_ENV, "IZO_PREPROD_PRESERVE_HISTORY": "1" if version == 7 else "0"}
 
 
 def expected_services(manifest: dict) -> set[str]:
@@ -214,7 +228,8 @@ def validate_compose(config: dict, manifest: dict) -> None:
                 and env.get("IZO_SHADOW_FIXTURE") == "controlled-comfyui-v1"
                 and env.get("COMFYUI_BASE_URL") == "http://127.0.0.1:48991", "TEST_PROFILE_REQUIRED")
     else:
-        require(backend.get("command") == UVICORN and all(env.get(k) == v for k, v in RUNTIME_ENV.items())
+        require(backend.get("command") == UVICORN and all(
+                env.get(k) == v for k, v in runtime_environment(manifest.get('schema', 7)).items())
                 and "IZO_SHADOW_FIXTURE" not in env and "IZO_WORKER_SOCKET" not in env
                 and env.get("COMFYUI_BASE_URL") == "http://127.0.0.1:1"
                 and env.get("EMAIL_OTP_DEBUG_RETURN_CODE") == "false", "SYNTHETIC_RUNTIME_REQUIRED")
@@ -249,9 +264,10 @@ def verify(root: Path, pin: str) -> dict:
         raise BundleError("METADATA_INVALID_JSON") from None
     require(isinstance(m, dict), "METADATA_NOT_OBJECT")
     bundle_profile(m)
+    bundle_schema(m)
     require(m.get("kind") == "isoas-test-bundle"
             and m.get("repository") == REPOSITORY and m.get("production_authorized") is False
-            and m.get("model_execution") is False and m.get("schema") == 7,
+            and m.get("model_execution") is False,
             "TEST_MANIFEST_INVALID")
     require(SHA.fullmatch(m.get("source_sha", "")) is not None
             and SHA.fullmatch(m.get("tooling_sha", "")) is not None

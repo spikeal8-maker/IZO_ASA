@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Protocol
+from collections.abc import Callable
+
+from .history_replay import history_policy_for_connection
 
 
 ACTIVE_GENERATION_STATUSES = (
@@ -54,6 +57,7 @@ def reconcile_stale_generation_jobs(
     *,
     completed_at: str,
     refund_job: RefundJob,
+    settle_job: Callable[..., bool] | None = None,
 ) -> GenerationRecoveryReport:
     """Finish jobs that cannot be resumed by the new single-process worker.
 
@@ -68,16 +72,18 @@ def reconcile_stale_generation_jobs(
     else:
         conn.execute("BEGIN IMMEDIATE")
 
+    policy = history_policy_for_connection(conn)
+    allowed, bindings = policy.where_allowed("jobs", "id")
     placeholders = ",".join("?" for _ in ACTIVE_GENERATION_STATUSES)
     rows = conn.execute(
         f"""
         SELECT id, user_id
         FROM jobs
         WHERE status IN ({placeholders})
-          AND COALESCE(provider, '') NOT IN (?, ?)
+          AND COALESCE(provider, '') NOT IN (?, ?) AND ({allowed})
         ORDER BY created_at, id
         """,
-        (*ACTIVE_GENERATION_STATUSES, *RESUMABLE_VIDEO_PROVIDERS),
+        (*ACTIVE_GENERATION_STATUSES, *RESUMABLE_VIDEO_PROVIDERS, *bindings),
     ).fetchall()
     completed_from_images = 0
     failed = 0
@@ -85,6 +91,7 @@ def reconcile_stale_generation_jobs(
 
     for row in rows:
         job_id = str(row["id"])
+        policy.require_allowed("jobs", job_id)
         user_id = str(row["user_id"] or "")
         image = conn.execute(
             """
@@ -106,6 +113,8 @@ def reconcile_stale_generation_jobs(
                 """,
                 (str(image["id"]), str(image["created_at"] or completed_at), job_id, *ACTIVE_GENERATION_STATUSES),
             )
+            if settle_job is not None:
+                settle_job(conn, job_id, job_status="completed", now=str(image["created_at"] or completed_at))
             completed_from_images += 1
             continue
 
@@ -120,6 +129,8 @@ def reconcile_stale_generation_jobs(
             """,
             (STARTUP_INTERRUPTION_MESSAGE, completed_at, job_id, *ACTIVE_GENERATION_STATUSES),
         )
+        if settle_job is not None:
+            settle_job(conn, job_id, job_status="failed", now=completed_at)
         failed += 1
 
     return GenerationRecoveryReport(

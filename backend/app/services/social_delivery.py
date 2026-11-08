@@ -15,6 +15,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable
 from urllib.parse import quote
 
+from .history_replay import HistoricalReplayBlocked, history_policy_for_connection
+
 
 @dataclass(frozen=True, slots=True)
 class SocialDelivery:
@@ -51,8 +53,12 @@ def claim_pending_telegram_deliveries(
     current = now or _utc_now()
     current_iso = current.isoformat()
     conn.execute("BEGIN IMMEDIATE")
+    allowed, bindings = history_policy_for_connection(conn).where_allowed(
+        "social_delivery_outbox", "id",
+        parents=(("feed_publications", "publication_id"),),
+    )
     rows = conn.execute(
-        """
+        f"""
         SELECT id, publication_id, network, attempts
         FROM social_delivery_outbox
         WHERE network = 'telegram'
@@ -60,11 +66,11 @@ def claim_pending_telegram_deliveries(
             status IN ('pending', 'retry')
             OR (status = 'processing' AND next_attempt_at <= ?)
           )
-          AND next_attempt_at <= ?
+          AND next_attempt_at <= ? AND ({allowed})
         ORDER BY created_at, id
         LIMIT ?
         """,
-        (current_iso, current_iso, max(1, min(int(limit), 100))),
+        (current_iso, current_iso, *bindings, max(1, min(int(limit), 100))),
     ).fetchall()
     if rows:
         ids = [str(row["id"]) for row in rows]
@@ -104,8 +110,12 @@ def claim_pending_social_deliveries(
     current = now or _utc_now()
     current_iso = current.isoformat()
     conn.execute("BEGIN IMMEDIATE")
+    allowed, bindings = history_policy_for_connection(conn).where_allowed(
+        "social_delivery_outbox", "id",
+        parents=(("feed_publications", "publication_id"),),
+    )
     rows = conn.execute(
-        """
+        f"""
         SELECT id, publication_id, network, attempts
         FROM social_delivery_outbox
         WHERE network = ?
@@ -113,11 +123,11 @@ def claim_pending_social_deliveries(
             status IN ('pending', 'retry')
             OR (status = 'processing' AND next_attempt_at <= ?)
           )
-          AND next_attempt_at <= ?
+          AND next_attempt_at <= ? AND ({allowed})
         ORDER BY created_at, id
         LIMIT ?
         """,
-        (network, current_iso, current_iso, max(1, min(int(limit), 100))),
+        (network, current_iso, current_iso, *bindings, max(1, min(int(limit), 100))),
     ).fetchall()
     if rows:
         ids = [str(row["id"]) for row in rows]
@@ -141,12 +151,15 @@ def claim_pending_social_deliveries(
 def load_public_feed_publication(
     conn: sqlite3.Connection, publication_id: str
 ) -> PublicFeedPublication:
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(feed_publications)")}
+    author_display = "NULLIF(f.author_display, '')" if "author_display" in columns else "NULL"
+    author_handle = "NULLIF(f.author_handle, '')" if "author_handle" in columns else "NULL"
     row = conn.execute(
-        """
+        f"""
         SELECT f.id, f.media_type, f.title, f.description,
-               COALESCE(NULLIF(f.author_display, ''), NULLIF(u.display_name, ''),
+               COALESCE({author_display}, NULLIF(u.display_name, ''),
                         NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), '')) AS author_display,
-               COALESCE(NULLIF(f.author_handle, ''), NULLIF(u.username, '')) AS author_handle,
+               COALESCE({author_handle}, NULLIF(u.username, '')) AS author_handle,
                NULLIF(u.public_user_code, '') AS author_code
         FROM feed_publications f
         LEFT JOIN users u ON u.internal_user_id = f.internal_user_id
@@ -196,18 +209,23 @@ def mark_social_delivery_sent(
     external_url: str | None = None,
     sent_at: str | None = None,
 ) -> None:
+    allowed, bindings = history_policy_for_connection(conn).where_allowed(
+        "social_delivery_outbox", "id",
+        parents=(("feed_publications", "publication_id"),),
+    )
     conn.execute(
-        """
+        f"""
         UPDATE social_delivery_outbox
         SET status='sent', external_id=?, external_url=?, sent_at=?,
             last_error=NULL
-        WHERE id=?
+        WHERE id=? AND ({allowed})
         """,
         (
             external_id,
             external_url,
             sent_at or _utc_now().isoformat(),
             delivery_id,
+            *bindings,
         ),
     )
 
@@ -220,9 +238,13 @@ def mark_social_delivery_retry(
     now: datetime | None = None,
     max_attempts: int = 5,
 ) -> str:
+    allowed, bindings = history_policy_for_connection(conn).where_allowed(
+        "social_delivery_outbox", "id",
+        parents=(("feed_publications", "publication_id"),),
+    )
     row = conn.execute(
-        "SELECT attempts FROM social_delivery_outbox WHERE id=?",
-        (delivery_id,),
+        f"SELECT attempts FROM social_delivery_outbox WHERE id=? AND ({allowed})",
+        (delivery_id, *bindings),
     ).fetchone()
     if row is None:
         return "missing"
@@ -231,10 +253,10 @@ def mark_social_delivery_retry(
     status = "failed" if attempts >= max(1, int(max_attempts)) else "retry"
     delay = min(3600, 60 * (2 ** max(0, attempts - 1)))
     conn.execute(
-        """
+        f"""
         UPDATE social_delivery_outbox
         SET status=?, attempts=?, next_attempt_at=?, last_error=?
-        WHERE id=?
+        WHERE id=? AND ({allowed})
         """,
         (
             status,
@@ -242,6 +264,7 @@ def mark_social_delivery_retry(
             (current + timedelta(seconds=delay)).isoformat(),
             str(error)[:500],
             delivery_id,
+            *bindings,
         ),
     )
     return status
@@ -252,6 +275,7 @@ def enqueue_social_deletions(
 ) -> int:
     """Snapshot successful remote deliveries before a publication is hidden."""
 
+    history_policy_for_connection(conn).require_allowed("feed_publications", publication_id)
     created_at = now or _utc_now().isoformat()
     rows = conn.execute(
         """
@@ -292,6 +316,7 @@ async def deliver_pending_social_deletion_batch(
     now: datetime | None = None,
     limit: int = 20,
 ) -> dict[str, int]:
+    policy = history_policy_for_connection(conn)
     result = {"claimed": 0, "sent": 0, "retried": 0, "failed": 0}
     for network in ("delete_telegram", "delete_max", "delete_vk", "delete_vk_story"):
         deliveries = claim_pending_social_deliveries(
@@ -299,6 +324,13 @@ async def deliver_pending_social_deletion_batch(
         )
         result["claimed"] += len(deliveries)
         for delivery in deliveries:
+            try:
+                policy.require_allowed(
+                    "social_delivery_outbox", delivery.id,
+                    parents=(("feed_publications", delivery.publication_id),),
+                )
+            except HistoricalReplayBlocked:
+                continue
             row = conn.execute(
                 "SELECT external_id FROM social_delivery_outbox WHERE id=?",
                 (delivery.id,),
@@ -332,7 +364,15 @@ async def deliver_pending_telegram_batch(
 ) -> dict[str, int]:
     deliveries = claim_pending_telegram_deliveries(conn, now=now, limit=limit)
     result = {"claimed": len(deliveries), "sent": 0, "retried": 0, "failed": 0}
+    policy = history_policy_for_connection(conn)
     for delivery in deliveries:
+        try:
+            policy.require_allowed(
+                "social_delivery_outbox", delivery.id,
+                parents=(("feed_publications", delivery.publication_id),),
+            )
+        except HistoricalReplayBlocked:
+            continue
         try:
             publication = load_public_feed_publication(
                 conn, delivery.publication_id
@@ -371,7 +411,15 @@ async def deliver_pending_social_batch(
         conn, network=network, now=now, limit=limit
     )
     result = {"claimed": len(deliveries), "sent": 0, "retried": 0, "failed": 0}
+    policy = history_policy_for_connection(conn)
     for delivery in deliveries:
+        try:
+            policy.require_allowed(
+                "social_delivery_outbox", delivery.id,
+                parents=(("feed_publications", delivery.publication_id),),
+            )
+        except HistoricalReplayBlocked:
+            continue
         try:
             publication = load_public_feed_publication(conn, delivery.publication_id)
             external_id, external_url = await sender(delivery, publication)

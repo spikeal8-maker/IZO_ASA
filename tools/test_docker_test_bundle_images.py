@@ -324,11 +324,18 @@ def test_two_file_bootstrap_verifies_and_extracts_without_tools_package(tmp_path
     assert run.stdout.strip() == "1" and verify(target, pin) == manifest
 
 
-def test_health_and_previous_active_check_exact_resolved_role_ids(tmp_path, monkeypatch):
+@pytest.mark.parametrize("schema", [7, 8])
+def test_health_and_previous_active_check_exact_resolved_role_ids(tmp_path, monkeypatch, schema):
     from contextlib import nullcontext
     from types import SimpleNamespace
     from tools.docker_test_bundle_images import resolve_images, runtime_compose
     root, pin, manifest, inspections, _ = make_portable(tmp_path / "bundle")
+    from tools.docker_test_bundle_format import runtime_environment
+    from tools.test_docker_synthetic_runtime import repin
+    manifest["schema"] = schema
+    config = json.loads((root / "compose.json").read_bytes())
+    config["services"]["backend"]["environment"].update(runtime_environment(schema))
+    pin = repin(root, manifest, config)
     state = tmp_path / "state"; release = persisted(root, pin, state)
     engine = ImageEngine(manifest, inspections, loaded=True)
     images = resolve_images(engine, manifest)
@@ -340,7 +347,7 @@ def test_health_and_previous_active_check_exact_resolved_role_ids(tmp_path, monk
                     "com.docker.compose.project.config_files": str(sibling)}}} for role in sorted(images)]
     monkeypatch.setattr(runtime, "owned_resources", lambda *args: {"containers": containers, "volumes": [], "networks": []})
     version = {"backend_commit": manifest["source_sha"], "release_id": manifest["release_id"],
-               "frontend_build": manifest["release_id"], "schema_compatibility": {"min_version": 7, "max_version": 7}}
+               "frontend_build": manifest["release_id"], "schema_compatibility": {"min_version": schema, "max_version": schema}}
     origin = "http://127.0.0.1:" + str(manifest["ports"]["web"]) + "/api/version"
     def open_response(request, **kwargs):
         url = request.full_url
@@ -353,6 +360,10 @@ def test_health_and_previous_active_check_exact_resolved_role_ids(tmp_path, monk
     monkeypatch.setattr(runtime, "build_opener", lambda *args: opener)
     result = runtime.health(engine, release, manifest)
     assert result["resolved_images"] == images and result["image_identity_version"] == 1
+    version["schema_compatibility"] = {"min_version": 7, "max_version": 8}
+    with pytest.raises(BundleError, match="RUNTIME_VERSION_MISMATCH"):
+        runtime.health(engine, release, manifest)
+    version["schema_compatibility"] = {"min_version": schema, "max_version": schema}
     containers[0]["Image"] = "sha256:" + "f" * 64
     with pytest.raises(BundleError, match="RUNTIME_NOT_READY"):
         runtime.health(engine, release, manifest)

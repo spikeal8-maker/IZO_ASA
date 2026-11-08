@@ -32,6 +32,7 @@ def upsert_web_email_identity(
     initialize_intro: bool = True,
     random_avatar_choice: Callable[[], tuple[str, str]],
     initialize_intro_tariff: Callable[[sqlite3.Connection, str, str], bool],
+    require_account_creation: Callable[[], None] | None = None,
 ) -> tuple[str, str]:
     """Resolve/create web identity without ever merging on unverified users.email."""
     existing = conn.execute(
@@ -56,6 +57,8 @@ def upsert_web_email_identity(
                     initialize_intro_tariff(conn, existing["legacy_user_id"], created["created_at"])
         return existing["internal_user_id"], existing["legacy_user_id"]
 
+    if require_account_creation is not None:
+        require_account_creation()
     legacy_user_id = f"web_{uuid.uuid4().hex}"
     internal_user_id = uuid.uuid4().hex
     user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}

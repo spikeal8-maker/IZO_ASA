@@ -1,3 +1,5 @@
+import { createGenerationRequest } from '../../generationAdmission.ts'
+
 export class PhoneTransportError extends Error {
   status: number
   retryable: boolean
@@ -20,11 +22,13 @@ function publicMessage(value: unknown, fallback: string): string {
 export async function phoneFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   let response: Response
   try {
-    response = await fetch(path, {
-      ...init,
-      credentials: 'include',
-      headers: { Accept: 'application/json', ...init.headers },
-    })
+    const headers = new Headers(init.headers)
+    if (!headers.has('Accept')) headers.set('Accept', 'application/json')
+    const requestInit: RequestInit = { ...init, credentials: 'include', headers }
+    const request = path === '/api/generate' && init.method?.toUpperCase() === 'POST'
+      ? createGenerationRequest(path, requestInit)
+      : () => fetch(path, requestInit)
+    response = await request()
   } catch {
     throw new PhoneTransportError(0, 'Нет соединения с сервером.')
   }

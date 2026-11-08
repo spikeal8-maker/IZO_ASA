@@ -66,6 +66,10 @@ def test_main_reconciliation_uses_existing_idempotent_refund(monkeypatch, conten
 
     def observed_refund(conn, current_job, *, reason):
         class RefundConnection:
+            @property
+            def in_transaction(self):
+                return conn.in_transaction
+
             def execute(self, sql, parameters=()):
                 cursor = conn.execute(sql, parameters)
                 if sql.startswith("SELECT 1 FROM token_ledger WHERE reason IN "):

@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ..services.history_replay import history_policy_for_connection
+
 
 @dataclass(frozen=True)
 class SourceTreeRuntime:
@@ -126,6 +128,8 @@ def repair_image_source_rows_from_job(
         ).fetchone()
         if image is None:
             return []
+        if history_policy_for_connection(conn).is_historical("images", image_id):
+            return read_image_source_tree(runtime.tree, conn, image_id, user_id)
         existing = int(
             conn.execute(
                 "SELECT COUNT(*) AS c FROM image_sources WHERE image_id = ? AND user_id = ?",

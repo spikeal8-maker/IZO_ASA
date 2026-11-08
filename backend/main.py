@@ -18,9 +18,10 @@ import tempfile
 import time
 import uuid
 import xml.etree.ElementTree as ET
-from contextlib import suppress
+from contextlib import closing, suppress
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from functools import partial
 from pathlib import Path
 from typing import Any, Literal
 
@@ -63,6 +64,7 @@ try:
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.integrations.yookassa import YooKassaError, check_yookassa_connection, create_yookassa_payment, fetch_yookassa_payment
 try:
+    from .app.billing import generation_accounting
     from .app.billing import (
         PaymentCreateCommand,
         PaymentProviderError,
@@ -77,6 +79,7 @@ try:
         mark_sent as mark_payment_notification_sent,
     )
 except ImportError:  # Direct `python backend/main.py` execution.
+    from app.billing import generation_accounting
     from app.billing import (
         PaymentCreateCommand,
         PaymentProviderError,
@@ -159,14 +162,19 @@ except ImportError:  # Direct `python backend/main.py` execution.
     )
 
 try:
+    from .app.api.beta_policy import closed_beta_enabled, require_public_account_creation_allowed, guard_generation_job, historical_replay_blocked
+except ImportError:  # Direct `python backend/main.py` execution.
+    from app.api.beta_policy import closed_beta_enabled, require_public_account_creation_allowed, guard_generation_job, historical_replay_blocked
+
+try:
     from .app.security.account_verification import complete_social_verification, ensure_social_requirement, generation_block_detail, get_social_verification, upsert_web_email_identity
-    from .app.security.trial_access import gate_detail as trial_gate_detail, reserve_or_charge_generation
+    from .app.security.trial_access import gate_detail as trial_gate_detail, reserve_or_charge_generation, settle_trial_generation
     from .app.security.bot_login import BotLoginAccessError, BotLoginRateLimits, BotLoginRuntime, bot_login_approval_retry_result, create_bot_login_challenge as security_create_bot_login_challenge, pending_bot_login_challenges_count
     from .app.security.http_requests import AvatarImageError, compress_allowlisted_avatar
     from .app.security.http_middleware import install_http_security_middleware
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.security.account_verification import complete_social_verification, ensure_social_requirement, generation_block_detail, get_social_verification, upsert_web_email_identity
-    from app.security.trial_access import gate_detail as trial_gate_detail, reserve_or_charge_generation
+    from app.security.trial_access import gate_detail as trial_gate_detail, reserve_or_charge_generation, settle_trial_generation
     from app.security.bot_login import BotLoginAccessError, BotLoginRateLimits, BotLoginRuntime, bot_login_approval_retry_result, create_bot_login_challenge as security_create_bot_login_challenge, pending_bot_login_challenges_count
     from app.security.http_requests import AvatarImageError, compress_allowlisted_avatar
     from app.security.http_middleware import install_http_security_middleware
@@ -326,6 +334,7 @@ try:
         comfyui_inputs,
         comfyui_watchdog,
         comfyui_workflows,
+        application_lifespan, generation_admission, history_replay,
         generation_jobs,
         generation_recovery,
         generation_results,
@@ -378,6 +387,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         comfyui_inputs,
         comfyui_watchdog,
         comfyui_workflows,
+        application_lifespan, generation_admission, history_replay,
         generation_jobs,
         generation_recovery,
         generation_results,
@@ -514,6 +524,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
     )
 
 try:
+    from .app.database.migrations import RELEASE_FINISH_MIGRATION, apply_release_finish_migration
     from .app.database import (
         ACCOUNT_VERIFICATION_MIGRATION,
         ADMIN_NOTIFICATION_DELIVERY_MIGRATION, ADMIN_NOTIFICATIONS_MIGRATION,
@@ -540,6 +551,7 @@ try:
     )
 
 except ImportError:  # Direct `python backend/main.py` execution.
+    from app.database.migrations import RELEASE_FINISH_MIGRATION, apply_release_finish_migration
     from app.database import (
         ACCOUNT_VERIFICATION_MIGRATION,
         ADMIN_NOTIFICATION_DELIVERY_MIGRATION, ADMIN_NOTIFICATIONS_MIGRATION,
@@ -989,13 +1001,22 @@ EMAIL_OTP_CLEANUP_EXPIRED_AFTER_SECONDS = int(os.getenv("EMAIL_OTP_CLEANUP_EXPIR
 # Dev/test mock email outbox. Records destination + timestamp only — never the OTP.
 _mock_email_outbox: list[dict[str, str]] = []
 
-app = FastAPI(title="OneNode Image Studio API", version="0.1.0")
+GENERATION_CONSUMER = application_lifespan.GenerationConsumerOwner()
+app = FastAPI(
+    title="OneNode Image Studio API", version="0.1.0",
+    lifespan=application_lifespan.make_application_lifespan(
+        startup=lambda: startup(), shutdown=lambda: shutdown(), generation_owner=GENERATION_CONSUMER,
+    ),
+)
 install_http_security_middleware(
     app, policy=_HTTP_SECURITY_POLICY, request_body_max_bytes=REQUEST_BODY_MAX_BYTES
 )
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 if AVATAR_PRESET_DIR is not None:
     app.mount("/avatars", StaticFiles(directory=AVATAR_PRESET_DIR), name="avatars")
+
+app.add_exception_handler(history_replay.HistoricalReplayBlocked, historical_replay_blocked)
+
 
 @app.get("/favicon.svg", include_in_schema=False)
 async def favicon() -> FileResponse:
@@ -1865,12 +1886,19 @@ def enforce_db_guard_after_migrations() -> None:
 def db() -> sqlite3.Connection:
     return open_sqlite(DB_PATH)
 
+_history_replay_policy = history_replay.history_policy_for_connection
+
+
 def init_db() -> None:
     with db() as conn:
         ensure_migration_ledger(
             conn,
-            supported_version=PHONE_CHAT_REQUEST_LIFECYCLE_MIGRATION.version,
+            supported_version=RELEASE_FINISH_MIGRATION.version,
         )
+        if history_replay.history_preservation_enabled(os.environ):
+            apply_release_finish_migration(conn, applied_at=datetime.now(timezone.utc).isoformat())
+            _history_replay_policy(conn)
+            return
         prepare_core_schema_group(conn)
         ensure_outbox_schema(conn)
         now = datetime.now(timezone.utc).isoformat()
@@ -1897,6 +1925,7 @@ def init_db() -> None:
         apply_phone_chat_history_migration(conn, applied_at=now)
         apply_generation_trial_migration(conn, applied_at=now)
         apply_phone_chat_request_lifecycle_migration(conn, applied_at=now)
+        apply_release_finish_migration(conn, applied_at=now)
 
 PROVIDER_CODE_PREFIX = {"web_email": "WEB", "telegram": "TG", "max": "MAX"}
 
@@ -2232,6 +2261,7 @@ def telegram_upsert_identity(conn: sqlite3.Connection, user: dict[str, Any], now
             conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now, legacy_user_id))
 
     if internal_user_id is None:
+        require_public_account_creation_allowed()
         # Create a new user using the project's legacy-safe id format (never altered).
         legacy_user_id = f"telegram_{pid}"
         internal_user_id = uuid.uuid4().hex
@@ -2315,6 +2345,7 @@ def max_upsert_identity(conn: sqlite3.Connection, user: dict[str, Any], now: str
             conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now, legacy_user_id))
 
     if internal_user_id is None:
+        require_public_account_creation_allowed()
         legacy_user_id = f"max_{pid}"
         internal_user_id = uuid.uuid4().hex
         avatar_url, avatar_preset = random_avatar_choice()
@@ -2507,7 +2538,7 @@ def auth_capabilities_payload() -> dict[str, Any]:
     return {
         "ok": True,
         "password_login_available": True,
-        "password_register_available": True,
+        "password_register_available": not closed_beta_enabled(),
         "email_otp_available": email_otp_available(),
         "bot_login": {
             "telegram_bot_login_available": bot_login_available("telegram"),
@@ -2834,7 +2865,7 @@ def enforce_email_otp_rate_limits(
 
 
 def email_otp_upsert_identity(conn: sqlite3.Connection, email_norm: str, now: str, *, verified: bool = True, initialize_intro: bool = True) -> tuple[str, str]:
-    return upsert_web_email_identity(conn, email_norm, now, verified=verified, initialize_intro=initialize_intro, random_avatar_choice=random_avatar_choice, initialize_intro_tariff=_initialize_intro_tariff_if_new)
+    return upsert_web_email_identity(conn, email_norm, now, verified=verified, initialize_intro=initialize_intro, random_avatar_choice=random_avatar_choice, initialize_intro_tariff=_initialize_intro_tariff_if_new, require_account_creation=require_public_account_creation_allowed)
 
 
 def _user_is_banned(conn: sqlite3.Connection, internal_user_id: str | None, legacy_user_id: str | None) -> bool:
@@ -3230,6 +3261,8 @@ def _reconcile_user_tariff(conn: sqlite3.Connection, internal_user_id: str, *, n
     row = conn.execute("SELECT * FROM users WHERE internal_user_id=?", (internal_user_id,)).fetchone()
     if row is None:
         return {"changed": False}
+    if _history_replay_policy(conn).is_historical("users", str(row["id"])):
+        return {"changed": False, "historical": True}
     plan = str(row["plan"] or "free").lower()
     expiry = _as_utc_datetime(row["plan_expires_at"])
     next_grant = _as_utc_datetime(row["plan_next_token_grant_at"])
@@ -3286,6 +3319,8 @@ def _reconcile_user_tariff(conn: sqlite3.Connection, internal_user_id: str, *, n
 
 
 def _initialize_intro_tariff_if_new(conn: sqlite3.Connection, legacy_user_id: str, created_at: str) -> bool:
+    if _history_replay_policy(conn).is_historical("users", legacy_user_id):
+        return False
     row = conn.execute(
         "SELECT internal_user_id, created_at, plan_started_at FROM users WHERE id=?",
         (legacy_user_id,),
@@ -4207,6 +4242,8 @@ def _gallery_page_limits(
 
 
 def recover_gallery_index_from_media(conn: sqlite3.Connection) -> int:
+    if not _history_replay_policy(conn).automatic_history_mutation_allowed:
+        return 0
     """Rebuild missing gallery rows from token ledger + existing media files.
 
     This is a safe self-heal path for cases where SQLite gallery metadata was
@@ -4328,6 +4365,7 @@ def reconcile_stale_generation_state() -> dict[str, int]:
             conn,
             completed_at=completed_at,
             refund_job=refund_generation_tokens,
+            settle_job=settle_trial_generation,
         )
     return report.as_dict()
 
@@ -4349,6 +4387,7 @@ def get_persisted_job_response(job_id: str, user_id: str) -> dict[str, Any] | No
 def persist_job(job: dict[str, Any], request: GenerateRequest | None = None, conn: sqlite3.Connection | None = None) -> None:
     request_data = request.model_dump() if request else job.get("request", {})
     def write(target_conn: sqlite3.Connection) -> None:
+        _history_replay_policy(target_conn).require_allowed("jobs", str(job["id"]))
         generation_jobs.persist_runtime_job(target_conn, job, request_data=request_data, now_iso=datetime.now(timezone.utc).isoformat())
     if conn is not None:
         write(conn)
@@ -4689,199 +4728,15 @@ def estimate_token_cost(req: GenerateRequest) -> int:
 
 
 def charge_generation_tokens(conn: sqlite3.Connection, user_id: str, token_cost: int, job_id: str, req: GenerateRequest, billing_snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Reserve tokens for a generation after request validation has passed.
-
-    There are exactly two accounts: the daily tariff allowance and the main
-    balance. Local server generations consume daily tokens first and then the
-    main balance. API generations consume the main balance only.
-    """
-    now = datetime.now(timezone.utc)
-    now_iso = now.isoformat()
-    today = now.strftime("%Y-%m-%d")
-    user_row = conn.execute(
-        "SELECT id, internal_user_id, token_balance, plan, daily_tokens_used, last_daily_reset FROM users WHERE id = ?",
-        (user_id,),
-    ).fetchone()
-    if user_row is None:
-        raise HTTPException(404, "User not found.")
-    if user_row["internal_user_id"]:
-        _reconcile_user_tariff(conn, str(user_row["internal_user_id"]), now=now)
-        user_row = conn.execute(
-            "SELECT id, internal_user_id, token_balance, plan, daily_tokens_used, last_daily_reset FROM users WHERE id = ?",
-            (user_id,),
-        ).fetchone()
-
-    old_balance = int(user_row["token_balance"] or 0)
-    daily_limit = 0
-    daily_used_before = int(user_row["daily_tokens_used"] or 0)
-    if user_row["last_daily_reset"] != today:
-        daily_used_before = 0
-    daily_part = 0
-    balance_part = 0
-
-    if user_id != "demo_user":
-        tariff = get_tariff_config(conn)[str(user_row["plan"] or "mini").lower()]
-        daily_limit = int(tariff["daily_tokens"])
-        if req.provider != "openrouter":
-            daily_part = min(token_cost, max(0, daily_limit - daily_used_before))
-        balance_part = max(0, token_cost - daily_part)
-        if old_balance < balance_part:
-            raise HTTPException(402, "Not enough tokens.")
-
-    daily_used_after = daily_used_before + daily_part
-    new_balance = old_balance - balance_part if user_id != "demo_user" else old_balance
-    ledger_reason = "daily_generation" if daily_part > 0 and balance_part == 0 else "generation"
-    conn.execute(
-        """
-        UPDATE users
-        SET token_balance = ?,
-            daily_tokens_used = ?,
-            last_daily_reset = ?,
-            tokens_used = tokens_used + ?,
-            generation_count = generation_count + 1,
-            last_seen_at = ?
-        WHERE id = ?
-        """,
-        (new_balance, daily_used_after, today, token_cost, now_iso, user_id),
+    return generation_accounting.charge_generation_tokens(
+        conn, user_id, token_cost, job_id, req, billing_snapshot,
+        reconcile_tariff=_reconcile_user_tariff, tariff_config=get_tariff_config, error=HTTPException,
     )
-    conn.execute(
-        "INSERT INTO token_ledger (id, user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (
-            str(uuid.uuid4()),
-            user_id,
-            -balance_part,
-            ledger_reason,
-            json.dumps(
-                {
-                    "jobId": job_id,
-                    "mode": req.mode,
-                    "provider": req.provider,
-                    "token_cost": token_cost,
-                    "billing": billing_snapshot or None,
-                    "used_daily_budget": daily_part > 0,
-                    "daily_part": daily_part,
-                    "balance_part": balance_part,
-                    "daily_tokens_used_before": daily_used_before,
-                    "daily_tokens_used_after": daily_used_after,
-                    "daily_tokens_limit": daily_limit,
-                    "balance_delta": -balance_part,
-                },
-                ensure_ascii=False,
-            ),
-            now_iso,
-        ),
-    )
-    return {
-        "used_daily": daily_part > 0,
-        "old_balance": old_balance,
-        "new_balance": new_balance,
-        "balance_delta": -balance_part,
-        "daily_part": daily_part,
-        "balance_part": balance_part,
-        "daily_tokens_used": daily_used_after,
-        "daily_tokens_limit": daily_limit,
-        "daily_tokens_remaining": max(0, daily_limit - daily_used_after),
-    }
 
 
 def refund_generation_tokens(conn: sqlite3.Connection, job_id: str, *, reason: str) -> bool:
-    """Idempotently reverse a generation charge for failed/cancelled jobs."""
-    existing_refund = conn.execute(
-        "SELECT 1 FROM token_ledger WHERE reason IN ('generation_refund', 'daily_generation_refund', 'openrouter_monthly_generation_refund') AND meta_json LIKE ?",
-        (f'%"jobId": "{job_id}"%',),
-    ).fetchone()
-    if existing_refund is not None:
-        return False
-    charge = conn.execute(
-        """
-        SELECT * FROM token_ledger
-        WHERE reason IN ('generation', 'daily_generation', 'openrouter_monthly_generation') AND meta_json LIKE ?
-        ORDER BY created_at DESC LIMIT 1
-        """,
-        (f'%"jobId": "{job_id}"%',),
-    ).fetchone()
-    if charge is None:
-        return False
-    meta = safe_json_load(charge["meta_json"]) or {}
-    user_id = charge["user_id"]
-    token_cost = int(meta.get("token_cost") or abs(int(charge["delta"] or 0)) or 0)
-    now = datetime.now(timezone.utc)
-    now_iso = now.isoformat()
-    today = now.strftime("%Y-%m-%d")
-    month_key = now.strftime("%Y-%m")
-    if "daily_part" in meta or "balance_part" in meta:
-        daily_part = max(0, int(meta.get("daily_part") or 0))
-        balance_part = max(0, int(meta.get("balance_part") or 0))
-        user_row = conn.execute(
-            "SELECT daily_tokens_used, last_daily_reset FROM users WHERE id = ?",
-            (user_id,),
-        ).fetchone()
-        if user_row is not None and user_row["last_daily_reset"] == today and daily_part > 0:
-            conn.execute(
-                "UPDATE users SET daily_tokens_used = MAX(0, daily_tokens_used - ?) WHERE id = ?",
-                (daily_part, user_id),
-            )
-        if balance_part > 0:
-            conn.execute(
-                "UPDATE users SET token_balance = token_balance + ? WHERE id = ?",
-                (balance_part, user_id),
-            )
-        refund_delta = balance_part
-        refund_reason = "generation_refund" if balance_part > 0 else "daily_generation_refund"
-    elif charge["reason"] == "daily_generation":
-        user_row = conn.execute("SELECT daily_tokens_used, last_daily_reset FROM users WHERE id = ?", (user_id,)).fetchone()
-        if user_row is not None and user_row["last_daily_reset"] == today and token_cost > 0:
-            new_daily = max(0, int(user_row["daily_tokens_used"] or 0) - token_cost)
-            conn.execute("UPDATE users SET daily_tokens_used = ? WHERE id = ?", (new_daily, user_id))
-        refund_delta = 0
-        refund_reason = "daily_generation_refund"
-    elif charge["reason"] == "openrouter_monthly_generation":
-        monthly_part = max(0, int(meta.get("openrouter_monthly_used_after") or 0) - int(meta.get("openrouter_monthly_used_before") or 0))
-        user_row = conn.execute("SELECT openrouter_monthly_tokens_used, last_openrouter_month_reset FROM users WHERE id = ?", (user_id,)).fetchone()
-        if user_row is not None and user_row["last_openrouter_month_reset"] == month_key and monthly_part > 0:
-            new_monthly = max(0, int(user_row["openrouter_monthly_tokens_used"] or 0) - monthly_part)
-            conn.execute("UPDATE users SET openrouter_monthly_tokens_used = ? WHERE id = ?", (new_monthly, user_id))
-        refund_delta = abs(int(charge["delta"] or 0))
-        refund_reason = "openrouter_monthly_generation_refund"
-        if refund_delta > 0:
-            conn.execute("UPDATE users SET token_balance = token_balance + ? WHERE id = ?", (refund_delta, user_id))
-    else:
-        refund_delta = abs(int(charge["delta"] or 0))
-        refund_reason = "generation_refund"
-        if refund_delta > 0:
-            conn.execute("UPDATE users SET token_balance = token_balance + ? WHERE id = ?", (refund_delta, user_id))
-    if token_cost > 0:
-        conn.execute(
-            """
-            UPDATE users
-            SET tokens_used = MAX(0, tokens_used - ?),
-                generation_count = MAX(0, generation_count - 1)
-            WHERE id = ?
-            """,
-            (token_cost, user_id),
-        )
-    conn.execute(
-        "INSERT INTO token_ledger (id, user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (
-            str(uuid.uuid4()),
-            user_id,
-            refund_delta,
-            refund_reason,
-            json.dumps(
-                {
-                    "jobId": job_id,
-                    "reason": reason,
-                    "refunded_ledger_id": charge["id"],
-                    "token_cost": token_cost,
-                    "daily_part": max(0, int(meta.get("daily_part") or 0)),
-                    "balance_part": refund_delta,
-                },
-                ensure_ascii=False,
-            ),
-            now_iso,
-        ),
-    )
-    return True
+    _history_replay_policy(conn).require_allowed("jobs", job_id)
+    return generation_accounting.refund_generation_tokens(conn, job_id, reason=reason)
 
 
 mini_app_url = mini_app_public_url
@@ -6853,6 +6708,8 @@ async def fetch_openrouter_key_status(force: bool = False) -> dict[str, Any]:
 
 
 async def send_to_openrouter(payload: GenerateRequest, job: dict[str, Any]) -> OpenRouterResult:
+    with closing(db()) as conn:
+        _history_replay_policy(conn).require_allowed("jobs", str(job["id"]))
     if not openrouter_api_key():
         raise RuntimeError("OPENROUTER_API_KEY не задан. Добавьте ключ перед включением OpenRouter.")
     model = resolve_openrouter_model(payload)
@@ -7403,6 +7260,8 @@ async def download_comfyui_image(image: dict[str, str], job_id: str) -> tuple[Pa
 
 
 async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> ComfyUIResult | None:
+    with closing(db()) as conn:
+        _history_replay_policy(conn).require_allowed("jobs", str(job["id"]))
     if _saved_setting("config_ui_runtime").get("imageEnabled") is False:
         raise RuntimeError("Локальная генерация изображений отключена администратором.")
     await wait_for_comfyui_recovery_gate()
@@ -7704,8 +7563,13 @@ def _worker_register_transient_image(record: dict[str, Any]) -> None:
     images[record["id"]] = record
 
 
+_guard_generation_job = partial(guard_generation_job, lambda: db())
+
+
 def _generation_worker_runtime() -> generation_worker.GenerationWorkerRuntime:
     return generation_worker.GenerationWorkerRuntime(
+        history_guard=_guard_generation_job,
+        history_guard_required=history_replay.history_preservation_enabled(os.environ),
         comfyui_mock_fallback=COMFYUI_MOCK_FALLBACK,
         persist_job=persist_job,
         refund_tokens=_worker_refund_tokens,
@@ -7727,6 +7591,8 @@ def _generation_worker_runtime() -> generation_worker.GenerationWorkerRuntime:
 
 def _generation_queue_runtime() -> generation_queue.GenerationQueueRuntime:
     return generation_queue.GenerationQueueRuntime(
+        history_guard=_guard_generation_job,
+        history_guard_required=history_replay.history_preservation_enabled(os.environ),
         queue=queue,
         jobs=jobs,
         parse_request=lambda payload: GenerateRequest(**payload),
@@ -7740,9 +7606,8 @@ async def worker() -> None:
     await generation_queue.consume_generation_queue(_generation_queue_runtime())
 
 
-@app.on_event("startup")
 async def startup() -> None:
-    global worker_started
+    global worker_started, queue
     validate_config_production_configuration(
         runtime=RUNTIME_ENVIRONMENT_POLICY,
         http_security=_HTTP_SECURITY_POLICY,
@@ -7758,35 +7623,37 @@ async def startup() -> None:
         assert_release_schema_compatible(RELEASE_IDENTITY, schema_version)
     validate_session_crypto_config()
     init_db()
-    video_cleanup = drain_video_file_deletions(limit=200)
-    if video_cleanup["checked"]:
-        print(f"video file deletion queue: {video_cleanup}")
-    bot_runtime = apply_saved_bot_runtime_configuration()
-    validate_telegram_webhook_secret(BOT_UPDATES_MODE, TELEGRAM_WEBHOOK_SECRET)
-    validate_max_webhook_secret(MAX_UPDATES_MODE, MAX_WEBHOOK_SECRET)
-    print(
-        "bot runtime configuration "
-        f"source={bot_runtime['source']} "
-        f"telegramMode={bot_runtime['telegramMode']} "
-        f"maxMode={bot_runtime['maxMode']}"
-    )
-    openrouter_secret_migration = migrate_openrouter_secret_from_sqlite()
-    if openrouter_secret_migration != "not_configured":
-        print(f"OpenRouter secret store status={openrouter_secret_migration} source={openrouter_api_key_source()}")
-    ADMIN_NOTIFICATION_DELIVERY_WORKER.start(connection_factory=db, send_telegram=send_admin_telegram_notification, send_email=send_admin_email_notification)
-    SOCIAL_DELIVERY_WORKER.start(
-        connection_factory=db,
-        send_telegram=send_social_telegram_publication,
-        send_max=send_social_max_publication,
-        send_vk=send_social_vk_publication, send_vk_story=send_social_vk_story, delete_social=delete_social_publication,
-    )
+    preserve_history = history_replay.history_preservation_enabled(os.environ)
+    if not preserve_history:
+        video_cleanup = drain_video_file_deletions(limit=200)
+        if video_cleanup["checked"]:
+            print(f"video file deletion queue: {video_cleanup}")
+        bot_runtime = apply_saved_bot_runtime_configuration()
+        validate_telegram_webhook_secret(BOT_UPDATES_MODE, TELEGRAM_WEBHOOK_SECRET)
+        validate_max_webhook_secret(MAX_UPDATES_MODE, MAX_WEBHOOK_SECRET)
+        print(
+            "bot runtime configuration "
+            f"source={bot_runtime['source']} "
+            f"telegramMode={bot_runtime['telegramMode']} "
+            f"maxMode={bot_runtime['maxMode']}"
+        )
+        openrouter_secret_migration = migrate_openrouter_secret_from_sqlite()
+        if openrouter_secret_migration != "not_configured":
+            print(f"OpenRouter secret store status={openrouter_secret_migration} source={openrouter_api_key_source()}")
+        ADMIN_NOTIFICATION_DELIVERY_WORKER.start(connection_factory=db, send_telegram=send_admin_telegram_notification, send_email=send_admin_email_notification)
+        SOCIAL_DELIVERY_WORKER.start(
+            connection_factory=db,
+            send_telegram=send_social_telegram_publication,
+            send_max=send_social_max_publication,
+            send_vk=send_social_vk_publication, send_vk_story=send_social_vk_story, delete_social=delete_social_publication,
+        )
     enforce_db_guard_after_migrations()
-    if is_production_like_env():
+    if is_production_like_env() and not preserve_history:
         ACCOUNT_RETENTION_WORKER.start_with_cleanup(connect=db, record_security_event=record_security_event)
     generation_recovery_report = reconcile_stale_generation_state()
     if generation_recovery_report["checked"]:
         print(f"generation startup reconciliation: {generation_recovery_report}")
-    storage_maintenance_enabled = startup_storage_maintenance_allowed(os.environ)
+    storage_maintenance_enabled = not preserve_history and startup_storage_maintenance_allowed(os.environ)
     if storage_maintenance_enabled:
         recovered_gallery = recover_missing_optimized_gallery_files()
         if any(value for key, value in recovered_gallery.items() if key != "checked"):
@@ -7808,39 +7675,40 @@ async def startup() -> None:
             print(f"image source repair: {repaired_sources}")
     else:
         print("startup storage maintenance skipped by runtime safety policy")
-    backfilled_feed = backfill_feed_generation_snapshots()
+    backfilled_feed = 0 if preserve_history else backfill_feed_generation_snapshots()
     if backfilled_feed:
         print(f"feed generation snapshots backfilled: {backfilled_feed}")
     recovered_feed_videos = start_feed_video_publication_worker()
     if recovered_feed_videos:
         print(f"feed video publications requeued: {recovered_feed_videos}")
     load_db_state()
-    energy_telemetry.POWER_TELEMETRY_WORKER.start(connect=db)
-    if is_production_like_env():
+    if not preserve_history:
+        energy_telemetry.POWER_TELEMETRY_WORKER.start(connect=db)
+    if is_production_like_env() and not preserve_history:
         assistant_runtime.OLLAMA_RESIDENCY.start(assistant_models_config)
     if storage_maintenance_enabled:
         asyncio.create_task(asyncio.to_thread(optimize_existing_gallery_storage))
-    worker_started = generation_queue.start_generation_consumer_once(
-        already_started=worker_started,
-        create_task=asyncio.create_task,
-        consumer=worker,
-    )
-    start_bot_workers(
-        BOT_RUNTIME,
-        telegram_poll=telegram_poll_once_from_api,
-        max_poll=max_poll_once_from_api,
-    )
+    if not worker_started:
+        queue = asyncio.Queue()
+        worker_started = GENERATION_CONSUMER.start(worker)
+    if not preserve_history:
+        start_bot_workers(
+            BOT_RUNTIME,
+            telegram_poll=telegram_poll_once_from_api,
+            max_poll=max_poll_once_from_api,
+        )
 
-
-@app.on_event("shutdown")
 async def shutdown() -> None:
-    await assistant_runtime.OLLAMA_RESIDENCY.stop()
-    await energy_telemetry.POWER_TELEMETRY_WORKER.stop()
-    await ACCOUNT_RETENTION_WORKER.stop()
-    await ADMIN_NOTIFICATION_DELIVERY_WORKER.stop()
-    await SOCIAL_DELIVERY_WORKER.stop()
-    await stop_feed_video_publication_worker()
-    await stop_bot_workers(BOT_RUNTIME)
+    global worker_started
+    try:
+        await application_lifespan.stop_all(
+            assistant_runtime.OLLAMA_RESIDENCY.stop, energy_telemetry.POWER_TELEMETRY_WORKER.stop,
+            ACCOUNT_RETENTION_WORKER.stop, ADMIN_NOTIFICATION_DELIVERY_WORKER.stop,
+            SOCIAL_DELIVERY_WORKER.stop, stop_feed_video_publication_worker,
+            lambda: stop_bot_workers(BOT_RUNTIME),
+        )
+    finally:
+        worker_started = False
 
 
 @app.get("/api/health")
@@ -8183,11 +8051,28 @@ async def transcribe_audio(
 @app.post("/api/generate")
 async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
     req = normalize_generation_request(req)
-    trusted = require_trusted_user(request)
-    require_generation_social_verification(trusted, req)
+    trusted = resolve_trusted_user(request)
     user_id = trusted["legacy_user_id"]
     internal_user_id = trusted["internal_user_id"]
     session_id = trusted.get("session_id")
+    idempotency_key = request.headers.get("Idempotency-Key")
+    if idempotency_key is None:
+        idempotency_key = "legacy-" + uuid.uuid4().hex
+    normalized_request = req.model_dump(mode="json")
+    try:
+        with closing(db()) as conn:
+            existing = generation_admission.lookup_generation_admission(
+                conn, trusted_user_id=user_id, idempotency_key=idempotency_key,
+                normalized_request=normalized_request,
+            )
+    except generation_admission.IdempotencyConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if existing is not None:
+        return existing.response | (get_persisted_job_response(existing.job_id, user_id) or {})
+    expire_paid_plan_if_needed(internal_user_id)
+    require_generation_social_verification(trusted, req)
     openrouter_billing: dict[str, Any] | None = None
     with db() as conn:
         user_row = conn.execute("SELECT id, plan FROM users WHERE id = ?", (user_id,)).fetchone()
@@ -8263,7 +8148,6 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
     if req.mode == "outpaint" and not any(comfyui_inputs.outpaint_padding(req.outpaint or {}).values()):
         raise HTTPException(422, "Задайте ненулевое поле расширения слева, справа, сверху или снизу.")
     validate_generation_media_inputs(req, user_id)
-    ensure_rate_limit(user_id)
     job_id = f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
     job = {
         "id": job_id,
@@ -8278,13 +8162,36 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
         "openrouterBilling": openrouter_billing,
         "createdAt": datetime.now(timezone.utc).isoformat(),
     }
-    with db() as conn:
+    def create_job_and_accounting(conn: sqlite3.Connection) -> tuple[str, dict[str, Any]]:
+        ensure_rate_limit(user_id)
         token_charge = reserve_or_charge_generation(
             conn, internal_user_id, job_id, now=datetime.now(timezone.utc).isoformat(), job=job,
             charge=lambda: charge_generation_tokens(conn, user_id, token_cost, job_id, req, openrouter_billing),
             denied=lambda detail: HTTPException(403, detail=detail),
         )
         persist_job(job, req, conn=conn)
+        return job_id, {k: v for k, v in job.items() if k != "request"} | {
+            "queuePosition": queue.qsize() + 1,
+            "tokenCost": int(job["tokenCost"]),
+            "usedDailyBudget": token_charge["used_daily"],
+            "tokenBalance": token_charge["new_balance"],
+            "mainBalanceTokens": token_charge["new_balance"],
+            "dailyTokenPart": token_charge["daily_part"],
+            "mainBalanceTokenPart": token_charge["balance_part"],
+            "dailyTokensUsed": token_charge["daily_tokens_used"],
+            "dailyTokensLimit": token_charge["daily_tokens_limit"],
+            "dailyTokensRemaining": token_charge["daily_tokens_remaining"],
+        }
+    try:
+        with closing(db()) as conn, conn:
+            admission = generation_admission.admit_generation(
+                conn, trusted_user_id=user_id, idempotency_key=idempotency_key,
+                normalized_request=normalized_request, create_job_and_accounting=create_job_and_accounting,
+            )
+    except generation_admission.IdempotencyConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if not admission.created:
+        return admission.response | (get_persisted_job_response(admission.job_id, user_id) or {})
     jobs[job_id] = job
     await queue.put(job_id)
     try:
@@ -8294,22 +8201,11 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
             legacy_user_id=user_id,
             session_id=session_id,
             platform=trusted.get("platform", "web"),
-            properties={"mode": req.mode, "provider": req.provider, "size": f"{req.width}x{req.height}", "token_cost": token_cost, "openrouter_billing": openrouter_billing},
+            properties={"mode": req.mode, "provider": req.provider, "size": f"{req.width}x{req.height}", "token_cost": int(job["tokenCost"]), "openrouter_billing": openrouter_billing},
         )
     except Exception:
         pass
-    return {k: v for k, v in job.items() if k != "request"} | {
-        "queuePosition": queue.qsize(),
-        "tokenCost": token_cost,
-        "usedDailyBudget": token_charge["used_daily"],
-        "tokenBalance": token_charge["new_balance"],
-        "mainBalanceTokens": token_charge["new_balance"],
-        "dailyTokenPart": token_charge["daily_part"],
-        "mainBalanceTokenPart": token_charge["balance_part"],
-        "dailyTokensUsed": token_charge["daily_tokens_used"],
-        "dailyTokensLimit": token_charge["daily_tokens_limit"],
-        "dailyTokensRemaining": token_charge["daily_tokens_remaining"],
-    }
+    return admission.response
 
 
 @app.get("/api/jobs/{job_id}")
@@ -9158,6 +9054,7 @@ async def legacy_secure_media(filename: str, request: Request) -> FileResponse:
 
 @app.post("/api/app/bootstrap")
 async def bootstrap(auth: MiniAppAuthRequest, response: Response, request: Request) -> dict[str, Any]:
+    require_public_account_creation_allowed()
     # In production, never accept an empty or demo_user identity silently.
     if is_production_like_env() and (not auth.userId or auth.userId == "demo_user"):
         raise HTTPException(401, "Authentication required")
@@ -9972,6 +9869,7 @@ async def auth_password_register_v2(req: PasswordRegisterV2Request, request: Req
     session and requires a verified MAX or Telegram bot identity before any
     generation allowance is enabled. Never stores/logs the raw password.
     Generic 409 if an account already has a password."""
+    require_public_account_creation_allowed()
     platform = "web"
     email_norm = normalize_email(req.email)
     if not email_norm:
@@ -11344,6 +11242,8 @@ def _billing_package_dict(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def _sync_tariff_billing_packages(conn: sqlite3.Connection) -> None:
+    if not _history_replay_policy(conn).automatic_history_mutation_allowed:
+        return
     now = datetime.now(timezone.utc).isoformat()
     tariffs = get_tariff_config(conn)
     offers = tariff_term_offers(conn)
@@ -12033,8 +11933,10 @@ async def billing_payment_status_v2(payment_id: str, request: Request) -> dict[s
     if payment is None:
         raise HTTPException(404, "Платеж не найден.")
 
+    with closing(db()) as conn:
+        historical = _history_replay_policy(conn).is_historical("payments", payment_id)
     verification_error = None
-    if payment["status"] == "pending" and payment["provider_payment_id"]:
+    if not historical and payment["status"] == "pending" and payment["provider_payment_id"]:
         try:
             if payment["provider"] == "simulator" and billing_simulator_enabled():
                 simulated = await simulated_payment_provider().fetch_payment(str(payment["provider_payment_id"]))
@@ -12121,6 +12023,13 @@ async def billing_yookassa_webhook_v2(request: Request) -> dict[str, Any]:
     provider_payment_id = str(obj.get("id") or "")
     if not event_type or not provider_payment_id:
         raise HTTPException(400, "Invalid YooKassa event.")
+    with closing(db()) as conn:
+        historical_payment = conn.execute(
+            "SELECT id FROM payments WHERE provider='yookassa' AND provider_payment_id=?",
+            (provider_payment_id,),
+        ).fetchone()
+        if historical_payment and _history_replay_policy(conn).is_historical("payments", str(historical_payment["id"])):
+            return {"ok": True, "historical": True}
     event_key = f"{event_type}:{provider_payment_id}"
     now = datetime.now(timezone.utc).isoformat()
     with db() as conn:
@@ -12203,6 +12112,9 @@ async def admin_reconcile_payments_v2(
             "ORDER BY updated_at, id LIMIT ?",
             (req.limit,),
         ).fetchall()
+    with closing(db()) as conn:
+        policy = _history_replay_policy(conn)
+    rows = [row for row in rows if not policy.is_historical("payments", str(row["id"]))]
     report: dict[str, Any] = {"checked": 0, "paid": 0, "canceled": 0, "pending": 0, "errors": []}
     for payment in rows:
         report["checked"] += 1
@@ -12266,6 +12178,12 @@ async def admin_process_payment_notifications_v2(
         messages = claim_payment_notifications(conn, limit=req.limit)
     report: dict[str, Any] = {"checked": len(messages), "sent": 0, "retried": 0, "errors": []}
     for message in messages:
+        with closing(db()) as conn:
+            policy = _history_replay_policy(conn)
+        try:
+            policy.require_allowed("payment_notification_outbox", message.id, parents=(("payments", message.payment_id),))
+        except history_replay.HistoricalReplayBlocked:
+            continue
         try:
             if message.channel == "in_app":
                 pass
@@ -13112,6 +13030,7 @@ def _cancel_provider_payment(provider: str, provider_payment_id: str) -> None:
         ).fetchone()
         if payment is None or payment["status"] != "pending":
             return
+        _history_replay_policy(conn).require_allowed("payments", str(payment["id"]))
         conn.execute("UPDATE payments SET status='canceled', updated_at=? WHERE id=?", (now, payment["id"]))
         conn.execute(
             "UPDATE invoices SET status='cancelled', cancelled_at=?, updated_at=? WHERE id=? AND status!='paid'",
@@ -13183,6 +13102,7 @@ def _complete_provider_payment(
         ).fetchone()
         if payment is None:
             raise HTTPException(404, "Payment not found.")
+        _history_replay_policy(conn).require_allowed("payments", str(payment["id"]))
         invoice = conn.execute("SELECT * FROM invoices WHERE id = ?", (payment["invoice_id"],)).fetchone()
         if invoice is None:
             raise HTTPException(409, "Payment invoice not found.")
@@ -16204,10 +16124,12 @@ def _queue_video_file_deletion(
 
 def drain_video_file_deletions(*, limit: int = 50) -> dict[str, int]:
     with db() as conn:
+        policy = _history_replay_policy(conn)
         rows = conn.execute(
             "SELECT * FROM video_file_deletions ORDER BY created_at ASC, id ASC LIMIT ?",
             (max(1, min(int(limit), 500)),),
         ).fetchall()
+    rows = [row for row in rows if not policy.is_historical("video_file_deletions", str(row["id"]))]
     removed = 0
     failed = 0
     for row in rows:
@@ -16495,6 +16417,9 @@ async def estimate_video(req: VideoGenerateRequest, request: Request) -> dict[st
         raise HTTPException(422, "Модель не поддерживает выбранный формат кадра.")
     return await estimate_openrouter_video_billing(model, req)
 async def _refresh_video_job(row: sqlite3.Row) -> sqlite3.Row:
+    with closing(db()) as conn:
+        if _history_replay_policy(conn).is_historical("jobs", str(row["id"])):
+            return row
     initial_settings = safe_json_load(row["settings_json"]) or {}
     if row["status"] == "finalizing" and video_storage.finalization_is_fresh(
         initial_settings, stale_seconds=VIDEO_FINALIZATION_STALE_SECONDS
@@ -16645,6 +16570,8 @@ async def get_video_job(job_id: str, request: Request) -> dict[str, Any]:
 
 
 def _backfill_completed_video_gallery(conn: sqlite3.Connection, user_id: str) -> int:
+    if not _history_replay_policy(conn).automatic_history_mutation_allowed:
+        return 0
     rows = conn.execute(
         "SELECT * FROM jobs WHERE user_id=? AND status='completed' "
         "AND mode IN ('text_to_video','image_to_video','first_last_frame','reference_to_video')",
@@ -18357,6 +18284,9 @@ def _feed_video_publication_status_payload(publication: sqlite3.Row) -> dict[str
 
 
 def _prepare_feed_video_publication(publication_id: str) -> None:
+    with closing(db()) as conn:
+        if _history_replay_policy(conn).is_historical("feed_publications", publication_id):
+            return
     assets: FeedVideoAssetInfo | None = None
     try:
         with db() as conn:
@@ -18470,6 +18400,9 @@ def start_feed_video_publication_worker() -> int:
                 "SELECT id FROM feed_publications WHERE media_type = 'video' AND status = 'preparing' ORDER BY created_at"
             ).fetchall()
         ]
+    with closing(db()) as conn:
+        policy = _history_replay_policy(conn)
+    pending_ids = [identity for identity in pending_ids if not policy.is_historical("feed_publications", identity)]
     for publication_id in pending_ids:
         feed_video_publication_queue.put_nowait(publication_id)
     return len(pending_ids)
@@ -18502,6 +18435,8 @@ async def stop_feed_video_publication_worker() -> None:
 
 
 async def enqueue_feed_video_publication(publication_id: str) -> None:
+    with closing(db()) as conn:
+        _history_replay_policy(conn).require_allowed("feed_publications", publication_id)
     if feed_video_publication_worker_stopping:
         raise RuntimeError("Feed video publication worker is stopping")
     if feed_video_publication_worker_task is None or feed_video_publication_worker_task.done() or feed_video_publication_queue is None:

@@ -1,0 +1,221 @@
+manifestVersion = 1
+id = "RELEASE-FINISH-002-FINAL"
+baseSha = "3441a4d17ec9503bc5f617b6ffb2a439e979dd08"
+goal = "Integrate reviewed backend, client transport and Linux packaging dependency packages and durable authenticated generation admission and restored-history no-replay into the existing Linux beta. Close public account-creation paths for the beta and consolidate dependency contracts into one exact CI manifest."
+userOutcome = "The existing izo-asa-linux-test-a serves historical accounts and real Flux Klein 4B results while preserving history and charging each accepted operation once."
+beforeScenario = "The Linux UI has produced one real 4B image, but request idempotency and restored-history no-replay are not yet integrated; legacy test-health debt review also expires."
+afterScenario = "Trusted user/key admission atomically records normalized request, job and accounting; restored historical effects are fenced, and exact-source checks support the authorized existing-project update."
+nonGoals = [
+  "Change public izo.alikinas.ru or ASA Lab",
+  "Create another application installation",
+  "Change original database/media snapshots or password hashes",
+  "Modify global GPU operations, network topology or other Docker projects",
+  "Disable checks, suppress warnings or invent CI evidence",
+]
+declaredFiles = [
+  "architecture/contract.json",
+  "architecture/test-health-policy.json",
+  "backend/SYMBOL_MAP.json",
+  "backend/SYMBOL_MAP.md",
+  "backend/app/billing/generation_accounting.py",
+  "backend/app/billing/outbox.py",
+  "backend/app/database/migrations.py",
+  "backend/app/security/account_verification.py",
+  "backend/app/services/account_retention.py",
+  "backend/app/services/admin_notification_delivery.py",
+  "backend/app/services/application_lifespan.py",
+  "backend/app/services/generation_admission.py",
+  "backend/app/services/generation_queue.py",
+  "backend/app/services/generation_recovery.py",
+  "backend/app/services/generation_worker.py",
+  "backend/app/services/history_replay.py",
+  "backend/app/services/ltx_video/orchestration.py",
+  "backend/app/services/social_delivery.py",
+  "backend/main.py",
+  "backend/test_application_lifespan.py",
+  "backend/test_closed_beta_accounts.py",
+  "backend/test_generation_admission_http.py",
+  "backend/test_generation_refunds_atomic.py",
+  "backend/test_history_replay.py",
+  "backend/test_history_replay_integration.py",
+  "backend/test_release_finish_history_http.py",
+  "backend/test_release_finish_idempotency_http.py",
+  "backend/test_release_finish_lifespan.py",
+  "backend/test_services_generation_admission.py",
+  "backend/test_services_generation_queue_module.py",
+  "docs/NOW.md",
+  "docs/admin-mutation-audit.md",
+  "docs/agent-tasks/APPLICATION-LIFESPAN-002.md",
+  "docs/agent-tasks/GENERATION-ADMISSION-IDEMPOTENCY-001.md",
+  "docs/agent-tasks/GENERATION-CLIENT-IDEMPOTENCY-001.md",
+  "docs/agent-tasks/HISTORY-NO-REPLAY-001.md",
+  "docs/agent-tasks/HISTORY-NO-REPLAY-INTEGRATION-001.md",
+  "docs/agent-tasks/RELEASE-FINISH-002-BETA.md",
+  "docs/agent-tasks/RELEASE-FINISH-002-FINAL.md",
+  "docs/agent-tasks/RELEASE-FINISH-002-INTEGRATION.md",
+  "docs/agent-tasks/RELEASE-FINISH-002-TEST-HEALTH.md",
+  "docs/agent-tasks/RELEASE-FINISH-002.md",
+  "docs/agent-tasks/RELEASE-FINISH-SCHEMA-008.md",
+  "docs/generated/architecture-inventory.json",
+  "docs/generated/architecture-inventory.md",
+  "docs/generated/context-index.json",
+  "docs/generated/context-index.md",
+  "docs/generated/frontend-map.json",
+  "docs/generated/frontend-map.md",
+  "docs/generated/product-flow-map.json",
+  "docs/generated/product-flow-map.md",
+  "frontend/generationAdmission.test.ts",
+  "frontend/src/generationAdmission.ts",
+  "frontend/src/phone/core/http.ts",
+  "frontend/src/studio/studioApi.ts",
+  "tasks/APPLICATION-LIFESPAN-002.toml",
+  "tasks/GENERATION-ADMISSION-IDEMPOTENCY-001.toml",
+  "tasks/GENERATION-CLIENT-IDEMPOTENCY-001.toml",
+  "tasks/HISTORY-NO-REPLAY-001.toml",
+  "tasks/HISTORY-NO-REPLAY-INTEGRATION-001.toml",
+  "tasks/RELEASE-FINISH-002-BETA.toml",
+  "tasks/RELEASE-FINISH-002-FINAL.toml",
+  "tasks/RELEASE-FINISH-002-INTEGRATION.toml",
+  "tasks/RELEASE-FINISH-002-TEST-HEALTH.toml",
+  "tasks/RELEASE-FINISH-002.toml",
+  "tasks/RELEASE-FINISH-SCHEMA-008.toml",
+  "tools/docker_test_bundle.py",
+  "tools/docker_test_bundle_format.py",
+  "tools/docker_test_bundle_runtime.py",
+  "tools/test_docker_bundle_schema.py",
+  "tools/test_docker_synthetic_runtime.py",
+  "tools/test_docker_test_bundle_build.py",
+  "tools/test_docker_test_bundle_images.py",
+  "tools/test_migrate_openrouter_secret.py",
+  "tools/test_migration_resource_lifecycle.py",
+  "tools/test_test_health_audit.py",
+]
+allowedPatterns = [
+  "backend/app/api/beta_policy.py",
+  "backend/test_generation_recovery_wiring.py",
+  "tools/docker_history_beta_profile.py",
+  "tools/test_docker_history_beta_profile.py",
+  "tasks/RELEASE-FINISH-HISTORY-PROFILE-001.toml",
+  "docs/agent-tasks/RELEASE-FINISH-HISTORY-PROFILE-001.md",
+  "backend/test_social_account_verification.py",
+  "backend/app/storage/source_graph.py",
+  "backend/test_database_modules.py",
+  "tools/test_generate_architecture_inventory.py",
+  "tools/verify.ps1",
+  "tools/test_agent_instructions.py",
+]
+forbiddenPatterns = [
+  "ops/windows/**",
+  "ops/release/**",
+  "tasks/OPENROUTER-LINUX-SHADOW-001.toml",
+]
+protectedFilesTouched = [
+  "backend/main.py",
+]
+domain = "image-generation"
+riskClass = "high-assurance"
+changeClass = "product-behavior"
+maxProductionFiles = 24
+maxChangedLines = 12000
+acceptance = [
+  "Trusted session owns the durable user and Idempotency-Key pair",
+  "Normalized fingerprint mismatch is rejected and repeats return the existing accepted result",
+  "Job and accounting are committed atomically with the durable admission",
+  "Concurrent HTTP groups of 2, 5 and 10 admit one job and one accounting operation",
+  "Failures and repeated refunds preserve at-most-once accounting",
+  "Historical jobs, outbox, payments, publications and recovery cannot replay",
+  "Browsing restored history preserves old balances and ledger",
+  "The frozen main compatibility shell does not grow",
+  "Required CI and independent review remain enforced",
+  "Closed-beta mode rejects public account creation while preserving existing password and verified-provider login",
+]
+requiredEvidence = [
+  "Native registry ownership and exact clean base",
+  "Focused race, rollback, failure and HTTP integration results",
+  "Generated maps from their official generators",
+  "Fresh historical clone source fingerprints, counts and no-replay runtime evidence",
+  "Exact-source independent review and mandatory CI",
+  "Native 1Panel update receipt and actual external browser evidence",
+]
+targetedTests = [
+  "backend/test_release_finish_idempotency_http.py",
+  "backend/test_release_finish_history_http.py",
+  "backend/test_release_finish_lifespan.py",
+]
+fileGrowthExpectations = [
+  "New business behavior lives in cohesive app modules from separately registered packages",
+  "Keep backend/main.py net non-growth through extraction and small composition calls",
+  "Only additive versioned migrations",
+  "Change architecture budgets only downward after extraction, never to permit growth",
+  "Update test-health policy only from concrete reviewed evidence, never a blind date extension",
+]
+forbiddenOperations = [
+  "Direct main push or foreign ownership mutation",
+  "Source snapshot mutation or password hash replacement",
+  "Real payment, mail, webhook or social send",
+  "Global ComfyUI interrupt, free, unload or queue mutation",
+  "Production public domain cutover",
+  "Unrelated Docker/ASA Lab changes",
+  "Treat synthetic auth as historical password acceptance",
+]
+rollbackBoundary = "Before runtime activation preserve current Compose, release and test data. Switch only existing native 1Panel project to a verified fresh history clone, retaining original snapshots and prior test volumes for reversible configuration rollback."
+
+[[scopeExpansions]]
+path = "backend/app/api/beta_policy.py"
+reason = "Keep the frozen composition shell symbol count unchanged through API policy extraction; preserve meaningful recovery spies for the new atomic transaction contract."
+recordedAtUtc = "2026-11-07T23:13:46.039880Z"
+
+[[scopeExpansions]]
+path = "backend/test_generation_recovery_wiring.py"
+reason = "Keep the frozen composition shell symbol count unchanged through API policy extraction; preserve meaningful recovery spies for the new atomic transaction contract."
+recordedAtUtc = "2026-11-07T23:13:47.617026Z"
+
+[[scopeExpansions]]
+path = "tools/docker_history_beta_profile.py"
+reason = "Integrate independently reviewed closed historical 1Panel profile and preserve the existing additive-migration idempotence assertion at schema 8."
+recordedAtUtc = "2026-11-07T23:21:49.192820Z"
+
+[[scopeExpansions]]
+path = "tools/test_docker_history_beta_profile.py"
+reason = "Integrate independently reviewed closed historical 1Panel profile and preserve the existing additive-migration idempotence assertion at schema 8."
+recordedAtUtc = "2026-11-07T23:21:50.771009Z"
+
+[[scopeExpansions]]
+path = "tasks/RELEASE-FINISH-HISTORY-PROFILE-001.toml"
+reason = "Integrate independently reviewed closed historical 1Panel profile and preserve the existing additive-migration idempotence assertion at schema 8."
+recordedAtUtc = "2026-11-07T23:21:52.395742Z"
+
+[[scopeExpansions]]
+path = "docs/agent-tasks/RELEASE-FINISH-HISTORY-PROFILE-001.md"
+reason = "Integrate independently reviewed closed historical 1Panel profile and preserve the existing additive-migration idempotence assertion at schema 8."
+recordedAtUtc = "2026-11-07T23:21:54.024830Z"
+
+[[scopeExpansions]]
+path = "backend/test_social_account_verification.py"
+reason = "Integrate independently reviewed closed historical 1Panel profile and preserve the existing additive-migration idempotence assertion at schema 8."
+recordedAtUtc = "2026-11-07T23:21:55.709483Z"
+
+[[scopeExpansions]]
+path = "backend/app/storage/source_graph.py"
+reason = "Prevent implicit source reconstruction while reading sealed historical gallery images; preserve repair for newly created images."
+recordedAtUtc = "2026-11-07T23:42:20.792015Z"
+
+[[scopeExpansions]]
+path = "backend/test_database_modules.py"
+reason = "Resolve exact-head mandatory CI failures by updating strict schema-8 and owned-lifespan inventory expectations; preserve all guard assertions and test-health limits."
+recordedAtUtc = "2026-11-08T00:20:32.188478Z"
+
+[[scopeExpansions]]
+path = "tools/test_generate_architecture_inventory.py"
+reason = "Resolve exact-head mandatory CI failures by updating strict schema-8 and owned-lifespan inventory expectations; preserve all guard assertions and test-health limits."
+recordedAtUtc = "2026-11-08T00:20:33.765899Z"
+
+[[scopeExpansions]]
+path = "tools/verify.ps1"
+reason = "Expose exact per-test pass and skip outcomes in existing CI evidence to substantiate Windows DPAPI execution without changing tests or gates."
+recordedAtUtc = "2026-11-08T00:23:47.773737Z"
+
+[[scopeExpansions]]
+path = "tools/test_agent_instructions.py"
+reason = "Validate current native active task manifest and published test-health baseline instead of obsolete issue-only status literals; retain policy size budget and all routing/ownership/security assertions."
+recordedAtUtc = "2026-11-08T00:27:50.792236Z"

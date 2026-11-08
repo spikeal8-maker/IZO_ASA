@@ -2,6 +2,7 @@
 // the trusted-session fetch wrappers and public error-text sanitizers. Behaviour
 // and API contracts are unchanged. This module must not import newUi.tsx.
 import { ensureSessionRefreshedV2 } from '../authV2'
+import { createGenerationRequest } from '../generationAdmission.ts'
 
 export const API = import.meta.env.VITE_API_BASE_URL || '/api'
 // Origin API-сервера для относительных media-URL из ответов backend
@@ -21,7 +22,11 @@ export function userMediaUrl(path: string | null | undefined): string | null {
 // Auth: только trusted cookie session (credentials: include). Никаких legacy
 // заголовков, кук или клиентских идентификаторов — см. docs/new-ui-v2-plan.md.
 export async function apiFetch(path: string, init: RequestInit = {}) {
-  const request = () => fetch(`${API}${path}`, { ...init, credentials: 'include' })
+  const url = `${API}${path}`
+  const requestInit: RequestInit = { ...init, credentials: 'include' }
+  const request = path === '/generate' && init.method?.toUpperCase() === 'POST'
+    ? createGenerationRequest(url, requestInit)
+    : () => fetch(url, requestInit)
   let response = await request()
   if (response.status === 401 && await ensureSessionRefreshedV2()) response = await request()
   return response

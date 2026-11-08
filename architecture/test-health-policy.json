@@ -5,52 +5,21 @@
   "baselineSource": "exact-head-github-ci",
   "historicalCountsAcceptedAsFreshBaseline": false,
   "acceptedBaseline": {
-    "exactHead": "ab1aab849e634918247c4a420fd6b1094ff9bb65",
-    "workflowRun": "36194614100",
-    "artifactId": 10890620713,
-    "artifactName": "test-health-evidence-ab1aab849e634918247c4a420fd6b1094ff9bb65",
+    "status": "zero-debt-acceptance-target",
+    "remediationPackages": [
+      "APPLICATION-LIFESPAN-002",
+      "RELEASE-FINISH-002-TEST-HEALTH"
+    ],
     "warnings": {
-      "total": 8,
-      "categories": [
-        {
-          "category": "DeprecationWarning",
-          "source": "backend/main.py",
-          "count": 4,
-          "issue": "#162"
-        },
-        {
-          "category": "DeprecationWarning",
-          "source": "site-packages/fastapi/applications.py",
-          "count": 4,
-          "issue": "#162"
-        }
-      ]
+      "total": 0,
+      "categories": []
     },
     "cleanup": {
-      "total": 1,
-      "categories": [
-        {
-          "errorType": "PermissionError",
-          "owner": "apply-secrets",
-          "normalizedPath": "<PYTEST_TEMP>/apply-secrets",
-          "count": 1,
-          "issue": "#165"
-        }
-      ]
+      "total": 0,
+      "categories": []
     }
   },
-  "debtReviews": {
-    "#162": {
-      "owner": "spikeal8-maker",
-      "reason": "Reviewed 2026-11-04: historical exact 1a6931d CI retains 8 lifespan/on_event warnings; startup/shutdown AST and framework pins match b308. The approved donor has 207 passing Linux focused tests and only 4 known lifecycle warnings, which do not replace the full-suite allowance. Bounded carry through 2026-11-07 for separately owned lifespan remediation; new lifecycle/no-replay changes require applicability review and exact-head CI. Evidence, risks and exit criteria: docs/agent-tasks/GOV-LINUX-TEST-REVIEW-20261104.md.",
-      "reviewBy": "2026-11-07"
-    },
-    "#165": {
-      "owner": "spikeal8-maker",
-      "reason": "Reviewed 2026-11-04: historical exact 1a6931d CI has cleanup 0 and process-leak PASS; apply-secrets test, migration and DPAPI/ACL sources match b308. The test is Windows-only, so Linux does not prove its rare teardown defect fixed. Bounded carry through 2026-11-07 retains allowance 1 pending resource-owner review; no retry, suppression or issue closure. Evidence, risks and exit criteria: docs/agent-tasks/GOV-LINUX-TEST-REVIEW-20261104.md.",
-      "reviewBy": "2026-11-07"
-    }
-  },
+  "debtReviews": {},
   "enforcement": {
     "warnings": {
       "newCategorySource": "FAIL",
@@ -83,6 +52,41 @@
     },
     "process": {
       "pytestProcessLeakCheckNotPass": "FAIL"
+    }
+  },
+  "previousBaseline": {
+    "exactHead": "ab1aab849e634918247c4a420fd6b1094ff9bb65",
+    "workflowRun": "36194614100",
+    "artifactId": 10890620713,
+    "artifactName": "test-health-evidence-ab1aab849e634918247c4a420fd6b1094ff9bb65",
+    "warnings": {
+      "total": 8,
+      "categories": [
+        {
+          "category": "DeprecationWarning",
+          "source": "backend/main.py",
+          "count": 4,
+          "issue": "#162"
+        },
+        {
+          "category": "DeprecationWarning",
+          "source": "site-packages/fastapi/applications.py",
+          "count": 4,
+          "issue": "#162"
+        }
+      ]
+    },
+    "cleanup": {
+      "total": 1,
+      "categories": [
+        {
+          "errorType": "PermissionError",
+          "owner": "apply-secrets",
+          "normalizedPath": "<PYTEST_TEMP>/apply-secrets",
+          "count": 1,
+          "issue": "#165"
+        }
+      ]
     }
   }
 }

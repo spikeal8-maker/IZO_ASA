@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import Any
 
 from ..security.account_verification import get_social_verification
+from .history_replay import history_policy_for_connection
 
 
 PROTECTED_LEGACY_USER_IDS = {"demo_user", "web_admin"}
@@ -194,6 +195,11 @@ def _process_due_account(
 ) -> str:
     """Process one already-due row and return its terminal outcome."""
     internal_user_id = str(row["internal_user_id"])
+    policy = history_policy_for_connection(conn)
+    if policy.is_historical("account_verifications", internal_user_id) or (
+        row["legacy_user_id"] and policy.is_historical("users", str(row["legacy_user_id"]))
+    ):
+        return "protected"
     social = conn.execute(
         """
         SELECT provider, provider_user_id FROM auth_identities
@@ -250,17 +256,20 @@ def cleanup_due_unverified_accounts(
     report = {"checked": 0, "deleted": 0, "reconciled": 0, "protected": 0}
     with connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
+        allowed, bindings = history_policy_for_connection(conn).where_allowed(
+            "account_verifications", "av.internal_user_id", parents=(("users", "u.id"),),
+        )
         due = conn.execute(
-            """
+            f"""
             SELECT av.internal_user_id, u.id AS legacy_user_id, u.role
             FROM account_verifications av
             LEFT JOIN users u ON u.internal_user_id = av.internal_user_id
             WHERE av.verification_kind = 'social' AND av.status = 'pending'
-              AND av.delete_after_at <= ?
+              AND av.delete_after_at <= ? AND ({allowed})
             ORDER BY av.delete_after_at, av.internal_user_id
             LIMIT ?
             """,
-            (now, max(1, int(limit))),
+            (now, *bindings, max(1, int(limit))),
         ).fetchall()
         for row in due:
             report["checked"] += 1

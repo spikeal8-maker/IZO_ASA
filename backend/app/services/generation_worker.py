@@ -6,6 +6,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from .history_replay import HistoricalReplayBlocked, HistoryReplayConfigurationError
+
 from . import generation_results
 
 
@@ -46,6 +48,8 @@ class GenerationWorkerRuntime:
     sleep: Callable[[float], Awaitable[None]]
     save_image: Callable[[dict[str, Any], str, str, Any, str], Awaitable[None]]
     register_transient_image: Callable[[dict[str, Any]], None]
+    history_guard: Callable[[str], None] | None = None
+    history_guard_required: bool = False
 
 
 async def process_generation_job(
@@ -56,6 +60,13 @@ async def process_generation_job(
     *,
     started_at: float,
 ) -> None:
+    if runtime.history_guard is None and runtime.history_guard_required:
+        raise HistoryReplayConfigurationError("Generation worker history guard is required")
+    try:
+        if runtime.history_guard is not None:
+            runtime.history_guard(job_id)
+    except HistoricalReplayBlocked:
+        return
     try:
         if job.get("status") == "cancelled":
             runtime.refund_tokens(job_id, "cancelled_before_start")

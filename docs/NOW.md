@@ -2,17 +2,17 @@
 status: canonical
 status_role: current-status-aggregator
 backlog_role: program-router
-updated: 2026-10-07
-source_main_at_status_update: 7ab1861b53320b1234f3680f4fa5dd13175f3e27
-last_verified_main: 7ab1861b53320b1234f3680f4fa5dd13175f3e27
+updated: 2026-11-07
+source_main_at_status_update: 3441a4d17ec9503bc5f617b6ffb2a439e979dd08
+last_verified_main: 3441a4d17ec9503bc5f617b6ffb2a439e979dd08
 production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_verified_at: 2026-09-02T00:08:04+03:00
 completed_package: CONTAINER-READY-001
-active_package: CONTAINER-SHADOW-001
-active_task_contract: github-issue-125
+active_package: RELEASE-FINISH-002-FINAL
+active_task_contract: tasks/RELEASE-FINISH-002-FINAL.toml
 baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a
 baseline_status: completed-point-A-accepted
-next_candidate: CONTAINER-PRODUCTION-001
+next_candidate: closed-linux-beta-owner-acceptance
 ---
 # IZO_ASA — NOW
 
@@ -21,27 +21,26 @@ next_candidate: CONTAINER-PRODUCTION-001
 ## 1. Перед работой
 
 Сверить repository root, origin, clean status, HEAD/origin-main и worktrees.
-Source main: `7ab1861b53320b1234f3680f4fa5dd13175f3e27`.
-Production release: `d223c179d5944bc208cace867d5e93bc1341a3aa` (2026-09-02);
-production подтверждается installed runtime evidence.
+Source/release SHA — выше; production подтверждается installed runtime evidence.
 
-## 2. Активный stabilization package
+## 2. Активный Linux beta package
 
-Completed: `CONTAINER-READY-001` (#124).
-Active: `CONTAINER-SHADOW-001` (#125).
-Next: `CONTAINER-PRODUCTION-001` (#126).
-D0 = COMPLETE.
-#112 test-health = COMPLETE.
-Active non-regression: warning baseline 97; cleanup baseline 1; hidden outbound external = 0 required; pytest rerun observability active; process leak gate active.
-Tracked debt: #162, #163, #164, #165.
-#113 AI-DEV-ENV = COMPLETE; implementation + post-merge verification accepted.
-#114 AI-VERIFY = OPEN / PREPARED; not active; not prerequisite for first D1 Docker smoke.
-#115 DOCKER-DEV = COMPLETE; merge `77fd1ed7ede83b9bc8216008b685b8fd51242879`; post-merge CI #743 = SUCCESS.
-#124 CONTAINER-READY = COMPLETE.
-#125 CONTAINER-SHADOW = ACTIVE; ACTIVATION / SHADOW AUDIT; implementation NOT STARTED.
-#126 CONTAINER-PRODUCTION = NEXT.
-D1 Docker DEV/TEST foundation (#115) = COMPLETE.
-Architecture checkpoint after #108-#110: PASS; routes/workers/tables 251/8/65; product-flow count 14.
+Completed: `CONTAINER-READY-001`.
+Active: `RELEASE-FINISH-002-FINAL`.
+Next: `closed-linux-beta-owner-acceptance`.
+Contract: `tasks/RELEASE-FINISH-002-FINAL.toml`.
+Only existing 1Panel `izo-asa-linux-test-a`; do not switch the public domain.
+UI Flux Klein 4B verified; GPU-file pixels match. Historical clone verified;
+source volumes unchanged. Job/GPU IDs, snapshot and counts: details below.
+Candidate: durable admission, atomic accounting/refund, sealed no-replay,
+closed registration, owned lifespan, schema 8.
+Acceptance: exact-head CI; clone runtime no-replay; 1Panel update;
+owner login with saved password; external HTTPS after update.
+Test-health: warnings 0, cleanup exceptions 0; all checks enabled.
+hidden outbound external = 0 required; pytest rerun observability active;
+process leak gate active.
+Close #162/#165 only with new mandatory Windows CI evidence.
+Details: `docs/agent-tasks/RELEASE-FINISH-002-FINAL.md`.
 
 ## 3. Frozen baseline — completed point A
 
