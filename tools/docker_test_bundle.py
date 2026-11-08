@@ -24,6 +24,7 @@ try:
     from tools.docker_test_bundle_runtime import Docker, SafeParser, clean_environment
     from tools.docker_test_bundle_images import archive_identity
     from tools.docker_bundle_release_identity import source_release_identity, verify_frontend_directory
+    from tools.docker_backend_posix_probe import probe_backend_posix
 except ModuleNotFoundError:
     from docker_test_bundle_format import (
         ACCEPTANCE, RUNTIME, UVICORN, BundleError, IMAGE, OWNER, PROJECT, REPOSITORY, SHA, extract, file_hash,
@@ -32,6 +33,7 @@ except ModuleNotFoundError:
     from docker_test_bundle_runtime import Docker, SafeParser, clean_environment
     from docker_test_bundle_images import archive_identity
     from docker_bundle_release_identity import source_release_identity, verify_frontend_directory
+    from docker_backend_posix_probe import probe_backend_posix
 
 
 def git(root: Path, *args: str) -> str:
@@ -146,6 +148,28 @@ def copy_comfy_profile_assets(source: Path, staging: Path) -> None:
         shutil.copyfile(plain_path(source / name), target)
 
 
+def copy_openrouter_profile_assets(source: Path, staging: Path) -> None:
+    """Package opt-in policy and private-volume tools without enabling their runtime."""
+    files = {
+        "ops/docker/dev/compose.openrouter-shadow.yml": "profiles/compose.openrouter-shadow.yml",
+        "tools/docker_openrouter_profile.py": "docker_openrouter_profile.py",
+        "tools/prepare_openrouter_egress.py": "prepare_openrouter_egress.py",
+        "tools/docker_history_beta_profile.py": "docker_history_beta_profile.py",
+        "tools/prepare_linux_secret_volume.py": "prepare_linux_secret_volume.py",
+        "tools/backup_secret_store.py": "backup_secret_store.py",
+        "tools/restore_secret_store.py": "restore_secret_store.py",
+        "docs/agent-tasks/LINUX-OPENROUTER-OPERABILITY-001.md": "profiles/LINUX-OPENROUTER-OPERABILITY-001.md",
+    }
+    # The history helper predates this optional profile and alone does not opt an old source in.
+    if not any(plain_path(source / name).is_file() for name in files if name != "tools/docker_history_beta_profile.py"):
+        return
+    require(all(plain_path(source / name).is_file() for name in files), "OPENROUTER_PROFILE_ASSETS_INCOMPLETE")
+    for name, destination in files.items():
+        target = staging / destination
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(plain_path(source / name), target)
+
+
 def build(source: Path, sha: str, project: str, web: int, api: int, output: Path,
           docker: Docker, *, embed_images: bool = True, profile: str = ACCEPTANCE,
           build_images: bool = False) -> dict:
@@ -197,6 +221,7 @@ def build(source: Path, sha: str, project: str, web: int, api: int, output: Path
         if profile == RUNTIME and role == "backend":
             require(image["Config"].get("Cmd") == UVICORN and not image["Config"].get("Entrypoint"), "RUNTIME_IMAGE_COMMAND_INVALID")
         images[role] = image["Id"]
+    posix_probe = probe_backend_posix(source, sha, images["backend"], docker) if build_images else None
     manifest = {"format": 1 if profile == ACCEPTANCE else 2, "kind": "isoas-test-bundle", "repository": REPOSITORY,
                 "source_sha": sha, "tooling_sha": tooling_sha, "release_id": release,
                 "project": project, "ports": {"web": web, "api": api}, "schema": schema,
@@ -209,6 +234,9 @@ def build(source: Path, sha: str, project: str, web: int, api: int, output: Path
         staging = Path(temporary) / "payload"
         staging.mkdir()
         (staging / "compose.json").write_bytes(json_bytes(config))
+        if posix_probe is not None:
+            (staging / "verification").mkdir()
+            (staging / "verification/backend-posix.json").write_bytes(json_bytes(posix_probe))
         export = docker.run("create", "--name", project + "-export-" + uuid.uuid4().hex[:8],
                             "--label", "io.izo.bundle=" + OWNER, "--network", "none", "--read-only",
                             "--entrypoint", "/bin/true", images["web"])
@@ -252,6 +280,7 @@ def build(source: Path, sha: str, project: str, web: int, api: int, output: Path
                     config["services"][role]["image"] = image
                 (staging / "compose.json").write_bytes(json_bytes(config))
         copy_comfy_profile_assets(source, staging)
+        copy_openrouter_profile_assets(source, staging)
         manifest["files"] = inventory(staging)
         (staging / "bundle.json").write_bytes(json_bytes(manifest))
         pin = file_hash(staging / "bundle.json")[1]
@@ -269,6 +298,8 @@ def build(source: Path, sha: str, project: str, web: int, api: int, output: Path
                "release_id": release, "project": project, "archive_sha256": digest, "archive_bytes": size,
                "manifest_sha256": pin, "images_embedded": embed_images, "frontend": frontend,
                "production_authorized": False}
+    if posix_probe is not None:
+        receipt["backend_posix_probe"] = posix_probe
     output.with_suffix(".receipt.json").write_bytes(json_bytes(receipt))
     return receipt
 

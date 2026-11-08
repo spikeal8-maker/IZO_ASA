@@ -3,16 +3,16 @@ status: canonical
 status_role: current-status-aggregator
 backlog_role: program-router
 updated: 2026-11-08
-source_main_at_status_update: 831694f2b32f400df568c7b6dd45b324f05c2778
-last_verified_main: 831694f2b32f400df568c7b6dd45b324f05c2778
+source_main_at_status_update: 4ccd61920a63f0b0961c992efca2fe75be020d35
+last_verified_main: 4ccd61920a63f0b0961c992efca2fe75be020d35
 production_release_sha: d223c179d5944bc208cace867d5e93bc1341a3aa
 production_release_verified_at: 2026-09-02T00:08:04+03:00
-completed_package: CONTAINER-READY-001
-active_package: RELEASE-FINISH-002-HISTORY-RETENTION-FIX
-active_task_contract: tasks/RELEASE-FINISH-002-HISTORY-RETENTION-FIX.toml
+completed_package: RELEASE-FINISH-002-HISTORY-RETENTION-FIX
+active_package: LINUX-OPENROUTER-OPERABILITY-001
+active_task_contract: tasks/LINUX-OPENROUTER-OPERABILITY-001.toml
 baseline_source_sha: ecb02bf84ae21a46711c9b38b61784147fb9fc0a
 baseline_status: completed-point-A-accepted
-next_candidate: closed-linux-beta-owner-acceptance
+next_candidate: linux-openrouter-owner-acceptance
 ---
 # IZO_ASA — NOW
 
@@ -25,20 +25,17 @@ Source/release SHA — выше; production подтверждается install
 
 ## 2. Активный Linux beta package
 
-Completed: `CONTAINER-READY-001`.
-Active: `RELEASE-FINISH-002-HISTORY-RETENTION-FIX`.
-Next: `closed-linux-beta-owner-acceptance`.
-Contract: `tasks/RELEASE-FINISH-002-HISTORY-RETENTION-FIX.toml`.
-Only existing 1Panel `izo-asa-linux-test-a`; do not switch the public domain.
-Real owner login/generation exposed retention damage: three rows, five files.
-The project remains stopped; original volumes are intact.
-Candidate guards sealed history and preserves the ordinary new-work quota.
-Focused: 73 tests pass; original completion callbacks fail.
-Recovery and fresh historical-clone offline rehearsal are complete.
-CI follow-up refreshes audit fingerprints and bounds this context.
-Pending: exact-head CI, reviewed update, historical UI and restart proof.
-No OpenRouter crypto or egress change belongs to this package.
-Details: `docs/agent-tasks/RELEASE-FINISH-002-HISTORY-RETENTION-FIX.md`.
+Completed: `RELEASE-FINISH-002-HISTORY-RETENTION-FIX`.
+Active: `LINUX-OPENROUTER-OPERABILITY-001`.
+Next: `linux-openrouter-owner-acceptance`.
+Contract: `tasks/LINUX-OPENROUTER-OPERABILITY-001.toml`.
+The existing 1Panel `izo-asa-linux-test-a` runs accepted source `80b7698`.
+Historical owner login, Flux 4B, sealed data and restart were verified.
+The closed registry releases the old retention ownership.
+Current work fixes Linux secret persistence, truthful Save/Check and pinned TLS.
+Windows DPAPI, historical protection and the public domain remain unchanged.
+Candidate CI, reviewed update and real owner key acceptance are pending.
+Details: `docs/agent-tasks/LINUX-OPENROUTER-OPERABILITY-001.md`.
 
 Required test-health floor: warnings 0; cleanup exceptions 0;
 hidden outbound external = 0 required; pytest rerun observability active;

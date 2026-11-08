@@ -3,7 +3,7 @@ status: canonical
 document_role: admin-mutation-audit
 scope: critical-compatibility-identity-crm-finance-v1
 updated: 2026-11-08
-verified_source_sha: e421d1abef3bc576a61d55e969a7f7c8fa0ee124
+verified_source_sha: 4ccd61920a63f0b0961c992efca2fe75be020d35
 production_status_role: none
 ---
 
@@ -81,12 +81,12 @@ SHA. Это не `DEPLOYED` и не `OPERATIONALLY VERIFIED`.
 ```json
 {
   "version": 1,
-  "source_sha": "e421d1abef3bc576a61d55e969a7f7c8fa0ee124",
+  "source_sha": "4ccd61920a63f0b0961c992efca2fe75be020d35",
   "source_fingerprint_algorithm": "sha256-decorated-source-v1",
   "evidence_artifact_algorithm": "sha256-normalized-text-v1",
   "evidence_artifacts": [
-    {"path": "backend/main.py", "fingerprint": "sha256:89ee192a603a7e260ac36c18d1b054ceb3890d8c767e6e6d5e3f78870156a8c0"},
-    {"path": "backend/SYMBOL_MAP.md", "fingerprint": "sha256:d825a98179c912f90e323a9e78badb27ed1ac8fa890ec40f8c48c81f0046aa85"},
+    {"path": "backend/main.py", "fingerprint": "sha256:18aa1f684876a150696a4dbf6d1124bab6aa6fb52af35b9c1f46885fc8a0302f"},
+    {"path": "backend/SYMBOL_MAP.md", "fingerprint": "sha256:ec4c0b82b9288d56db39314c002f24c42ae267063eb0cb927162f1a25e9c18e2"},
     {"path": "backend/test_admin_v2.py", "fingerprint": "sha256:e1321c2f90fee6c812ff286b97748521cc510897b9792a505d0b28e53fbaf5ad"},
     {"path": "backend/test_admin_password_reset.py", "fingerprint": "sha256:d4402e432c242407474c5847952ea81bb707ac40303b55d38f4f46ca16106628"},
     {"path": "backend/test_admin_actions.py", "fingerprint": "sha256:6379e9bd7ed0c5788e830b56c1d2ba1d2707361e934ba74a62cedd48dd2f5912"},

@@ -417,7 +417,7 @@
       "secret_env": [
         "OPENROUTER_API_KEY"
       ],
-      "secret_source": "CurrentUser DPAPI with environment fallback"
+      "secret_source": "Environment override; Windows CurrentUser DPAPI or protected Linux AES-256-GCM"
     },
     {
       "id": "telegram",
@@ -490,7 +490,7 @@
   "file_limits": [
     {
       "path": "backend/main.py",
-      "max_lines": 19602,
+      "max_lines": 19582,
       "protected": true,
       "non_growth": true,
       "owner": "backend-composition",
@@ -546,7 +546,7 @@
     },
     {
       "path": "frontend/src/adminModels.tsx",
-      "max_lines": 2300,
+      "max_lines": 2299,
       "protected": true,
       "non_growth": true,
       "owner": "admin-models",
@@ -564,9 +564,9 @@
   "symbol_limits": [
     {
       "path": "backend/main.py",
-      "max_top_level_functions": 725,
-      "max_top_level_classes": 83,
-      "max_routes": 238,
+      "max_top_level_functions": 681,
+      "max_top_level_classes": 77,
+      "max_routes": 187,
       "protected": true,
       "non_growth": true,
       "owner": "backend-composition",

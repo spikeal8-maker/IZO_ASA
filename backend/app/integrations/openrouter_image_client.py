@@ -6,6 +6,8 @@ from typing import Any, Callable
 
 import httpx
 
+from .openrouter_transport import client_options as openrouter_http_options
+
 
 async def request_openrouter_image(
     *,
@@ -19,9 +21,7 @@ async def request_openrouter_image(
 ) -> tuple[int, Any]:
     """POST one image request and retry once with `size=auto` when required."""
 
-    client_options: dict[str, Any] = {"timeout": timeout_seconds}
-    if transport is not None:
-        client_options["transport"] = transport
+    client_options = openrouter_http_options(base_url, timeout=timeout_seconds, transport=transport)
     async with httpx.AsyncClient(**client_options) as client:
         response = await client.post(
             f"{base_url}/images",

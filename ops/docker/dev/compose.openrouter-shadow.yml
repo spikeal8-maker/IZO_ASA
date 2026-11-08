@@ -1,0 +1,57 @@
+{
+  "services": {
+    "guard": {
+      "environment": {
+        "IZO_SHADOW_EGRESS_PROFILE": "comfyui-openrouter-v1",
+        "IZO_OPENROUTER_IPV4S": "${IZO_OPENROUTER_IPV4S:?prepared public IPv4 set required}"
+      }
+    },
+    "backend": {
+      "environment": {
+        "IZO_OPENROUTER_TRANSPORT": "closed-proxy-v1",
+        "OPENROUTER_BASE_URL": "http://127.0.0.1:18189/api/v1",
+        "IZO_SECRET_DIR": "/home/izo/secrets"
+      },
+      "depends_on": {
+        "openrouter-proxy": {"condition": "service_healthy", "required": true, "restart": true}
+      },
+      "volumes": [
+        {"type": "volume", "source": "secrets-data", "target": "/home/izo/secrets", "volume": {"nocopy": true}}
+      ]
+    },
+    "openrouter-proxy": {
+      "image": "${IZO_OPENROUTER_GUARD_IMAGE:?exact guard image required}",
+      "pull_policy": "never",
+      "command": ["python", "/openrouter_https_proxy.py"],
+      "user": "10003:10003",
+      "network_mode": "service:guard",
+      "restart": "${IZO_OPENROUTER_RESTART:?pinned base restart required}",
+      "read_only": true,
+      "cpus": 0.5,
+      "mem_limit": "268435456",
+      "pids_limit": 32,
+      "cap_drop": ["ALL"],
+      "security_opt": ["no-new-privileges:true"],
+      "depends_on": {
+        "guard": {"condition": "service_healthy", "required": true, "restart": true}
+      },
+      "environment": {
+        "IZO_OPENROUTER_PROFILE": "closed-proxy-v1",
+        "IZO_OPENROUTER_IPV4S": "${IZO_OPENROUTER_IPV4S:?prepared public IPv4 set required}"
+      },
+      "labels": {
+        "io.izo.owner": "LINUX-OPENROUTER-OPERABILITY-001",
+        "io.izo.project": "${IZO_COMPOSE_PROJECT:?project required}",
+        "org.opencontainers.image.revision": "${IZO_SOURCE_SHA:?source SHA required}"
+      },
+      "healthcheck": {
+        "test": ["CMD", "python", "-c", "import json,urllib.request; r=json.load(urllib.request.urlopen('http://127.0.0.1:18189/healthz',timeout=2)); assert r['ok'] and r['profile']=='closed-proxy-v1'"],
+        "interval": "10s", "timeout": "3s", "retries": 12
+      },
+      "stop_grace_period": "5s"
+    }
+  },
+  "volumes": {
+    "secrets-data": {"external": true, "name": "${IZO_SECRET_VOLUME:?owned existing secret volume required}"}
+  }
+}

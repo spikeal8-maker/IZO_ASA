@@ -3,8 +3,9 @@ ARG IZO_SOURCE_SHA
 LABEL org.opencontainers.image.revision="${IZO_SOURCE_SHA}" \
       org.opencontainers.image.source="spikeal8-maker/IZO_ASA"
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
-RUN apt-get update && apt-get install -y --no-install-recommends nftables \
+RUN apt-get update && apt-get install -y --no-install-recommends nftables ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 COPY ops/docker/dev/network_guard.py /network_guard.py
 COPY ops/docker/dev/comfyui_proxy.py /comfyui_proxy.py
+COPY ops/docker/dev/openrouter_https_proxy.py /openrouter_https_proxy.py
 CMD ["python", "/network_guard.py"]

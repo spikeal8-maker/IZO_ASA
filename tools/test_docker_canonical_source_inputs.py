@@ -25,7 +25,7 @@ DEV = Path("ops/docker/dev")
 DONOR_INPUTS = (
     "compose.shadow.yml", "Dockerfile.web", "nginx.shadow.conf",
     "Dockerfile.web.dockerignore", "Dockerfile.guard", "network_guard.py",
-    "Dockerfile.guard.dockerignore", "comfyui_proxy.py",
+    "Dockerfile.guard.dockerignore", "comfyui_proxy.py", "openrouter_https_proxy.py",
 )
 
 
@@ -152,7 +152,8 @@ def test_declared_ignore_allowlists_and_exclusion_order(role):
     assert len(rules) == len(set(rules)), "Repeated rules can reverse the declared ignore boundary"
     parents = {"!ops/", "!ops/docker/", "!ops/docker/dev/"}
     allowed = ({"!frontend/", "!frontend/**", "!ops/docker/dev/nginx.shadow.conf"} if role == "web"
-               else {"!ops/docker/dev/network_guard.py", "!ops/docker/dev/comfyui_proxy.py"})
+               else {"!ops/docker/dev/network_guard.py", "!ops/docker/dev/comfyui_proxy.py",
+                     "!ops/docker/dev/openrouter_https_proxy.py"})
     assert rules[0] == "**" and {rule for rule in rules if rule.startswith("!")} == parents | allowed
     boundaries = {"ops/**", "ops/docker/**", "ops/docker/dev/**"}
     for parent, boundary, child in (("!ops/", "ops/**", "!ops/docker/"),

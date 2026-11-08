@@ -5,7 +5,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 ## Summary
 
-- Routes: 251
+- Routes: 252
 - Registered workers: 9
 - Registered ephemeral tasks: 4
 - SQLite tables: 69
@@ -19,7 +19,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | Static policy | Count |
 |---|---:|
 | REVIEW: admin route without detected gate | 8 |
-| admin | 94 |
+| admin | 95 |
 | public/optional/review | 89 |
 | session | 1 |
 | user | 57 |
@@ -71,7 +71,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | comfyui | `backend/app/integrations/comfyui_client.py` | COMFYUI_BASE_URL | none | none |
 | ollama | `backend/app/integrations/ollama.py` | OLLAMA_BASE_URL | none | none |
 | qwen-asr | `backend/app/integrations/qwen_asr.py` | QWEN_ASR_BASE_URL | none | none |
-| openrouter | `backend/app/integrations/openrouter.py` | OPENROUTER_BASE_URL | OPENROUTER_API_KEY | CurrentUser DPAPI with environment fallback |
+| openrouter | `backend/app/integrations/openrouter.py` | OPENROUTER_BASE_URL | OPENROUTER_API_KEY | Environment override; Windows CurrentUser DPAPI or protected Linux AES-256-GCM |
 | telegram | `backend/app/integrations/telegram.py` | none | TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET | CurrentUser DPAPI with environment fallback |
 | max | `backend/app/integrations/max_client.py` | MAX_API_BASE_URL | MAX_BOT_TOKEN, MAX_WEBHOOK_SECRET | CurrentUser DPAPI with environment fallback |
 | yookassa | `backend/app/integrations/yookassa.py` | none | YOOKASSA_SECRET_KEY | CurrentUser DPAPI with environment fallback |
@@ -150,11 +150,11 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Owner | Category | Protected | Non-growth | Current | Maximum | Remaining |
 |---|---|---|---|---|---:|---:|---:|
-| `backend/main.py` | backend-composition | backend-hotspot | true | true | 19602 | 19602 | 0 |
+| `backend/main.py` | backend-composition | backend-hotspot | true | true | 19582 | 19582 | 0 |
 | `backend/static/feed/index.html` | feed-static | static-ui-hotspot | true | true | 2124 | 2200 | 76 |
 | `backend/test_feed_v2.py` | feed-tests | test-hotspot | true | true | 2346 | 2600 | 254 |
 | `frontend/src/LegacyApp.tsx` | frontend-legacy | frontend-legacy-hotspot | true | true | 3600 | 3700 | 100 |
-| `frontend/src/adminModels.tsx` | admin-models | frontend-admin-hotspot | true | true | 2300 | 2300 | 0 |
+| `frontend/src/adminModels.tsx` | admin-models | frontend-admin-hotspot | true | true | 2299 | 2299 | 0 |
 | `frontend/src/index.css` | frontend-shell | frontend-style-hotspot | true | true | 2501 | 2650 | 149 |
 | `frontend/src/newStudioV3.css` | frontend-studio | frontend-style-hotspot | true | true | 6071 | 6400 | 329 |
 | `frontend/src/newUi.css` | frontend-studio | frontend-style-hotspot | true | true | 3143 | 3400 | 257 |
@@ -164,7 +164,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Owner | Category | Protected | Functions | Maximum | Classes | Maximum | Routes | Maximum |
 |---|---|---|---|---:|---:|---:|---:|---:|---:|
-| `backend/main.py` | backend-composition | backend-hotspot | true | 683 | 725 | 77 | 83 | 189 | 238 |
+| `backend/main.py` | backend-composition | backend-hotspot | true | 681 | 681 | 77 | 77 | 187 | 187 |
 
 ## Handwritten source-size policy
 

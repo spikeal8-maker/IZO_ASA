@@ -7,3 +7,4 @@ ops/docker/**
 ops/docker/dev/**
 !ops/docker/dev/network_guard.py
 !ops/docker/dev/comfyui_proxy.py
+!ops/docker/dev/openrouter_https_proxy.py

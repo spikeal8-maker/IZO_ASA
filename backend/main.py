@@ -36,6 +36,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from pydantic import BaseModel, ConfigDict, Field
+try:
+    from .app.security.secret_store import create_secret_store
+    from .app.api.routers.openrouter_keys import OpenRouterKeyDependencies, create_openrouter_key_router, secret_auditor
+except ImportError:
+    from app.security.secret_store import create_secret_store
+    from app.api.routers.openrouter_keys import OpenRouterKeyDependencies, create_openrouter_key_router, secret_auditor
 
 try:
     from .app.integrations.smtp import SmtpConfig, SmtpError, SmtpMessage, send_smtp_email, verify_smtp_connection
@@ -860,7 +866,7 @@ MAX_BOT_SECRET_NAME = "max_bot_token"
 MAX_WEBHOOK_SECRET_NAME = "max_webhook_secret"
 OPENROUTER_SECRET_STORE_DIR = default_secret_store_dir()
 assert_secret_store_outside_repository(OPENROUTER_SECRET_STORE_DIR, ROOT.parent)
-OPENROUTER_SECRET_STORE = DpapiSecretStore(OPENROUTER_SECRET_STORE_DIR)
+OPENROUTER_SECRET_STORE = create_secret_store(OPENROUTER_SECRET_STORE_DIR)
 
 
 def initial_runtime_secret(name: str, env_name: str) -> str:
@@ -5344,12 +5350,12 @@ def _bot_secret_value(name: str, env_name: str) -> str:
 def _bot_secret_source(name: str, env_name: str) -> str:
     if os.getenv(env_name, "").strip():
         return "environment"
-    return "dpapi" if OPENROUTER_SECRET_STORE.exists(name) else "none"
+    return OPENROUTER_SECRET_STORE.source if OPENROUTER_SECRET_STORE.exists(name) else "none"
 
 
 def _bot_secret_updated_at(name: str) -> str | None:
     path = OPENROUTER_SECRET_STORE.path_for(name)
-    if not path.is_file():
+    if not OPENROUTER_SECRET_STORE.exists(name):
         return None
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
@@ -5421,7 +5427,7 @@ def _save_bot_secret(name: str, value: str) -> None:
         raise SecretStoreError("Secret value must not be empty.")
     OPENROUTER_SECRET_STORE.set(name, clean)
     if not hmac.compare_digest(OPENROUTER_SECRET_STORE.get(name), clean):
-        raise SecretStoreError("DPAPI secret readback verification failed.")
+        raise SecretStoreError("Protected secret readback verification failed.")
 
 
 def apply_saved_bot_runtime_configuration() -> dict[str, Any]:
@@ -5457,7 +5463,7 @@ def openrouter_api_key_source() -> str:
     if os.getenv("OPENROUTER_API_KEY", "").strip():
         return "env"
     if OPENROUTER_SECRET_STORE.exists(OPENROUTER_SECRET_NAME):
-        return "dpapi"
+        return OPENROUTER_SECRET_STORE.source
     return "none"
 
 
@@ -5474,7 +5480,7 @@ def save_openrouter_api_key(value: str) -> None:
     OPENROUTER_SECRET_STORE.set(OPENROUTER_SECRET_NAME, value)
     verified = OPENROUTER_SECRET_STORE.get(OPENROUTER_SECRET_NAME)
     if not hmac.compare_digest(verified.encode("utf-8"), value.encode("utf-8")):
-        raise SecretStoreError("OpenRouter DPAPI secret readback verification failed.")
+        raise SecretStoreError("OpenRouter secret readback verification failed.")
     delete_admin_secret(OPENROUTER_SECRET_NAME)
     invalidate_openrouter_admin_caches(authorization_changed=True)
 
@@ -5965,7 +5971,7 @@ async def refresh_openrouter_catalog() -> dict[str, Any]:
         return_exceptions=True,
     )
     errors = [
-        safe_bot_error(result)
+        "OpenRouter catalog refresh is unavailable."
         for result in results
         if isinstance(result, BaseException)
     ]
@@ -6586,8 +6592,10 @@ def _openrouter_public_error(status_code: int, data: dict[str, Any]) -> str:
 
 async def fetch_openrouter_key_status(force: bool = False) -> dict[str, Any]:
     now = time.monotonic()
-    key = openrouter_api_key()
-    source = openrouter_api_key_source()
+    try:
+        key, source = openrouter_api_key(), openrouter_api_key_source()
+    except SecretStoreError:
+        return OPENROUTER_AVAILABILITY.attach({"configured": False, "ok": False, "storeAvailable": False, "error": "Хранилище ключа недоступно."})
     key_marker = (
         hashlib.sha256(f"{source}\0{key}".encode("utf-8")).hexdigest()[:16]
         if key
@@ -6614,12 +6622,12 @@ async def fetch_openrouter_key_status(force: bool = False) -> dict[str, Any]:
             timeout_seconds=15,
         )
         result = OPENROUTER_AVAILABILITY.attach({"configured": True, "source": source, **details})
-    except Exception as exc:
+    except Exception:
         result = OPENROUTER_AVAILABILITY.attach({
             "configured": True,
             "source": source,
             "ok": False,
-            "error": str(exc),
+            "error": "Не удалось проверить ключ: OpenRouter временно недоступен.",
         })
     _openrouter_key_status_cache.update({"ts": now, "data": result, "keyMarker": key_marker})
     return dict(result)
@@ -16873,42 +16881,14 @@ app.include_router(create_phone_audio_router(PhoneAudioDependencies(
 app.include_router(create_phone_platform_router(PhonePlatformDependencies(require_trusted_user)))
 app.include_router(create_phone_jobs_router(PhoneJobDependencies(require_trusted_user, db, get_job, get_video_job)))
 
-@app.put("/api/admin/openrouter/key")
-async def admin_save_openrouter_key(req: AdminSecretKeyRequest, request: Request) -> dict[str, Any]:
-    require_trusted_admin(request)
-    key = req.key.strip()
-    if not key.startswith("sk-or-"):
-        raise HTTPException(400, "OpenRouter key должен начинаться с sk-or-")
-    try:
-        save_openrouter_api_key(key)
-    except SecretStoreError as exc:
-        raise HTTPException(503, "OpenRouter secret store is unavailable.") from exc
-    key_status = await fetch_openrouter_key_status()
-    refresh_started = schedule_openrouter_catalog_refresh()
-    return {
-        "ok": bool(key_status.get("ok")),
-        "key": key_status,
-        "usage": openrouter_usage_stats(),
-        "config": get_openrouter_config(),
-        "catalogRefreshStarted": refresh_started,
-    }
-
-@app.delete("/api/admin/openrouter/key")
-async def admin_delete_openrouter_key(request: Request) -> dict[str, Any]:
-    require_trusted_admin(request)
-    try:
-        delete_openrouter_api_key()
-    except SecretStoreError as exc:
-        raise HTTPException(503, "OpenRouter secret store is unavailable.") from exc
-    key_status = await fetch_openrouter_key_status()
-    refresh_started = schedule_openrouter_catalog_refresh()
-    return {
-        "ok": True,
-        "key": key_status,
-        "usage": openrouter_usage_stats(),
-        "config": get_openrouter_config(),
-        "catalogRefreshStarted": refresh_started,
-    }
+app.include_router(create_openrouter_key_router(OpenRouterKeyDependencies(
+    require_trusted_admin=lambda request: require_trusted_admin(request),
+    save=lambda key: save_openrouter_api_key(key), delete=lambda: delete_openrouter_api_key(),
+    status=lambda: fetch_openrouter_key_status(force=True),
+    refresh_catalog=lambda: schedule_openrouter_catalog_refresh(),
+    usage=lambda: openrouter_usage_stats(), config=lambda: get_openrouter_config(),
+    audit=secret_auditor(db, record_audit_log),
+)))
 
 @app.post("/api/admin/openrouter/test-generate")
 async def admin_openrouter_test_generate(req: AdminOpenRouterTestRequest, request: Request) -> dict[str, Any]:

@@ -123,6 +123,48 @@ def test_unknown_build_profile_refused_before_source_or_docker(tmp_path, monkeyp
         build.build(tmp_path, "a" * 40, "izo-asa-bundle-test001", 48614, 48615, tmp_path / "bundle.zip", None, profile="unknown")
 
 
+@pytest.mark.parametrize("profile", ["acceptance-fixture", "synthetic-runtime"])
+def test_every_image_build_requires_posix_probe_before_export_or_zip(tmp_path, monkeypatch, profile):
+    from types import SimpleNamespace
+    from tools.test_docker_synthetic_runtime import make_runtime
+    root, _, manifest = (make_runtime if profile == "synthetic-runtime" else make_bundle)(tmp_path / "config")
+    source_contract(root, 7)
+    config = json.loads((root / "compose.json").read_text())
+    config["services"]["web"]["build"] = {"args": {
+        "IZO_SOURCE_SHA": manifest["source_sha"], "IZO_RELEASE_ID": manifest["release_id"]}}
+    monkeypatch.setattr(build, "git", lambda *args: "1793106000" if "--format=%ct" in args else "b" * 40)
+    monkeypatch.setattr(build, "source_guard", lambda *args: None)
+    monkeypatch.setattr(build.shutil, "disk_usage", lambda path: SimpleNamespace(free=20 * 1024**3))
+    monkeypatch.setattr(build.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=json.dumps(config)))
+    inspected = []
+
+    class Images:
+        context = "fixture"
+        def engine(self): return "fixture-engine"
+        def run(self, *args):
+            assert args[:2] == ("image", "inspect")  # No export or runtime may precede the mandatory gate.
+            role = next(role for role, value in manifest["images"].items() if value == args[2])
+            inspected.append(role)
+            return json.dumps([{"Id": args[2], "Os": "linux", "Architecture": "amd64", "Config": {
+                "Labels": {"org.opencontainers.image.revision": manifest["source_sha"],
+                           "org.opencontainers.image.source": build.REPOSITORY,
+                           "org.opencontainers.image.version": manifest["release_id"]},
+                "Cmd": build.UVICORN}}])
+
+    engine = Images()
+    def failed_probe(candidate, sha, image, docker):
+        assert candidate == root and sha == manifest["source_sha"] and image == manifest["images"]["backend"]
+        assert docker is engine and len(inspected) == len(manifest["images"])
+        raise BundleError("CONTROLLED_POSIX_GATE_FAILED")
+
+    monkeypatch.setattr(build, "probe_backend_posix", failed_probe)
+    output = tmp_path / "bundle.zip"
+    with pytest.raises(BundleError, match="CONTROLLED_POSIX_GATE_FAILED"):
+        build.build(root, manifest["source_sha"], manifest["project"], 48614, 48615, output,
+                    engine, profile=profile, build_images=True)
+    assert not output.exists() and not output.with_suffix(".receipt.json").exists()
+
+
 def test_comfy_assets_are_passive_complete_and_inventory_hashed(tmp_path):
     from tools.docker_test_bundle_format import inventory
     source, staging = tmp_path / "source", tmp_path / "payload"
@@ -141,6 +183,36 @@ def test_comfy_assets_are_passive_complete_and_inventory_hashed(tmp_path):
     build.copy_comfy_profile_assets(source, staging)
     observed = inventory(staging)
     assert set(observed) == set(assets.values())
+    assert all((source / name).read_bytes() == (staging / target).read_bytes() for name, target in assets.items())
+    assert not (staging / "compose.json").exists() and not (staging / "bundle.json").exists()
+
+
+def test_openrouter_profile_carries_exact_passive_dependencies_and_local_secret_tools(tmp_path):
+    from tools.docker_test_bundle_format import inventory
+    source, staging = tmp_path / "source", tmp_path / "payload"
+    source.mkdir(); staging.mkdir()
+    history = source / "tools/docker_history_beta_profile.py"
+    history.parent.mkdir(); history.write_text("controlled existing helper")
+    build.copy_openrouter_profile_assets(source, staging)
+    assert list(staging.iterdir()) == []
+    assets = {
+        "ops/docker/dev/compose.openrouter-shadow.yml": "profiles/compose.openrouter-shadow.yml",
+        "tools/docker_openrouter_profile.py": "docker_openrouter_profile.py",
+        "tools/prepare_openrouter_egress.py": "prepare_openrouter_egress.py",
+        "tools/docker_history_beta_profile.py": "docker_history_beta_profile.py",
+        "tools/prepare_linux_secret_volume.py": "prepare_linux_secret_volume.py",
+        "tools/backup_secret_store.py": "backup_secret_store.py",
+        "tools/restore_secret_store.py": "restore_secret_store.py",
+        "docs/agent-tasks/LINUX-OPENROUTER-OPERABILITY-001.md": "profiles/LINUX-OPENROUTER-OPERABILITY-001.md",
+    }
+    first = source / next(iter(assets))
+    first.parent.mkdir(parents=True); first.write_text("controlled opt-in profile")
+    with pytest.raises(BundleError, match="OPENROUTER_PROFILE_ASSETS_INCOMPLETE"):
+        build.copy_openrouter_profile_assets(source, staging)
+    for name in assets:
+        path = source / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text(name)
+    build.copy_openrouter_profile_assets(source, staging)
+    assert set(inventory(staging)) == set(assets.values())
     assert all((source / name).read_bytes() == (staging / target).read_bytes() for name, target in assets.items())
     assert not (staging / "compose.json").exists() and not (staging / "bundle.json").exists()
 

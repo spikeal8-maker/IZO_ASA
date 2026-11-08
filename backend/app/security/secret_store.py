@@ -1,4 +1,4 @@
-"""External Windows CurrentUser DPAPI secret storage and SQLite migration."""
+"""Platform secret-store interface, Windows DPAPI and explicit SQLite migration."""
 
 from __future__ import annotations
 
@@ -11,11 +11,12 @@ import os
 import re
 import sqlite3
 import subprocess
+import sys
 import uuid
 from ctypes import wintypes
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Protocol
 
 
 DOCUMENT_VERSION = 1
@@ -27,6 +28,18 @@ CRYPTPROTECT_UI_FORBIDDEN = 0x01
 
 class SecretStoreError(RuntimeError):
     pass
+
+
+class SecretStore(Protocol):
+    root: Path
+    source: str
+
+    def path_for(self, name: str) -> Path: ...
+    def exists(self, name: str) -> bool: ...
+    def get(self, name: str) -> str: ...
+    def set(self, name: str, value: str) -> None: ...
+    def set_if_absent(self, name: str, value: str) -> None: ...
+    def delete(self, name: str) -> bool: ...
 
 
 class _DataBlob(ctypes.Structure):
@@ -92,10 +105,12 @@ def unprotect_bytes_dpapi(value: bytes) -> bytes:
         kernel32.LocalFree(plaintext.pbData)
 
 
-def default_secret_store_dir() -> Path:
+def default_secret_store_dir(*, platform: str | None = None) -> Path:
     configured = os.getenv("IZO_SECRET_DIR", "").strip()
     if configured:
-        return Path(configured).expanduser().resolve()
+        return Path(configured).expanduser().absolute()
+    if (platform or sys.platform) == "linux":
+        return Path.home() / ".local" / "state" / "izo-asa" / "secrets"
     local_app_data = os.getenv("LOCALAPPDATA", "").strip()
     base = Path(local_app_data).expanduser() if local_app_data else Path.home() / "AppData" / "Local"
     return (base / "IZO_ASA" / "secrets").resolve()
@@ -134,6 +149,8 @@ def apply_windows_current_user_acl(path: Path) -> None:
 
 
 class DpapiSecretStore:
+    source = "dpapi"
+
     def __init__(
         self,
         root: Path,
@@ -175,7 +192,7 @@ class DpapiSecretStore:
         except Exception as exc:
             raise SecretStoreError("Failed to read the encrypted secret document.") from exc
 
-    def set(self, name: str, value: str) -> None:
+    def _write(self, name: str, value: str, *, overwrite: bool) -> None:
         if not isinstance(value, str) or not value:
             raise SecretStoreError("Secret value must not be empty.")
         path = self.path_for(name)
@@ -195,10 +212,25 @@ class DpapiSecretStore:
                 json.dumps(document, ensure_ascii=True, separators=(",", ":")),
                 encoding="utf-8",
             )
-            os.replace(temporary, path)
+            if overwrite:
+                os.replace(temporary, path)
+            else:
+                self._set_acl(temporary)
+                try:
+                    os.link(temporary, path)
+                except FileExistsError:
+                    if not hmac.compare_digest(self.get(name).encode("utf-8"), value.encode("utf-8")):
+                        raise SecretStoreError("Legacy and protected secrets differ; explicit resolution is required.") from None
+                    return
             self._set_acl(path)
         finally:
             temporary.unlink(missing_ok=True)
+
+    def set(self, name: str, value: str) -> None:
+        self._write(name, value, overwrite=True)
+
+    def set_if_absent(self, name: str, value: str) -> None:
+        self._write(name, value, overwrite=False)
 
     def delete(self, name: str) -> bool:
         path = self.path_for(name)
@@ -208,9 +240,19 @@ class DpapiSecretStore:
         return True
 
 
+def create_secret_store(root: Path, *, platform: str | None = None) -> SecretStore:
+    selected = platform or sys.platform
+    if selected == "win32":
+        return DpapiSecretStore(root)
+    if selected == "linux":
+        from .linux_secret_store import LinuxSecretStore
+        return LinuxSecretStore(root)
+    raise SecretStoreError("No protected secret store is available on this platform.")
+
+
 def migrate_sqlite_secret_to_store(
     conn: sqlite3.Connection,
-    store: DpapiSecretStore,
+    store: SecretStore,
     name: str,
 ) -> str:
     row = conn.execute("SELECT value FROM admin_secrets WHERE key = ?", (name,)).fetchone()
@@ -220,7 +262,7 @@ def migrate_sqlite_secret_to_store(
     if not plaintext:
         conn.execute("DELETE FROM admin_secrets WHERE key = ?", (name,))
         return "empty_row_deleted"
-    store.set(name, plaintext)
+    store.set_if_absent(name, plaintext)
     verified = store.get(name)
     if not hmac.compare_digest(verified.encode("utf-8"), plaintext.encode("utf-8")):
         raise SecretStoreError("Encrypted secret readback verification failed.")
