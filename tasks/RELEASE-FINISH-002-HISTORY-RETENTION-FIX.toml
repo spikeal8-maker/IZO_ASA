@@ -39,6 +39,7 @@ allowedPatterns = [
   "backend/test_storage_gallery_repository_module.py",
   "backend/test_services_gallery_eviction_module.py",
   "backend/test_services_gallery_policy_module.py",
+  "docs/admin-mutation-audit.md",
 ]
 forbiddenPatterns = [
   "ops/windows/**",
@@ -122,3 +123,8 @@ recordedAtUtc = "2026-11-08T09:36:42.691539Z"
 path = "backend/test_services_gallery_policy_module.py"
 reason = "Fence automatic eviction and optimization of sealed historical images at storage boundaries; preserve the ordinary quota for new images and characterize actual new-job completion without touching live data."
 recordedAtUtc = "2026-11-08T09:36:44.318962Z"
+
+[[scopeExpansions]]
+path = "docs/admin-mutation-audit.md"
+reason = "Refresh bounded audit evidence after the already-reviewed gallery extraction; Windows required CI found stale whole-artifact fingerprints while all 19 audited route bodies remain unchanged."
+recordedAtUtc = "2026-11-08T11:04:17.365749Z"

@@ -25,23 +25,24 @@ Source/release SHA — выше; production подтверждается install
 
 ## 2. Активный Linux beta package
 
-Completed baseline: `CONTAINER-READY-001`.
+Completed: `CONTAINER-READY-001`.
 Active: `RELEASE-FINISH-002-HISTORY-RETENTION-FIX`.
 Next: `closed-linux-beta-owner-acceptance`.
 Contract: `tasks/RELEASE-FINISH-002-HISTORY-RETENTION-FIX.toml`.
 Only existing 1Panel `izo-asa-linux-test-a`; do not switch the public domain.
-The owner logged into the historical account and generated a new image.
-That completion exposed automatic retention outside the restored-history guard:
-two old image rows were deleted and another old original was recompressed.
-The test project was stopped through 1Panel; original volumes remain intact.
-Candidate: seal-aware gallery selection, destructive helper guards, preservation
-of the ordinary allowance for new work, and extracted storage maintenance.
-Focused evidence: 73 tests pass; the new completion regression detects the
-historical mutation when run against the exact original callbacks from main.
-Pending: exact-head required CI, reviewed update, precise repair of three image
-rows and five missing files, historical UI and post-restart preservation proof.
+Real owner login/generation exposed retention damage: three rows, five files.
+The project remains stopped; original volumes are intact.
+Candidate guards sealed history and preserves the ordinary new-work quota.
+Focused: 73 tests pass; original completion callbacks fail.
+Recovery and fresh historical-clone offline rehearsal are complete.
+CI follow-up refreshes audit fingerprints and bounds this context.
+Pending: exact-head CI, reviewed update, historical UI and restart proof.
 No OpenRouter crypto or egress change belongs to this package.
 Details: `docs/agent-tasks/RELEASE-FINISH-002-HISTORY-RETENTION-FIX.md`.
+
+Required test-health floor: warnings 0; cleanup exceptions 0;
+hidden outbound external = 0 required; pytest rerun observability active;
+process leak gate active.
 
 ## 3. Frozen baseline — completed point A
 
