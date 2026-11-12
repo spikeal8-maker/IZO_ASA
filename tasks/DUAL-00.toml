@@ -1,0 +1,80 @@
+manifestVersion = 1
+id = "DUAL-00"
+baseSha = "51543df2b6a559d693e3ed75b11baeacdb9033d3"
+goal = "Inventory existing Windows Native and Docker delivery, record an evidence-bounded one-source/two-deliveries ADR, and sequence follow-up packages without changing the application or production."
+userOutcome = "One IZO_ASA repository can converge on independently installable Windows Native and Docker releases without losing existing update, backup, media, or billing contracts."
+beforeScenario = "Windows uses a service promoter, Docker has DEV and stacked unmerged candidates, and existing status documents cannot identify an accepted dual-platform release."
+afterScenario = "One source-linked inventory distinguishes main, Draft PRs and installed runtime; a proposed ADR assigns release ownership and seven bounded implementation scopes."
+nonGoals = [
+  "install or implement a second updater, backend, frontend, or business-logic copy",
+  "modify installed Windows services, Docker containers, servers, DNS, FRP, secret stores, or production data",
+  "declare either delivery a completed production release",
+  "merge existing stacked Docker or P0 PRs",
+  "edit docs/NOW.md without the separate governance package",
+  "run real paid providers or publish real infrastructure receipts",
+]
+domain = "release-ops"
+riskClass = "low"
+changeClass = "architecture"
+declaredFiles = [
+  "tasks/DUAL-00.toml",
+  "docs/dual-runtime-delivery-inventory.md",
+  "docs/dual-runtime-delivery-adr.md",
+]
+allowedPatterns = []
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  "ops/**",
+  "architecture/**",
+  "docs/NOW.md",
+  "docs/generated/**",
+  ".github/**",
+  "tools/**",
+  "AGENTS.md",
+  "AI_START_HERE.md",
+]
+protectedFilesTouched = []
+maxProductionFiles = 0
+maxChangedLines = 450
+acceptance = [
+  "Current main SHA, repository visibility, active ruleset and recent CI are sourced to dated GitHub reads, never inferred from docs/NOW.md.",
+  "Inventory separates files in main, pending stacked PR work, release artifacts and installed runtime evidence with VERIFIED/UNVERIFIED/BLOCKED labels.",
+  "Windows source promoter, installer, service runbook, SQLite backup and restore are located without claiming a clean Windows installer exists.",
+  "Docker DEV isolation and gaps are identified; preproduction and clean-install tools in Draft PRs are not represented as main or production.",
+  "Candidate PR dependency chain, unresolved paid-operation and recovery blockers, and source overlap are documented.",
+  "Capabilities for Windows Native, Ubuntu Docker and Windows Docker Desktop receive no unproved functional PASS.",
+  "ADR assigns exactly one shared product source and separate packaging ownership with rejected alternatives and DUAL-01 to DUAL-07 dependencies.",
+  "No source, runtime, CI workflow, NOW router or other package-owned file is changed.",
+  "Independent reviewer and exact-head required GitHub CI must pass before non-Draft integration; no main merge on red gates.",
+]
+requiredEvidence = [
+  "GitHub branch main exact 51543df2b6a559d693e3ed75b11baeacdb9033d3 and repo visibility PUBLIC at discovery.",
+  "Read root and scoped AGENTS, AI_START_HERE, NOW, release-ops context, Windows release/backup docs, Docker DEV source, PR metadata and ruleset.",
+  "Evidence for PR #195, #199, #209, #211, #215, #217, #221, #222, #223, #224 status and ancestry.",
+  "Complete three-file diff, linked-source/document limits and repository package/scope checks.",
+  "Exact-head CI run IDs and independent review on this draft PR before merge decision.",
+  "Read-only worktree/installed-runtime checks remain UNVERIFIED unless a separately authorized receipt exists.",
+]
+targetedTests = [
+  "docs/documentation-standards.md (new Markdown line and UTF-8 limits, links)",
+  "tools/test_agent_instructions.py",
+  "tools/agent_system/enforce.py (package scope enforcement)",
+]
+fileGrowthExpectations = [
+  "Three new bounded text files; no existing files enlarged.",
+  "No generated maps or protected production source touched.",
+]
+forbiddenOperations = [
+  "direct-main",
+  "production-deploy",
+  "production-restart",
+  "production-data",
+  "real-provider-call",
+  "payment",
+  "secret-exposure",
+  "network-config-change",
+  "force-merge",
+  "disable-ci",
+]
+rollbackBoundary = "Revert only the three DUAL-00 document/contract files on this feature branch; no installed state, migration, media, ledger or unrelated package may change."
