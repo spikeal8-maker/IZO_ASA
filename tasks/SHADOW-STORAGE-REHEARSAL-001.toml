@@ -1,0 +1,65 @@
+manifestVersion = 1
+id = "SHADOW-STORAGE-REHEARSAL-001"
+baseSha = "9acd9df0e8f375b8711e6b4cc63d349aa7b4a70e"
+goal = "Exercise the existing SQLite/media backup and restore implementation on explicitly owned Shadow fixture data."
+userOutcome = "Container acceptance can measure logical database, migration-ledger and media preservation and reject corrupt copies without touching production."
+beforeScenario = "Existing backup primitives are tested separately; Docker Shadow has no bounded storage rehearsal tool for its real fixture database and media."
+afterScenario = "A tool verifies an owned fixture, uses the existing SQLite Backup API and restore implementation, checks restored logical rows and media references, and exercises corrupt backups in disposable copies."
+nonGoals = [
+  "Production data or backups",
+  "Docker lifecycle in this package",
+  "A second backup implementation",
+  "Live-provider calls",
+  "Claiming Docker or restored-application acceptance from unit tests",
+]
+declaredFiles = [
+  "tools/docker_shadow_storage.py",
+  "tools/test_docker_shadow_storage.py",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/**",
+  "frontend/**",
+  ".github/**",
+  "ops/**",
+  "docs/**",
+]
+protectedFilesTouched = [
+]
+domain = "release-ops"
+riskClass = "high-assurance"
+changeClass = "verification"
+maxProductionFiles = 0
+maxChangedLines = 800
+acceptance = [
+  "Only explicitly attested owned fixture paths are accepted; source data are read-only.",
+  "Existing backup and restore primitives are reused; committed WAL rows are preserved.",
+  "SQLite integrity, migration ledger, logical rows and fixture media references match after restore.",
+  "Corrupt database and media snapshots fail without touching original snapshots/source data.",
+  "Temporary copies, SQLite connections and file handles are cleaned even after failure.",
+  "Runtime Docker volumes, recovery and restored-application readiness remain unverified until actual execution.",
+]
+requiredEvidence = [
+  "Focused owned-fixture tests",
+  "Independent source review",
+  "Package enforcement",
+  "Redacted secret scan",
+  "Exact-head CI before merge",
+]
+targetedTests = [
+  "tools/test_docker_shadow_storage.py",
+]
+fileGrowthExpectations = [
+  "Each handwritten tool stays below 500 lines.",
+]
+forbiddenOperations = [
+  "production-data",
+  "production-secrets",
+  "production-deploy",
+  "docker-lifecycle",
+  "host-settings",
+  "real-provider-call",
+  "paid-resources",
+]
+rollbackBoundary = "Remove the optional acceptance tool; existing backup primitives and application behavior are unchanged."
