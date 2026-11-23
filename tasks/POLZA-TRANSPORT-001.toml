@@ -1,0 +1,64 @@
+manifestVersion = 1
+id = "POLZA-TRANSPORT-001"
+baseSha = "c4a3b1f1473820139e8673584513f22959131a73"
+goal = "Introduce an import-safe Polza AI adapter and a RUB-currency-safe parser, without activating paid product traffic."
+userOutcome = "Polza AI has an isolated, tested transport building block to support a future admin section and model switching."
+beforeScenario = "IZO_ASA exposes OpenRouter integration, but no isolated Polza API adapter, no namespaced Polza catalog and no RUB actual-cost parser."
+afterScenario = "A standalone Polza adapter parses catalog prices conservatively and supports controlled chat/mock requests with correctly typed RUB actual costs."
+nonGoals = [
+  "No admin UI or routes",
+  "No persistent API-key storage",
+  "No production provider requests",
+  "No user tariff/ledger changes",
+  "No automatic failover",
+  "No deployment",
+]
+declaredFiles = [
+  "backend/app/integrations/polza.py",
+  "backend/test_integrations_polza_module.py",
+  "tasks/POLZA-TRANSPORT-001.toml",
+]
+allowedPatterns = [
+]
+forbiddenPatterns = [
+  "backend/main.py",
+  "frontend/**",
+  "backend/app/api/**",
+  "backend/app/security/**",
+  "backend/app/database/**",
+  "backend/app/billing/**",
+  "ops/**",
+  "docs/NOW.md",
+]
+protectedFilesTouched = [
+]
+domain = "admin-models"
+riskClass = "standard"
+changeClass = "feature"
+maxProductionFiles = 1
+maxChangedLines = 460
+acceptance = [
+  "Mock HTTP GET /api/v1/models returns namespaced, non-colliding model identities",
+  "Only explicitly RUB-priced model records are marked priced; unknown/invalid currency is unpriced",
+  "Mock chat returns RUB usage costs exactly, never silently interpreted as USD",
+  "HTTP 402, 429, malformed payload and credential leakage are covered",
+  "No real Polza provider calls; no OpenRouter behavior or billing changed",
+]
+requiredEvidence = [
+  "Offline fake-provider tests",
+  "git diff --check and scope verification",
+  "Independent exact-HEAD security/billing review before merge",
+]
+targetedTests = [
+  "python -m pytest backend/test_integrations_polza_module.py -q",
+]
+fileGrowthExpectations = [
+  "New Polza client module remains cohesive and under backend source size thresholds",
+  "One focused test module with mocked transport",
+]
+forbiddenOperations = [
+  "No provider paid requests or live Polza key",
+  "No production deploy, restart, database or secrets mutation",
+  "No direct edits to main or protected hotspots",
+]
+rollbackBoundary = "Remove the unreferenced new adapter and focused tests from feature branch; existing production behavior is unchanged."
